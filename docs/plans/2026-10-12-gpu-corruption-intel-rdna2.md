@@ -1,0 +1,172 @@
+# Corrupção gráfica na Intel Arc e linhas pretas nas RX 6600 (RDNA2 de 8 GB)
+
+Diagnóstico de 2026-10-12, feito só por leitura do código, dos relatos e dos logs. Nenhuma das
+duas placas está disponível localmente (a máquina de desenvolvimento tem uma GTX 1650, a de
+teste uma RX 6700 XT), então a confirmação depende de quem reportou. Este documento registra o
+que foi apurado, o que foi refutado e o plano de bisseção.
+
+## 1. Sintomas
+
+| | Sintoma A (Intel) | Sintoma B (AMD RDNA2 de 8 GB) |
+|---|---|---|
+| Placas | Arc B580 (driver 32.0.101.9033), Arc G3 Extreme (MSI Claw 8) | RX 6600, 6600M, 6600 XT, 6650 XT |
+| Issues | [#39](https://github.com/FelipePrado0/gow3_pc/issues/39), [#28](https://github.com/FelipePrado0/gow3_pc/issues/28); shadPS4 eltutz: cuesta4/shadPS4#11 | [#65](https://github.com/FelipePrado0/gow3_pc/issues/65), [#61](https://github.com/FelipePrado0/gow3_pc/issues/61), [#43](https://github.com/FelipePrado0/gow3_pc/issues/43), [#27](https://github.com/FelipePrado0/gow3_pc/issues/27); shadPS4 eltutz: [cuesta4/shadPS4#8](https://github.com/cuesta4/shadPS4/issues/8) |
+| Aparência | A cena 3D inteira retalhada em faixas horizontais de cerca de 32 px; dentro de cada faixa, tiles de cerca de 64 px deslocados. HUD, Scaleform e vídeos H.264 intactos. | Linhas pretas finas em blocos retangulares, só em áreas claras (céu, fogo, brilho do HUD, pele do Kratos no menu). Medido no print 1920x1080 de #61: blocos de 8x4 px alinhados ao grid de resolução cheia. |
+| Comportamento | Determinístico. | Aleatório por lançamento (quase sempre aparece), persistente durante a execução. Desligar "Use pipeline binary cache" resolveu para alguns, não para outros; um precisou apagar o cache de shaders também. |
+| Em outros builds | Igual no shadPS4 eltutz. HD 630 (Gen9) mostra outro defeito (3D preto ou só azul). | Igual no shadPS4 eltutz. Um usuário de cuesta4#8 diz que o shadPS4 0.19.0 oficial não tem as linhas. |
+
+Logs públicos dos reporters (do shadPS4, anexados nas issues do cuesta4): o B580 reporta
+`subgroup size 32`, driver Intel 101.9033; a RX 6600 reporta `subgroup size 64`, driver AMD
+2.0.353, com `VK_KHR_pipeline_binary` e `VK_EXT_subgroup_size_control`. Nenhum dos dois tem
+avisos relevantes do `Render.Vulkan` além de formatos sem suporte com fallback (Intel:
+`R8Srgb`, `R8G8Srgb`, `D16UnormS8Uint`).
+
+## 2. Fatos apurados
+
+- O quadro do jogo (docs/upscaler.md): pré-passe de profundidade, luz e sombras, materiais,
+  transparências, pós com pirâmide de bloom em meia resolução, combine da pós em **compute**
+  (hash `9a9cf8a9`) para a cor da cena RGBA8 sRGB, HUD por cima na mesma imagem.
+- Só a Intel fica sem as duas proteções que os shaders wave64 do PS4 precisam no host:
+  - `needs_lds_barriers` liga só para NVIDIA e KosmicKrisp
+    (`gpu/shadps4/video_core/renderer_vulkan/vk_pipeline_cache.cpp`). O passe
+    `shared_memory_barrier_pass.cpp` retorna cedo sem a flag. Igual no upstream.
+  - O pin de subgrupo em 64 (`IsSubgroupSize64Supported()`) só existe onde o máximo é 64. Na
+    Intel o máximo é 32, e os módulos são SPIR-V 1.6, então o driver pode compilar compute em
+    SIMD16. O lowering de wave64 (`lower_wave64_pass.cpp`) assume 32 lanes fixas (`>> 5`,
+    `& 31`) e só roda para compute.
+- Na AMD o pin em 64 vai para todos os estágios gráficos sem consultar
+  `requiredSubgroupSizeStages`. Se o driver não lista o fragment, o pin é inválido e o driver
+  escolhe wave32 ou wave64 sozinho. Não verificado: o que a AMD reporta na Navi 23 e na Navi 22.
+- O eltutz tem 104 commits próprios sobre a base de 2026-08-21 (256 atrás do main). O fork
+  vendora o upstream `b4e7ae7` (2026-10-02, a data do 0.19.0) mais três correções do eltutz:
+  alias de imagens (`189ca3b6`), depth sem uso não anexado (`eccbeae3`) e blend MIN/MAX com
+  escala, com um "square pass" (`45f3d1f9`, chave `GOW3_SQUARE_PASS=0`). O eltutz também tem
+  gravação em thread, copy workers e compilação assíncrona parecidos com os do fork.
+- Limiares do coletor de VRAM numa placa discreta de 8 GB (`texture_cache.cpp`, construtor):
+  `trigger_gc_memory = 0` (o coletor roda a cada submissão), pressão em cerca de 2,7 GB e
+  crítico em cerca de 5,4 GB. Nos 12 GB: gatilho cerca de 1,35 GB, pressão 5,9 GB. Imagens
+  tiled escritas pela GPU nunca são despejadas; alvos por frame nunca entram na LRU.
+- O pacote de release não inclui cache de shaders; cada reporter compila o próprio.
+- Não há CI no repositório e esta máquina não tem MSYS2: builds de teste dependem do mantenedor.
+
+## 3. Hipóteses para a Intel
+
+Veredictos de três verificadores adversariais por hipótese (sobrevive com 2 de 3).
+
+### A-1 (sobreviveu): workgroups de 64 threads com LDS rodam sem barreira
+
+No GCN um workgroup de 64 threads é uma wave só, em lockstep, e o compilador do PS4 omite o
+`s_barrier` entre `ds_write` e `ds_read`. Na Intel o workgroup vira 2 a 4 subgrupos e a leitura
+pode preceder a escrita. Ressalvas: não há dump de shader que prove que algum compute do jogo
+tem workgroup de 64, LDS e nenhum `s_barrier`; o padrão (tiles coerentes deslocados, névoa e
+partículas limpas por cima) lembra mais erro de endereçamento; a PR upstream #1801 que criou o
+passe causou device lost numa Iris Xe em 2024, provavelmente o motivo da flag ficar só na NVIDIA.
+
+### A-2 (sobreviveu numa variante): lowering de wave64 assume 32 lanes
+
+`profile.subgroup_size` é o `subgroupSize` reportado (32), não a largura real. Em SIMD16, dois
+subgrupos gravam no mesmo slot do scratch do ballot e `readlane` com índice de 16 em diante fica
+indefinido. O Xe2 não tem SIMD8; o mínimo é 16. Dawn (Chromium) registrou o mesmo problema:
+drivers Intel escolhiam 8, 16 ou 32 lanes e quebravam compute shaders com layout dependente do
+tamanho do subgrupo.
+
+### Refutadas
+
+- Alinhamento zero nos staging do tiling (`tile_manager.cpp`): todo `guest_size` tiled é
+  múltiplo de 64 ou 256.
+- Formato sRGB em vez de UNORM da cor da cena (HD 630): decidido pelo primeiro descritor que
+  cria a imagem, não pelo fornecedor. Vale olhar no log do HD 630 se
+  `image format VK_FORMAT_R8G8B8A8_SRGB ... is not supported` aparece (`image.cpp` remove o uso
+  STORAGE e a view UNORM do compute fica inválida).
+- Concorrência do port: o sintoma reproduz no eltutz, e nenhum recurso tem ramo por fornecedor.
+
+## 4. Hipóteses para a RX 6600
+
+Nenhuma sobreviveu. Motivos, para não repetir o trabalho:
+
+| Hipótese | Por que caiu |
+|---|---|
+| Draws pulados pela compilação assíncrona deixam alvos indefinidos | Imagens novas nascem `Dirty` e passam por `RefreshImage` antes do primeiro uso; alvos de bloom são refeitos a cada frame; só existe no fork, não no eltutz; o primeiro uso de um pipeline é pulado em toda máquina, inclusive na 6700 XT. |
+| Coletor de VRAM em 8 GB | A conta está certa, mas alvos tiled escritos pela GPU nunca são despejados, só imagens paradas há 16 a 160 ticks entram, imagens recriadas voltam da memória do guest, e o sintoma aparece no menu com pouca memória em uso. |
+| VMA derramando para RAM | Só custa desempenho. Endurecimento: passar `VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT` em `vk_instance.cpp` (a extensão está ligada, a flag não). |
+| Cópia de alias (`aliasing.cpp`) ou memo com imagem velha | Cópias de extensão inteira a partir da origem, só com layout igual. Não geram blocos de 8x4. |
+| Memos, draw pipe, gravação em thread | Determinísticos e iguais na 6700 XT. Lacuna real confirmada, mas de outro efeito: uma meta-clear via compute ou `FillBuffer` com o render pass aberto e acerto no `begin_memo` pula `IsMetaCleared/TouchMeta` (alvo inteiro sem clear, não linhas). |
+| Chave do cache de binários | `CreateCachedGraphicsPipeline` recebe a `GraphicsPipelineKey` e não a usa; o arquivo leva só a chave do driver (`vk_pipeline_serialization.cpp`). Efeito seria determinístico, na 6700 XT também, e não existe no eltutz. Endurecimento: incluir o hash da chave no nome e remover `LoadLegacyBinary`. |
+| Toggle de binários sem efeito | Verdadeiro só sem `VK_KHR_pipeline_binary`; o log da RX 6600 tem a extensão. |
+| Combine `9a9cf8a9` em wave32 | Todo compute passa pelo mesmo caminho com `requiredSubgroupSize=64`; compute não usa binários. |
+
+Pista não verificada, a mais forte: o pin de 64 nos estágios gráficos pode ser inválido na AMD
+se `requiredSubgroupSizeStages` não incluir o fragment. Um pixel shader em wave32 cobre 8x4 px,
+metade do footprint 8x8 da wave64, e as operações de subgrupo do fragment
+(`emit_spirv_warp.cpp`) assumem 64 lanes sem passar pelo lowering. Não explica a diferença entre
+Navi 23 e Navi 22 nem a aleatoriedade. Alternativa igualmente não verificada: 8x4 em RGBA8 são
+128 bytes, o tamanho de um bloco de DCC.
+
+## 5. O que foi feito
+
+- Comentários pedindo dados e testes, postados em 2026-10-12: #65, #43 (texto completo), #61,
+  #27 (ponteiro para #65), #39 (completo, em inglês) e #28 (ponteiro para #39).
+- Nesta branch, a política de subgrupo ficou em um helper puro
+  (`gpu/shadps4/video_core/renderer_vulkan/vk_subgroup_policy.h`) com teste
+  (`tests/test_subgroup_policy.cpp`, alvo `subgroup-policy-test`):
+  - `needs_lds_barriers` passa a valer em todo host que não fixa 64 lanes (Intel), além da
+    NVIDIA e do KosmicKrisp; `GOW3_LDS_BARRIERS=0/1` força o valor.
+  - Compute é fixado em 32 lanes na Intel (`requiredSubgroupSize = subgroupSize` quando a
+    largura pode variar e o estágio aceita pin). AMD continua em 64 em todos os estágios, NVIDIA
+    continua sem pin.
+  - `ShaderBinaryVersion` subiu para 8, para o cache de SPIR-V não reaproveitar módulos sem as
+    barreiras. O log passa a imprimir a faixa de subgrupo, os estágios que aceitam pin e a
+    política escolhida (`gow3: subgroup policy: ...`).
+  - O teste compila e passa aqui com `zig c++`; o núcleo gráfico não foi compilado nesta máquina
+    (sem MSYS2). Precisa de build do mantenedor e de teste nos B580 e Claw.
+
+## 6. Bisseção com quem reportou
+
+RX 6600 (um teste de cada vez, 5 aberturas, cache de shaders limpo antes; variáveis por um
+`teste.bat` com `set VAR=valor` e `start "" "God of War III.exe"`):
+
+| # | Teste | Como |
+|---|---|---|
+| 1 | Sem cache de binários e sem carga em segundo plano | desmarcar "Use pipeline binary cache" e "Load shader cache in the background" |
+| 2 | Sem compilação em segundo plano | desmarcar "Compile new shaders in the background" |
+| 3 | Sem o square pass do MIN/MAX | `GOW3_SQUARE_PASS=0` |
+| 4 | Sem o coletor de VRAM | `GOW3_GC_BUDGET_MB=20000` |
+| 5 | Draw pipe desligado | "Pipeline de GPU em dois estágios" = Off |
+| 6 | Gravação na thread principal | `GOW3_VK_RECORD_THREAD=0` |
+| 7 | Leituras com espera | desmarcar "Game reads GPU data without waiting" e "Deferred GPU readbacks" |
+
+Pedidos: `user\last_run.log`, versão do Adrenalin, resolução, se as linhas ficam paradas ou
+piscam, captura RenderDoc do primeiro passe com blocos 8x4 (estágio e wave size). No lado do
+mantenedor, `GOW3_GC_BUDGET_MB=3000` na 6700 XT força os caminhos de evicção de 8 GB; a imagem
+deve continuar limpa.
+
+Intel: `last_run.log`, driver, se os tiles ficam parados ou mudam a cada frame, e um build desta
+branch. Ordem de teste do build: `GOW3_LDS_BARRIERS=1` sozinho confirma A-1; se não resolver, o
+pin de compute em 32 (já no build) confirma A-2; se nada mudar, as duas caem e a investigação
+vai para tiling, formato ou alias. Numa captura RenderDoc, o primeiro evento cuja saída já sai
+retalhada decide: dispatch de compute com `LocalSize` 64, variáveis Workgroup e sem
+`OpControlBarrier` confirma A-1; draw, cópia ou detile antes de qualquer compute descarta as
+duas.
+
+## 7. Endurecimentos opcionais (não são a causa)
+
+- Invalidar o `begin_memo` em `TextureCache::ClearMeta` e em `TouchMeta(is_clear=true)`.
+- `VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT` quando `supports_memory_budget`.
+- Registrar no log os limiares do coletor ao iniciar; `DownloadImageMemory` só grava o mip 0.
+- Nome do arquivo de binário com o hash da `GraphicsPipelineKey`; remover `LoadLegacyBinary`.
+- Conferir e portar do upstream: #5310 (barreiras de storage buffer quando subgroup != 64),
+  #5285 (subgroup barrier de LDS) e #5116 (ballot e MBCNT lowered em par). Citados pelos agentes,
+  não conferidos.
+
+## 8. Perguntas em aberto
+
+1. Algum compute antes do passe translúcido tem workgroup de 64, LDS e nenhum `s_barrier`?
+   `GOW3_DUMP_SHADERS=1` na 6700 XT lista `LocalSize`, `shared_memory_size` e ballot/readlane
+   por pipeline.
+2. Na Intel, o padrão é estável ou cintila?
+3. O que explica o HD 630?
+4. O relato "0.19.0 limpo, eltutz ruim" na RX 6600 é confiável? Se for, elimina tudo que só
+   existe no fork.
+5. O que a AMD reporta em `requiredSubgroupSizeStages` na Navi 23 e na Navi 22? O log desta
+   branch imprime isso.
+6. O primeiro evento com blocos 8x4 é draw ou dispatch, e em que wave size?
