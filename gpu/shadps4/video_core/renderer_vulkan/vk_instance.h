@@ -258,6 +258,17 @@ public:
         return vk13_features.subgroupSizeControl && vk13_props.maxSubgroupSize >= 64;
     }
 
+    /// gow3: the driver's subgroup width range and the stages that accept a pin.
+    u32 MinSubgroupSize() const {
+        return vk13_props.minSubgroupSize;
+    }
+    u32 MaxSubgroupSize() const {
+        return vk13_props.maxSubgroupSize;
+    }
+    vk::ShaderStageFlags PinnableSubgroupStages() const {
+        return vk13_props.requiredSubgroupSizeStages;
+    }
+
     /// gow3: the subgroup size `stage` is pinned to, if any (vk_subgroup_policy.h).
     std::optional<u32> PinnedSubgroupSize(vk::ShaderStageFlagBits stage) const {
         return ChoosePinnedSubgroupSize(

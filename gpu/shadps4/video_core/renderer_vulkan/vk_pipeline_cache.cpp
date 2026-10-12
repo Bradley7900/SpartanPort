@@ -396,11 +396,14 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         .supports_shader_stencil_export = instance_.IsShaderStencilExportSupported(),
     };
 
-    LOG_INFO(Render_Vulkan,
-             "gow3: subgroup policy: compute pinned to {}, fragment pinned to {}, LDS barriers {}",
-             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute).value_or(0),
-             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eFragment).value_or(0),
-             profile.needs_lds_barriers);
+    // gow3: in last_run.log whatever the GPU log level (the port keeps warnings only by default).
+    std::printf("GPU: subgroup policy: compute pinned to %u, fragment pinned to %u, LDS barriers %s "
+                "(device %u lanes, %u to %u, pinnable stages %s)\n",
+                instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute).value_or(0),
+                instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eFragment).value_or(0),
+                profile.needs_lds_barriers ? "on" : "off", instance.SubgroupSize(),
+                instance.MinSubgroupSize(), instance.MaxSubgroupSize(),
+                vk::to_string(instance.PinnableSubgroupStages()).c_str());
 
     auto [cache_result, cache] = instance.GetDevice().createPipelineCacheUnique({});
     ASSERT_MSG(cache_result == vk::Result::eSuccess, "Failed to create pipeline cache: {}",
