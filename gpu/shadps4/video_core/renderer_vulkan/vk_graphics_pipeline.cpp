@@ -258,11 +258,17 @@ GraphicsPipeline::GraphicsPipeline(
         });
     }
 
-    const vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size_ci = {
-        .requiredSubgroupSize = 64,
+    // gow3: per stage (vk_subgroup_policy.h): 64 lanes where the host has them, else the width
+    // the recompiler assumed, on the stages the driver lets be pinned.
+    vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size_ci = {
+        .requiredSubgroupSize = 0,
     };
     for (auto& stage : shader_stages) {
-        stage.pNext = instance.IsSubgroupSize64Supported() ? &subgroup_size_ci : nullptr;
+        const std::optional<u32> size = instance.PinnedSubgroupSize(stage.stage);
+        if (size) {
+            subgroup_size_ci.requiredSubgroupSize = *size;
+        }
+        stage.pNext = size ? &subgroup_size_ci : nullptr;
     }
 
     const auto depth_format =
