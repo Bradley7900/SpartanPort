@@ -21,11 +21,14 @@ ComputePipeline::ComputePipeline(const Instance& instance, Scheduler& scheduler,
     info = &info_;
     const auto debug_str = GetDebugString();
 
+    // gow3: 64 lanes where the host has them, else the width the recompiler assumed
+    // (vk_subgroup_policy.h).
     const vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size_ci = {
-        .requiredSubgroupSize = 64,
+        .requiredSubgroupSize =
+            instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute).value_or(0),
     };
     const vk::PipelineShaderStageCreateInfo shader_ci = {
-        .pNext = instance.IsSubgroupSize64Supported() ? &subgroup_size_ci : nullptr,
+        .pNext = subgroup_size_ci.requiredSubgroupSize != 0 ? &subgroup_size_ci : nullptr,
         .stage = vk::ShaderStageFlagBits::eCompute,
         .module = module,
         .pName = "main",

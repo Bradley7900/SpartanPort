@@ -3,10 +3,12 @@
 
 #pragma once
 
+#include <optional>
 #include <span>
 #include <unordered_map>
 
 #include "video_core/renderer_vulkan/vk_platform.h"
+#include "video_core/renderer_vulkan/vk_subgroup_policy.h"
 
 #define TRACY_VK_USE_SYMBOL_TABLE
 #include <tracy/TracyVulkan.hpp>
@@ -254,6 +256,15 @@ public:
     /// Returns true if the subgroup size can be set to match guest subgroup size
     bool IsSubgroupSize64Supported() const {
         return vk13_features.subgroupSizeControl && vk13_props.maxSubgroupSize >= 64;
+    }
+
+    /// gow3: the subgroup size `stage` is pinned to, if any (vk_subgroup_policy.h).
+    std::optional<u32> PinnedSubgroupSize(vk::ShaderStageFlagBits stage) const {
+        return ChoosePinnedSubgroupSize(
+            vk13_features.subgroupSizeControl, vk13_props.minSubgroupSize,
+            vk13_props.maxSubgroupSize,
+            static_cast<bool>(vk13_props.requiredSubgroupSizeStages & stage),
+            vk11_props.subgroupSize);
     }
 
     /// Returns true when VK_KHR_workgroup_memory_explicit_layout is supported.

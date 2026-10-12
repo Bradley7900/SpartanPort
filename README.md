@@ -238,10 +238,11 @@ Cross confirm, Esc or Circle cancel.
 ```bash
 python -m unittest discover -s tests
 bash build.sh --test
-ninja -C out/gpu stat-multipliers-test perf-overlay-test warmup-inbox-test graphics-settings-test
+ninja -C out/gpu stat-multipliers-test perf-overlay-test warmup-inbox-test subgroup-policy-test graphics-settings-test
 out/gpu/stat-multipliers-test.exe out/eboot.elf
 out/gpu/perf-overlay-test.exe
 out/gpu/warmup-inbox-test.exe
+out/gpu/subgroup-policy-test.exe
 out/gpu/graphics-settings-test.exe
 ```
 

@@ -33,6 +33,7 @@
 #include "video_core/renderer_vulkan/vk_pipeline_serialization.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
+#include "video_core/renderer_vulkan/vk_subgroup_policy.h"
 
 namespace Vulkan {
 
@@ -381,13 +382,25 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
             return !instance.IsFragmentShaderBarycentricSupported() &&
                    instance.GetDriverID() == vk::DriverId::eNvidiaProprietary;
         }(),
-        .needs_lds_barriers = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
-                              instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
+        // gow3: a 64-thread workgroup is one lockstep wave on the PS4. Hosts not pinned to 64
+        // lanes (Intel: 32 at most) need the barriers like NVIDIA; GOW3_LDS_BARRIERS=0/1
+        // overrides (vk_subgroup_policy.h).
+        .needs_lds_barriers =
+            NeedsLdsBarriers(instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
+                                 instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
+                             instance.IsSubgroupSize64Supported(),
+                             std::getenv("GOW3_LDS_BARRIERS")),
         .needs_buffer_offsets = instance.StorageMinAlignment() > 4,
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
         .needs_clip_distance_emulation = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
         .supports_shader_stencil_export = instance_.IsShaderStencilExportSupported(),
     };
+
+    LOG_INFO(Render_Vulkan,
+             "gow3: subgroup policy: compute pinned to {}, fragment pinned to {}, LDS barriers {}",
+             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute).value_or(0),
+             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eFragment).value_or(0),
+             profile.needs_lds_barriers);
 
     auto [cache_result, cache] = instance.GetDevice().createPipelineCacheUnique({});
     ASSERT_MSG(cache_result == vk::Result::eSuccess, "Failed to create pipeline cache: {}",
