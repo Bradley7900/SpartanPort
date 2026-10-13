@@ -381,8 +381,11 @@ bool Instance::CreateDevice() {
     const char* vertex_input_env = std::getenv("GOW3_VERTEX_INPUT_DYNAMIC");
     const bool vertex_input_wanted =
         gow3_vertex_input_dynamic(vertex_input_env, static_cast<VkDriverId>(driver_id)) != 0;
+    // gow3: the knob must still see the request so it can record it in disabled_extensions.
     vertex_input_dynamic_state =
-        vertex_input_wanted && add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
+        (vertex_input_wanted ||
+         ext_policy.IsDisabled(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME)) &&
+        add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
     const char* vertex_input_line;
     if (vertex_input_dynamic_state) {
         vertex_input_line = vertex_input_env && std::string_view{vertex_input_env} == "1"
