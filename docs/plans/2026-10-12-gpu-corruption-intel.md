@@ -6,16 +6,23 @@ máquina de desenvolvimento tem uma GTX 1650). Este documento registra o que foi
 refutado e o que a PR entrega. A investigação das linhas pretas nas RX 6600 está na PR separada da
 AMD (`docs/plans/2026-10-12-gpu-corruption-rdna2.md` naquela branch).
 
-Issues: [#39](https://github.com/FelipePrado0/gow3_pc/issues/39) (Arc B580, canônica),
-[#28](https://github.com/FelipePrado0/gow3_pc/issues/28) (Arc G3 Extreme / B390, MSI Claw 8);
+Issues com o mesmo sintoma: [#39](https://github.com/FelipePrado0/gow3_pc/issues/39) (Arc B580,
+canônica), [#28](https://github.com/FelipePrado0/gow3_pc/issues/28) (Arc G3 Extreme / B390, MSI
+Claw 8), [#96](https://github.com/FelipePrado0/gow3_pc/issues/96) (Arc 140V, Lunar Lake, MSI Claw
+8 AI+; nos comentários, Arc G3 Extreme no Onexplayer 3 e MSI Claw 8 EX),
+[#99](https://github.com/FelipePrado0/gow3_pc/issues/99) (Arc A750, Alchemist). Intel com outro
+sintoma: [#35](https://github.com/FelipePrado0/gow3_pc/issues/35) (HD 630, Gen9: 3D preto ou só
+azul), [#63](https://github.com/FelipePrado0/gow3_pc/issues/63) (A770: device lost).
+[#69](https://github.com/FelipePrado0/gow3_pc/issues/69) (iGPU Xe-LP, Core i5) não relata
+corrupção, mas as capturas são de cutscene: não serve de evidência nem a favor nem contra.
 shadPS4 eltutz: cuesta4/shadPS4#11.
 
 ## 1. Sintoma
 
 | | Intel Arc |
 |---|---|
-| Placas | Arc B580 (discreta, driver 32.0.101.9033 WHQL), Arc B390 integrada do Panther Lake (driver 101.9034, Vulkan 1.4.356) |
-| Aparência | A cena 3D inteira retalhada em faixas horizontais de cerca de 32 px; dentro de cada faixa, tiles de cerca de 64 px deslocados. HUD, Scaleform e vídeos H.264 intactos. Começa já no menu principal, idêntico nas duas placas. |
+| Placas | Arc A750 (Alchemist, driver 101.9150), Arc B580 (Xe2 discreta, driver 32.0.101.9033 WHQL), Arc 140V (Xe2 integrada, Lunar Lake, driver 101.9034), Arc B390 (Xe3 integrada, Panther Lake, driver 101.9034, Vulkan 1.4.356). Cobre Xe-HPG, Xe2 e Xe3: não é só Xe2. |
+| Aparência | A cena 3D inteira retalhada em faixas horizontais com período de **128 px** (bordas em y≈130, 255, 385, 510, 640, 770, 895 a 1080p); dentro delas, sub-faixas de 32 px e blocos de cerca de 64 px deslocados horizontalmente. Na A750 aparecem também colunas finas alternadas. HUD, Scaleform e vídeos H.264 intactos. Começa já no menu principal. Padrão idêntico nas três capturas comparadas (B580, A750, 140V). |
 | Comportamento | Determinístico: aparece em toda execução, desde o menu. No B580 o reporter viu o clock da GPU preso em 400 MHz durante o jogo. |
 | Em outros builds | Igual no shadPS4 eltutz. HD 630 (Gen9, #35) mostra outro defeito (3D preto ou só azul). A770 (#63) perde o device: sintoma diferente. |
 
@@ -43,6 +50,34 @@ IT_SET_PREDICATION` no B580. Execuções saudáveis: nenhum erro, nenhum device 
   (`gpu/shim/common/logging/log.cpp`); `GOW3_GPU_LOG=info` libera. Marcadores para testers
   precisam ser `std::printf("GPU: ...")`. Só o `Play God of War III.exe` (`--play`) grava o
   arquivo; o botão PLAY do launcher passa a gravar com a correção que está na PR da AMD.
+
+### Fallbacks que só a Intel toma
+
+Não há `IsIntel` nem `0x8086` no código. As únicas decisões por fornecedor são as listas de
+NVIDIA/KosmicKrisp e os gates de extensão. São três os caminhos que a Intel toma e NVIDIA/AMD não:
+
+- **`VK_KHR_maintenance8` ausente:** `Runtime::CopyColorAndDepth`
+  (`gpu/shadps4/video_core/renderer_vulkan/vk_runtime.cpp:534-545`) copia depth↔color por
+  `CopyImageWithBuffer`: download para um buffer de 128 MB e upload, com `bufferRowLength=0`,
+  aspecto depth sem stencil e o extent do src aplicado ao dst. É chamado de
+  `texture_cache.cpp:593` (overlap depth↔color recriado) e de `vk_rasterizer.cpp:1980` (cópia de
+  imagem por compute reconhecida).
+- **`VK_EXT_attachment_feedback_loop_dynamic_state` ausente:** as duas extensões de feedback loop
+  ficam fora (`vk_instance.cpp:338-346`), e `vk_rasterizer.cpp:2423-2430` e `:2800-2808` usam
+  `eGeneral` em vez de `eAttachmentFeedbackLoopOptimalEXT`.
+- **`VK_NV_framebuffer_mixed_samples` e `VK_AMD_mixed_attachment_samples` ausentes:**
+  `vk_pipeline_cache.cpp:996-1004` força `color_samples = depth_samples`, e
+  `vk_graphics_pipeline.cpp:305` fica sem `AttachmentSampleCountInfoAMD`.
+
+O período de 128 px pesa: 128 linhas a 32 bpp é a altura de um tile Tile64 da Intel. O layout
+interno do driver aparecer na imagem é o que acontece quando a memória de uma VkImage é lida por
+um caminho que ignora o layout (cópia por buffer, alias, bug de driver). Um macro tile GCN de
+32 bpp não tem 128 linhas, o que afasta erro de detile do lado do PS4.
+
+Fora dos fallbacks, a Intel expõe `VK_EXT_shader_stencil_export` (caminho nativo, igual ao da
+AMD, que a NVIDIA não tem) e pode ter bug em extensão que expõe
+(`VK_KHR_workgroup_memory_explicit_layout`, `VK_EXT_image_2d_view_of_3d`,
+`VK_EXT_depth_clip_control`, ...).
 
 ### Qual build gerou um log
 
@@ -112,19 +147,21 @@ tamanho do subgrupo.
   3 com erros de API). Ainda não analisadas: exigem o cliente do Mega ou upload em outro lugar.
 
 Com barreiras ligadas (B580 e B390) e o compute comprovadamente fixado em 32 lanes (B390) a
-corrupção é idêntica, então as duas hipóteses caem. A causa está em outro ponto do núcleo compartilhado (tiling, formato, alias,
-endereçamento de imagem) ou no driver. O padrão de faixas de 32 px com tiles de 64 px deslocados
-é compatível com erro de detile/endereçamento de uma imagem tiled, o que uma captura RenderDoc do
-primeiro evento retalhado decide.
+corrupção é idêntica, então as duas hipóteses caem. A causa está em outro ponto do núcleo
+compartilhado (tiling, formato, alias, endereçamento de imagem) ou no driver. O período de 128 px
+aponta para o layout Tile64 da Intel lido por um caminho que o ignora (seção 2, "Fallbacks que só
+a Intel toma"), e uma captura RenderDoc do primeiro evento retalhado decide.
+
+### Log do shadPS4 eltutz no B580 (cuesta4/shadPS4#11)
+
+Detilers criados: `Thin2DThin_32`, `Display2DThin_32`, `Depth2DThin64_32` e
+`Thin1DThin_8/32/64/128`. O único aviso de GPU é `Unimplemented IT_SET_PREDICATION`, e faltam as
+mesmas extensões que no port.
 
 ### Refutadas por leitura (2026-10-12)
 
 - Alinhamento zero nos staging do tiling (`tile_manager.cpp`): todo `guest_size` tiled é
   múltiplo de 64 ou 256.
-- Formato sRGB em vez de UNORM da cor da cena (HD 630): decidido pelo primeiro descritor que
-  cria a imagem, não pelo fornecedor. Vale olhar no log do HD 630 se
-  `image format VK_FORMAT_R8G8B8A8_SRGB ... is not supported` aparece (`image.cpp` remove o uso
-  STORAGE e a view UNORM do compute fica inválida).
 - Concorrência do port: o sintoma reproduz no eltutz, e nenhum recurso tem ramo por fornecedor.
 
 ## 4. O que esta PR entrega
@@ -161,7 +198,8 @@ teste para quem tem a placa:
    retalhada decide. Dispatch de compute com `LocalSize` 64, variáveis Workgroup e sem
    `OpControlBarrier` reabriria A-1; draw, cópia ou detile antes de qualquer compute aponta para
    tiling ou formato. Pedir upload num lugar acessível (anexo do GitHub até 25 MB, ou gist do
-   `last_run.log` com `GOW3_GPU_LOG=info` junto).
+   `last_run.log` com `GOW3_GPU_LOG=info` junto). O reporter disse que 3 das 4 capturas têm "API
+   errors": pedir também o texto da aba Errors and Warnings do RenderDoc.
 2. **Clock preso em 400 MHz no B580:** confirmar com o Intel Graphics Software ou o Gerenciador
    de Tarefas durante o jogo. Não explica a corrupção (a B390 integrada tem o mesmo retalho), mas
    explica desempenho ruim e pode indicar o driver em estado de baixa potência.
@@ -171,8 +209,14 @@ teste para quem tem a placa:
    ballot/readlane por pipeline: responde se algum compute antes do passe translúcido tem
    workgroup de 64, LDS e nenhum `s_barrier`.
 5. Conferir e portar do upstream, se fizer sentido: #5310 (barreiras de storage buffer quando
-   subgroup != 64), #5285 (subgroup barrier de LDS) e #5116 (ballot e MBCNT lowered em par).
-   Citados pelos agentes, não conferidos.
+   subgroup != 64, aberta), #5285 (subgroup barrier de LDS, merged 2026-10-06) e #5116 (ballot e
+   MBCNT lowered em par, merged 2026-09-25). Conferidos: nenhum cita Intel.
+6. Upstream desde o commit vendorado `b4e7ae77` (2026-09-24), a conferir no próximo merge, fora
+   desta PR: `7e77898` "video_core: Fix mip layout and detiling of tiled textures" (#5196),
+   `995e37e` "Read CMask metadata" (#5046), `c679ce6` "texture_cache: initialize added
+   depth-overlap subresources" (#5229), `fecfbed` "texture_cache: Avoid associating color images
+   with stencil" (#5118) e `69b6041` "video_core: Link the stencil plane of DepthStencilCopy
+   destinations" (#5296). Nenhum cita Intel.
 
 ## 6. Como testar (Intel Arc)
 
@@ -201,6 +245,11 @@ faz o cache de pipelines ser reconstruído na abertura seguinte.
 2. Na Intel, o padrão é estável ou cintila entre frames?
 3. O que explica o HD 630 (#35, 3D preto ou azul) e o device lost da A770 (#63)? São sintomas
    diferentes, possivelmente causas diferentes.
-4. A faixa de subgrupo e os estágios que aceitam pin no B580 (a B390 responde 16 a 32 e
+4. Por que a cor da cena sai `R8G8B8A8Srgb` no HD 630 e `Unorm` na NVIDIA no mesmo frame, com os
+   mesmos passes? A explicação anterior ("decidido pelo primeiro descritor que cria a imagem, não
+   pelo fornecedor") não cobre uma diferença no mesmo frame, então saiu das refutadas. Vale olhar
+   no log do HD 630 se `image format VK_FORMAT_R8G8B8A8_SRGB ... is not supported` aparece
+   (`image.cpp` remove o uso STORAGE e a view UNORM do compute fica inválida).
+5. A faixa de subgrupo e os estágios que aceitam pin no B580 (a B390 responde 16 a 32 e
    `{ Compute | TaskEXT | MeshEXT }`).
-5. O clock de 400 MHz no B580 é do driver, do jogo ou da medição?
+6. O clock de 400 MHz no B580 é do driver, do jogo ou da medição?
