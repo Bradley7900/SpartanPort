@@ -16,7 +16,8 @@ It is a fork of [Supermedo's Windows port](https://github.com/Supermedo/bloodbor
 [deadinside28's bloodborne_pc](https://github.com/deadinside28/bloodborne_pc) (see
 [Credits](#credits)).
 
-> **No game files are included.** You need a dump from your own PS4 (CUSA01623, version 01.02).
+> **No game files are included.** You need a dump from your own PS4 (tested: CUSA01623 and
+> CUSA01715, versions 01.00 and 01.02).
 > This project is not affiliated with Sony Interactive Entertainment or Santa Monica Studio.
 > God of War is a trademark of Sony Interactive Entertainment.
 
@@ -63,9 +64,10 @@ Progress is tracked (in Portuguese) in [docs/gow3/ROADMAP.md](docs/gow3/ROADMAP.
 **You need**
 - Windows 10 (1903 or newer) or Windows 11, 64-bit.
 - A graphics card with Vulkan 1.3 and an up-to-date driver.
-- Your own copy of God of War III Remastered: **CUSA01623 with the 01.02 update**, as a folder
-  that contains `eboot.bin`, `sce_module` and `sce_sys`. No game files are included in this
-  download.
+- Your own copy of God of War III Remastered, as a folder that contains `eboot.bin`,
+  `sce_module` and `sce_sys`. Tested: **CUSA01623 (US) and CUSA01715 (EU), versions 01.00 and
+  01.02** (full update). Other regions and versions may work but are untested: if you try one,
+  please open an issue with your `user/last_run.log`. No game files are included in this download.
 
 **Steps**
 1. Download `gow3-windows.zip` from the
@@ -103,16 +105,55 @@ Patches and fixes are included and applied automatically: texture fix, skip vide
 - Black screen at start: **Advanced → Clear shader cache**, then start again.
 - The game does not open: check the **Log** page, or send `user\last_run.log` with your report.
 
+## Linux (AppImage, experimental)
+
+The Linux build runs the same native runtime and the same launcher. It was tested on Arch Linux
+with a Radeon RX 7800 XT (RADV) in a Wayland session.
+
+**You need:** a Vulkan 1.3 driver and your own dump of the game (CUSA01623, version 01.02).
+
+**Build and run**
+```
+bash build.sh
+bash packaging/linux/build.sh   # needs PyInstaller, Tk and Pillow for Python, plus patchelf and curl
+./dist/gow3-x86_64.AppImage
+```
+Choose the game folder in the launcher. `--play` starts the game with the saved options and no
+window. From a source tree: `GOW3_GAME_DIR=/path/to/CUSA01623 python3 run.py` after `bash build.sh`.
+
+- **Files:** saves, settings, shader cache and the log are in `~/.local/share/gow3`; the launcher's
+  own settings in `~/.config/gow3-launcher`.
+- **Update folder:** if the update was dumped apart from the game, choose it under **Game → Update
+  folder**. It is laid over the game folder without changing either.
+- **Advanced → Linux:** window system (automatic, Wayland or X11), GameMode and MangoHud. Only the
+  tools installed on the system can be turned on.
+- **Steam:** **Advanced → Add to Steam** adds "God of War III Remastered" as a non-Steam game, with
+  the icon, the vertical and horizontal capsules, the library background and the logo made from the
+  dump's pictures. Close Steam first (it rewrites its shortcuts when it exits). The button is also in
+  the Windows launcher (not tested there yet).
+- **Menu entry:** the AppImage writes `~/.local/share/applications/gow3.desktop` when it starts, so
+  the launcher and the game window show their icon in the dock; **Advanced → Linux** turns it off and
+  removes the entry.
+- **Icon:** the AppImage, the launcher and the game window use `packaging/linux/gow3.png` when that
+  file exists at build time, and `launcher/gow3.png` otherwise.
+- **Patches:** the same patch file serves the full 01.02 update (`eboot.bin` sha256 `6e72330e…`) and
+  the European title (CUSA01715): the patches and cheats find their sites by signature.
+- **Graphics (experimental):** the temporal upscalers (FSR 3.1, FSR 4, TAA, DLSS) are off by default;
+  the switch is at the top of that page.
+
 ## Requirements
 
 - Windows 10 (1903 or newer) or Windows 11, 64-bit.
+- A 64-bit processor with the PS4's instruction sets (AVX, F16C, BMI1, MOVBE, LZCNT): Intel
+  Haswell (2013) or newer, AMD Ryzen or newer. The game's own code runs on the CPU as it is, so
+  an older processor stops at start with a `STOP: this CPU lacks` line in the log.
 - A graphics card with Vulkan 1.3 and a current driver.
-- Your copy of the game: CUSA01623 with the 01.02 update applied (the folder with `eboot.bin`,
-  `sce_module` and `sce_sys`).
-- The patches are applied only to the `eboot.bin` they were checked against byte by byte
-  (sha256 `d85c8135d330c3b601bf5dc3f1dd86bd6119fb8a9fce372bed2c9785f9a79299`), and the in-game
-  hooks (cheats, multipliers, health bar) only where the code they change has the expected
-  bytes. Otherwise the game starts without them, and the log and the menu say why.
+- Your copy of the game (the folder with `eboot.bin`, `sce_module` and `sce_sys`). Tested:
+  CUSA01623 and CUSA01715, versions 01.00 and 01.02.
+- The patches and the in-game hooks (cheats, multipliers, health bar) find their sites by
+  signature: the original bytes around each one, wherever a release placed that code
+  (`tools/make_signatures.py`). A site that is not found leaves only that patch or hook off; the
+  game starts without it, and the log and the menu say why.
 - To build from source: [MSYS2](https://www.msys2.org) and [Python 3](https://www.python.org) with Pillow
   (`pip install pillow`, used for the game's icon and cover art).
 

@@ -17,8 +17,8 @@ menu no jogo).
 [bloodborne_pc de deadinside28](https://github.com/deadinside28/bloodborne_pc) (veja os
 [Créditos](#créditos)).
 
-> **Nenhum arquivo do jogo está incluído.** É preciso um dump do seu próprio PS4 (CUSA01623,
-> versão 01.02). Este projeto não tem relação com a Sony Interactive Entertainment nem com o
+> **Nenhum arquivo do jogo está incluído.** É preciso um dump do seu próprio PS4 (testados:
+> CUSA01623 e CUSA01715, versões 01.00 e 01.02). Este projeto não tem relação com a Sony Interactive Entertainment nem com o
 > Santa Monica Studio. God of War é marca registrada da Sony Interactive Entertainment.
 
 Na máquina de teste (AMD Radeon RX 6700 XT, Ryzen 5 5600X, 32 GB), o jogo roda a 144 FPS de
@@ -64,9 +64,11 @@ O andamento está em
 **Você precisa de**
 - Windows 10 (1903 ou mais novo) ou Windows 11, 64 bits.
 - Uma placa de vídeo com Vulkan 1.3 e driver atualizado.
-- Sua própria cópia de God of War III Remastered: **CUSA01623 com a atualização 01.02**, numa
-  pasta que contenha `eboot.bin`, `sce_module` e `sce_sys`. Nenhum arquivo do jogo vem neste
-  download.
+- Sua própria cópia de God of War III Remastered, numa pasta que contenha `eboot.bin`,
+  `sce_module` e `sce_sys`. Testados: **CUSA01623 (EUA) e CUSA01715 (Europa), versões 01.00 e
+  01.02** (atualização completa). Outras regiões e versões podem funcionar, mas não foram
+  testadas: se usar uma delas, abra uma issue com o seu `user/last_run.log`. Nenhum arquivo do
+  jogo vem neste download.
 
 **Passos**
 1. Baixe o `gow3-windows.zip` na
@@ -104,16 +106,55 @@ com X e 120 FPS vêm ligados. Mude resolução e FPS na **Home** ou em **Perform
 - Tela preta ao abrir: **Advanced → Clear shader cache** e abra de novo.
 - O jogo não abre: veja a tela **Log**, ou envie o `user\last_run.log` junto com o relato.
 
+## Linux (AppImage, experimental)
+
+A versão para Linux usa o mesmo runtime nativo e o mesmo launcher. Foi testada no Arch Linux com uma
+Radeon RX 7800 XT (RADV) numa sessão Wayland.
+
+**Você precisa de:** um driver Vulkan 1.3 e do seu próprio dump do jogo (CUSA01623, versão 01.02).
+
+**Compilar e rodar**
+```
+bash build.sh
+bash packaging/linux/build.sh   # precisa de PyInstaller, Tk e Pillow para Python, mais patchelf e curl
+./dist/gow3-x86_64.AppImage
+```
+Escolha a pasta do jogo no launcher. `--play` inicia o jogo com as opções salvas e sem janela. A
+partir do código: `GOW3_GAME_DIR=/caminho/para/CUSA01623 python3 run.py` depois de `bash build.sh`.
+
+- **Arquivos:** saves, configurações, cache de shaders e o registro ficam em `~/.local/share/gow3`; as
+  configurações do próprio launcher, em `~/.config/gow3-launcher`.
+- **Pasta do update:** se o update foi dumpado separado do jogo, escolha-a em **Jogo → Pasta do
+  update**. Ela é colocada por cima da pasta do jogo sem alterar nenhuma das duas.
+- **Avançado → Linux:** sistema de janelas (automático, Wayland ou X11), GameMode e MangoHud. Só as
+  ferramentas instaladas no sistema podem ser ligadas.
+- **Steam:** **Avançado → Adicionar à Steam** inclui "God of War III Remastered" como jogo de fora da
+  Steam, com o ícone, as capas vertical e horizontal, o fundo da biblioteca e o logotipo feitos a
+  partir das imagens do dump. Feche a Steam antes (ela reescreve os atalhos quando fecha). O botão
+  também está no launcher do Windows (ainda sem teste lá).
+- **Entrada no menu:** o AppImage grava `~/.local/share/applications/gow3.desktop` ao iniciar, para o
+  launcher e a janela do jogo mostrarem o ícone no dock; **Avançado → Linux** desliga e remove a entrada.
+- **Ícone:** o AppImage, o launcher e a janela do jogo usam `packaging/linux/gow3.png` quando esse
+  arquivo existe na hora da compilação, e `launcher/gow3.png` caso contrário.
+- **Patches:** o mesmo arquivo de patches serve a atualização 01.02 completa (`eboot.bin` com sha256
+  `6e72330e…`) e o título europeu (CUSA01715): os patches e as trapaças acham seus pontos por assinatura.
+- **Gráficos (experimental):** os upscalers temporais (FSR 3.1, FSR 4, TAA, DLSS) ficam desligados por
+  padrão; o interruptor está no topo dessa página.
+
 ## Requisitos
 
 - Windows 10 (1903 ou mais novo) ou Windows 11, 64 bits.
+- Processador de 64 bits com os conjuntos de instruções do PS4 (AVX, F16C, BMI1, MOVBE, LZCNT):
+  Intel Haswell (2013) ou mais novo, AMD Ryzen ou mais novo. O código do jogo roda na CPU como
+  está, então um processador mais antigo para na abertura com uma linha `STOP: this CPU lacks`
+  no log.
 - Placa de vídeo com Vulkan 1.3 e driver atualizado.
-- Sua cópia do jogo: CUSA01623 com a atualização 01.02 aplicada (a pasta com `eboot.bin`,
-  `sce_module` e `sce_sys`).
-- Os patches só são aplicados ao `eboot.bin` com que foram conferidos byte a byte (sha256
-  `d85c8135d330c3b601bf5dc3f1dd86bd6119fb8a9fce372bed2c9785f9a79299`), e os ganchos do menu
-  (trapaças, multiplicadores, barra de vida) só onde o código que eles alteram tem os bytes
-  esperados. Fora isso o jogo abre sem eles, e o log e o menu dizem o motivo.
+- Sua cópia do jogo (a pasta com `eboot.bin`, `sce_module` e `sce_sys`). Testados: CUSA01623 e
+  CUSA01715, versões 01.00 e 01.02.
+- Os patches e os ganchos do menu (trapaças, multiplicadores, barra de vida) acham seus pontos
+  por assinatura: os bytes originais em volta de cada um, onde quer que a versão do jogo tenha
+  colocado esse código (`tools/make_signatures.py`). Um ponto que não é achado deixa só aquele
+  patch ou gancho desligado; o jogo abre sem ele, e o log e o menu dizem o motivo.
 - Para compilar a partir do código: [MSYS2](https://www.msys2.org) e [Python 3](https://www.python.org) com Pillow
   (`pip install pillow`, usado no ícone e na capa do jogo).
 
