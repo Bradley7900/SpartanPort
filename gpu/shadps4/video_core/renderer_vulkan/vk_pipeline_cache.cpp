@@ -34,6 +34,7 @@
 #include "video_core/renderer_vulkan/vk_pipeline_serialization.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
+#include "video_core/renderer_vulkan/vk_vertex_format.h"
 
 namespace Vulkan {
 
@@ -1118,8 +1119,22 @@ bool PipelineCache::RefreshGraphicsStages(PipelineSelection& sel) {
             ASSERT_MSG(vertex_binding < MaxVertexBufferCount,
                        "Vertex attribute binding count exceeded limit: {} >= {}", vertex_binding,
                        MaxVertexBufferCount);
-            key.vertex_buffer_formats[vertex_binding++] =
-                Vulkan::LiverpoolToVK::SurfaceFormat(buffer.GetDataFmt(), buffer.GetNumberFmt());
+            // gow3: a worker reads user data the guest may still be writing (see
+            // vk_draw_prep.cpp): an unknown format fails the worker's key, and the GPU thread
+            // builds it again once the draw is submitted. There the V# is final, so the
+            // asserting SurfaceFormat keeps its message for a format the table really lacks.
+            const auto format = LiverpoolToVK::VertexAttributeFormat(buffer.GetDataFmt(),
+                                                                     buffer.GetNumberFmt());
+            if (!format) {
+                if (sel.worker) {
+                    sel.worker->failed = true;
+                    return false;
+                }
+                key.vertex_buffer_formats[vertex_binding++] =
+                    LiverpoolToVK::SurfaceFormat(buffer.GetDataFmt(), buffer.GetNumberFmt());
+                continue;
+            }
+            key.vertex_buffer_formats[vertex_binding++] = *format;
         }
     }
 
