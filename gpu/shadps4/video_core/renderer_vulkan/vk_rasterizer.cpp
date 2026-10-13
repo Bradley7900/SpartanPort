@@ -1812,8 +1812,10 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
     // from a port bug (#35, Intel HD 630 lacks it for B10G11R11UfloatPack32).
     for (const auto& attribute : attributes) {
         if (vertex_formats_seen.Add(attribute.format) &&
-            !instance.IsFormatSupported(attribute.format, vk::FormatFeatureFlagBits2::eVertexBuffer)) {
-            LOG_WARNING(Render_Vulkan, "Vertex attribute format {} lacks VertexBuffer support on this GPU (#35)",
+            !instance.IsFormatSupported(attribute.format,
+                                        vk::FormatFeatureFlagBits2::eVertexBuffer)) {
+            LOG_WARNING(Render_Vulkan,
+                        "Vertex attribute format {} lacks VertexBuffer support on this GPU (#35)",
                         vk::to_string(attribute.format));
         }
     }
