@@ -45,6 +45,8 @@ O andamento está em
 - Patches: resolução de renderização de 480p, 720p, 1440p, 1800p ou 4K, correção de texturas
   corrompidas e pular vídeos com o botão X (comunidade); FPS do motor de 120 (kvicken) ou 240
   (adaptado por Felipe Prado).
+- **Ultrawide 21:9 (beta):** resolução de renderização 3440x1440 com campo de visão mais largo, em vez
+  de uma imagem com zoom (veja [docs/ultrawide.md](docs/ultrawide.md)).
 - **Abertura imediata:** o cache de shaders salvo carrega em segundo plano enquanto você joga, e
   os shaders novos também são compilados em segundo plano, sem parar o jogo.
 - **Launcher** com as cores do jogo, em inglês com traduções parciais: ajustes rápidos na tela inicial, tela,

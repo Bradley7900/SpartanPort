@@ -69,6 +69,15 @@ int main() {
     }
 
     {
+        std::ofstream out(path);  // the ultrawide render resolution keeps its name through a load and a save
+        out << "render_resolution=3440x1440\n";
+    }
+    Gow3Settings::Load();
+    assert(v.render_resolution == 6);
+    Gow3Settings::Save();
+    assert(Read(path).find("render_resolution=3440x1440\n") != std::string::npos);
+
+    {
         std::ofstream out(path);
         out << "display_mode=huge\nfps_limit=7\nrender_resolution=8K\nengine_fps=1\n"
                "rcas_strength=250\nframes_queued=9\n";

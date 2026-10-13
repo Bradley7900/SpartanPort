@@ -1,5 +1,6 @@
 from paths import ROOT
 import os
+import struct
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -238,6 +239,31 @@ class SignatureTests(unittest.TestCase):
                          (5056 + 6144, None))
         self.assertEqual(patch_requirements(GOW3, ['Frame Rate Patch - 120 FPS'], '01.02'), (None, 120))
         self.assertEqual(patch_requirements(GOW3, [], '01.02'), (None, None))
+
+
+    def test_ultrawide_requirements(self):
+        self.assertEqual(patch_requirements(GOW3, ['Resolution Patch - 3440x1440'], '01.02'), (5056 + 4608, None))
+
+    def test_ultrawide_camera_caves_form_closed_chains(self):
+        # Resolution Patch - 3440x1440 (its Address values are the 6e72 build's): each of the four camera sites
+        # jumps into two chained caves. The first runs the instruction the jump replaced, the second multiplies
+        # the field of view tangent by k = (3440/1440) / (16/9) = 43/32 and returns right after the site.
+        writes = dict(compile_patches(GOW3, ['Resolution Patch - 3440x1440'], '01.02', SEGMENTS))
+        rel = lambda data, at, end: end + int.from_bytes(data[at:at + 4], 'little', signed=True)
+        constant = [at for at, data in writes.items() if data == struct.pack('<f', 43 / 32)]
+        self.assertEqual(len(constant), 1)
+        for site, original in ((0x1cc01f, 'c5fa1089d8000000'), (0x1cbd89, 'c5fa1080d8000000'),
+                               (0x1ccaa9, 'c5fa1080d8000000'), (0x1cc20f, 'c5fa5e852cffffff')):
+            jump = writes[site]
+            self.assertEqual((jump[0], jump[5:]), (0xe9, bytes.fromhex('0f1f00')))  # jmp + 3-byte nop
+            first = rel(jump, 1, site + 5)
+            self.assertEqual(writes[first][:8], bytes.fromhex(original))
+            self.assertEqual(writes[first][8], 0xe9)
+            second = rel(writes[first], 9, first + 13)
+            cave = writes[second]
+            self.assertEqual((cave[0], cave[2], cave[8]), (0xc5, 0x59, 0xe9))  # vmulss ..., [rip+k]; jmp
+            self.assertEqual(rel(cave, 4, second + 8), constant[0])
+            self.assertEqual(rel(cave, 9, second + 13), site + 8)
 
 
 if __name__ == '__main__':
