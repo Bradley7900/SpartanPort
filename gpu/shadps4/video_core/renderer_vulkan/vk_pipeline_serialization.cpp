@@ -877,10 +877,10 @@ bool PipelineCache::CheckCacheProfile() {
     if (!EmulatorSettings.IsPipelineCacheEnabled()) {
         return false;
     }
-    // gow3: extensions outside Shader::Profile (maintenance8, feedback loop, mixed samples,
-    // vertex input dynamic state, ...) shape pipeline keys too, so keys written under another
-    // extension set may be invalid here. Keep the disk cache closed for the session; Save
-    // checks IsOpened(), so nothing is written either.
+    // gow3: extensions outside Shader::Profile (maintenance8, feedback loop, mixed samples, ...)
+    // shape pipeline keys too, so keys written under another extension set may be invalid here.
+    // Keep the disk cache closed for the session; Save checks IsOpened(), so nothing is written
+    // either.
     if (!instance.GetDisabledExtensions().empty()) {
         LOG_WARNING(Render, "Pipeline cache skipped: GOW3_VK_DISABLE_EXT is active");
         return false;
