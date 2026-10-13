@@ -476,11 +476,6 @@ bool Instance::CreateDevice() {
     }
     const bool calibrated_timestamps =
         TRACY_GPU_ENABLED ? add_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) : false;
-    // gow3: binary keys on disk were written under another extension set; while
-    // GOW3_VK_DISABLE_EXT has turned something off they may not match, so leave binaries out.
-    // Checked after the last optional request so that extensions requested later count too.
-    pipeline_binaries = pipeline_binaries && disabled_extensions.empty();
-
     const auto family_properties = physical_device.getQueueFamilyProperties();
     if (family_properties.empty()) {
         LOG_CRITICAL(Render_Vulkan, "Physical device reported no queues.");
@@ -536,6 +531,11 @@ bool Instance::CreateDevice() {
             }
         }
     }
+    // gow3: binary keys on disk were written under another extension set; while
+    // GOW3_VK_DISABLE_EXT has turned something off they may not match, so leave binaries out.
+    // Checked after the last optional request, the DLSS ones included, so that every disabled
+    // extension counts.
+    pipeline_binaries = pipeline_binaries && disabled_extensions.empty();
     vk::StructureChain device_chain = {
         vk::DeviceCreateInfo{
             .queueCreateInfoCount = 1u,

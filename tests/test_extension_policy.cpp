@@ -67,6 +67,8 @@ int main() {
         assert(policy.IsDisabled("VK_KHR_maintenance8"));
         assert(policy.IsDisabled("VK_NV_framebuffer_mixed_samples"));
     }
+    // The keyword counts in any position, not only first.
+    assert(ParseExtensionPolicy("VK_X,all").all);
 
     // The keyword is lowercase only: "ALL" and "All" are extension names that match nothing.
     for (const char* env : {"ALL", "All"}) {
