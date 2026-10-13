@@ -35,6 +35,22 @@ int main() {
     assert(!ChoosePinnedSubgroupSize(false, 8, 32, true, 32));
     assert(!ChoosePinnedSubgroupSize(true, 8, 16, true, 32));
 
+    // GOW3_SUBGROUP_PIN: "all" (default, the behaviour above), "allowed" (only stages the driver
+    // lists in requiredSubgroupSizeStages: AMD lists compute only, so fragment and vertex stay
+    // unpinned), "none". Anything else reads as "all".
+    assert(ParseSubgroupPinMode(nullptr) == SubgroupPinMode::All);
+    assert(ParseSubgroupPinMode("all") == SubgroupPinMode::All);
+    assert(ParseSubgroupPinMode("allowed") == SubgroupPinMode::Allowed);
+    assert(ParseSubgroupPinMode("none") == SubgroupPinMode::None);
+    assert(ParseSubgroupPinMode("garbage") == SubgroupPinMode::All);
+    assert(ChoosePinnedSubgroupSize(true, 32, 64, true, 64, SubgroupPinMode::Allowed) == 64u);
+    assert(!ChoosePinnedSubgroupSize(true, 32, 64, false, 64, SubgroupPinMode::Allowed));
+    assert(ChoosePinnedSubgroupSize(true, 8, 32, true, 32, SubgroupPinMode::Allowed) == 32u);
+    assert(!ChoosePinnedSubgroupSize(true, 8, 32, false, 32, SubgroupPinMode::Allowed));
+    assert(!ChoosePinnedSubgroupSize(true, 32, 64, true, 64, SubgroupPinMode::None));
+    assert(!ChoosePinnedSubgroupSize(true, 8, 32, true, 32, SubgroupPinMode::None));
+    assert(ChoosePinnedSubgroupSize(true, 32, 64, false, 64, SubgroupPinMode::All) == 64u);
+
     // LDS barriers: needed whenever a 64-thread workgroup is not one lockstep subgroup.
     assert(!NeedsLdsBarriers(false, true, nullptr)); // AMD, pinned to 64
     assert(NeedsLdsBarriers(true, true, nullptr));   // driver list (NVIDIA, KosmicKrisp)

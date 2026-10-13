@@ -397,13 +397,15 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
     };
 
     // gow3: in last_run.log whatever the GPU log level (the port keeps warnings only by default).
+    const char* pin_mode = std::getenv("GOW3_SUBGROUP_PIN");
     std::printf("GPU: subgroup policy: compute pinned to %u, fragment pinned to %u, LDS barriers %s "
-                "(device %u lanes, %u to %u, pinnable stages %s)\n",
+                "(device %u lanes, %u to %u, pinnable stages %s, GOW3_SUBGROUP_PIN=%s)\n",
                 instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute).value_or(0),
                 instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eFragment).value_or(0),
                 profile.needs_lds_barriers ? "on" : "off", instance.SubgroupSize(),
                 instance.MinSubgroupSize(), instance.MaxSubgroupSize(),
-                vk::to_string(instance.PinnableSubgroupStages()).c_str());
+                vk::to_string(instance.PinnableSubgroupStages()).c_str(),
+                pin_mode ? pin_mode : "all");
 
     auto [cache_result, cache] = instance.GetDevice().createPipelineCacheUnique({});
     ASSERT_MSG(cache_result == vk::Result::eSuccess, "Failed to create pipeline cache: {}",

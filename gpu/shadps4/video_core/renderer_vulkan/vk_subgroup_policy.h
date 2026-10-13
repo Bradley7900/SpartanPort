@@ -5,28 +5,49 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 namespace Vulkan {
 
+/// GOW3_SUBGROUP_PIN: which stages get a requiredSubgroupSize.
+enum class SubgroupPinMode {
+    All,     ///< "all" (default): every stage on a 64-lane host, as shadPS4 does.
+    Allowed, ///< "allowed": only the stages the driver lists in requiredSubgroupSizeStages.
+    None,    ///< "none": no pin at all.
+};
+
+inline SubgroupPinMode ParseSubgroupPinMode(const char* env) {
+    if (env && std::strcmp(env, "allowed") == 0) {
+        return SubgroupPinMode::Allowed;
+    }
+    if (env && std::strcmp(env, "none") == 0) {
+        return SubgroupPinMode::None;
+    }
+    return SubgroupPinMode::All;
+}
+
 /// The subgroup size a shader stage is pinned to with VK_EXT_subgroup_size_control.
 ///
 /// A host with 64-wide subgroups (AMD) pins every stage to 64, the width the shaders were
-/// written for, whether or not the stage is in requiredSubgroupSizeStages (as before). A host
-/// whose width can vary between `min_size` and `max_size` (Intel: 8 or 16 to 32) pins the stages
-/// it allows to `default_size`, the device's reported subgroup size that the recompiler assumed
-/// when it lowered wave64 operations: the modules are SPIR-V 1.6, so without a pin the driver may
-/// compile a 64-thread workgroup at SIMD16 and split it into four subgroups. A host with one
-/// width (NVIDIA, 32) has nothing to pin.
-inline std::optional<std::uint32_t> ChoosePinnedSubgroupSize(bool size_control,
-                                                             std::uint32_t min_size,
-                                                             std::uint32_t max_size,
-                                                             bool stage_pinnable,
-                                                             std::uint32_t default_size) {
-    if (!size_control) {
+/// written for, whether or not the stage is in requiredSubgroupSizeStages (as before; AMD lists
+/// compute only, so the graphics pins are outside the specification there, which
+/// SubgroupPinMode::Allowed avoids). A host whose width can vary between `min_size` and
+/// `max_size` (Intel: 8 or 16 to 32) pins the stages it allows to `default_size`, the device's
+/// reported subgroup size that the recompiler assumed when it lowered wave64 operations: the
+/// modules are SPIR-V 1.6, so without a pin the driver may compile a 64-thread workgroup at
+/// SIMD16 and split it into four subgroups. A host with one width (NVIDIA, 32) has nothing to
+/// pin.
+inline std::optional<std::uint32_t> ChoosePinnedSubgroupSize(
+    bool size_control, std::uint32_t min_size, std::uint32_t max_size, bool stage_pinnable,
+    std::uint32_t default_size, SubgroupPinMode mode = SubgroupPinMode::All) {
+    if (!size_control || mode == SubgroupPinMode::None) {
         return std::nullopt;
     }
     if (max_size >= 64) {
+        if (mode == SubgroupPinMode::Allowed && !stage_pinnable) {
+            return std::nullopt;
+        }
         return 64u;
     }
     if (!stage_pinnable || min_size >= max_size || default_size < min_size ||

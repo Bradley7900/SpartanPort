@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdlib>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -270,12 +271,14 @@ public:
     }
 
     /// gow3: the subgroup size `stage` is pinned to, if any (vk_subgroup_policy.h).
+    /// GOW3_SUBGROUP_PIN=all|allowed|none selects the policy.
     std::optional<u32> PinnedSubgroupSize(vk::ShaderStageFlagBits stage) const {
+        static const SubgroupPinMode mode = ParseSubgroupPinMode(std::getenv("GOW3_SUBGROUP_PIN"));
         return ChoosePinnedSubgroupSize(
             vk13_features.subgroupSizeControl, vk13_props.minSubgroupSize,
             vk13_props.maxSubgroupSize,
             static_cast<bool>(vk13_props.requiredSubgroupSizeStages & stage),
-            vk11_props.subgroupSize);
+            vk11_props.subgroupSize, mode);
     }
 
     /// Returns true when VK_KHR_workgroup_memory_explicit_layout is supported.
