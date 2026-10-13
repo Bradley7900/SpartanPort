@@ -17,6 +17,7 @@
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_amd_paths.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
+#include "video_core/renderer_vulkan/vk_extension_policy.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
@@ -262,6 +263,14 @@ bool InitializePipelineBinaryCache(vk::Device device, bool supported,
 }
 
 bool Instance::CreateDevice() {
+    // gow3: GOW3_VK_DISABLE_EXT turns optional extensions off as if the device lacked them
+    // (vk_extension_policy.h).
+    const char* disable_ext_value = std::getenv("GOW3_VK_DISABLE_EXT");
+    const bool disable_ext_set = disable_ext_value != nullptr;
+    disable_ext_env = disable_ext_set ? disable_ext_value : "";
+    const auto ext_policy = ParseExtensionPolicy(disable_ext_value);
+    std::vector<std::string> optional_queried;
+
     const vk::StructureChain feature_chain = physical_device.getFeatures2<
         vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan11Features,
         vk::PhysicalDeviceVulkan12Features, vk::PhysicalDeviceVulkan13Features,
@@ -294,30 +303,41 @@ bool Instance::CreateDevice() {
     }
 
     boost::container::static_vector<const char*, 64> enabled_extensions;
-    const auto add_extension = [&](std::string_view extension) -> bool {
+    const auto add_extension = [&](std::string_view extension, bool required = false) -> bool {
+        if (!required) {
+            // gow3: every optional request, for the "unavailable" log line at the end.
+            optional_queried.emplace_back(extension);
+        }
         const auto result =
             std::find_if(available_extensions.begin(), available_extensions.end(),
                          [&](const std::string& name) { return name == extension; });
 
-        if (result != available_extensions.end()) {
-            LOG_INFO(Render_Vulkan, "Enabling extension: {}", extension);
-            enabled_extensions.push_back(extension.data());
-            return true;
+        if (result == available_extensions.end()) {
+            LOG_WARNING(Render_Vulkan, "Extension {} unavailable.", extension);
+            return false;
         }
 
-        LOG_WARNING(Render_Vulkan, "Extension {} unavailable.", extension);
-        return false;
+        // gow3: a disabled optional extension takes the same fallback as an unavailable one.
+        if (!required && ext_policy.IsDisabled(extension)) {
+            LOG_WARNING(Render_Vulkan, "Extension {} disabled by GOW3_VK_DISABLE_EXT", extension);
+            disabled_extensions.emplace_back(extension);
+            return false;
+        }
+
+        LOG_INFO(Render_Vulkan, "Enabling extension: {}", extension);
+        enabled_extensions.push_back(extension.data());
+        return true;
     };
 
     // Required
-    ASSERT_MSG(add_extension(VK_KHR_SWAPCHAIN_EXTENSION_NAME),
+    ASSERT_MSG(add_extension(VK_KHR_SWAPCHAIN_EXTENSION_NAME, true),
                "Required Vulkan extension unavailable: {}", VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-    ASSERT_MSG(add_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME),
+    ASSERT_MSG(add_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, true),
                "Required Vulkan extension unavailable: {}", VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
-    ASSERT_MSG(add_extension(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME),
+    ASSERT_MSG(add_extension(VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME, true),
                "Required Vulkan extension unavailable: {}",
                VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME);
-    ASSERT_MSG(add_extension(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME),
+    ASSERT_MSG(add_extension(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME, true),
                "Required Vulkan extension unavailable: {}", VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
 
     const auto robustness2_features = feature_chain.get<vk::PhysicalDeviceRobustness2FeaturesEXT>();
@@ -456,6 +476,10 @@ bool Instance::CreateDevice() {
     }
     const bool calibrated_timestamps =
         TRACY_GPU_ENABLED ? add_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) : false;
+    // gow3: binary keys on disk were written under another extension set; while
+    // GOW3_VK_DISABLE_EXT has turned something off they may not match, so leave binaries out.
+    // Checked after the last optional request so that extensions requested later count too.
+    pipeline_binaries = pipeline_binaries && disabled_extensions.empty();
 
     const auto family_properties = physical_device.getQueueFamilyProperties();
     if (family_properties.empty()) {
@@ -492,9 +516,22 @@ bool Instance::CreateDevice() {
     if (Dlss* dlss = Dlss::Get()) {
         dlss->AppendDeviceExtensions(*instance, physical_device, dlss_extensions);
         for (const char* name : dlss_extensions) {
-            if (std::none_of(enabled_extensions.begin(), enabled_extensions.end(),
-                             [&](const char* e) { return std::string_view{e} == name; }) &&
-                enabled_extensions.size() < enabled_extensions.capacity()) {
+            if (std::any_of(enabled_extensions.begin(), enabled_extensions.end(),
+                            [&](const char* e) { return std::string_view{e} == name; })) {
+                continue;
+            }
+            // gow3: GOW3_VK_DISABLE_EXT applies here too; without the extensions it asks for,
+            // DLSS turns itself off.
+            if (ext_policy.IsDisabled(name)) {
+                if (std::find(disabled_extensions.begin(), disabled_extensions.end(), name) ==
+                    disabled_extensions.end()) {
+                    LOG_WARNING(Render_Vulkan, "Extension {} disabled by GOW3_VK_DISABLE_EXT",
+                                name);
+                    disabled_extensions.emplace_back(name);
+                }
+                continue;
+            }
+            if (enabled_extensions.size() < enabled_extensions.capacity()) {
                 enabled_extensions.push_back(name);
             }
         }
@@ -769,6 +806,24 @@ bool Instance::CreateDevice() {
                         vk::to_string(time_domains_result));
         }
     }
+
+    // gow3: printed at any log level so that a user's console output shows what the device got.
+    std::vector<std::string> unavailable;
+    for (const std::string& name : optional_queried) {
+        if (std::none_of(enabled_extensions.begin(), enabled_extensions.end(),
+                         [&](const char* e) { return std::string_view{e} == name; })) {
+            unavailable.push_back(name);
+        }
+    }
+    std::printf("GPU: device %s, driver %s %s, Vulkan %s; extensions off: %s "
+                "(GOW3_VK_DISABLE_EXT=%s)\n",
+                properties.deviceName.data(), vk::to_string(driver_id).c_str(),
+                GetDriverVersionName().c_str(), GetReadableVersion(properties.apiVersion).c_str(),
+                JoinNames(disabled_extensions).c_str(),
+                disable_ext_set ? disable_ext_env.c_str() : "unset");
+    std::printf("GPU: optional extensions unavailable: %s; ignored names: %s\n",
+                JoinNames(unavailable).c_str(),
+                JoinNames(IgnoredNames(ext_policy, disabled_extensions)).c_str());
 
     CreateAllocator();
     return true;
