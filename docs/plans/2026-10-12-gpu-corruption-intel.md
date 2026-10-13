@@ -46,20 +46,26 @@ IT_SET_PREDICATION` no B580. Execuções saudáveis: nenhum erro, nenhum device 
 
 ### Qual build gerou um log
 
-Os números de linha dos avisos do `vk_instance.cpp` identificam o binário mesmo sem
-`GOW3_GPU_LOG=info`:
+Os números de linha dos avisos do `vk_instance.cpp` mais a presença e o formato da linha
+`GPU: subgroup policy:` identificam o binário mesmo sem `GOW3_GPU_LOG=info`. A coluna do
+`CollectImageFormatInfo` é o aviso `Surface format ... is not fully supported`; o aviso `Depth
+format ...` sai 10 linhas depois (`:855`, `:865`, `:869`, `:888`, `:890`, na mesma ordem) e, só
+ele, confunde a 2.1.4/2.1.5 com a 2.1.6:
 
-| Binário | `Extension ... unavailable` | `CollectImageFormatInfo` | Linha `GPU: subgroup policy:` |
+| Binário | `Extension ... unavailable` | `Surface format ...` | Linha `GPU: subgroup policy:` |
 |---|---|---|---|
 | 2.1.4, 2.1.5 | `:294` | `:845` | não |
 | 2.1.6, 2.1.7, `main` | `:304` | `:855` | não |
 | `windows-v2.1.6-intel-test1` (`7a9e0a7`) | `:308` | `:859` | não (era LOG_INFO) |
 | `windows-v2.1.6-test2` | `:309` | `:878` | sim, em qualquer nível |
-| `windows-v2.1.7-test3`, `-test4` | `:309` | `:880` | sim, em qualquer nível |
+| `windows-v2.1.6-test3`, `windows-v2.1.7-test3`, `-test4` | `:309` | `:880` | sim, em qualquer nível |
+| esta branch (PR #105) | `:308` | `:859` | sim, terminando em `GOW3_SUBGROUP_PIN=..., mode ...` |
 
-Nos builds de teste 1 a 4 a Intel rodava com barreiras de LDS ligadas e compute fixado em 32
-lanes sem variável nenhuma (só `GOW3_LDS_BARRIERS=0` desligava as barreiras, e nenhum reporter
-a usou).
+Esta branch e o intel-test1 têm os mesmos números: só a linha de política (ausente no test1,
+presente e com `mode` aqui) os separa. Nos builds de teste 1 a 4 a Intel rodava com barreiras de
+LDS ligadas sem variável nenhuma (só `GOW3_LDS_BARRIERS=0` as desligava, e nenhum reporter a
+usou) e com o compute fixado em 32 lanes quando o dispositivo reporta faixa variável e aceita pin
+em compute, como a B390 reporta.
 
 ## 3. Hipóteses
 
@@ -89,11 +95,14 @@ tamanho do subgrupo.
 - **B580 (xwesalemao, #39, 02:05 UTC):** "The graphics are already corrupted in the game menu"
   (uma revisão anterior do comentário dizia "the bug persists in the test version for Intel").
   O `last_run.log` anexado é do `windows-v2.1.6-intel-test1`: `:308`/`:859` e nenhuma linha
-  `GPU: subgroup policy:` (tabela acima). Barreiras de LDS ativas; o pin de 32 não aparece no log
-  (sem `GOW3_GPU_LOG=info`), mas o B390 abaixo mostra que a Intel aceita o pin em compute.
+  `GPU: subgroup policy:` (tabela acima). Barreiras de LDS ativas, o que refuta A-1 nessa placa.
+  O pin de 32 dependia da faixa e dos estágios que o B580 reporta, e o log (sem
+  `GOW3_GPU_LOG=info`) não mostra nenhum dos dois: no B580 o pin fica sem confirmação, e A-2 só
+  cai pela B390 abaixo (outra geração, Panther Lake integrada, outro build de driver).
 - **B390 (yisus230291, #28, 02:40 UTC):** "exactly the same as the other intel arc person, even
-  the main menu looks identical". O log (`last_run.txt`) é do build 3 ou 4 (`:309`/`:880`) e
-  traz a política aplicada: `GPU: subgroup policy: compute pinned to 32, fragment pinned to 0,
+  the main menu looks identical". O log (`last_run.txt`) é de um build 3 ou 4
+  (`windows-v2.1.6-test3`, `windows-v2.1.7-test3` ou `-test4`: `:309`/`:880`) e traz a política
+  aplicada: `GPU: subgroup policy: compute pinned to 32, fragment pinned to 0,
   LDS barriers on (device 32 lanes, 16 to 32, pinnable stages { Compute | TaskEXT | MeshEXT },
   GOW3_SUBGROUP_PIN=all)`. Pin de 32 em compute e barreiras de LDS, e a cena continua retalhada.
   Os dois logs anteriores dele não eram do build de teste: o de 23:39 UTC é da 2.1.5 ou anterior
@@ -102,8 +111,8 @@ tamanho do subgrupo.
 - O xwesalemao também publicou capturas RenderDoc (pasta no mega.nz linkada em #39, 4 capturas,
   3 com erros de API). Ainda não analisadas: exigem o cliente do Mega ou upload em outro lugar.
 
-Com barreiras ligadas e o compute fixado em 32 lanes a corrupção é idêntica, então as duas
-hipóteses caem. A causa está em outro ponto do núcleo compartilhado (tiling, formato, alias,
+Com barreiras ligadas (B580 e B390) e o compute comprovadamente fixado em 32 lanes (B390) a
+corrupção é idêntica, então as duas hipóteses caem. A causa está em outro ponto do núcleo compartilhado (tiling, formato, alias,
 endereçamento de imagem) ou no driver. O padrão de faixas de 32 px com tiles de 64 px deslocados
 é compatível com erro de detile/endereçamento de uma imagem tiled, o que uma captura RenderDoc do
 primeiro evento retalhado decide.
