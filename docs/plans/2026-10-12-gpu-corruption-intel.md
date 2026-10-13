@@ -6,11 +6,14 @@ máquina de desenvolvimento tem uma GTX 1650). Este documento registra o que foi
 refutado e o que a PR entrega. A investigação das linhas pretas nas RX 6600 está na PR separada da
 AMD (`docs/plans/2026-10-12-gpu-corruption-rdna2.md` naquela branch).
 
-Issues com o mesmo sintoma: [#39](https://github.com/FelipePrado0/gow3_pc/issues/39) (Arc B580,
-canônica), [#28](https://github.com/FelipePrado0/gow3_pc/issues/28) (Arc G3 Extreme / B390, MSI
-Claw 8), [#96](https://github.com/FelipePrado0/gow3_pc/issues/96) (Arc 140V, Lunar Lake, MSI Claw
-8 AI+; nos comentários, Arc G3 Extreme no Onexplayer 3 e MSI Claw 8 EX),
-[#99](https://github.com/FelipePrado0/gow3_pc/issues/99) (Arc A750, Alchemist). Intel com outro
+Issues com o mesmo sintoma: [#28](https://github.com/FelipePrado0/gow3_pc/issues/28) (Arc G3
+Extreme / B390, MSI Claw 8; a issue aberta que acompanha o caso),
+[#39](https://github.com/FelipePrado0/gow3_pc/issues/39) (Arc B580; o relato com o histórico dos
+builds de teste e as capturas RenderDoc, fechada como duplicada em 2026-10-13, 03:33 UTC),
+[#96](https://github.com/FelipePrado0/gow3_pc/issues/96) (Arc 140V, Lunar Lake, MSI Claw 8 AI+;
+nos comentários, Arc G3 Extreme no Onexplayer 3 e MSI Claw 8 EX) e
+[#99](https://github.com/FelipePrado0/gow3_pc/issues/99) (Arc A750, Alchemist), as duas também
+fechadas como duplicadas. Intel com outro
 sintoma: [#35](https://github.com/FelipePrado0/gow3_pc/issues/35) (HD 630, Gen9: 3D preto ou só
 azul), [#63](https://github.com/FelipePrado0/gow3_pc/issues/63) (A770: device lost).
 [#69](https://github.com/FelipePrado0/gow3_pc/issues/69) (iGPU Xe-LP, Core i5) não relata
@@ -150,7 +153,81 @@ Com barreiras ligadas (B580 e B390) e o compute comprovadamente fixado em 32 lan
 corrupção é idêntica, então as duas hipóteses caem. A causa está em outro ponto do núcleo
 compartilhado (tiling, formato, alias, endereçamento de imagem) ou no driver. O período de 128 px
 aponta para o layout Tile64 da Intel lido por um caminho que o ignora (seção 2, "Fallbacks que só
-a Intel toma"), e uma captura RenderDoc do primeiro evento retalhado decide.
+a Intel toma"), e uma captura RenderDoc do primeiro evento retalhado decide. Os três fallbacks
+foram descartados em seguida na GTX 1650 (item abaixo).
+
+### Resultado na GTX 1650 (2026-10-13): H-B refutada
+
+Hipóteses em teste: **H-B**, um dos três fallbacks que só a Intel toma (seção 2) produz o
+retalho; **H-C**, uma extensão que a Intel expõe se comporta mal no driver dela, ou a causa está em
+algo que a NVIDIA não consegue imitar.
+
+Máquina e build: GTX 1650, driver 617.14, Vulkan 1.4.351, Windows 11; dump CUSA01623 01.02 com
+os patches do repositório; esta branch no commit `0385940`, executada por `run.py` com
+`GOW3_GPU_LOG=info` e `user/` novo a cada execução (cache de pipelines limpo). Capturas de tela
+aos 50, 70 e 90 s (menu principal, com a cena 3D do Kratos ao fundo). O `run.py` não grava
+`user\last_run.log`: as linhas abaixo vêm da saída de cada execução.
+
+- **Execução 0, sem variável (baseline):** menu correto aos 70 e 90 s (Kratos e cenário
+  íntegros, sem faixas). Extensões opcionais na 1650:
+  - presentes: `VK_KHR_maintenance5`, `VK_KHR_pipeline_binary`, `VK_KHR_maintenance8`,
+    `VK_EXT_attachment_feedback_loop_layout`, `VK_EXT_attachment_feedback_loop_dynamic_state`,
+    `VK_EXT_depth_range_unrestricted`, `VK_EXT_extended_dynamic_state3`,
+    `VK_EXT_custom_border_color`, `VK_EXT_depth_clip_control`, `VK_EXT_depth_clip_enable`,
+    `VK_EXT_vertex_input_dynamic_state`, `VK_EXT_primitive_topology_list_restart`,
+    `VK_KHR_fragment_shader_barycentric`, `VK_EXT_provoking_vertex`,
+    `VK_NV_framebuffer_mixed_samples`, `VK_EXT_shader_atomic_float`,
+    `VK_KHR_workgroup_memory_explicit_layout`, `VK_EXT_image_2d_view_of_3d`,
+    `VK_EXT_image_view_min_lod`, `VK_EXT_memory_budget`, `VK_KHR_compute_shader_derivatives`,
+    `VK_KHR_shader_clock`;
+  - ausentes: `VK_AMD_shader_explicit_vertex_parameter`, `VK_EXT_shader_stencil_export`,
+    `VK_AMD_shader_image_load_store_lod`, `VK_AMD_gcn_shader`, `VK_AMD_shader_trinary_minmax`,
+    `VK_AMD_mixed_attachment_samples`, `VK_EXT_shader_atomic_float2`.
+
+  A 1650 tem as três extensões cuja falta define os fallbacks Intel-only e não tem stencil export
+  nem `atomic_float2`, que a Intel tem.
+- **Execução 1,
+  `GOW3_VK_DISABLE_EXT=VK_KHR_maintenance8,VK_EXT_attachment_feedback_loop_dynamic_state,VK_NV_framebuffer_mixed_samples`:**
+
+  ```
+  GPU: device NVIDIA GeForce GTX 1650, driver NvidiaProprietary 617.14.0.0, Vulkan 1.4.351; extensions off: VK_KHR_maintenance8, VK_EXT_attachment_feedback_loop_dynamic_state, VK_NV_framebuffer_mixed_samples (GOW3_VK_DISABLE_EXT=VK_KHR_maintenance8,VK_EXT_attachment_feedback_loop_dynamic_state,VK_NV_framebuffer_mixed_samples)
+  GPU: optional extensions unavailable: VK_KHR_maintenance8, VK_EXT_attachment_feedback_loop_layout, VK_EXT_attachment_feedback_loop_dynamic_state, VK_AMD_shader_explicit_vertex_parameter, VK_EXT_shader_stencil_export, VK_AMD_shader_image_load_store_lod, VK_AMD_gcn_shader, VK_AMD_shader_trinary_minmax, VK_NV_framebuffer_mixed_samples, VK_AMD_mixed_attachment_samples, VK_EXT_shader_atomic_float2; ignored names: none
+  ```
+
+  No stderr, `vk_instance.cpp:322 Extension VK_KHR_maintenance8 disabled by GOW3_VK_DISABLE_EXT`
+  (idem para as outras duas) e `vk_pipeline_serialization.cpp:872 CheckCacheProfile: Pipeline
+  cache skipped: GOW3_VK_DISABLE_EXT is active`. A `_layout` aparece em `unavailable` porque o
+  `pop_back` a removeu junto com a `_dynamic_state`.
+
+  Resultado: menu principal correto aos 70 s (Kratos e cenário íntegros, sem faixas), idêntico à
+  execução 0. Os três fallbacks (cópia depth↔color por buffer, layout `eGeneral` sem feedback
+  loop, `color_samples = depth_samples`) rodaram na NVIDIA sem produzir o retalho que a Intel
+  mostra desde o menu.
+
+**Veredito: H-B refutada** para os três fallbacks, que são os únicos caminhos de código que só a
+Intel toma. Resta H-C: uma extensão que a Intel expõe se comportando mal, ou algo que a NVIDIA não
+consegue imitar (`VK_EXT_shader_stencil_export`, `VK_EXT_shader_atomic_float2`). Só hardware
+Intel bissecciona isso (seção 6).
+
+- **Execução 2, `GOW3_VK_DISABLE_EXT=all` (20 opcionais desligadas na 1650):** device criado,
+  `window and Vulkan presenter ready`, `Pipeline cache skipped`, e o processo morreu sem
+  mensagem logo depois da inicialização de troféus/save, antes do vídeo de abertura (685 linhas
+  de stdout contra 845 na execução 1). Sem registro no Event Log. Enquanto a extensão
+  responsável não for isolada, `all` não serve de oráculo. Bisseção da morte:
+
+| Execução | Desligadas | Resultado |
+|---|---|---|
+| B | maintenance5, maintenance8, feedback_loop_layout, depth_range_unrestricted, extended_dynamic_state3, custom_border_color, depth_clip_control, depth_clip_enable, vertex_input_dynamic_state, primitive_topology_list_restart | morre no mesmo ponto (675 linhas) |
+| B2 | custom_border_color, depth_clip_control, depth_clip_enable, vertex_input_dynamic_state, primitive_topology_list_restart | morre no mesmo ponto (684 linhas) |
+| VI | vertex_input_dynamic_state | ok: vídeo de abertura aos 50 s (845 linhas) |
+| DC | depth_clip_control, depth_clip_enable | falha antes do jogo: `cannot create 8128 MiB of guest memory (error 1450)`, processo anterior ainda liberando memória; repetida como DC2 |
+| DC2, DC3 | depth_clip_control, depth_clip_enable | mesmo `error 1450`: commit livre do Windows em 7.087 MB (limite 35.053 MB) contra os 8.128 MiB que o jogo reserva; ambiente, não extensão |
+| DC4 | idem, com `GOW3_DMEM_MB=5056` | o jogo com patches precisa do pool de 8.128 MiB: fault no código do jogo logo após `UserService initialized`; execução inválida |
+
+Estado da bisseção (parada): a morte com `all` está em uma ou mais de
+`VK_EXT_custom_border_color`, `VK_EXT_depth_clip_control`, `VK_EXT_depth_clip_enable` e
+`VK_EXT_primitive_topology_list_restart` (B2 menos VI). As execuções param aqui por falta de commit
+de memória do Windows na máquina de desenvolvimento; retomar quando houver 8,5 GB livres de commit.
 
 ### Log do shadPS4 eltutz no B580 (cuesta4/shadPS4#11)
 
@@ -196,12 +273,13 @@ teste para quem tem a placa:
   (maiúsculas contam); `all` desliga toda opcional. A extensão desligada se comporta como
   ausente: o código toma o mesmo fallback (log `Extension X disabled by GOW3_VK_DISABLE_EXT`,
   nível Warning). As quatro obrigatórias (swapchain, push descriptor, vertex attribute divisor,
-  robustness2) nunca são desligadas; vale também para as extensões que o DLSS pede, e sem elas o
-  DLSS se desliga. Em qualquer nível de log saem duas linhas:
+  robustness2) nunca são desligadas; as extensões que o DLSS pede também obedecem (sem elas o
+  DLSS se desliga). Em qualquer nível de log saem duas linhas:
   `GPU: device <nome>, driver <id> <versão>, Vulkan <x.y.z>; extensions off: <lista ou none>
   (GOW3_VK_DISABLE_EXT=<valor ou unset>)` e `GPU: optional extensions unavailable: <lista ou
-  none>; ignored names: <lista ou none>`. `unavailable` junta as ausentes no device e as
-  desligadas; `ignored` são os nomes da variável que não tiveram efeito (desconhecidos,
+  none>; ignored names: <lista ou none>`. `unavailable` junta as ausentes no device, as
+  desligadas e a `VK_EXT_attachment_feedback_loop_layout` quando falta a `_dynamic_state` (o
+  `pop_back` remove a `_layout` junto); `ignored` são os nomes da variável que não tiveram efeito (desconhecidos,
   obrigatórios, ausentes no device ou nunca pedidos), o que pega erro de digitação no `.bat`.
   Enquanto a variável desliga alguma coisa, o cache de pipelines em disco e os pipeline binaries
   ficam fora da sessão (`Pipeline cache skipped: GOW3_VK_DISABLE_EXT is active`): extensões que
@@ -215,24 +293,30 @@ teste para quem tem a placa:
 
 ## 5. Próximos passos
 
-1. **Capturas RenderDoc do B580** (xwesalemao, #39): o primeiro evento cuja saída já sai
+1. **Bisseção de extensões na Intel** com `GOW3_VK_DISABLE_EXT` (protocolo da seção 6). Com H-B
+   refutada na GTX 1650, é o teste que separa as extensões que a Intel expõe; pedir em #28.
+2. **Terminar a bisseção do `all` na GTX 1650** entre `VK_EXT_custom_border_color`,
+   `VK_EXT_depth_clip_control`, `VK_EXT_depth_clip_enable` e
+   `VK_EXT_primitive_topology_list_restart` (precisa de 8,5 GB livres de commit) e corrigir o
+   fallback que derruba o jogo. É bug do port/shadPS4 por si só, reproduzível sem placa Intel.
+3. **Capturas RenderDoc do B580** (xwesalemao, #39): o primeiro evento cuja saída já sai
    retalhada decide. Dispatch de compute com `LocalSize` 64, variáveis Workgroup e sem
    `OpControlBarrier` reabriria A-1; draw, cópia ou detile antes de qualquer compute aponta para
    tiling ou formato. Pedir upload num lugar acessível (anexo do GitHub até 25 MB, ou gist do
    `last_run.log` com `GOW3_GPU_LOG=info` junto). O reporter disse que 3 das 4 capturas têm "API
    errors": pedir também o texto da aba Errors and Warnings do RenderDoc.
-2. **Clock preso em 400 MHz no B580:** confirmar com o Intel Graphics Software ou o Gerenciador
+4. **Clock preso em 400 MHz no B580:** confirmar com o Intel Graphics Software ou o Gerenciador
    de Tarefas durante o jogo. Não explica a corrupção (a B390 integrada tem o mesmo retalho), mas
    explica desempenho ruim e pode indicar o driver em estado de baixa potência.
-3. Com `GOW3_GPU_LOG=info` no B580: a faixa de subgrupo (`min to max`) e `pinnable stages`, que
+5. Com `GOW3_GPU_LOG=info` no B580: a faixa de subgrupo (`min to max`) e `pinnable stages`, que
    o log atual não tem (a B390 reporta 16 a 32 e `{ Compute | TaskEXT | MeshEXT }`).
-4. `GOW3_DUMP_SHADERS=1` numa máquina qualquer lista `LocalSize`, `shared_memory_size` e
+6. `GOW3_DUMP_SHADERS=1` numa máquina qualquer lista `LocalSize`, `shared_memory_size` e
    ballot/readlane por pipeline: responde se algum compute antes do passe translúcido tem
    workgroup de 64, LDS e nenhum `s_barrier`.
-5. Conferir e portar do upstream, se fizer sentido: #5310 (barreiras de storage buffer quando
+7. Conferir e portar do upstream, se fizer sentido: #5310 (barreiras de storage buffer quando
    subgroup != 64, aberta), #5285 (subgroup barrier de LDS, merged 2026-10-06) e #5116 (ballot e
    MBCNT lowered em par, merged 2026-09-25). Conferidos: nenhum cita Intel.
-6. Upstream desde o commit vendorado `b4e7ae77` (2026-09-24), a conferir no próximo merge, fora
+8. Upstream desde o commit vendorado `b4e7ae77` (2026-09-24), a conferir no próximo merge, fora
    desta PR: `7e77898` "video_core: Fix mip layout and detiling of tiled textures" (#5196),
    `995e37e` "Read CMask metadata" (#5046), `c679ce6` "texture_cache: initialize added
    depth-overlap subresources" (#5229), `fecfbed` "texture_cache: Avoid associating color images
@@ -262,24 +346,30 @@ faz o cache de pipelines ser reconstruído na abertura seguinte.
 
 ### Bisseção de extensões (`GOW3_VK_DISABLE_EXT`)
 
-Mesmo `teste.bat`, com `set GOW3_GPU_LOG=info` e sem as outras linhas `set GOW3_...`. Primeiro o
-oráculo: (A) `set GOW3_VK_DISABLE_EXT=all`. Se a cena continua retalhada, nenhuma extensão
-opcional é a causa e a bisseção para aí. Se A corrige, a lista de opcionais que a Intel expõe se
-divide em duas metades:
+Mesmo `teste.bat`, com `set GOW3_GPU_LOG=info`, sem as outras linhas `set GOW3_...` e com uma
+linha `set GOW3_VK_DISABLE_EXT=<lista>` por execução. `all` não serve de oráculo: na GTX 1650 ele
+derruba o jogo antes do vídeo de abertura (seção 3), e uma morte não diz nada sobre o retalho.
+Execuções:
 
-- (B) `VK_KHR_workgroup_memory_explicit_layout,VK_EXT_shader_stencil_export,VK_EXT_image_2d_view_of_3d,VK_EXT_depth_clip_control,VK_EXT_depth_clip_enable,VK_EXT_vertex_input_dynamic_state,VK_EXT_extended_dynamic_state3,VK_EXT_primitive_topology_list_restart,VK_EXT_provoking_vertex,VK_EXT_custom_border_color`
-- (C) `VK_EXT_image_view_min_lod,VK_EXT_depth_range_unrestricted,VK_KHR_fragment_shader_barycentric,VK_EXT_shader_atomic_float,VK_EXT_shader_atomic_float2,VK_KHR_maintenance5,VK_EXT_memory_budget,VK_KHR_compute_shader_derivatives,VK_KHR_shader_clock`
+- (A) sem a variável: confirma o sintoma e grava a lista de extensões do device.
+- (B) e (C): as duas metades das opcionais que a Intel expõe, **sem** as quatro candidatas da
+  morte com `all`:
+  - (B) `VK_KHR_workgroup_memory_explicit_layout,VK_EXT_shader_stencil_export,VK_EXT_image_2d_view_of_3d,VK_EXT_vertex_input_dynamic_state,VK_EXT_extended_dynamic_state3,VK_EXT_provoking_vertex,VK_EXT_image_view_min_lod,VK_EXT_depth_range_unrestricted`
+  - (C) `VK_KHR_fragment_shader_barycentric,VK_EXT_shader_atomic_float,VK_EXT_shader_atomic_float2,VK_KHR_maintenance5,VK_EXT_memory_budget,VK_KHR_compute_shader_derivatives,VK_KHR_shader_clock`
+- (D) só as quatro candidatas:
+  `VK_EXT_custom_border_color,VK_EXT_depth_clip_control,VK_EXT_depth_clip_enable,VK_EXT_primitive_topology_list_restart`.
+  Uma morte aqui é a mesma da GTX 1650, atribuível ao crash conhecido, e não deve ser lida como
+  "corrigiu"; se D chegar ao menu, vale o que a cena mostrar.
 
-A metade que corrige se divide de novo, e assim por diante até sobrar um nome (umas cinco
-execuções). Em cada uma: anexar `user\last_run.log` e dizer se a cena mudou; a linha `GPU:
+A execução que mudou a cena se divide ao meio de novo, e assim por diante até sobrar um nome. Em cada uma: anexar `user\last_run.log` e dizer se a cena mudou; a linha `GPU:
 device ...; extensions off:` confirma o que foi desligado, e `ignored names` precisa sair `none`
 (senão algum nome foi digitado errado). Cada execução compila os shaders de novo, porque o cache
 fica fora da sessão.
 
 Na GTX 1650 da máquina de desenvolvimento, a receita
 `VK_KHR_maintenance8,VK_EXT_attachment_feedback_loop_dynamic_state,VK_NV_framebuffer_mixed_samples`
-põe a NVIDIA nos três fallbacks que só a Intel toma (seção 2). Se o retalho aparecer, o bug está
-no fallback e se reproduz localmente.
+põe a NVIDIA nos três fallbacks que só a Intel toma (seção 2). Rodada em 2026-10-13, o menu saiu
+correto (seção 3): os fallbacks não reproduzem o retalho.
 
 Riscos registrados:
 
