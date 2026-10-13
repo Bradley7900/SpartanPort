@@ -158,6 +158,43 @@ duas.
   #5285 (subgroup barrier de LDS) e #5116 (ballot e MBCNT lowered em par). Citados pelos agentes,
   não conferidos.
 
+## 7b. Atualização de 2026-10-13 (logs e testes dos reporters)
+
+- **Bisseção na RX 6600 (FilipiEPTeixeira, #65): os 7 testes falharam**, 5 aberturas cada,
+  linhas em todas. Eliminados: cache de binários, warm-up em segundo plano, compilação
+  assíncrona, square pass (`GOW3_SQUARE_PASS=0`), coletor de VRAM (`GOW3_GC_BUDGET_MB=20000`),
+  draw pipe, gravação em thread, readbacks sem espera. A causa está no núcleo compartilhado ou
+  no driver, não nas otimizações do port.
+- **Oito logs lidos por inteiro** (seis reporters; Intel B390 e seis RX 6600/6600M): execuções
+  saudáveis, sem erro, sem pressão de memória, duas versões do Adrenalin (26.6.4 e 26.8.1),
+  Fifo e Immediate, janela e tela cheia, quatro builds de eboot diferentes. Nenhuma linha se
+  correlaciona com o defeito; falta um log de controle da 6700 XT com `GOW3_GPU_LOG=info`.
+- **`teste.log` (MarcosAlexandre30, build de teste 1, RX 6600):**
+  `Physical device subgroup size 64 (32 to 64, pinnable stages { Compute })`. O driver AMD só
+  aceita `requiredSubgroupSize` em compute; o pin de 64 nos estágios gráficos (herdado do
+  shadPS4) é inválido na AMD e o driver escolhe o wave size do pixel shader por conta própria.
+  Uma wave32 de PS cobre 8x4 px, a geometria medida nos prints. O print do wyz-ez (#65) mostra
+  as linhas só nas fontes de luz e nos brilhos especulares.
+- **Intel:** o log do yisus230291 (#28, "não funcionou") era do binário 2.1.6 na pasta antiga,
+  não do build de teste (sem a faixa de subgrupo na linha, cache não limpo). A GPU é uma Arc
+  B390 integrada (Panther Lake), driver 101.9034, sem `VK_KHR_pipeline_binary`.
+- **O port só grava linhas de GPU em nível Warning** (`gpu/shim/common/logging/log.cpp`);
+  `GOW3_GPU_LOG=info` libera. Marcadores para testers precisam ser `std::printf`.
+- **Mudanças na branch depois do build 1:** `GPU: subgroup policy: ...` por printf
+  (`adf0aea`); `GOW3_SUBGROUP_PIN=all|allowed|none` (`342d3b5`); barreiras de LDS pelo pin
+  efetivo do compute (`c8665df`); `GOW3_WAVE_STATS=1` liga
+  `VK_KHR_pipeline_executable_properties` e grava um histograma de (estágio, lanes) por
+  pipeline, `GPU: wave sizes after N pipelines: ...` (`408fafc`, `vk_wave_stats.h`,
+  `tests/test_wave_stats.cpp`).
+- **Build de teste 2 (`windows-v2.1.6-test2`):** RX 6600 roda três vezes com cache limpo:
+  (1) `GOW3_WAVE_STATS=1 GOW3_GPU_LOG=info`, (2) mais `GOW3_SUBGROUP_PIN=allowed`, (3)
+  `GOW3_SUBGROUP_PIN=none GOW3_LDS_BARRIERS=1`. O histograma diz se o fragment roda em wave32
+  na Navi 23; o mantenedor deve rodar (1) na 6700 XT para comparar.
+- Ferramentas de build nesta máquina: MSYS2 CLANG64 em `C:\msys64`; o worktree precisa do
+  alias `subst G:` para o ninja (caminhos acima de 260 caracteres) e `bash build.sh` falha no
+  `git apply` do submódulo sob o alias (gitfile relativo), então o build usa cmake e ninja
+  direto (`scratchpad/build_g.sh` da sessão) e `package.sh` roda no caminho longo.
+
 ## 8. Perguntas em aberto
 
 1. Algum compute antes do passe translúcido tem workgroup de 64, LDS e nenhum `s_barrier`?
