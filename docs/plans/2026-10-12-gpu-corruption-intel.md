@@ -1,10 +1,10 @@
 # Corrupção gráfica na Intel Arc (B580, Arc G3 / B390)
 
-Diagnóstico de 2026-10-12 e 2026-10-13, feito por leitura do código, dos relatos e dos logs.
-Nenhuma placa Intel está disponível localmente (a máquina de desenvolvimento tem uma GTX 1650),
-então a confirmação depende de quem reportou. Este documento registra o que foi apurado, o que
-foi refutado e o que a PR entrega. A investigação das linhas pretas nas RX 6600 está em
-`2026-10-12-gpu-corruption-rdna2.md`.
+Diagnóstico de 2026-10-12 e 2026-10-13, feito por leitura do código, dos relatos e dos logs, mais
+os builds de teste rodados por quem tem a placa. Nenhuma placa Intel está disponível localmente (a
+máquina de desenvolvimento tem uma GTX 1650). Este documento registra o que foi apurado, o que foi
+refutado e o que a PR entrega. A investigação das linhas pretas nas RX 6600 está na PR separada da
+AMD (`docs/plans/2026-10-12-gpu-corruption-rdna2.md` naquela branch).
 
 Issues: [#39](https://github.com/FelipePrado0/gow3_pc/issues/39) (Arc B580, canônica),
 [#28](https://github.com/FelipePrado0/gow3_pc/issues/28) (Arc G3 Extreme / B390, MSI Claw 8);
@@ -14,14 +14,14 @@ shadPS4 eltutz: cuesta4/shadPS4#11.
 
 | | Intel Arc |
 |---|---|
-| Placas | Arc B580 (discreta, driver 32.0.101.9033 WHQL), Arc B390 integrada do Panther Lake (driver 101.9034) |
-| Aparência | A cena 3D inteira retalhada em faixas horizontais de cerca de 32 px; dentro de cada faixa, tiles de cerca de 64 px deslocados. HUD, Scaleform e vídeos H.264 intactos. Começa já no menu principal. |
-| Comportamento | Determinístico: aparece em toda execução, desde o menu. |
+| Placas | Arc B580 (discreta, driver 32.0.101.9033 WHQL), Arc B390 integrada do Panther Lake (driver 101.9034, Vulkan 1.4.356) |
+| Aparência | A cena 3D inteira retalhada em faixas horizontais de cerca de 32 px; dentro de cada faixa, tiles de cerca de 64 px deslocados. HUD, Scaleform e vídeos H.264 intactos. Começa já no menu principal, idêntico nas duas placas. |
+| Comportamento | Determinístico: aparece em toda execução, desde o menu. No B580 o reporter viu o clock da GPU preso em 400 MHz durante o jogo. |
 | Em outros builds | Igual no shadPS4 eltutz. HD 630 (Gen9, #35) mostra outro defeito (3D preto ou só azul). A770 (#63) perde o device: sintoma diferente. |
 
-Logs dos reporters: o B580 reporta `subgroup size 32`; a B390 também (`Physical device subgroup
-size 32`), Vulkan 1.4.356, sem `VK_KHR_pipeline_binary`. Nenhum tem aviso relevante do
-`Render.Vulkan` além de formatos sem suporte com fallback (`R8Srgb`, `R8G8Srgb`,
+Logs dos reporters: o B580 reporta `subgroup size 32`; a B390 reporta 32 lanes, faixa de 16 a 32,
+pin aceito em `{ Compute | TaskEXT | MeshEXT }`, sem `VK_KHR_pipeline_binary`. Nenhum tem aviso
+relevante do `Render.Vulkan` além de formatos sem suporte com fallback (`R8Srgb`, `R8G8Srgb`,
 `D16UnormS8Uint`, `R5G5B5A1`, `B4G4R4A4`, `A2B10G10R10Snorm/Sint`) e `Unimplemented
 IT_SET_PREDICATION` no B580. Execuções saudáveis: nenhum erro, nenhum device lost.
 
@@ -41,7 +41,25 @@ IT_SET_PREDICATION` no B580. Execuções saudáveis: nenhum erro, nenhum device 
 - O pacote de release não inclui cache de shaders; cada reporter compila o próprio.
 - O port só grava linhas de GPU em nível Warning no `user\last_run.log`
   (`gpu/shim/common/logging/log.cpp`); `GOW3_GPU_LOG=info` libera. Marcadores para testers
-  precisam ser `std::printf("GPU: ...")`.
+  precisam ser `std::printf("GPU: ...")`. Só o `Play God of War III.exe` (`--play`) grava o
+  arquivo; o botão PLAY do launcher passa a gravar com a correção que está na PR da AMD.
+
+### Qual build gerou um log
+
+Os números de linha dos avisos do `vk_instance.cpp` identificam o binário mesmo sem
+`GOW3_GPU_LOG=info`:
+
+| Binário | `Extension ... unavailable` | `CollectImageFormatInfo` | Linha `GPU: subgroup policy:` |
+|---|---|---|---|
+| 2.1.4, 2.1.5 | `:294` | `:845` | não |
+| 2.1.6, 2.1.7, `main` | `:304` | `:855` | não |
+| `windows-v2.1.6-intel-test1` (`7a9e0a7`) | `:308` | `:859` | não (era LOG_INFO) |
+| `windows-v2.1.6-test2` | `:309` | `:878` | sim, em qualquer nível |
+| `windows-v2.1.7-test3`, `-test4` | `:309` | `:880` | sim, em qualquer nível |
+
+Nos builds de teste 1 a 4 a Intel rodava com barreiras de LDS ligadas e compute fixado em 32
+lanes sem variável nenhuma (só `GOW3_LDS_BARRIERS=0` desligava as barreiras, e nenhum reporter
+a usou).
 
 ## 3. Hipóteses
 
@@ -68,27 +86,27 @@ tamanho do subgrupo.
 
 ### Resultado em hardware (2026-10-13): A-1 e A-2 refutadas como causa
 
-O build de teste `windows-v2.1.6-intel-test1` (commit `7a9e0a7`) ligava as barreiras de LDS e
-fixava o compute em 32 lanes em todo host Intel, sem variável nenhuma.
-
-- **B580 (xwesalemao, #39):** "the bug persists in the test version for Intel", corrompido desde
-  o menu. O `last_run.log` anexado prova que era o build da branch: as linhas
-  `vk_instance.cpp:308 ... Extension ... unavailable` e `vk_instance.cpp:859
-  CollectImageFormatInfo` só existem nos binários da branch (a `main`, a 2.1.6 e a 2.1.7 têm
-  `:304` e `:855`; o build 3 em diante tem `:309`). As barreiras de LDS estavam ativas. O pin de
-  32 só se aplica quando o driver reporta faixa variável (`min < max`) e aceita pin em compute;
-  sem `GOW3_GPU_LOG=info` o log não mostra a faixa, mas se o B580 reporta 32 fixo o SIMD16 nem
-  é possível, e A-2 cai de qualquer forma.
-- **B390 (yisus230291, #28):** os dois logs enviados (23:39 e 01:09) são do binário stock
-  (`vk_instance.cpp:285 Physical device subgroup size 32` sem a faixa, `:304`): o build de
-  teste não foi executado nessa máquina. O "não funcionou" dele não informa nada.
+- **B580 (xwesalemao, #39, 02:05 UTC):** "The graphics are already corrupted in the game menu"
+  (uma revisão anterior do comentário dizia "the bug persists in the test version for Intel").
+  O `last_run.log` anexado é do `windows-v2.1.6-intel-test1`: `:308`/`:859` e nenhuma linha
+  `GPU: subgroup policy:` (tabela acima). Barreiras de LDS ativas; o pin de 32 não aparece no log
+  (sem `GOW3_GPU_LOG=info`), mas o B390 abaixo mostra que a Intel aceita o pin em compute.
+- **B390 (yisus230291, #28, 02:40 UTC):** "exactly the same as the other intel arc person, even
+  the main menu looks identical". O log (`last_run.txt`) é do build 3 ou 4 (`:309`/`:880`) e
+  traz a política aplicada: `GPU: subgroup policy: compute pinned to 32, fragment pinned to 0,
+  LDS barriers on (device 32 lanes, 16 to 32, pinnable stages { Compute | TaskEXT | MeshEXT },
+  GOW3_SUBGROUP_PIN=all)`. Pin de 32 em compute e barreiras de LDS, e a cena continua retalhada.
+  Os dois logs anteriores dele não eram do build de teste: o de 23:39 UTC é da 2.1.5 ou anterior
+  (`:294`/`:845`) e o de 01:09 UTC é da 2.1.6/2.1.7 (`:285 Physical device subgroup size 32`
+  sem faixa, `:304`).
 - O xwesalemao também publicou capturas RenderDoc (pasta no mega.nz linkada em #39, 4 capturas,
   3 com erros de API). Ainda não analisadas: exigem o cliente do Mega ou upload em outro lugar.
 
-Com as duas hipóteses caindo, a causa está em outro ponto do núcleo compartilhado (tiling,
-formato, alias, endereçamento de imagem) ou no driver. O padrão de faixas de 32 px com tiles de
-64 px deslocados é compatível com erro de detile/endereçamento de uma imagem tiled, o que uma
-captura RenderDoc do primeiro evento retalhado decide.
+Com barreiras ligadas e o compute fixado em 32 lanes a corrupção é idêntica, então as duas
+hipóteses caem. A causa está em outro ponto do núcleo compartilhado (tiling, formato, alias,
+endereçamento de imagem) ou no driver. O padrão de faixas de 32 px com tiles de 64 px deslocados
+é compatível com erro de detile/endereçamento de uma imagem tiled, o que uma captura RenderDoc do
+primeiro evento retalhado decide.
 
 ### Refutadas por leitura (2026-10-12)
 
@@ -103,20 +121,29 @@ captura RenderDoc do primeiro evento retalhado decide.
 ## 4. O que esta PR entrega
 
 Como as duas hipóteses não se confirmaram, **nada muda por padrão**: a política de subgrupo e as
-barreiras de LDS ficam exatamente como no shadPS4 (`vk_subgroup_policy.h`, com teste
+barreiras de LDS ficam exatamente como no shadPS4 (`vk_subgroup_policy.h`, helper puro com teste
 `tests/test_subgroup_policy.cpp`, alvo `subgroup-policy-test`). O que entra é ferramenta de
 teste para quem tem a placa:
 
 - `GOW3_SUBGROUP_PIN=all|allowed|none`. `all` (padrão) é o comportamento atual: pin de 64 em todo
-  estágio num host de 64 lanes (AMD), nada nos outros. `allowed` fixa só os estágios que o driver
-  lista em `requiredSubgroupSizeStages`, na largura para a qual os shaders foram compilados: 64
-  na AMD (só compute), 32 na Intel (compute, se a faixa for variável). `none` não fixa nada.
-- `GOW3_LDS_BARRIERS=0|1` força as barreiras de LDS no recompilador. Os módulos recompilados
-  ficam no cache de shaders sem essa flag na chave: mudar o valor exige **Clear shader cache**.
+  estágio num host de 64 lanes (AMD), nada nos outros. Na AMD isso fixa também vertex e fragment,
+  que o driver não lista em `requiredSubgroupSizeStages`: uso inválido pela especificação
+  (VUID-VkPipelineShaderStageCreateInfo-pNext-02755), que o shadPS4 mantém porque o driver AMD
+  aceita na prática. `allowed` é a variante conforme: fixa só os estágios que o driver lista, na
+  largura para a qual os shaders foram compilados: 64 na AMD (só compute), 32 na Intel (compute,
+  se a faixa for variável). `none` não fixa nada.
+- `GOW3_LDS_BARRIERS=0|1` força as barreiras de LDS no recompilador. A flag faz parte do
+  `Shader::Profile` gravado com o cache de pipelines: ao mudar o valor, a próxima abertura detecta
+  o perfil diferente, limpa e reconstrói o cache sozinha (`Pipeline cache isn't compatible with
+  current system: rebuilding it` no log). Cada troca custa uma recompilação completa; o botão
+  **Clear shader cache** só é necessário com cache arquivado.
 - O log passa a imprimir a faixa de subgrupo e os estágios que aceitam pin (`Physical device
   subgroup size N (min to max, pinnable stages {...})`, nível Info) e, em qualquer nível, a
   política escolhida: `GPU: subgroup policy: compute pinned to N, fragment pinned to N, LDS
-  barriers on|off (...)`. Essa linha identifica o build e a configuração em qualquer log.
+  barriers on|off (device N lanes, min to max, pinnable stages {...}, GOW3_SUBGROUP_PIN=<valor ou
+  unset>, mode all|allowed|none)`. O `mode` é o que foi interpretado: `Allowed` ou um espaço a
+  mais no `.bat` aparecem como `mode all`. Essa linha identifica o build e a configuração em
+  qualquer log.
 - `ShaderBinaryVersion` continua 7: nenhum usuário recompila o cache por causa desta PR.
 
 ## 5. Próximos passos
@@ -126,10 +153,11 @@ teste para quem tem a placa:
    `OpControlBarrier` reabriria A-1; draw, cópia ou detile antes de qualquer compute aponta para
    tiling ou formato. Pedir upload num lugar acessível (anexo do GitHub até 25 MB, ou gist do
    `last_run.log` com `GOW3_GPU_LOG=info` junto).
-2. **B390 (yisus230291):** rodar um build desta branch pelo `teste.bat` abaixo e anexar o
-   `last_run.log`; a linha `GPU: subgroup policy:` confirma o build.
-3. Com `GOW3_GPU_LOG=info` no B580: a faixa de subgrupo (`min to max`) e `pinnable stages` da
-   Intel, que o log atual não tem.
+2. **Clock preso em 400 MHz no B580:** confirmar com o Intel Graphics Software ou o Gerenciador
+   de Tarefas durante o jogo. Não explica a corrupção (a B390 integrada tem o mesmo retalho), mas
+   explica desempenho ruim e pode indicar o driver em estado de baixa potência.
+3. Com `GOW3_GPU_LOG=info` no B580: a faixa de subgrupo (`min to max`) e `pinnable stages`, que
+   o log atual não tem (a B390 reporta 16 a 32 e `{ Compute | TaskEXT | MeshEXT }`).
 4. `GOW3_DUMP_SHADERS=1` numa máquina qualquer lista `LocalSize`, `shared_memory_size` e
    ballot/readlane por pipeline: responde se algum compute antes do passe translúcido tem
    workgroup de 64, LDS e nenhum `s_barrier`.
@@ -139,22 +167,24 @@ teste para quem tem a placa:
 
 ## 6. Como testar (Intel Arc)
 
-Pasta nova, **Clear shader cache** antes de cada execução, jogo aberto por um `teste.bat` ao
-lado de `God of War III.exe`:
+Pasta nova, com a pasta do jogo escolhida uma vez no launcher. Jogo aberto por um `teste.bat` ao
+lado de `Play God of War III.exe` (é esse executável que grava o `user\last_run.log`; o botão
+PLAY do launcher só grava com a correção da PR da AMD):
 
 ```bat
 @echo off
 set GOW3_GPU_LOG=info
 set GOW3_SUBGROUP_PIN=allowed
 set GOW3_LDS_BARRIERS=1
-start "" "God of War III.exe"
+start "" "Play God of War III.exe"
 ```
 
 Execuções úteis, uma de cada vez: (1) sem as duas linhas `set GOW3_...` (padrão, confirma o
 sintoma e grava a faixa de subgrupo); (2) só `GOW3_LDS_BARRIERS=1`; (3) só
-`GOW3_SUBGROUP_PIN=allowed`; (4) as duas. Em cada uma: anexar `user\last_run.log` e dizer se a
-cena mudou. As duas últimas juntas equivalem ao build de teste 1, que já falhou no B580; valem
-como controle para o B390 e para outros drivers.
+`GOW3_SUBGROUP_PIN=allowed`; (4) as duas, que equivale aos builds de teste 1 a 4 e já falhou no
+B580 e na B390. Em cada uma: anexar `user\last_run.log` e dizer se a cena mudou. A linha `GPU:
+subgroup policy:` confirma o build e a configuração; trocar `GOW3_LDS_BARRIERS` entre execuções
+faz o cache de pipelines ser reconstruído na abertura seguinte.
 
 ## 7. Perguntas em aberto
 
@@ -162,4 +192,6 @@ como controle para o B390 e para outros drivers.
 2. Na Intel, o padrão é estável ou cintila entre frames?
 3. O que explica o HD 630 (#35, 3D preto ou azul) e o device lost da A770 (#63)? São sintomas
    diferentes, possivelmente causas diferentes.
-4. A faixa de subgrupo reportada pelo B580 (`min to max`) e os estágios que aceitam pin.
+4. A faixa de subgrupo e os estágios que aceitam pin no B580 (a B390 responde 16 a 32 e
+   `{ Compute | TaskEXT | MeshEXT }`).
+5. O clock de 400 MHz no B580 é do driver, do jogo ou da medição?
