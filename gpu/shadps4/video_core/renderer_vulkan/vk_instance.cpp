@@ -14,6 +14,7 @@
 #include "sdl_window.h"
 #include "video_core/amdgpu/gow3_msaa.h"
 #include "video_core/amdgpu/gow3_msaa_default.h"
+#include "video_core/renderer_vulkan/gow3_vertex_input_default.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_amd_paths.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
@@ -375,7 +376,30 @@ bool Instance::CreateDevice() {
     custom_border_color = add_extension(VK_EXT_CUSTOM_BORDER_COLOR_EXTENSION_NAME);
     depth_clip_control = add_extension(VK_EXT_DEPTH_CLIP_CONTROL_EXTENSION_NAME);
     depth_clip_enable = add_extension(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
-    vertex_input_dynamic_state = add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
+    // gow3: off by default on Intel's Windows driver (#35), GOW3_VERTEX_INPUT_DYNAMIC overrides
+    // it (gow3_vertex_input_default.h); GOW3_VK_DISABLE_EXT still wins inside add_extension.
+    const char* vertex_input_env = std::getenv("GOW3_VERTEX_INPUT_DYNAMIC");
+    const bool vertex_input_wanted =
+        gow3_vertex_input_dynamic(vertex_input_env, static_cast<VkDriverId>(driver_id)) != 0;
+    vertex_input_dynamic_state =
+        vertex_input_wanted && add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
+    const char* vertex_input_line;
+    if (vertex_input_dynamic_state) {
+        vertex_input_line = vertex_input_env && std::string_view{vertex_input_env} == "1"
+                                ? "on (GOW3_VERTEX_INPUT_DYNAMIC=1)"
+                                : "on";
+    } else if (std::find(disabled_extensions.begin(), disabled_extensions.end(),
+                         VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME) !=
+               disabled_extensions.end()) {
+        vertex_input_line = "off (GOW3_VK_DISABLE_EXT)";
+    } else if (!vertex_input_wanted) {
+        vertex_input_line = vertex_input_env && *vertex_input_env
+                                ? "off (GOW3_VERTEX_INPUT_DYNAMIC=0)"
+                                : "off (Intel Windows driver; GOW3_VERTEX_INPUT_DYNAMIC=1 turns it on)";
+    } else {
+        vertex_input_line = "unavailable (VK_EXT_vertex_input_dynamic_state missing)";
+    }
+    std::printf("GPU: vertex input dynamic state %s\n", vertex_input_line);
     list_restart = add_extension(VK_EXT_PRIMITIVE_TOPOLOGY_LIST_RESTART_EXTENSION_NAME);
     if (list_restart) {
         list_restart_features =
