@@ -293,7 +293,8 @@ void FrameCapture::Dispatch(u64 cs_hash, u32 x, u32 y, u32 z) {
 }
 
 void FrameCapture::Buffer(u64 stage_hash, u32 slot, VAddr address, const void* data, u64 size) {
-    const u64 bytes = std::min<u64>(size, 1024) & ~u64(3);
+    // No host bytes (null): the header line still records the binding.
+    const u64 bytes = data ? std::min<u64>(size, 1024) & ~u64(3) : 0;
     std::string out = std::format("  buffer stage {:016x} slot {} at {:#x} size {}:", stage_hash,
                                   slot, address, size);
     const auto* words = static_cast<const float*>(data);

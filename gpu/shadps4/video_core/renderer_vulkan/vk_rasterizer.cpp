@@ -2108,10 +2108,12 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
         const auto& desc = stage.buffers[buffer_index];
         const RingBinding* ring = num_ring_stages ? FindRingBinding(stage, buffer_index) : nullptr;
         if (ring) {
-            // Copied by the GPU command thread into the constant ring (read-only).
-            if (FrameCapture::Active() && memory->IsValidGpuMapping(ring->address, 0)) {
+            // Copied by the GPU command thread into the constant ring (read-only). The dump
+            // reads that copy: `address` is a label (0 for the flattened user data, #174) and
+            // the guest bytes may have changed since stage A copied them.
+            if (FrameCapture::Active()) {
                 FrameCapture::Buffer(stage.pgm_hash, buffer_index, ring->address,
-                                     reinterpret_cast<const void*>(ring->address), ring->size);
+                                     constant_ring->Data(ring->offset), ring->size);
             }
             if (!desc.IsSpecial()) {
                 if (ring->size == 864 && gbuffer_draw &&
