@@ -382,13 +382,11 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
             return !instance.IsFragmentShaderBarycentricSupported() &&
                    instance.GetDriverID() == vk::DriverId::eNvidiaProprietary;
         }(),
-        // gow3: a 64-thread workgroup is one lockstep wave on the PS4. Hosts not pinned to 64
-        // lanes (Intel: 32 at most) need the barriers like NVIDIA; GOW3_LDS_BARRIERS=0/1
-        // overrides (vk_subgroup_policy.h).
+        // gow3: shadPS4's list, unless GOW3_LDS_BARRIERS=0/1 forces the value (a test for hosts
+        // that cannot run a 64-thread workgroup as one wave, vk_subgroup_policy.h).
         .needs_lds_barriers =
             NeedsLdsBarriers(instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
                                  instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
-                             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute) == 64u,
                              std::getenv("GOW3_LDS_BARRIERS")),
         .needs_buffer_offsets = instance.StorageMinAlignment() > 4,
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,

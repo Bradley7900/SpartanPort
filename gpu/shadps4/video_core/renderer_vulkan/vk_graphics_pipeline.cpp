@@ -258,8 +258,8 @@ GraphicsPipeline::GraphicsPipeline(
         });
     }
 
-    // gow3: per stage (vk_subgroup_policy.h): 64 lanes where the host has them, else the width
-    // the recompiler assumed, on the stages the driver lets be pinned.
+    // gow3: per stage (vk_subgroup_policy.h): 64 lanes on a 64-lane host, as shadPS4 does,
+    // unless GOW3_SUBGROUP_PIN says otherwise.
     vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size_ci = {
         .requiredSubgroupSize = 0,
     };

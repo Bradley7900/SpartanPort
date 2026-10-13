@@ -21,8 +21,8 @@ ComputePipeline::ComputePipeline(const Instance& instance, Scheduler& scheduler,
     info = &info_;
     const auto debug_str = GetDebugString();
 
-    // gow3: 64 lanes where the host has them, else the width the recompiler assumed
-    // (vk_subgroup_policy.h).
+    // gow3: the stage's pin, if any (vk_subgroup_policy.h: 64 lanes on a 64-lane host, as
+    // shadPS4 does, unless GOW3_SUBGROUP_PIN says otherwise).
     const vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo subgroup_size_ci = {
         .requiredSubgroupSize =
             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute).value_or(0),
