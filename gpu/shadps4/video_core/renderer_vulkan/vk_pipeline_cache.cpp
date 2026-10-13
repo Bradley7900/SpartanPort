@@ -388,7 +388,7 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         .needs_lds_barriers =
             NeedsLdsBarriers(instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
                                  instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
-                             instance.IsSubgroupSize64Supported(),
+                             instance.PinnedSubgroupSize(vk::ShaderStageFlagBits::eCompute) == 64u,
                              std::getenv("GOW3_LDS_BARRIERS")),
         .needs_buffer_offsets = instance.StorageMinAlignment() > 4,
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
