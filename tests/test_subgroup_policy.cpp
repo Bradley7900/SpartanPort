@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 #include "video_core/renderer_vulkan/vk_subgroup_policy.h"
 
@@ -63,6 +64,13 @@ int main() {
     assert(!NeedsLdsBarriers(false, ""));
     assert(!NeedsLdsBarriers(false, "x"));
     assert(NeedsLdsBarriers(true, "x"));
+
+    // The log prints the mode that was parsed next to the raw variable, so "Allowed" or a
+    // trailing space cannot pass for the "allowed" test.
+    assert(std::strcmp(SubgroupPinModeName(SubgroupPinMode::All), "all") == 0);
+    assert(std::strcmp(SubgroupPinModeName(SubgroupPinMode::Allowed), "allowed") == 0);
+    assert(std::strcmp(SubgroupPinModeName(SubgroupPinMode::None), "none") == 0);
+    assert(std::strcmp(SubgroupPinModeName(ParseSubgroupPinMode("Allowed")), "all") == 0);
 
     std::puts("subgroup-policy-test: ok");
     return 0;

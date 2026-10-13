@@ -32,12 +32,26 @@ inline SubgroupPinMode ParseSubgroupPinMode(const char* env) {
     return SubgroupPinMode::All;
 }
 
+/// The mode as the log prints it, so a value the parser did not recognise shows up as "all".
+inline const char* SubgroupPinModeName(SubgroupPinMode mode) {
+    switch (mode) {
+    case SubgroupPinMode::Allowed:
+        return "allowed";
+    case SubgroupPinMode::None:
+        return "none";
+    default:
+        return "all";
+    }
+}
+
 /// The subgroup size a shader stage is pinned to with VK_EXT_subgroup_size_control.
 ///
 /// "all" (default) is shadPS4's behaviour: a host with 64-wide subgroups (AMD) pins every stage
 /// to 64, the width the shaders were written for, whether or not the stage is in
-/// requiredSubgroupSizeStages (AMD lists compute only, so the graphics pins are outside the
-/// specification there and the driver is free to ignore them); any other host gets no pin.
+/// requiredSubgroupSizeStages. AMD lists compute only, so the graphics pins are invalid usage
+/// there (VUID-VkPipelineShaderStageCreateInfo-pNext-02755, undefined behaviour); shadPS4 keeps
+/// them because the AMD drivers accept them in practice, and "allowed" is the conformant
+/// alternative. Any other host gets no pin.
 ///
 /// "allowed" pins only the stages the driver lists, to the width the shaders were compiled for:
 /// 64 on a 64-lane host, and on a host whose width can vary between `min_size` and `max_size`
@@ -73,8 +87,10 @@ inline std::optional<std::uint32_t> ChoosePinnedSubgroupSize(
 /// On the PS4 such a workgroup is one wave in lockstep and the game's shaders omit the
 /// barriers. By default only the drivers shadPS4 lists (NVIDIA, KosmicKrisp) get them.
 /// `override` is GOW3_LDS_BARRIERS: "0" or "1" forces the value, anything else is ignored.
-/// The recompiled modules are cached without this flag in their key, so a change needs the
-/// launcher's "Clear shader cache".
+/// The flag is part of the Shader::Profile stored with the pipeline cache, so a change makes
+/// the next start clear and rebuild the cache by itself ("Pipeline cache isn't compatible with
+/// current system: rebuilding it"); only an archived cache needs the launcher's "Clear shader
+/// cache".
 inline bool NeedsLdsBarriers(bool driver_needs_barriers, const char* override) {
     if (override && (override[0] == '0' || override[0] == '1')) {
         return override[0] == '1';
