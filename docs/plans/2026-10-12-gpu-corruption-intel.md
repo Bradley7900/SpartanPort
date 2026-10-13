@@ -1,4 +1,4 @@
-# Corrupção gráfica na Intel Arc (B580, Arc G3 / B390)
+# Corrupção gráfica na Intel Arc (A750, B580, 140V, B390)
 
 Diagnóstico de 2026-10-12 e 2026-10-13, feito por leitura do código, dos relatos e dos logs, mais
 os builds de teste rodados por quem tem a placa. Nenhuma placa Intel está disponível localmente (a
