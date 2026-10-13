@@ -235,7 +235,9 @@ CMake: `vertex-input-default-test` como `extension-policy-test` mais `target_lin
 - [ ] **Step 5: aplicar em `vk_instance.cpp:378`:**
   `const char* vertex_input_env = std::getenv("GOW3_VERTEX_INPUT_DYNAMIC");`
   `const bool vertex_input_wanted = gow3_vertex_input_dynamic(vertex_input_env, static_cast<VkDriverId>(driver_id)) != 0;`
-  `vertex_input_dynamic_state = vertex_input_wanted && add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);`
+  `vertex_input_dynamic_state = (vertex_input_wanted || ext_policy.IsDisabled(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME)) && add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);`
+  (o knob precisa ver o pedido para registrar a extensão em `disabled_extensions` e fechar o cache; com
+  `vertex_input_wanted && add_extension(...)` ele era ignorado quando o default já desligava a extensão).
   Depois decidir a linha: se `vertex_input_dynamic_state` → `on` (com sufixo `(GOW3_VERTEX_INPUT_DYNAMIC=1)` quando
   `vertex_input_env` for `"1"`); senão, se o nome está em `disabled_extensions` → `off (GOW3_VK_DISABLE_EXT)`; senão
   se `!vertex_input_wanted` → `off (GOW3_VERTEX_INPUT_DYNAMIC=0)` quando `vertex_input_env` não vazio, ou
