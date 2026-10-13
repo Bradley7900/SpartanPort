@@ -154,9 +154,11 @@ corrupção é idêntica, então as duas hipóteses caem. A causa está em outro
 compartilhado (tiling, formato, alias, endereçamento de imagem) ou no driver. O período de 128 px
 aponta para o layout Tile64 da Intel lido por um caminho que o ignora (seção 2, "Fallbacks que só
 a Intel toma"), e uma captura RenderDoc do primeiro evento retalhado decide. Os três fallbacks
-foram descartados em seguida na GTX 1650 (item abaixo).
+foram descartados em seguida na GTX 1650 como erro de lógica do port (item abaixo); isso não
+exclui bug do driver Intel no mesmo caminho (cópia depth↔color por buffer em
+`CopyImageWithBuffer`).
 
-### Resultado na GTX 1650 (2026-10-13): H-B refutada
+### Resultado na GTX 1650 (2026-10-13): H-B refutada como erro de lógica do port
 
 Hipóteses em teste: **H-B**, um dos três fallbacks que só a Intel toma (seção 2) produz o
 retalho; **H-C**, uma extensão que a Intel expõe se comporta mal no driver dela, ou a causa está em
@@ -204,12 +206,17 @@ aos 50, 70 e 90 s (menu principal, com a cena 3D do Kratos ao fundo). O `run.py`
   loop, `color_samples = depth_samples`) rodaram na NVIDIA sem produzir o retalho que a Intel
   mostra desde o menu.
 
-**Veredito: H-B refutada** para os três fallbacks, que são os únicos caminhos de código que só a
-Intel toma. Resta H-C: uma extensão que a Intel expõe se comportando mal, ou algo que a NVIDIA não
+**Veredito: H-B refutada como erro de lógica do port** nos três fallbacks, que são os únicos
+caminhos de código que só a Intel toma: a lógica deles está certa quando o driver da NVIDIA a
+executa. Isso não exclui bug do driver Intel no mesmo caminho (cópia depth↔color por buffer em
+`CopyImageWithBuffer`): uma cópia que ignore o layout Tile64 imprimiria tiles de 128 linhas
+(seção 2), e a NVIDIA não reproduz isso. Resta também H-C: uma extensão que a Intel expõe se comportando mal, ou algo que a NVIDIA não
 consegue imitar (`VK_EXT_shader_stencil_export`, `VK_EXT_shader_atomic_float2`). Só hardware
 Intel bissecciona isso (seção 6).
 
-- **Execução 2, `GOW3_VK_DISABLE_EXT=all` (20 opcionais desligadas na 1650):** device criado,
+- **Execução 2, `GOW3_VK_DISABLE_EXT=all` (20 opcionais desligadas na 1650;
+  `VK_KHR_pipeline_binary` e `VK_EXT_attachment_feedback_loop_dynamic_state` nunca são pedidas
+  depois que `VK_KHR_maintenance5` e `_layout` estão desligadas, por isso 20):** device criado,
   `window and Vulkan presenter ready`, `Pipeline cache skipped`, e o processo morreu sem
   mensagem logo depois da inicialização de troféus/save, antes do vídeo de abertura (685 linhas
   de stdout contra 845 na execução 1). Sem registro no Event Log. Enquanto a extensão
@@ -294,7 +301,9 @@ teste para quem tem a placa:
 ## 5. Próximos passos
 
 1. **Bisseção de extensões na Intel** com `GOW3_VK_DISABLE_EXT` (protocolo da seção 6). Com H-B
-   refutada na GTX 1650, é o teste que separa as extensões que a Intel expõe; pedir em #28.
+   refutada na GTX 1650 como erro de lógica do port nos três fallbacks (não exclui bug do driver
+   Intel no mesmo caminho, a cópia depth↔color por buffer em `CopyImageWithBuffer`), é o teste
+   que separa as extensões que a Intel expõe; pedir em #28.
 2. **Terminar a bisseção do `all` na GTX 1650** entre `VK_EXT_custom_border_color`,
    `VK_EXT_depth_clip_control`, `VK_EXT_depth_clip_enable` e
    `VK_EXT_primitive_topology_list_restart` (precisa de 8,5 GB livres de commit) e corrigir o
@@ -304,7 +313,10 @@ teste para quem tem a placa:
    `OpControlBarrier` reabriria A-1; draw, cópia ou detile antes de qualquer compute aponta para
    tiling ou formato. Pedir upload num lugar acessível (anexo do GitHub até 25 MB, ou gist do
    `last_run.log` com `GOW3_GPU_LOG=info` junto). O reporter disse que 3 das 4 capturas têm "API
-   errors": pedir também o texto da aba Errors and Warnings do RenderDoc.
+   errors": pedir também o texto da aba Errors and Warnings do RenderDoc. Conferir também se o
+   primeiro evento retalhado vem logo depois de um par `vkCmdCopyImageToBuffer` /
+   `vkCmdCopyBufferToImage` de `CopyImageWithBuffer` (imagem depth → buffer → imagem de cor):
+   seria o bug do driver Intel no fallback de maintenance8 que a GTX 1650 não consegue excluir.
 4. **Clock preso em 400 MHz no B580:** confirmar com o Intel Graphics Software ou o Gerenciador
    de Tarefas durante o jogo. Não explica a corrupção (a B390 integrada tem o mesmo retalho), mas
    explica desempenho ruim e pode indicar o driver em estado de baixa potência.
@@ -358,8 +370,9 @@ Execuções:
   - (C) `VK_KHR_fragment_shader_barycentric,VK_EXT_shader_atomic_float,VK_EXT_shader_atomic_float2,VK_KHR_maintenance5,VK_EXT_memory_budget,VK_KHR_compute_shader_derivatives,VK_KHR_shader_clock`
 - (D) só as quatro candidatas:
   `VK_EXT_custom_border_color,VK_EXT_depth_clip_control,VK_EXT_depth_clip_enable,VK_EXT_primitive_topology_list_restart`.
-  Uma morte aqui é a mesma da GTX 1650, atribuível ao crash conhecido, e não deve ser lida como
-  "corrigiu"; se D chegar ao menu, vale o que a cena mostrar.
+  Uma morte aqui é provavelmente a mesma da GTX 1650, atribuível ao crash conhecido, e não deve
+  ser lida como "corrigiu"; se D chegar ao menu, vale o que a cena mostrar. Se D morrer, as quatro
+  candidatas ficam sem veredito na Intel até esse crash ser corrigido (seção 5, item 2).
 
 A execução que mudou a cena se divide ao meio de novo, e assim por diante até sobrar um nome. Em cada uma: anexar `user\last_run.log` e dizer se a cena mudou; a linha `GPU:
 device ...; extensions off:` confirma o que foi desligado, e `ignored names` precisa sair `none`
@@ -389,6 +402,8 @@ Riscos registrados:
 ## 7. Perguntas em aberto
 
 1. Qual é o primeiro evento retalhado numa captura RenderDoc do B580: draw, dispatch, cópia?
+   Ele vem logo depois de um par `vkCmdCopyImageToBuffer` / `vkCmdCopyBufferToImage` de
+   `CopyImageWithBuffer` (imagem depth → buffer → imagem de cor)?
 2. Na Intel, o padrão é estável ou cintila entre frames?
 3. O que explica o HD 630 (#35, 3D preto ou azul) e o device lost da A770 (#63)? São sintomas
    diferentes, possivelmente causas diferentes.
