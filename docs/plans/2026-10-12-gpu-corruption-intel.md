@@ -63,7 +63,7 @@ NVIDIA/KosmicKrisp e os gates de extensão. São três os caminhos que a Intel t
   `texture_cache.cpp:593` (overlap depth↔color recriado) e de `vk_rasterizer.cpp:1980` (cópia de
   imagem por compute reconhecida).
 - **`VK_EXT_attachment_feedback_loop_dynamic_state` ausente:** as duas extensões de feedback loop
-  ficam fora (`vk_instance.cpp:338-346`), e `vk_rasterizer.cpp:2423-2430` e `:2800-2808` usam
+  ficam fora (`vk_instance.cpp:358-366`), e `vk_rasterizer.cpp:2423-2430` e `:2800-2808` usam
   `eGeneral` em vez de `eAttachmentFeedbackLoopOptimalEXT`.
 - **`VK_NV_framebuffer_mixed_samples` e `VK_AMD_mixed_attachment_samples` ausentes:**
   `vk_pipeline_cache.cpp:996-1004` força `color_samples = depth_samples`, e
@@ -190,7 +190,28 @@ teste para quem tem a placa:
   unset>, mode all|allowed|none)`. O `mode` é o que foi interpretado: `Allowed` ou um espaço a
   mais no `.bat` aparecem como `mode all`. Essa linha identifica o build e a configuração em
   qualquer log.
-- `ShaderBinaryVersion` continua 7: nenhum usuário recompila o cache por causa desta PR.
+- `GOW3_VK_DISABLE_EXT=<nomes separados por vírgula>|all` desliga extensões opcionais do device
+  na criação (`vk_instance.cpp`; parser em `vk_extension_policy.h`, com teste
+  `tests/test_extension_policy.cpp`, alvo `extension-policy-test`). Os nomes são exatos
+  (maiúsculas contam); `all` desliga toda opcional. A extensão desligada se comporta como
+  ausente: o código toma o mesmo fallback (log `Extension X disabled by GOW3_VK_DISABLE_EXT`,
+  nível Warning). As quatro obrigatórias (swapchain, push descriptor, vertex attribute divisor,
+  robustness2) nunca são desligadas; vale também para as extensões que o DLSS pede, e sem elas o
+  DLSS se desliga. Em qualquer nível de log saem duas linhas:
+  `GPU: device <nome>, driver <id> <versão>, Vulkan <x.y.z>; extensions off: <lista ou none>
+  (GOW3_VK_DISABLE_EXT=<valor ou unset>)` e `GPU: optional extensions unavailable: <lista ou
+  none>; ignored names: <lista ou none>`. `unavailable` junta as ausentes no device e as
+  desligadas; `ignored` são os nomes da variável que não tiveram efeito (desconhecidos,
+  obrigatórios, ausentes no device ou nunca pedidos), o que pega erro de digitação no `.bat`.
+  Enquanto a variável desliga alguma coisa, o cache de pipelines em disco e os pipeline binaries
+  ficam fora da sessão (`Pipeline cache skipped: GOW3_VK_DISABLE_EXT is active`): extensões que
+  não entram no `Shader::Profile` (maintenance8, feedback loop, mixed samples, vertex input
+  dinâmico, dynamic state 3, ...) também moldam as chaves gravadas, que seriam inválidas sob
+  outro conjunto. Nada é lido nem gravado; cada execução com a variável compila tudo de novo
+  (travadas esperadas), e o cache normal volta intacto quando ela sai. O `Shader::Profile` não
+  muda.
+- `ShaderBinaryVersion` continua 7 e o `Shader::Profile` mantém o tamanho: nenhum usuário
+  recompila o cache por causa desta PR.
 
 ## 5. Próximos passos
 
@@ -238,6 +259,42 @@ sintoma e grava a faixa de subgrupo); (2) só `GOW3_LDS_BARRIERS=1`; (3) só
 B580 e na B390. Em cada uma: anexar `user\last_run.log` e dizer se a cena mudou. A linha `GPU:
 subgroup policy:` confirma o build e a configuração; trocar `GOW3_LDS_BARRIERS` entre execuções
 faz o cache de pipelines ser reconstruído na abertura seguinte.
+
+### Bisseção de extensões (`GOW3_VK_DISABLE_EXT`)
+
+Mesmo `teste.bat`, com `set GOW3_GPU_LOG=info` e sem as outras linhas `set GOW3_...`. Primeiro o
+oráculo: (A) `set GOW3_VK_DISABLE_EXT=all`. Se a cena continua retalhada, nenhuma extensão
+opcional é a causa e a bisseção para aí. Se A corrige, a lista de opcionais que a Intel expõe se
+divide em duas metades:
+
+- (B) `VK_KHR_workgroup_memory_explicit_layout,VK_EXT_shader_stencil_export,VK_EXT_image_2d_view_of_3d,VK_EXT_depth_clip_control,VK_EXT_depth_clip_enable,VK_EXT_vertex_input_dynamic_state,VK_EXT_extended_dynamic_state3,VK_EXT_primitive_topology_list_restart,VK_EXT_provoking_vertex,VK_EXT_custom_border_color`
+- (C) `VK_EXT_image_view_min_lod,VK_EXT_depth_range_unrestricted,VK_KHR_fragment_shader_barycentric,VK_EXT_shader_atomic_float,VK_EXT_shader_atomic_float2,VK_KHR_maintenance5,VK_EXT_memory_budget,VK_KHR_compute_shader_derivatives,VK_KHR_shader_clock`
+
+A metade que corrige se divide de novo, e assim por diante até sobrar um nome (umas cinco
+execuções). Em cada uma: anexar `user\last_run.log` e dizer se a cena mudou; a linha `GPU:
+device ...; extensions off:` confirma o que foi desligado, e `ignored names` precisa sair `none`
+(senão algum nome foi digitado errado). Cada execução compila os shaders de novo, porque o cache
+fica fora da sessão.
+
+Na GTX 1650 da máquina de desenvolvimento, a receita
+`VK_KHR_maintenance8,VK_EXT_attachment_feedback_loop_dynamic_state,VK_NV_framebuffer_mixed_samples`
+põe a NVIDIA nos três fallbacks que só a Intel toma (seção 2). Se o retalho aparecer, o bug está
+no fallback e se reproduz localmente.
+
+Riscos registrados:
+
+- `VK_KHR_maintenance5` desligada desliga também os pipeline binaries.
+- `VK_AMD_shader_explicit_vertex_parameter` desligada na AMD faz o código pedir
+  `VK_KHR_fragment_shader_barycentric` no lugar.
+- `VK_KHR_fragment_shader_barycentric` desligada na NVIDIA liga
+  `needs_integer_interpolation_fix` (o caminho das Pascal).
+- A NVIDIA não ganha extensões que só a Intel expõe (`VK_EXT_shader_stencil_export`): bug de
+  driver Intel dentro de uma extensão exposta só se bissecciona na Intel.
+- `fsr4-bench` e os testes que linkam `gow3gpu` também leem a variável.
+- Para a validação durante a bisseção: `setAttachmentFeedbackLoopEnableEXT` é gravado
+  (`vk_scheduler.h:343`) sem `eAttachmentFeedbackLoopEnableEXT` nos dynamic states do pipeline
+  (`vk_graphics_pipeline.cpp:155-176`). Se a validação acusar algo ali, vem do caminho padrão
+  (extensão ligada), não da variável: com a extensão desligada a chamada nem é gravada.
 
 ## 7. Perguntas em aberto
 
