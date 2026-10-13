@@ -259,6 +259,12 @@ public:
         return vk13_features.subgroupSizeControl && vk13_props.maxSubgroupSize >= 64;
     }
 
+    /// gow3: VK_KHR_pipeline_executable_properties is on (GOW3_WAVE_STATS=1, vk_wave_stats.h).
+    bool IsPipelineExecutableInfoEnabled() const {
+        return pipeline_executable_properties &&
+               pipeline_executable_features.pipelineExecutableInfo;
+    }
+
     /// gow3: the driver's subgroup width range and the stages that accept a pin.
     u32 MinSubgroupSize() const {
         return vk13_props.minSubgroupSize;
@@ -560,6 +566,7 @@ private:
     vk::PhysicalDevicePrimitiveTopologyListRestartFeaturesEXT list_restart_features;
     vk::PhysicalDeviceShaderClockFeaturesKHR shader_clock_features;
     vk::PhysicalDeviceComputeShaderDerivativesFeaturesKHR compute_shader_derivatives_features;
+    vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR pipeline_executable_features;
     vk::DriverIdKHR driver_id;
     vk::UniqueDebugUtilsMessengerEXT debug_callback{};
     std::string vendor_name;
@@ -598,6 +605,7 @@ private:
     bool image_2d_view_of_3d{};
     bool image_view_min_lod{};
     bool shader_clock{};
+    bool pipeline_executable_properties{}; // gow3: GOW3_WAVE_STATS=1 (vk_wave_stats.h)
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // gow3: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
     bool supports_memory_budget{};
