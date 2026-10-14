@@ -14,7 +14,7 @@ elif command -v pacman >/dev/null; then
     pacman -Sy --noconfirm --needed xorg-server-xvfb ttf-dejavu >/dev/null
 fi
 grep -m1 PRETTY_NAME /etc/os-release
-ldd --version | head -1
+ldd --version | sed -n 1p  # head would end ldd with SIGPIPE (pipefail)
 work=$(mktemp -d)
 cd "$work"
 "$appimage" --appimage-extract >/dev/null
