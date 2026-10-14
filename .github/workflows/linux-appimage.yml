@@ -1,0 +1,91 @@
+# Linux AppImage: built on Ubuntu 24.04 so it starts on glibc 2.39 or newer (SteamOS, Bazzite/Fedora,
+# Debian 13, Ubuntu 24.04+; #291), then opened on those distros before it is published.
+#   - pull request: build and test only (the AppImage is kept as a workflow artifact).
+#   - tag linux-v*: test build, published as a pre-release with that tag.
+#   - manual run: attaches the AppImage to an existing release (e.g. windows-v2.2.0).
+name: Linux AppImage
+
+on:
+  pull_request:
+    paths:
+      - build.sh
+      - run.py
+      - src/**
+      - gpu/**
+      - scripts/**
+      - patches/**
+      - launcher/**
+      - packaging/linux/**
+      - .github/workflows/linux-appimage.yml
+  push:
+    tags: ['linux-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release to attach the AppImage to (replaces the files already there)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Dependencies
+        run: bash packaging/linux/ci-deps.sh
+      - name: Build
+        run: bash build.sh
+      - name: AppImage
+        run: |
+          PATH="$PWD/out/venv/bin:$PATH" bash packaging/linux/build.sh
+          cd dist && sha256sum gow3-x86_64.AppImage | sed 's/  / */' > gow3-x86_64.AppImage.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gow3-x86_64.AppImage
+          path: dist/gow3-x86_64.AppImage*
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # debian:13 has SteamOS 3.7's glibc (2.41), fedora:42 is Bazzite's base.
+        image: ['debian:13', 'fedora:42', 'ubuntu:24.04', 'archlinux:latest']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gow3-x86_64.AppImage
+          path: dist
+      - name: Open the launcher on ${{ matrix.image }}
+        run: |
+          chmod +x dist/gow3-x86_64.AppImage
+          docker run --rm -v "$PWD:/w:ro" "${{ matrix.image }}" bash /w/packaging/linux/smoke-test.sh /w/dist/gow3-x86_64.AppImage
+
+  publish:
+    needs: smoke
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gow3-x86_64.AppImage
+          path: dist
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          if [[ $GITHUB_EVENT_NAME == push ]] && ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --verify-tag --title "Linux test build $TAG" \
+              --notes "Linux test build from \`${GITHUB_SHA::7}\`. Download \`gow3-x86_64.AppImage\`, then \`chmod +x gow3-x86_64.AppImage\` and run it. Not a final release: please report in the linked issue whether it opens and runs."
+          fi
+          gh release upload "$TAG" dist/gow3-x86_64.AppImage dist/gow3-x86_64.AppImage.sha256 --clobber
