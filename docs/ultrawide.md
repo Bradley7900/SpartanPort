@@ -27,7 +27,8 @@ the resolution, what you see, and whether anything is cropped, stretched or miss
 
 ## Using it
 
-Put the `Ultrawide` folder in the mods folder. The mod's resolutions then show up in **Render
+Put `Ultrawide.zip` (made with `python tools/zip_mod.py extras/mods/Ultrawide`) or the `Ultrawide` folder in
+the mods folder; a zip is unpacked by itself when the launcher or the game starts. The mod's resolutions then show up in **Render
 resolution** (launcher, **Home** and **Performance**) and in the in-game menu (Insert →
 Performance → Render resolution), after the built-in ones, as `3440x1440 (mod)` and so on. Pick one
 and **PLAY** (in the game menu: "Apply and restart"). The **Engine frame rate** (60, 120 or 240) is a
@@ -103,7 +104,8 @@ o mesmo código com outros números e **não foram testados**. Se testar, conte 
 1920x1200 e 2560x1600 (16:10, **não testados**): como a câmera mantém o campo horizontal, uma imagem mais alta só
 mostra mais em cima e embaixo, então essas entradas mudam apenas a resolução e o aspect ratio.
 
-**Como usar:** coloque a pasta `Ultrawide` na pasta de mods. As resoluções do mod aparecem em **Render
+**Como usar:** coloque o `Ultrawide.zip` (gerado com `python tools/zip_mod.py extras/mods/Ultrawide`) ou a pasta
+`Ultrawide` na pasta de mods; o zip é extraído sozinho ao abrir o launcher ou o jogo. As resoluções do mod aparecem em **Render
 resolution** (launcher e menu do jogo, tecla Insert) depois das embutidas, como `3440x1440 (mod)`. Escolha uma
 e **PLAY**. O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte e vale com qualquer resolução.
 

@@ -21,8 +21,8 @@ cropped, stretched or missing at the edges) in an issue of the project.
 
 ## Install
 
-1. Copy this whole folder (`Ultrawide`) into your mods folder: in the launcher open **Mods** →
-   **Open** (the folder is `mods` next to `God of War III.exe`).
+1. Put `Ultrawide.zip` (or this whole folder, `Ultrawide`) into your mods folder: in the launcher open
+   **Mods** → **Open** (the folder is `mods` next to `God of War III.exe`). A zip is unpacked by itself.
 2. Open the launcher again. The mod is listed on the Mods page, ticked, with "(game patches)".
 3. **Render resolution** now lists `3440x1440 (mod)` and the other sizes. The in-game menu
    (Insert → Performance) lists them too. Pick one, and choose the **Engine frame rate** (60, 120 or 240)
@@ -53,8 +53,8 @@ campo de visão horizontal fixo, então só trocar a resolução corta a imagem 
 mod adiciona resoluções que também abrem o campo de visão: o mundo mantém as proporções e você vê mais dos
 lados.
 
-**Instalar:** copie esta pasta (`Ultrawide`) para a pasta de mods (no launcher: **Mods** → **Open**) e abra o
-launcher de novo. Em **Render resolution** aparecem `3440x1440 (mod)` e os outros tamanhos (e no menu do jogo,
+**Instalar:** coloque o `Ultrawide.zip` (ou esta pasta, `Ultrawide`) na pasta de mods (no launcher: **Mods** →
+**Open**) e abra o launcher de novo; o zip é extraído sozinho. Em **Render resolution** aparecem `3440x1440 (mod)` e os outros tamanhos (e no menu do jogo,
 tecla Insert). O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte e vale com qualquer resolução.
 
 **As cutscenes continuam com bordas:** são vídeos 16:9 pré-renderizados, então tocam com barras pretas dos

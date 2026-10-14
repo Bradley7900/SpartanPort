@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import zipfile
 
 def child(folder, name):
     """`name` inside `folder`, matching an existing entry case-insensitively (mods made on
@@ -43,6 +44,72 @@ def content_root(folder):
     return None
 
 
+ZIP_STAMP = '.from-zip'
+ZIP_LIMIT = 16 << 30  # bytes a mod zip may unpack to (a zip bomb is refused)
+
+
+def zip_members(archive):
+    """(info, relative path) of the files in a mod zip. Anything that could write outside the mod's folder
+    (absolute paths, "..", drive letters) or is a link is refused with a ValueError."""
+    total, members = 0, []
+    for info in archive.infolist():
+        parts = Path(info.filename.replace('\\', '/')).parts
+        if info.is_dir() and not parts:
+            continue
+        if not parts or Path(info.filename).is_absolute() or info.filename.startswith(('/', '\\')) \
+                or '..' in parts or ':' in parts[0]:
+            raise ValueError(f'unsafe path in the zip: {info.filename}')
+        if (info.external_attr >> 16) & 0o170000 == 0o120000:
+            raise ValueError(f'links are not allowed in a mod zip: {info.filename}')
+        total += info.file_size
+        if total > ZIP_LIMIT:
+            raise ValueError('the zip unpacks to more than 16 GiB')
+        members.append((info, Path(*parts)))
+    return members
+
+
+def unpack_zips(root):
+    """Unpacks every <root>/<name>.zip into <root>/<name>/ (a mod dropped into the mods folder as a zip).
+    Done again when the zip changes; a folder with that name that did not come from the zip is left alone.
+    Returns the names unpacked now; a zip that cannot be unpacked is reported and skipped."""
+    root = Path(root)
+    done = []
+    if not root.is_dir():
+        return done
+    for archive_path in sorted(root.glob('*.zip'), key=lambda p: p.name.casefold()):
+        target = root / archive_path.stem
+        stat = archive_path.stat()
+        stamp = f'{stat.st_size} {stat.st_mtime_ns}'
+        marker = target / ZIP_STAMP
+        if target.exists() and not (marker.is_file() and marker.read_text() != stamp):
+            if not marker.is_file():
+                print(f'Mods: {archive_path.name}: a folder called {target.name} is already there; the zip is not unpacked',
+                      file=sys.stderr)
+            continue
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                members = zip_members(archive)
+                if target.exists():
+                    shutil.rmtree(target)
+                for info, relative in members:
+                    destination = target / relative
+                    if info.is_dir():
+                        destination.mkdir(parents=True, exist_ok=True)
+                        continue
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with archive.open(info) as source, open(destination, 'wb') as out:
+                        shutil.copyfileobj(source, out)
+            target.mkdir(exist_ok=True)
+            marker.write_text(stamp)
+            done.append(archive_path.stem)
+            kind = 'a mod' if (content_root(target) or patch_files(target)) else 'not a mod (no dvdroot_ps4 or patches)'
+            print(f'Mods: {archive_path.name} unpacked: {kind}', file=sys.stderr)
+        except (OSError, ValueError, zipfile.BadZipFile) as error:
+            shutil.rmtree(target, ignore_errors=True)
+            print(f'Mods: {archive_path.name}: {error}', file=sys.stderr)
+    return done
+
+
 def patch_files(folder):
     """The game patch files (XML) of a mod: <mod>/patches/*.xml, with the same one wrapper folder
     around it that content_root accepts. A mod with only these has no files to replace."""
@@ -64,10 +131,12 @@ def patch_files(folder):
 
 
 def discover(root):
-    """Named mods: folders of `root` with an accepted layout (content_root) or with patch files."""
+    """Named mods: folders of `root` with an accepted layout (content_root) or with patch files. A mod
+    dropped in as <name>.zip is unpacked first (unpack_zips)."""
     root = Path(root)
     if not root.is_dir():
         return []
+    unpack_zips(root)
     return sorted((p.name for p in root.iterdir() if p.is_dir() and (content_root(p) or patch_files(p))),
                   key=lambda name: (name.casefold(), name))
 
