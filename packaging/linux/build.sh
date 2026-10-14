@@ -73,7 +73,7 @@ find "$appdir/usr/lib" -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/nu
 # raises the limit for local builds.
 max_glibc=${GOW3_MAX_GLIBC:-2.39}
 need=$(find "$appdir" -type f \( -name '*.so*' -o -perm -u+x \) -exec objdump -T {} + 2>/dev/null |
-       grep -o 'GLIBC_2\.[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+       grep -o 'GLIBC_2\.[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1 || true)  # objdump fails on scripts
 if [[ $(printf '%s\n' "$need" "$max_glibc" | sort -V | tail -1) != "$max_glibc" ]]; then
     echo "The bundle needs glibc $need, newer than $max_glibc: build on Ubuntu 24.04 (packaging/linux/ci-deps.sh) or set GOW3_MAX_GLIBC" >&2
     exit 1
