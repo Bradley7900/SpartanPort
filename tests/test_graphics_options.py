@@ -58,12 +58,12 @@ class GraphicsOptionsTest(unittest.TestCase):
         self.assertEqual(g.patch_names(['Resolution Patch - 4K', 'Skip Any Video With X Button'], native),
                          ['Bug Fix - Texture Corruption Fix', 'Skip Any Video With X Button'])
 
-    def test_ultrawide_resolution(self):
-        options = g.startup_options({'render_resolution': '3440x1440', 'engine_fps': '60'})
-        self.assertEqual(options['render_resolution'], '3440x1440')
-        self.assertEqual(g.patch_names(['Bug Fix - Texture Corruption Fix'], options),
-                         ['Resolution Patch - 3440x1440'])
-
+    def test_ultrawide_resolutions(self):
+        for size in ('2560x1080', '3440x1440', '3840x1600', '5120x1440'):
+            options = g.startup_options({'render_resolution': size, 'engine_fps': '60'})
+            self.assertEqual(options['render_resolution'], size)
+            self.assertEqual(g.patch_names(['Bug Fix - Texture Corruption Fix'], options),
+                             [f'Resolution Patch - {size}'])
     def test_applied_engine_fps(self):
         # The engine runs above 60 only with a frame rate patch in the applied list.
         self.assertEqual(g.applied_engine_fps(['Skip Any Video With X Button', 'Frame Rate Patch - 240 FPS']), 240)

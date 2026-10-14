@@ -241,29 +241,46 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(patch_requirements(GOW3, [], '01.02'), (None, None))
 
 
+    ULTRAWIDE = {  # size -> (extra direct memory MiB, field of view factor k = (width / height) / (16 / 9))
+        (2560, 1080): (3072, (2560 / 1080) / (16 / 9)),
+        (3440, 1440): (4608, (3440 / 1440) / (16 / 9)),
+        (3840, 1600): (6144, (3840 / 1600) / (16 / 9)),
+        (5120, 1440): (6144, 2.0),
+    }
+
     def test_ultrawide_requirements(self):
-        self.assertEqual(patch_requirements(GOW3, ['Resolution Patch - 3440x1440'], '01.02'), (5056 + 4608, None))
+        for (width, height), (dmem, _k) in self.ULTRAWIDE.items():
+            name = f'Resolution Patch - {width}x{height}'
+            self.assertEqual(patch_requirements(GOW3, [name], '01.02'), (5056 + dmem, None), name)
 
     def test_ultrawide_camera_caves_form_closed_chains(self):
-        # Resolution Patch - 3440x1440 (its Address values are the 6e72 build's): each of the four camera sites
-        # jumps into two chained caves. The first runs the instruction the jump replaced, the second multiplies
-        # the field of view tangent by k = (3440/1440) / (16/9) = 43/32 and returns right after the site.
-        writes = dict(compile_patches(GOW3, ['Resolution Patch - 3440x1440'], '01.02', SEGMENTS))
+        # Each ultrawide entry (its Address values are the 6e72 build's): the four camera sites jump into two
+        # chained caves. The first runs the instruction the jump replaced, the second multiplies the field of
+        # view tangent by k and returns right after the site.
         rel = lambda data, at, end: end + int.from_bytes(data[at:at + 4], 'little', signed=True)
-        constant = [at for at, data in writes.items() if data == struct.pack('<f', 43 / 32)]
-        self.assertEqual(len(constant), 1)
-        for site, original in ((0x1cc01f, 'c5fa1089d8000000'), (0x1cbd89, 'c5fa1080d8000000'),
-                               (0x1ccaa9, 'c5fa1080d8000000'), (0x1cc20f, 'c5fa5e852cffffff')):
-            jump = writes[site]
-            self.assertEqual((jump[0], jump[5:]), (0xe9, bytes.fromhex('0f1f00')))  # jmp + 3-byte nop
-            first = rel(jump, 1, site + 5)
-            self.assertEqual(writes[first][:8], bytes.fromhex(original))
-            self.assertEqual(writes[first][8], 0xe9)
-            second = rel(writes[first], 9, first + 13)
-            cave = writes[second]
-            self.assertEqual((cave[0], cave[2], cave[8]), (0xc5, 0x59, 0xe9))  # vmulss ..., [rip+k]; jmp
-            self.assertEqual(rel(cave, 4, second + 8), constant[0])
-            self.assertEqual(rel(cave, 9, second + 13), site + 8)
+        for (width, height), (_dmem, k) in self.ULTRAWIDE.items():
+            name = f'Resolution Patch - {width}x{height}'
+            writes = dict(compile_patches(GOW3, [name], '01.02', SEGMENTS))
+            constant = [at for at, data in writes.items() if data == struct.pack('<f', k)]
+            self.assertEqual(len(constant), 1, name)
+            for site, original in ((0x1cc01f, 'c5fa1089d8000000'), (0x1cbd89, 'c5fa1080d8000000'),
+                                   (0x1ccaa9, 'c5fa1080d8000000'), (0x1cc20f, 'c5fa5e852cffffff')):
+                jump = writes[site]
+                self.assertEqual((jump[0], jump[5:]), (0xe9, bytes.fromhex('0f1f00')), name)  # jmp + 3-byte nop
+                first = rel(jump, 1, site + 5)
+                self.assertEqual(writes[first][:8], bytes.fromhex(original), name)
+                self.assertEqual(writes[first][8], 0xe9, name)
+                second = rel(writes[first], 9, first + 13)
+                cave = writes[second]
+                self.assertEqual((cave[0], cave[2], cave[8]), (0xc5, 0x59, 0xe9), name)  # vmulss ..., [rip+k]; jmp
+                self.assertEqual(rel(cave, 4, second + 8), constant[0], name)
+                self.assertEqual(rel(cave, 9, second + 13), site + 8, name)
+
+    def test_ultrawide_sets_the_aspect_ratio(self):
+        # The video mode's two aspect ratio floats: width / height of the entry.
+        for (width, height) in self.ULTRAWIDE:
+            writes = dict(compile_patches(GOW3, [f'Resolution Patch - {width}x{height}'], '01.02', SEGMENTS))
+            self.assertEqual(writes[0x1f0c77], struct.pack('<f', width / height) * 2)
 
 
 if __name__ == '__main__':

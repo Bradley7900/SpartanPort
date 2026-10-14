@@ -45,8 +45,9 @@ Progress is tracked (in Portuguese) in [docs/gow3/ROADMAP.md](docs/gow3/ROADMAP.
 - Patches: render resolution of 480p, 720p, 1440p, 1800p or 4K, corrupted texture fix and skip
   videos with the X button (community); engine frame rate of 120 FPS (kvicken) or 240 FPS
   (adapted by Felipe Prado).
-- **Ultrawide 21:9 (beta):** render resolution 3440x1440 with a wider field of view instead of a
-  zoomed-in picture (see [docs/ultrawide.md](docs/ultrawide.md)).
+- **Ultrawide 21:9 / 32:9 (beta):** render resolutions 2560x1080, 3440x1440, 3840x1600 and 5120x1440 with a
+  wider field of view instead of a zoomed-in picture; only 3440x1440 is tested, and cutscenes keep their
+  16:9 borders (see [docs/ultrawide.md](docs/ultrawide.md)).
 - **Instant start:** the saved shader cache loads in the background while you play, and new
   shaders compile in the background too, so the game does not stop to build them.
 - **Launcher** in the game's colors, in English with partial translations: quick settings on the home page, display,

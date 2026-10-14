@@ -40,6 +40,7 @@ from make_signatures import code_signature, load, pattern_text  # noqa: E402
 from patches import EBOOT_BASE, find_pattern, locate  # noqa: E402
 
 REFERENCE_ASPECT = 16 / 9
+TESTED_IN_GAME = {(3440, 1440)}  # the sizes somebody has played at; the others say so in their Note
 # Addresses in the 6e72 build. (address, original instruction bytes, register holding the FOV tangent after it)
 CAMERA_SITES = [
     (0x5cc01f, 'c5fa1089d8000000', 1),   # vmovss xmm1, [rcx+0xd8]         projection of the flagged camera
@@ -149,7 +150,8 @@ def entry(image, text, reference_lines, width, height):
     note = (f'Ultrawide {width}x{height} ({aspect:.3f}:1), Hor+. Sets the game output resolution and the display '
             f'aspect ratio, widens the horizontal field of view so the 16:9 vertical view is kept (no zoom) and sets '
             f'the Video Arena to {gib} GiB. Requires setting DMEM to {dmem} MB or more. Only leave one resolution '
-            f'patch enabled; do not enable it with Bug Fix - Texture Corruption Fix.')
+            f'patch enabled; do not enable it with Bug Fix - Texture Corruption Fix.'
+            + ('' if (width, height) in TESTED_IN_GAME else ' Not tested in game yet: please report how it looks.'))
     out = [f'    <Metadata Title="God of War III Remastered" Name="Resolution Patch - {width}x{height}" Note="{note}" '
            f'Author="gow3_pc ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">',
            '        <PatchList>']
