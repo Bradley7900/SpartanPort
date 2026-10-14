@@ -19,17 +19,35 @@ proportions and you see more to the sides.
 If you try one of the untested sizes, please say how it looks (resolution, and whether anything is
 cropped, stretched or missing at the edges) in an issue of the project.
 
-## Install
+## How to install
 
-1. Put `Ultrawide.zip` (or this whole folder, `Ultrawide`) into your mods folder: in the launcher open
-   **Mods** → **Open** (the folder is `mods` next to `God of War III.exe`). A zip is unpacked by itself.
-2. Open the launcher again. The mod is listed on the Mods page, ticked, with "(game patches)".
-3. **Render resolution** now lists `3440x1440 (mod)` and the other sizes. The in-game menu
-   (Insert → Performance) lists them too. Pick one, and choose the **Engine frame rate** (60, 120 or 240)
-   as usual: it is a separate setting that works with any resolution.
-4. Use a display or window of the same size (borderless is the easy way), then **PLAY**.
+**Versions after 2.2.0 (the easy way: one file).**
 
-To go back to normal, untick the mod (or pick another resolution). Nothing of the game is changed.
+1. Put `Ultrawide.zip` into the `mods` folder, next to `God of War III.exe` (in the launcher: **Mods** →
+   **Open**; create the folder if it is not there). Do not unzip it: the game does that by itself.
+2. Open the launcher. The mod is listed on the Mods page, ticked, with "(game patches)".
+3. In **Render resolution** (Home or Performance) pick `3440x1440 (mod)` or another size, then **PLAY**. The
+   in-game menu (Insert → Performance) lists them too. The **Engine frame rate** (60, 120 or 240) is a
+   separate choice that works with any resolution.
+4. Use a display or window of the same size (borderless is the easy way).
+
+**Version 2.2.0 (it cannot read zip mods yet): use the installer, `Ultrawide-installer-2.2.0.zip`**
+(attached to pull request #202).
+
+1. Close the game and the launcher. Unzip `Ultrawide-installer-2.2.0.zip` anywhere.
+2. Double-click **`INSTALL.bat`**. Paste the game folder when it asks (the one with `God of War III.exe`; if you
+   unzipped inside that folder it finds it by itself), then pick a resolution from the menu.
+3. Start the game with **`Play God of War III.exe`**. Do not use the launcher on 2.2.0: it does not list the new
+   sizes and can reset the setting. To pick another size later, run `Ultrawide - choose resolution.bat` in the
+   game folder.
+4. To undo everything: **`UNINSTALL.bat`** (it puts the original files back).
+
+The installer only touches `run.py` and three files of `scripts\`, after backing them up to
+`ultrawide-backup`, and refuses to run if they are not the stock 2.2.0 files (it never overwrites a newer
+version). Its files are plain text: read them before you run them.
+
+To go back to normal: untick the mod (or pick another resolution, or `UNINSTALL.bat`). Nothing of the game
+is changed.
 
 ## Notes
 
@@ -53,8 +71,12 @@ campo de visão horizontal fixo, então só trocar a resolução corta a imagem 
 mod adiciona resoluções que também abrem o campo de visão: o mundo mantém as proporções e você vê mais dos
 lados.
 
-**Instalar:** coloque o `Ultrawide.zip` (ou esta pasta, `Ultrawide`) na pasta de mods (no launcher: **Mods** →
-**Open**) e abra o launcher de novo; o zip é extraído sozinho. Em **Render resolution** aparecem `3440x1440 (mod)` e os outros tamanhos (e no menu do jogo,
+**Como instalar.** Nas versões **depois da 2.2.0**: coloque o `Ultrawide.zip` (sem extrair) na pasta `mods`, ao
+lado do `God of War III.exe` (no launcher: **Mods** → **Open**), abra o launcher e escolha o tamanho em
+**Render resolution**. Na **2.2.0** (que ainda não lê mods em zip): baixe o instalador
+`Ultrawide-installer-2.2.0.zip` (anexado ao pull request #202), extraia, dê dois cliques no **`INSTALL.bat`**, cole
+a pasta do jogo, escolha a resolução no menu e inicie o jogo pelo **`Play God of War III.exe`** (não pelo
+launcher). Para desfazer: **`UNINSTALL.bat`**. Em **Render resolution** aparecem `3440x1440 (mod)` e os outros tamanhos (e no menu do jogo,
 tecla Insert). O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte e vale com qualquer resolução.
 
 **As cutscenes continuam com bordas:** são vídeos 16:9 pré-renderizados, então tocam com barras pretas dos

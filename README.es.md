@@ -50,6 +50,9 @@ El progreso se registra (en portugués) en [docs/gow3/ROADMAP.md](docs/gow3/ROAD
 - **Mod Ultrawide (beta):** los mods ahora pueden incluir parches del juego. El [mod Ultrawide](extras/mods/Ultrawide)
   opcional añade resoluciones 21:9, 32:9 y 16:10 (3440x1440 probada) con un campo de visión más ancho en lugar de
   una imagen con zoom; las escenas de vídeo mantienen sus bordes 16:9 (ver [docs/ultrawide.md](docs/ultrawide.md)).
+  **Cómo instalar un mod:** pon su `.zip` (sin descomprimir) en la carpeta `mods`, junto a `God of War III.exe`; el
+  juego lo descomprime solo. El mod Ultrawide y un instalador de un clic para la 2.2.0 se explican en
+  [extras/mods/Ultrawide](extras/mods/Ultrawide/README.md).
 - **Inicio instantáneo:** la caché de shaders guardada se carga en segundo plano mientras jugás, y
   los shaders nuevos también se compilan en segundo plano, así que el juego no se detiene a
   construirlos.
