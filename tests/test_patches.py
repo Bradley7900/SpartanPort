@@ -335,8 +335,16 @@ class ModPatchTests(unittest.TestCase):
         (5120, 1440): (6144, 2.0),
     }
 
+    # 16:10, taller than 16:9: only the resolution and the aspect ratio (the camera's fixed horizontal view
+    # already shows more at the top and bottom), so no field of view change.
+    TALLER = {(1920, 1200): 3072, (2560, 1600): 4608}
+
     def test_the_ultrawide_mod_lists_its_resolutions_and_memory_needs(self):
-        self.assertEqual(resolution_names([ULTRAWIDE]), ['2560x1080', '3440x1440', '3840x1600', '5120x1440'])
+        self.assertEqual(resolution_names([ULTRAWIDE]), ['1920x1200', '2560x1080', '2560x1600', '3440x1440',
+                                                         '3840x1600', '5120x1440'])
+        for (width, height), dmem in self.TALLER.items():
+            name = f'Resolution Patch - {width}x{height}'
+            self.assertEqual(patch_requirements(ULTRAWIDE, [name], '01.02'), (5056 + dmem, None), name)
         for (width, height), (dmem, _k) in self.SIZES.items():
             name = f'Resolution Patch - {width}x{height}'
             self.assertEqual(patch_requirements(ULTRAWIDE, [name], '01.02'), (5056 + dmem, None), name)
@@ -364,6 +372,17 @@ class ModPatchTests(unittest.TestCase):
                 self.assertEqual((cave[0], cave[2], cave[8]), (0xc5, 0x59, 0xe9), name)  # vmulss ..., [rip+k]; jmp
                 self.assertEqual(rel(cave, 4, second + 8), constant[0], name)
                 self.assertEqual(rel(cave, 9, second + 13), site + 8, name)
+
+    def test_taller_than_16_9_changes_no_camera(self):
+        for (width, height) in self.TALLER:
+            writes = dict(compile_patches(ULTRAWIDE, [f'Resolution Patch - {width}x{height}'], '01.02', SEGMENTS))
+            self.assertEqual(writes[0x1f0c77], struct.pack('<f', width / height) * 2)  # the aspect ratio
+            # the resolution (these lines keep the built-in entries' Address values, the reference build's)
+            self.assertEqual(writes[0x1f0b3b], struct.pack('<I', width))
+            self.assertEqual(writes[0x1f0b43], struct.pack('<I', height))
+            for site in (0x1cc01f, 0x1cbd89, 0x1ccaa9, 0x1cc20f):  # no camera site, no cave
+                self.assertNotIn(site, writes)
+            self.assertEqual(len(writes), 15 + 1)  # the resolution lines (15) and the aspect ratio
 
     def test_the_ultrawide_mod_is_off_until_a_resolution_is_chosen(self):
         self.assertEqual(default_enabled([ULTRAWIDE], '01.02'), [])

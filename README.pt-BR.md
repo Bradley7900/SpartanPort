@@ -46,7 +46,7 @@ O andamento está em
   corrompidas e pular vídeos com o botão X (comunidade); FPS do motor de 120 (kvicken) ou 240
   (adaptado por Felipe Prado).
 - **Mod Ultrawide (beta):** os mods agora podem trazer patches de jogo. O [mod Ultrawide](extras/mods/Ultrawide)
-  opcional adiciona resoluções 21:9 e 32:9 (3440x1440 testada) com campo de visão mais largo, em vez de uma
+  opcional adiciona resoluções 21:9, 32:9 e 16:10 (3440x1440 testada) com campo de visão mais largo, em vez de uma
   imagem com zoom; as cutscenes mantêm as bordas 16:9 (veja [docs/ultrawide.md](docs/ultrawide.md)).
 - **Abertura imediata:** o cache de shaders salvo carrega em segundo plano enquanto você joga, e
   os shaders novos também são compilados em segundo plano, sem parar o jogo.

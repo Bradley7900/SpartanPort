@@ -47,7 +47,7 @@ Progress is tracked (in Portuguese) in [docs/gow3/ROADMAP.md](docs/gow3/ROADMAP.
   videos with the X button (community); engine frame rate of 120 FPS (kvicken) or 240 FPS
   (adapted by Felipe Prado).
 - **Ultrawide mod (beta):** mods can now carry game patches. The optional [Ultrawide mod](extras/mods/Ultrawide)
-  adds 21:9 and 32:9 render resolutions (3440x1440 tested) with a wider field of view instead of a zoomed-in
+  adds 21:9, 32:9 and 16:10 render resolutions (3440x1440 tested) with a wider field of view instead of a zoomed-in
   picture; cutscenes keep their 16:9 borders (see [docs/ultrawide.md](docs/ultrawide.md)).
 - **Instant start:** the saved shader cache loads in the background while you play, and new
   shaders compile in the background too, so the game does not stop to build them.

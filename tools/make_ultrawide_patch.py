@@ -18,7 +18,9 @@
 The entries are a mod: put the folder holding FILE (extras/mods/Ultrawide) in the mods folder.
 
 Why. The game's camera has a fixed horizontal field of view: with only the render resolution changed,
-a 21:9 picture is the 16:9 one cropped top and bottom ("zoomed in"). The patch
+a 21:9 picture is the 16:9 one cropped top and bottom ("zoomed in"). On a screen taller than 16:9 (16:10)
+the same fixed horizontal view simply shows more at the top and bottom, without distortion, so for those
+sizes the entry only sets the resolution and the aspect ratio (no field of view change, k = 1). The patch
   1. sets the render resolution (the sites of the other resolution patches) and the video mode's aspect
      ratio floats (16/9 -> WIDTH/HEIGHT; many sizes are derived from width and height by the game),
   2. scales the tangent t of the field of view by k = (WIDTH/HEIGHT) / (16/9) where the cameras read it:
@@ -129,16 +131,18 @@ def entry(image, text, reference_lines, width, height):
     pattern, at = signature(off, 8)
     lines.append((f'0x{ASPECT_SITE[0]:08x}', (struct.pack('<f', aspect) * 2).hex(), pattern, at))
 
-    pads = free_pads(image, text, 1 + 2 * len(CAMERA_SITES))
-    constant = pads[0]
+    camera_sites = CAMERA_SITES if k > 1.0001 else []  # k <= 1: the picture is not wider than 16:9
+    pads = free_pads(image, text, 1 + 2 * len(camera_sites)) if camera_sites else []
+    constant = pads[0] if pads else None
 
     def add(offset, value, signature_, name=None):
         if name:
             targets.append((name, len(lines), f'0x{offset + EBOOT_BASE:08x}', None, None))
         lines.append((f'0x{offset + EBOOT_BASE:08x}', value) + signature_)
 
-    add(constant[0], struct.pack('<f', k).hex(), (pattern_text(constant[1]), str(constant[2])), 'K')
-    for n, (address, original, register) in enumerate(CAMERA_SITES):
+    if constant:
+        add(constant[0], struct.pack('<f', k).hex(), (pattern_text(constant[1]), str(constant[2])), 'K')
+    for n, (address, original, register) in enumerate(camera_sites):
         off = address - EBOOT_BASE
         assert image[off:off + 8].hex() == original, f'camera site {address:#x} differs: needs the 6e72 eboot.bin'
         first, second = pads[1 + 2 * n], pads[2 + 2 * n]
@@ -151,10 +155,14 @@ def entry(image, text, reference_lines, width, height):
         # where the original code goes on: 8 bytes after the site
         targets.append((f'back{n}', None, f'0x{address + 8:08x}', site[0], str(int(site[1]) + 8)))
 
-    note = (f'Ultrawide {width}x{height} ({aspect:.3f}:1), Hor+. Sets the game output resolution and the display '
-            f'aspect ratio, widens the horizontal field of view so the 16:9 vertical view is kept (no zoom) and sets '
-            f'the Video Arena to {gib} GiB. Requires setting DMEM to {dmem} MB or more. Only leave one resolution '
-            f'patch enabled; do not enable it with Bug Fix - Texture Corruption Fix.'
+    if camera_sites:
+        what = (f'Ultrawide {width}x{height} ({aspect:.3f}:1), Hor+. Sets the game output resolution and the display '
+                f'aspect ratio, widens the horizontal field of view so the 16:9 vertical view is kept (no zoom)')
+    else:
+        what = (f'{width}x{height} ({aspect:.3f}:1). Sets the game output resolution and the display aspect ratio; '
+                f'the horizontal field of view is the game\'s own, so this taller picture shows more at the top and bottom')
+    note = (f'{what} and sets the Video Arena to {gib} GiB. Requires setting DMEM to {dmem} MB or more. Only leave '
+            f'one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix.'
             + ('' if (width, height) in TESTED_IN_GAME else ' Not tested in game yet: please report how it looks.'))
     out = [f'    <Metadata Title="God of War III Remastered" Name="Resolution Patch - {width}x{height}" Note="{note}" '
            f'Author="gow3_pc ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">',
@@ -230,7 +238,8 @@ def main():
     xml = re.sub(rf'    <Metadata [^>]*Name="{re.escape(name)}".*?</Metadata>\n', '', xml, flags=re.S)
     a.mod.parent.mkdir(parents=True, exist_ok=True)
     a.mod.write_text(xml.replace('</Patch>', result + '</Patch>'), encoding='utf-8')
-    print(f'{name}: written to {a.mod} (aspect {aspect:.5f}, field of view x{k:.5f})')
+    print(f'{name}: written to {a.mod} (aspect {aspect:.5f}, '
+          + (f'field of view x{k:.5f})' if k > 1.0001 else 'field of view unchanged)'))
 
 
 if __name__ == '__main__':

@@ -13,6 +13,8 @@ proportions and you see more to the sides.
 | 2560x1080 | 21:9 | Not tested |
 | 3840x1600 | 21:9 | Not tested |
 | 5120x1440 | 32:9 | Not tested |
+| 1920x1200 | 16:10 | Not tested (taller than 16:9: see Notes) |
+| 2560x1600 | 16:10 | Not tested (taller than 16:9: see Notes) |
 
 If you try one of the untested sizes, please say how it looks (resolution, and whether anything is
 cropped, stretched or missing at the edges) in an issue of the project.
@@ -33,6 +35,9 @@ To go back to normal, untick the mod (or pick another resolution). Nothing of th
 
 - **Cutscenes keep their borders.** They are pre-rendered 16:9 videos, so they play with black bars at
   the sides; stretching them would distort the picture, and they cannot be re-rendered.
+- **16:10 (taller than 16:9).** The game's camera keeps the horizontal view, so a taller picture simply shows
+  more at the top and bottom, without distortion. These entries only set the resolution and the aspect ratio
+  (no field of view change). 4:3 is not included.
 - At 32:9 the horizontal field of view is doubled, so objects at the very edges look stretched, as in any
   game with a very wide field of view.
 - It needs extra direct memory (the Video Arena grows with the pixel count); the launcher sets that from the
@@ -54,3 +59,5 @@ tecla Insert). O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte 
 
 **As cutscenes continuam com bordas:** são vídeos 16:9 pré-renderizados, então tocam com barras pretas dos
 lados. Só o 3440x1440 foi testado; se testar outro tamanho, conte como ficou numa issue do projeto.
+Os tamanhos 16:10 (1920x1200 e 2560x1600) só mudam a resolução e o aspect ratio: como a câmera mantém o campo
+horizontal, uma imagem mais alta mostra mais em cima e embaixo, sem deformar.
