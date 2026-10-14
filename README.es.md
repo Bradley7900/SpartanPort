@@ -47,9 +47,9 @@ El progreso se registra (en portugués) en [docs/gow3/ROADMAP.md](docs/gow3/ROAD
 - Parches: resolución de render de 480p, 720p, 1440p, 1800p o 4K, corrección de texturas corruptas
   y saltar videos con el botón X (comunidad); tasa de cuadros del motor de 120 FPS (kvicken) o 240
   FPS (adaptado por Felipe Prado).
-- **Ultrawide 21:9 / 32:9 (beta):** resoluciones 2560x1080, 3440x1440, 3840x1600 y 5120x1440 con un campo de
-  visión más ancho en lugar de una imagen con zoom; solo 3440x1440 está probado, y las escenas de vídeo
-  mantienen sus bordes 16:9 (ver [docs/ultrawide.md](docs/ultrawide.md)).
+- **Mod Ultrawide (beta):** los mods ahora pueden incluir parches del juego. El [mod Ultrawide](extras/mods/Ultrawide)
+  opcional añade resoluciones 21:9 y 32:9 (3440x1440 probada) con un campo de visión más ancho en lugar de
+  una imagen con zoom; las escenas de vídeo mantienen sus bordes 16:9 (ver [docs/ultrawide.md](docs/ultrawide.md)).
 - **Inicio instantáneo:** la caché de shaders guardada se carga en segundo plano mientras jugás, y
   los shaders nuevos también se compilan en segundo plano, así que el juego no se detiene a
   construirlos.

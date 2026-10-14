@@ -60,6 +60,43 @@ class ModTests(unittest.TestCase):
         config.write_text(json.dumps({'order': ['B', 'A', 'deleted'], 'disabled': ['A']}))
         self.assertEqual(mods.selected(self.moddir, config), ['B', 'C'])
 
+    PATCH = '<Patch><Metadata Name="Resolution Patch - 3440x1440" AppVer="01.02"><PatchList/></Metadata></Patch>'
+
+    def patch_mod(self, name, files=('mine.xml',), wrapper=None):
+        folder = self.moddir / name / (wrapper or '') / 'patches'
+        folder.mkdir(parents=True, exist_ok=True)
+        for file in files:
+            (folder / file).write_text(self.PATCH)
+        return self.moddir / name
+
+    def test_a_mod_with_only_patches_is_a_mod_and_replaces_no_file(self):
+        folder = self.patch_mod('Only patches')
+        self.mod('Files')
+        self.assertEqual(mods.discover(self.moddir), ['Files', 'Only patches'])
+        self.assertEqual(list(mods.mod_files(folder)), [])
+        result = mods.build_overlay(self.game, self.root / 'out', [('Only patches', folder)])
+        self.assertEqual(result, self.game)  # nothing to link
+
+    def test_patch_files_of_a_mod_and_its_wrapper_folder(self):
+        self.patch_mod('A', ('b.xml', 'a.xml', 'notes.txt'))
+        self.patch_mod('Wrapped', wrapper='Wrapped v1')
+        self.assertEqual([f.name for f in mods.patch_files(self.moddir / 'A')], ['a.xml', 'b.xml'])
+        self.assertEqual([f.name for f in mods.patch_files(self.moddir / 'Wrapped')], ['mine.xml'])
+        self.assertEqual(mods.patch_files(self.root / 'missing'), [])
+
+    def test_enabled_patch_files_follow_the_selection(self):
+        self.patch_mod('A')
+        self.patch_mod('B', ('b.xml',))
+        self.mod('Files only')
+        config = self.root / 'mods.json'
+        config.write_text(json.dumps({'order': ['B', 'A'], 'disabled': []}))
+        names = lambda enabled=True: [f.parent.parent.name + '/' + f.name
+                                      for f in mods.enabled_patch_files(self.moddir, config, enabled)]
+        self.assertEqual(names(), ['B/b.xml', 'A/mine.xml'])  # load order
+        config.write_text(json.dumps({'order': ['B', 'A'], 'disabled': ['B']}))
+        self.assertEqual(names(), ['A/mine.xml'])
+        self.assertEqual(names(False), [])  # "Load mods" off
+
     def test_no_mod_returns_original_game(self):
         self.assertEqual(mods.build_overlay(self.game, self.root / 'out', []), self.game)
         self.assertFalse((self.root / 'out').exists())

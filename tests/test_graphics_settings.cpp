@@ -73,17 +73,23 @@ int main() {
         assert(saved.find(line) != std::string::npos);
     }
 
-    // The ultrawide render resolutions keep their names through a load and a save.
-    int ultrawide_index = 6;
-    for (const char* name : {"2560x1080", "3440x1440", "3840x1600", "5120x1440"}) {
+    {
+        // The resolutions of the enabled mods' patch files (run.py: GOW3_EXTRA_RESOLUTIONS) follow the built-in
+        // ones and keep their names through a load and a save; repeated or built-in names are not added twice.
+        _putenv_s("GOW3_EXTRA_RESOLUTIONS", "2560x1080;3440x1440;;3440x1440;4K");
+        const auto names = G::ResolutionNames();
+        assert(names.size() == 8 && names[6] == "2560x1080" && names[7] == "3440x1440");
         {
             std::ofstream out(path);
-            out << "render_resolution=" << name << "\n";
+            out << "render_resolution=3440x1440\n";
         }
         Gow3Settings::Load();
-        assert(v.render_resolution == ultrawide_index++);
+        assert(v.render_resolution == 7);
         Gow3Settings::Save();
-        assert(Read(path).find(std::string("render_resolution=") + name + "\n") != std::string::npos);
+        assert(Read(path).find("render_resolution=3440x1440\n") != std::string::npos);
+        _putenv_s("GOW3_EXTRA_RESOLUTIONS", "");  // the mod is off: its resolution is unknown, so native
+        Gow3Settings::Load();
+        assert(v.render_resolution == 0 && G::ResolutionNames().size() == 6);
     }
 
     {

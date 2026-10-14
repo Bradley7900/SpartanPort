@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Merge loose-file mods through links, preserving the original game and mod files."""
+"""Merge loose-file mods through links, preserving the original game and mod files.
+
+A mod folder can also carry game patches: XML files in its patches/ folder, in the format of the built-in
+patches (signatures, see patches.py). They are applied while the mod is enabled."""
 import argparse
 import json
 import os
@@ -40,12 +43,32 @@ def content_root(folder):
     return None
 
 
+def patch_files(folder):
+    """The game patch files (XML) of a mod: <mod>/patches/*.xml, with the same one wrapper folder
+    around it that content_root accepts. A mod with only these has no files to replace."""
+    folder = Path(folder)
+    if not folder.is_dir():
+        return []
+    found = child(folder, 'patches')
+    if found.is_dir():
+        files = sorted((f for f in found.iterdir() if f.is_file() and f.suffix.casefold() == '.xml'),
+                       key=lambda f: f.name.casefold())
+        if files:
+            return files
+    entries = [e for e in folder.iterdir() if not e.name.startswith('.')]
+    folders = [e for e in entries if e.is_dir()]
+    if len(folders) == 1 and not [e for e in entries if e.is_file() and
+                                  e.suffix.casefold() not in ('.txt', '.md', '.jpg', '.png', '.ini')]:
+        return patch_files(folders[0])
+    return []
+
+
 def discover(root):
-    """Named mods: folders of `root` with an accepted layout (content_root)."""
+    """Named mods: folders of `root` with an accepted layout (content_root) or with patch files."""
     root = Path(root)
     if not root.is_dir():
         return []
-    return sorted((p.name for p in root.iterdir() if p.is_dir() and content_root(p)),
+    return sorted((p.name for p in root.iterdir() if p.is_dir() and (content_root(p) or patch_files(p))),
                   key=lambda name: (name.casefold(), name))
 
 
@@ -66,10 +89,20 @@ def selected(root, config):
                              if n in available and n not in disabled))
 
 
+def enabled_patch_files(root, config, enabled=True):
+    """The patch files of the enabled mods, in load order (a later file wins where patches share a name)."""
+    if not enabled:
+        return []
+    root = Path(root)
+    return [f for name in selected(root, config) for f in patch_files(root / name)]
+
+
 def mod_files(folder):
     """(game path, source) of every file a mod replaces or adds under dvdroot_ps4."""
     layout = content_root(folder)
     if not layout:
+        if patch_files(folder):
+            return  # patches only
         raise ValueError(f'{folder}: expected dvdroot_ps4 (or chr/, parts/, ...) inside the mod folder')
     root, prefix = layout
     root = root.resolve()

@@ -2,16 +2,20 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 """The "Resolution Patch - WxH" entry of an ultrawide resolution, with a Hor+ field of view (needs capstone).
 
-  python tools/make_ultrawide_patch.py EBOOT_6E72 XML WIDTH HEIGHT [--write]
-      Prints (or with --write puts into XML, replacing an earlier one) the patch for WIDTH x HEIGHT.
-      EBOOT_6E72 is the eboot.bin with sha256 6e72330e... (the build shadPS4's patches target): the
-      sites below are addresses in it. Every site, cave and constant is then found in any build by a
-      signature (Pattern/At) that is unique in that eboot.bin, like the other patches of the XML.
+  python tools/make_ultrawide_patch.py EBOOT_6E72 WIDTH HEIGHT [--mod FILE]
+      Prints (or with --mod writes into the patch file of the Ultrawide mod, replacing an earlier entry
+      of that size) the patch for WIDTH x HEIGHT. EBOOT_6E72 is the eboot.bin with sha256 6e72330e...
+      (the build shadPS4's patches target): the sites below are addresses in it. Every site, cave and
+      constant is then found in any build by a signature (Pattern/At) that is unique in that eboot.bin,
+      like the built-in patches. The render resolution sites come from the built-in
+      patches/God_of_War_III_Remastered.xml (--xml to use another file).
 
-  python tools/make_ultrawide_patch.py --rebase EBOOT_D85C XML WIDTH HEIGHT
+  python tools/make_ultrawide_patch.py --rebase EBOOT_D85C WIDTH HEIGHT --mod FILE
       Rewrites the Address attributes of that entry to the addresses of the reference build
       (sha256 d85c8135...), found by the same signatures. The Address values are what the reference
       build test compares the signatures with; run it with the reference eboot.bin when you have it.
+
+The entries are a mod: put the folder holding FILE (extras/mods/Ultrawide) in the mods folder.
 
 Why. The game's camera has a fixed horizontal field of view: with only the render resolution changed,
 a 21:9 picture is the 16:9 one cropped top and bottom ("zoomed in"). The patch
@@ -187,29 +191,46 @@ def rebase(xml_path, eboot, width, height):
     print(f'{name}: {len(where)} addresses rewritten from {eboot}')
 
 
+MOD_HEADER = """<?xml version="1.0"?>
+<!-- Ultrawide mod for God of War III Remastered (gow3_pc): "Resolution Patch - <width>x<height>" entries that
+     set the render resolution and widen the field of view (Hor+). Written by tools/make_ultrawide_patch.py.
+     The Address attributes are addresses in the eboot.bin with sha256 6e72330e...; the signatures
+     (Pattern/At) are what finds the sites. -->
+<Patch>
+    <TitleID>
+        <ID>CUSA01623</ID>
+        <ID>CUSA01715</ID>
+    </TitleID>
+</Patch>
+"""
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('eboot')
-    p.add_argument('xml')
     p.add_argument('width', type=int)
     p.add_argument('height', type=int)
-    p.add_argument('--write', action='store_true')
+    p.add_argument('--mod', type=Path, help='the mod\'s patch file to write (or to rebase with --rebase)')
+    p.add_argument('--xml', type=Path, default=Path(__file__).resolve().parent.parent / 'patches/God_of_War_III_Remastered.xml',
+                   help='the built-in patch file (the render resolution sites)')
     p.add_argument('--rebase', action='store_true')
     a = p.parse_args()
     if a.rebase:
-        return rebase(a.xml, a.eboot, a.width, a.height)
+        if not a.mod:
+            raise SystemExit('--rebase needs --mod FILE')
+        return rebase(a.mod, a.eboot, a.width, a.height)
     image, text = load(a.eboot)
-    root = ET.parse(a.xml).getroot()
-    base = next(m for m in root.iter('Metadata') if m.get('Name') == 'Resolution Patch - 1800p')
+    base = next(m for m in ET.parse(a.xml).getroot().iter('Metadata') if m.get('Name') == 'Resolution Patch - 1800p')
     result, k, aspect = entry(image, text, list(base.iter('Line')), a.width, a.height)
-    if not a.write:
+    if not a.mod:
         print(result)
         return
     name = f'Resolution Patch - {a.width}x{a.height}'
-    xml = Path(a.xml).read_text(encoding='utf-8')
+    xml = a.mod.read_text(encoding='utf-8') if a.mod.exists() else MOD_HEADER
     xml = re.sub(rf'    <Metadata [^>]*Name="{re.escape(name)}".*?</Metadata>\n', '', xml, flags=re.S)
-    Path(a.xml).write_text(xml.replace('</Patch>', result + '</Patch>'), encoding='utf-8')
-    print(f'{name}: written to {a.xml} (aspect {aspect:.5f}, field of view x{k:.5f})')
+    a.mod.parent.mkdir(parents=True, exist_ok=True)
+    a.mod.write_text(xml.replace('</Patch>', result + '</Patch>'), encoding='utf-8')
+    print(f'{name}: written to {a.mod} (aspect {aspect:.5f}, field of view x{k:.5f})')
 
 
 if __name__ == '__main__':

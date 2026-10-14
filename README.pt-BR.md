@@ -45,9 +45,9 @@ O andamento está em
 - Patches: resolução de renderização de 480p, 720p, 1440p, 1800p ou 4K, correção de texturas
   corrompidas e pular vídeos com o botão X (comunidade); FPS do motor de 120 (kvicken) ou 240
   (adaptado por Felipe Prado).
-- **Ultrawide 21:9 / 32:9 (beta):** resoluções 2560x1080, 3440x1440, 3840x1600 e 5120x1440 com campo de
-  visão mais largo, em vez de uma imagem com zoom; só o 3440x1440 foi testado, e as cutscenes mantêm as
-  bordas 16:9 (veja [docs/ultrawide.md](docs/ultrawide.md)).
+- **Mod Ultrawide (beta):** os mods agora podem trazer patches de jogo. O [mod Ultrawide](extras/mods/Ultrawide)
+  opcional adiciona resoluções 21:9 e 32:9 (3440x1440 testada) com campo de visão mais largo, em vez de uma
+  imagem com zoom; as cutscenes mantêm as bordas 16:9 (veja [docs/ultrawide.md](docs/ultrawide.md)).
 - **Abertura imediata:** o cache de shaders salvo carrega em segundo plano enquanto você joga, e
   os shaders novos também são compilados em segundo plano, sem parar o jogo.
 - **Launcher** com as cores do jogo, em inglês com traduções parciais: ajustes rápidos na tela inicial, tela,
