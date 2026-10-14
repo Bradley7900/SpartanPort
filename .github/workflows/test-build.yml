@@ -1,0 +1,60 @@
+# Test build of a launcher-only change: the native executables and DLLs come from the 2.2.0
+# release zip, only God of War III.exe (the frozen launcher) and the Python files are rebuilt.
+# shortcut: valid while no C/C++ changed since BASE_TAG; otherwise build with package.sh on MSYS2.
+name: test-build
+
+on:
+  push:
+    branches: [fix/community-startup-fixes]
+  workflow_dispatch:
+
+env:
+  BASE_TAG: windows-v2.2.0
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Tests
+        run: python -m unittest discover -s tests
+
+      - name: Base release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download $env:BASE_TAG -p gow3-windows.zip -D base
+          Expand-Archive base/gow3-windows.zip -DestinationPath base
+
+      - name: Launcher
+        run: |
+          python -m pip install -q --disable-pip-version-check pyinstaller pillow iced-x86==1.21.0
+          $hidden = 'argparse base64 collections hashlib json re shutil struct tempfile xml.etree.ElementTree urllib.request ctypes.wintypes iced_x86'.Split(' ') | ForEach-Object { '--hidden-import'; $_ }
+          python -m PyInstaller --noconfirm --clean --log-level WARN --windowed --copy-metadata pillow `
+            --name "God of War III" --icon "$PWD/launcher/gow3.ico" --distpath out/pyi-dist `
+            --workpath out/pyi-work --specpath out/pyi-work --paths "$PWD/scripts" @hidden `
+            "$PWD/launcher/gow3_launcher_win.py"
+
+      - name: Package
+        run: |
+          $dest = 'base/gow3-windows'
+          Remove-Item -Recurse -Force "$dest/_internal", "$dest/God of War III.exe", "$dest/scripts", "$dest/patches"
+          Copy-Item -Recurse 'out/pyi-dist/God of War III/*' $dest
+          Copy-Item -Recurse scripts, patches $dest
+          Copy-Item run.py, LICENSE, README.md, packaging/windows/README-Windows.txt $dest
+          Copy-Item launcher/gow3.ico, launcher/gow3.png, launcher/gowfont.ttf "$dest/launcher"
+          Get-ChildItem $dest -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path $dest -DestinationPath dist/gow3-windows.zip
+          (Get-FileHash dist/gow3-windows.zip -Algorithm SHA256).Hash.ToLower() + '  gow3-windows.zip' |
+            Out-File -Encoding ascii -NoNewline dist/gow3-windows.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gow3-windows
+          path: dist/
