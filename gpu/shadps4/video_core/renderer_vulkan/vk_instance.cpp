@@ -17,6 +17,7 @@
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_amd_paths.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
+#include "video_core/renderer_vulkan/vk_driver_report.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 
@@ -193,6 +194,26 @@ Instance::Instance(const Frontend::WindowSystemInfo& window_info, s32 physical_d
                VK_VERSION_MAJOR(properties.apiVersion), VK_VERSION_MINOR(properties.apiVersion));
 
     CreateDevice();
+    // gow3: the default log hides LOG_INFO; this line names the tester's driver and the paths
+    // the device was created with (vk_driver_report.h, #121).
+    const std::string driver_line = DriverReport::Line({
+        .driver_name = vendor_name,
+        .driver_info = driver_info,
+        .driver_version = GetDriverVersionName(),
+        .api_version = properties.apiVersion,
+        .driver_id = vk::to_string(driver_id),
+        .vendor_id = properties.vendorID,
+        .device_id = properties.deviceID,
+        .maintenance8 = maintenance_8,
+        .eds3 = dynamic_state_3,
+        .eds3_color_write_mask = IsDynamicColorWriteMaskSupported(),
+        .depth_bounds = IsDepthBoundsSupported(),
+        .vertex_input_dynamic_state = vertex_input_dynamic_state,
+        .amd_mixed_samples = amd_mixed_attachment_samples,
+        .pipeline_binaries = pipeline_binaries,
+    });
+    std::printf("%s\n", driver_line.c_str());
+    std::fflush(stdout);
     CollectPhysicalMemoryInfo();
     CollectImageFormatInfo();
     CollectToolingInfo();
@@ -820,6 +841,7 @@ void Instance::CollectDeviceParameters() {
 
     driver_id = driver.driverID;
     vendor_name = driver.driverName.data();
+    driver_info = driver.driverInfo.data();
 
     // gow3: see video_core/amdgpu/gow3_msaa.h; the default per driver is gow3_msaa_default.h.
     const char* no_msaa_env = std::getenv("GOW3_NO_MSAA");

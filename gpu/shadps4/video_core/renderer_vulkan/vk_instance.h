@@ -554,6 +554,7 @@ private:
     vk::DriverIdKHR driver_id;
     vk::UniqueDebugUtilsMessengerEXT debug_callback{};
     std::string vendor_name;
+    std::string driver_info; // gow3: driverInfo, where AMD keeps the Adrenalin version
     VmaAllocator allocator{};
     vk::Queue present_queue;
     vk::Queue graphics_queue;
