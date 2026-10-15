@@ -800,6 +800,8 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar) {
         warmup_pool->Push([this, key = sel.graphics_key, infos = sel.infos,
                            runtime_infos = sel.runtime_infos, fetch = sel.fetch_shader,
                            modules = sel.modules, sdata]() mutable {
+            LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
+                     DescribeGraphicsPipeline(key, infos, "cache"));
             auto pipeline = std::make_unique<GraphicsPipeline>(
                 instance, scheduler, desc_heap, profile, key, *pipeline_cache, infos,
                 runtime_infos, fetch, modules, sdata, true);
@@ -808,6 +810,8 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar) {
             return true;
         });
     } else {
+        LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
+                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, "cache"));
         it.value() = std::make_unique<GraphicsPipeline>(
             instance, scheduler, desc_heap, profile, sel.graphics_key, *pipeline_cache, sel.infos,
             sel.runtime_infos, sel.fetch_shader, sel.modules, sdata, true);
@@ -844,6 +848,8 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage) 
 
     auto [it_pgm, new_program] = program_cache.try_emplace(program->info.pgm_hash);
     if (new_program) {
+        LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (cache; permutation {})",
+                 program->info.hw_stage, program->info.pgm_hash, perm_idx);
         module = CompileSPV(spv, instance.GetDevice());
         it_pgm.value() = std::move(program);
     } else {
@@ -862,6 +868,8 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage) 
             }
             module = it->module;
         } else {
+            LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (cache; permutation {})",
+                     program->info.hw_stage, program->info.pgm_hash, perm_idx);
             module = CompileSPV(spv, instance.GetDevice());
         }
     }
@@ -1161,6 +1169,9 @@ void PipelineCache::ReadWarmEntry(BackgroundWarmup& warm, std::vector<u8>&& data
                                         stage->perm_idx),
                             spv);
                     if (!spv.empty()) {
+                        LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (cache; permutation {})",
+                                 stage->program->info.hw_stage, stage->program->info.pgm_hash,
+                                 stage->perm_idx);
                         const auto module_started = std::chrono::steady_clock::now();
                         stage->module = CompileSPV(spv, stage->device);
                         module_time = ElapsedNs(module_started);
@@ -1302,6 +1313,8 @@ void PipelineCache::PumpWarmUp() {
                     instance, scheduler, desc_heap, profile, *pipeline_cache, compute_key,
                     *infos[0], modules[0], compute_data, true);
             } else {
+                LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
+                         DescribeGraphicsPipeline(graphics_key, infos, "cache"));
                 built.graphics = std::make_unique<GraphicsPipeline>(
                     instance, scheduler, desc_heap, profile, graphics_key, *pipeline_cache, infos,
                     no_runtime_infos, fetch, modules, sdata, true);

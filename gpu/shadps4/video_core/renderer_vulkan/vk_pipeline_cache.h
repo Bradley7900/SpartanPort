@@ -205,6 +205,11 @@ private:
                                    Shader::Backend::Bindings& binding);
     const Shader::RuntimeInfo& BuildRuntimeInfo(PipelineSelection& sel, Shader::HwStage stage,
                                                 Shader::SwStage l_stage);
+    /// gow3: "0x<pipeline> (<mode>; vs 0x..., fs 0x...)" for the line logged right before the
+    /// driver compiles a graphics pipeline (vk_compile_log.h).
+    static std::string DescribeGraphicsPipeline(
+        const GraphicsPipelineKey& key,
+        const std::array<const Shader::Info*, MaxShaderStages>& infos, std::string_view mode);
 
     [[nodiscard]] bool IsPipelineCacheDirty() const {
         return num_new_pipelines > 0;

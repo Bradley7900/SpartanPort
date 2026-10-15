@@ -457,11 +457,13 @@ struct CompileTimer {
         ++g_gow3_compiles;
     }
 };
+} // namespace
+
 // gow3: "0x<pipeline> (vs 0x..., fs 0x...)" for the line logged right before the driver compiles
 // a graphics pipeline, so a crash in its shader compiler (igc64.dll, #35) names the shaders.
-std::string DescribeGraphicsPipeline(const GraphicsPipelineKey& key,
-                                     const std::array<const Shader::Info*, MaxShaderStages>& infos,
-                                     bool async) {
+std::string PipelineCache::DescribeGraphicsPipeline(
+    const GraphicsPipelineKey& key, const std::array<const Shader::Info*, MaxShaderStages>& infos,
+    std::string_view mode) {
     std::vector<CompileLogStage> stages;
     for (const auto stage : {SwStage::Vertex, SwStage::TessellationControl,
                              SwStage::TessellationEval, SwStage::Geometry, SwStage::Fragment}) {
@@ -469,9 +471,8 @@ std::string DescribeGraphicsPipeline(const GraphicsPipelineKey& key,
             stages.push_back({fmt::format("{}", info->hw_stage), info->pgm_hash});
         }
     }
-    return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), stages, async);
+    return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), stages, mode);
 }
-} // namespace
 
 bool PipelineCache::QueueShader(Program& program, HwStage stage, SwStage l_stage,
                                  const Shader::ShaderParams& params,
@@ -766,7 +767,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
                 PhaseTimer compile{g_gow3_async_ns};
                 auto& s = build->selection;
                 LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                         DescribeGraphicsPipeline(s.graphics_key, s.infos, true));
+                         DescribeGraphicsPipeline(s.graphics_key, s.infos, "async"));
                 build->pipeline = std::make_unique<GraphicsPipeline>(
                     instance, scheduler, desc_heap, profile, s.graphics_key,
                     *worker_pipeline_caches[AsyncCompiler::WorkerIndex()],
@@ -784,7 +785,7 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
     if (is_new) {
         const auto pipeline_hash = std::hash<GraphicsPipelineKey>{}(sel.graphics_key);
         LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, false));
+                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, ""));
         CompileTimer timer;
 
         GraphicsPipeline::SerializationSupport sdata{};
