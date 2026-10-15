@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Vulkan {
@@ -87,6 +88,24 @@ inline std::string JoinNames(const std::vector<std::string>& names) {
         joined += names[i];
     }
     return joined;
+}
+
+/// The "extensions off" list for the log: the disabled names plus "<name> (<reason>)" for an
+/// extension a default kept off, unless the name is empty or already disabled. Log only: the
+/// disabled list itself also gates the pipeline caches.
+inline std::vector<std::string> OffNamesForLog(const std::vector<std::string>& disabled,
+                                               std::string_view default_off_name,
+                                               std::string_view reason) {
+    std::vector<std::string> names = disabled;
+    if (!default_off_name.empty() &&
+        std::find(disabled.begin(), disabled.end(), default_off_name) == disabled.end()) {
+        std::string entry{default_off_name};
+        entry += " (";
+        entry += reason;
+        entry += ')';
+        names.push_back(std::move(entry));
+    }
+    return names;
 }
 
 } // namespace Vulkan

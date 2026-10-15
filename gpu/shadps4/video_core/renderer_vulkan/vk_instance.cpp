@@ -387,6 +387,8 @@ bool Instance::CreateDevice() {
          ext_policy.IsDisabled(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME)) &&
         add_extension(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
     const char* vertex_input_line;
+    // gow3: why the default kept the extension off, for the "extensions off" summary at the end.
+    std::string_view vertex_input_off_reason;
     if (vertex_input_dynamic_state) {
         vertex_input_line = vertex_input_env && std::string_view{vertex_input_env} == "1"
                                 ? "on (GOW3_VERTEX_INPUT_DYNAMIC=1)"
@@ -399,6 +401,14 @@ bool Instance::CreateDevice() {
         vertex_input_line = vertex_input_env && *vertex_input_env
                                 ? "off (GOW3_VERTEX_INPUT_DYNAMIC=0)"
                                 : "off (Intel Windows driver; GOW3_VERTEX_INPUT_DYNAMIC=1 turns it on)";
+        // gow3: add_extension never ran here, so look the extension up before calling it off.
+        if (std::find(available_extensions.begin(), available_extensions.end(),
+                      VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME) !=
+            available_extensions.end()) {
+            vertex_input_off_reason = vertex_input_env && *vertex_input_env
+                                          ? "GOW3_VERTEX_INPUT_DYNAMIC=0"
+                                          : "Intel Windows driver";
+        }
     } else {
         vertex_input_line = "unavailable (VK_EXT_vertex_input_dynamic_state missing)";
     }
@@ -857,11 +867,18 @@ bool Instance::CreateDevice() {
             unavailable.push_back(name);
         }
     }
+    // gow3: the list printed also names the extension the vertex input default kept off (#35);
+    // disabled_extensions itself stays GOW3_VK_DISABLE_EXT only, as it gates the pipeline caches.
+    const std::vector<std::string> off_names = OffNamesForLog(
+        disabled_extensions,
+        vertex_input_off_reason.empty() ? std::string_view{}
+                                        : VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME,
+        vertex_input_off_reason);
     std::printf("GPU: device %s, driver %s %s, Vulkan %s; extensions off: %s "
                 "(GOW3_VK_DISABLE_EXT=%s)\n",
                 properties.deviceName.data(), vk::to_string(driver_id).c_str(),
                 GetDriverVersionName().c_str(), GetReadableVersion(properties.apiVersion).c_str(),
-                JoinNames(disabled_extensions).c_str(),
+                JoinNames(off_names).c_str(),
                 disable_ext_set ? disable_ext_env.c_str() : "unset");
     std::printf("GPU: optional extensions unavailable: %s; ignored names: %s\n",
                 JoinNames(unavailable).c_str(),

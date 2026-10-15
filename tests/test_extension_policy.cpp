@@ -92,6 +92,23 @@ int main() {
     assert(JoinNames({}) == "none");
     assert((JoinNames({"a", "b"}) == "a, b"));
 
+    // The "extensions off" log also names an extension a default kept off, with its reason (#35),
+    // once: the knob's own entry already says it is off.
+    assert((OffNamesForLog({"VK_A"}, "", "Intel Windows driver") ==
+            std::vector<std::string>{"VK_A"}));
+    assert(OffNamesForLog({}, "", "Intel Windows driver").empty());
+    assert((OffNamesForLog({}, "VK_EXT_vertex_input_dynamic_state", "Intel Windows driver") ==
+            std::vector<std::string>{"VK_EXT_vertex_input_dynamic_state (Intel Windows driver)"}));
+    assert((OffNamesForLog({"VK_A"}, "VK_B", "GOW3_VERTEX_INPUT_DYNAMIC=0") ==
+            std::vector<std::string>{"VK_A", "VK_B (GOW3_VERTEX_INPUT_DYNAMIC=0)"}));
+    assert((OffNamesForLog({"VK_A", "VK_B"}, "VK_B", "Intel Windows driver") ==
+            std::vector<std::string>{"VK_A", "VK_B"}));
+    assert(JoinNames(OffNamesForLog({}, "VK_EXT_vertex_input_dynamic_state",
+                                    "Intel Windows driver")) ==
+           "VK_EXT_vertex_input_dynamic_state (Intel Windows driver)");
+    assert(JoinNames(OffNamesForLog({"VK_A"}, "VK_B", "Intel Windows driver")) ==
+           "VK_A, VK_B (Intel Windows driver)");
+
     std::puts("extension-policy-test: ok");
     return 0;
 }
