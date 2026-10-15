@@ -131,17 +131,20 @@ static LONG fatal_exception(EXCEPTION_POINTERS *info) {
     if (__atomic_exchange_n(&fatal_reported,1,__ATOMIC_ACQ_REL)) { Sleep(INFINITE); }
     const EXCEPTION_RECORD *record=info->ExceptionRecord;
     const CONTEXT *c=info->ContextRecord;
-    char where[MAX_PATH+64], thread[64];
+    char where[MAX_PATH+64], thread[64]="";
     describe_address(where,sizeof(where),(uintptr_t)c->Rip);
-    /* The thread's description (gow3:main, gow3:DrawPrep0, a guest thread...) follows its id. */
-    gow3_current_thread_name(thread,sizeof(thread));
     if (record->ExceptionCode==EXCEPTION_ACCESS_VIOLATION && record->NumberParameters>=2)
-        fprintf(stderr,"Fault: %s access to %p at %s (thread %lu%s%s)\n",
+        fprintf(stderr,"Fault: %s access to %p at %s (thread %lu",
                 record->ExceptionInformation[0]==1 ? "write" : record->ExceptionInformation[0]==8 ? "execute" : "read",
-                (void *)record->ExceptionInformation[1],where,GetCurrentThreadId(),thread[0] ? " " : "",thread);
+                (void *)record->ExceptionInformation[1],where,GetCurrentThreadId());
     else
-        fprintf(stderr,"Fault: exception 0x%08lx at %s (thread %lu%s%s)\n",record->ExceptionCode,where,GetCurrentThreadId(),
-                thread[0] ? " " : "",thread);
+        fprintf(stderr,"Fault: exception 0x%08lx at %s (thread %lu",record->ExceptionCode,where,GetCurrentThreadId());
+    /* The thread's description (gow3:main, gow3:DrawPrep0, a guest thread...) follows its id.
+     * The lookup allocates on the process heap, so the line is written (stderr is unbuffered)
+     * before it: a fault in a corrupted heap that faults again still leaves the line. A stack
+     * overflow has no stack left for it. */
+    if (record->ExceptionCode!=EXCEPTION_STACK_OVERFLOW) gow3_current_thread_name(thread,sizeof(thread));
+    fprintf(stderr,"%s%s)\n",thread[0] ? " " : "",thread);
     fprintf(stderr,"  rax=%016llx rbx=%016llx rcx=%016llx rdx=%016llx\n  rsi=%016llx rdi=%016llx rbp=%016llx rsp=%016llx\n",
             c->Rax,c->Rbx,c->Rcx,c->Rdx,c->Rsi,c->Rdi,c->Rbp,c->Rsp);
     if (gpu_enabled) gow3gpu_dump_guest_writes(info);
