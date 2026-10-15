@@ -2,10 +2,11 @@
 // gow3: one state line per render pass in the frame analyzer's capture (vk_frame_capture.cpp):
 // guest colour and depth sample counts, the host sample count and the sample path the pipeline
 // cache chose (vk_pipeline_cache.cpp), sample shading, stencil test/write/clear, the depth clear
-// source, the depth layout, the attachment feedback loop and the render area against the depth
-// target's size. Answers, from one capture, whether the game renders with MSAA or mixed samples,
-// whether a pass stencil-tests or samples a stencil the emulator never cleared, and whether a
-// render target is smaller than the pass's attachments.
+// source, the depth layout, the attachment feedback loop, the render area against the depth
+// target's size and the render-area check's verdict (vk_area_check.h). Answers, from one
+// capture, whether the game renders with MSAA or mixed samples, whether a pass stencil-tests or
+// samples a stencil the emulator never cleared, and whether a render target is smaller than the
+// pass's attachments.
 
 #pragma once
 
@@ -84,6 +85,7 @@ struct State {
     bool feedback_loop{};
     std::pair<std::uint32_t, std::uint32_t> area{};       ///< render area
     std::pair<std::uint32_t, std::uint32_t> depth_size{}; ///< the depth image, 0x0 without one
+    std::string area_check; ///< vk_area_check.h Short(), empty when not checked
 };
 
 inline std::string Format(const State& s) {
@@ -107,6 +109,9 @@ inline std::string Format(const State& s) {
     if (s.depth_size.first && s.depth_size != s.area) {
         out += " (depth " + std::to_string(s.depth_size.first) + 'x' +
                std::to_string(s.depth_size.second) + ')';
+    }
+    if (!s.area_check.empty()) {
+        out += " | areacheck " + s.area_check;
     }
     return out;
 }

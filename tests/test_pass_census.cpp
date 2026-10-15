@@ -84,6 +84,13 @@ int main() {
            "state samples c1 d2 r2 forced-equal shading 0 | stencil t0 w0 c1 | zclear register"
            " | ds DepthStencilAttachmentOptimal | fb 1 | area 3840x2160");
 
+    // The render-area check's verdict (vk_area_check.h Short), printed only when set.
+    PassCensus::State checked = flat;
+    checked.area_check = "mixed-sizes larger d limiter c0";
+    assert(PassCensus::Format(checked) ==
+           "state samples c1,1 d0 r1 equal shading 0 | stencil t0 w0 c0 | zclear none"
+           " | ds - | fb 0 | area 1280x720 | areacheck mixed-sizes larger d limiter c0");
+
     std::puts("pass census OK");
     return EXIT_SUCCESS;
 }
