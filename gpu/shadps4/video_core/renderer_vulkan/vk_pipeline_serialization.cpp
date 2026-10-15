@@ -848,8 +848,9 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage) 
 
     auto [it_pgm, new_program] = program_cache.try_emplace(program->info.pgm_hash);
     if (new_program) {
-        LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (cache; permutation {})",
-                 program->info.hw_stage, program->info.pgm_hash, perm_idx);
+        LOG_GENERIC(Common::Log::Class::Render_Vulkan, ShaderModuleLogLevel("cache"),
+                    "Compiling {} shader {:#x} (cache; permutation {})", program->info.hw_stage,
+                    program->info.pgm_hash, perm_idx);
         module = CompileSPV(spv, instance.GetDevice());
         it_pgm.value() = std::move(program);
     } else {
@@ -868,8 +869,9 @@ bool PipelineCache::LoadPipelineStage(Serialization::Archive& ar, size_t stage) 
             }
             module = it->module;
         } else {
-            LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (cache; permutation {})",
-                     program->info.hw_stage, program->info.pgm_hash, perm_idx);
+            LOG_GENERIC(Common::Log::Class::Render_Vulkan, ShaderModuleLogLevel("cache"),
+                        "Compiling {} shader {:#x} (cache; permutation {})",
+                        program->info.hw_stage, program->info.pgm_hash, perm_idx);
             module = CompileSPV(spv, instance.GetDevice());
         }
     }
@@ -1169,9 +1171,11 @@ void PipelineCache::ReadWarmEntry(BackgroundWarmup& warm, std::vector<u8>&& data
                                         stage->perm_idx),
                             spv);
                     if (!spv.empty()) {
-                        LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (cache; permutation {})",
-                                 stage->program->info.hw_stage, stage->program->info.pgm_hash,
-                                 stage->perm_idx);
+                        LOG_GENERIC(Common::Log::Class::Render_Vulkan,
+                                    ShaderModuleLogLevel("cache"),
+                                    "Compiling {} shader {:#x} (cache; permutation {})",
+                                    stage->program->info.hw_stage, stage->program->info.pgm_hash,
+                                    stage->perm_idx);
                         const auto module_started = std::chrono::steady_clock::now();
                         stage->module = CompileSPV(spv, stage->device);
                         module_time = ElapsedNs(module_started);

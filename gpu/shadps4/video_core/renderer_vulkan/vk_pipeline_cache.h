@@ -210,6 +210,9 @@ private:
     static std::string DescribeGraphicsPipeline(
         const GraphicsPipelineKey& key,
         const std::array<const Shader::Info*, MaxShaderStages>& infos, std::string_view mode);
+    /// gow3: level of the "Compiling <stage> shader" line logged before a shader module is
+    /// created in `mode` (vk_compile_log.h): Debug for the disk cache, Info otherwise.
+    static Common::Log::Level ShaderModuleLogLevel(std::string_view mode);
 
     [[nodiscard]] bool IsPipelineCacheDirty() const {
         return num_new_pipelines > 0;

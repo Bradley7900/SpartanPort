@@ -474,6 +474,11 @@ std::string PipelineCache::DescribeGraphicsPipeline(
     return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), stages, mode);
 }
 
+Common::Log::Level PipelineCache::ShaderModuleLogLevel(std::string_view mode) {
+    return LogsShaderModuleCompileAtInfo(mode) ? Common::Log::Level::info
+                                               : Common::Log::Level::debug;
+}
+
 bool PipelineCache::QueueShader(Program& program, HwStage stage, SwStage l_stage,
                                  const Shader::ShaderParams& params,
                                  Shader::RuntimeInfo runtime_info,
@@ -538,8 +543,9 @@ bool PipelineCache::QueueShader(Program& program, HwStage stage, SwStage l_stage
     const bool queued = build->job.Start(*compiler, [this, build] {
         PhaseTimer compile{g_gow3_async_ns};
         Shader::Gcn::ScopedFetchShaderSnapshot snapshot{build->fetch};
-        LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (async; permutation {})",
-                 build->info.hw_stage, build->info.pgm_hash, build->permutation);
+        LOG_GENERIC(Common::Log::Class::Render_Vulkan, ShaderModuleLogLevel("async"),
+                    "Compiling {} shader {:#x} (async; permutation {})", build->info.hw_stage,
+                    build->info.pgm_hash, build->permutation);
         auto spv = Shader::Backend::SPIRV::EmitSPIRV(profile, build->runtime, *build->ir,
                                                     build->binding);
         DumpShader(build->code, build->info.pgm_hash, build->info.hw_stage, build->permutation, "bin");
@@ -1175,8 +1181,9 @@ bool PipelineCache::RefreshComputeKey() {
 vk::ShaderModule PipelineCache::CompileModule(Shader::Info& info, Shader::RuntimeInfo& runtime_info,
                                               const std::span<const u32>& code, size_t perm_idx,
                                               Shader::Backend::Bindings& binding) {
-    LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} {}", info.hw_stage, info.pgm_hash,
-             perm_idx != 0 ? "(permutation)" : "");
+    LOG_GENERIC(Common::Log::Class::Render_Vulkan, ShaderModuleLogLevel(""),
+                "Compiling {} shader {:#x} {}", info.hw_stage, info.pgm_hash,
+                perm_idx != 0 ? "(permutation)" : "");
     DumpShader(code, info.pgm_hash, info.hw_stage, perm_idx, "bin");
     CompileTimer timer;
 

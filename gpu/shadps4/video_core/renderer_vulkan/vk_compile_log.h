@@ -4,8 +4,8 @@
 // when the preload or the background warm-up rebuilds one from the disk cache
 // (vk_pipeline_serialization.cpp). A crash inside the driver's shader compiler (igc64.dll on
 // Intel, #35) then leaves the pipeline and the hashes of its shaders as the last lines of
-// last_run.log. Pure std/fmt, so tests/test_compile_log.cpp checks the text without a Vulkan
-// device.
+// last_run.log. Also the level of the per-shader "Compiling <stage> shader" lines. Pure std/fmt,
+// so tests/test_compile_log.cpp checks the text without a Vulkan device.
 
 #pragma once
 
@@ -35,6 +35,15 @@ inline std::string FormatPipelineCompile(std::uint64_t pipeline_hash,
     }
     return details.empty() ? fmt::format("{:#x}", pipeline_hash)
                            : fmt::format("{:#x} ({})", pipeline_hash, details);
+}
+
+/// Whether the "Compiling <stage> shader 0x<hash> (<mode>; permutation N)" line logged before
+/// vkCreateShaderModule goes to Info. The driver runs its shader compiler when the pipeline is
+/// created (that line stays at Info), so the one line per shader the preload and the warm-up
+/// rebuild from the disk cache ("cache") is Debug: on a warm start those lines were over a third
+/// of last_run.log (#35). The GPU thread's ("") and the compile workers' ("async") stay at Info.
+inline bool LogsShaderModuleCompileAtInfo(std::string_view mode) {
+    return mode != "cache";
 }
 
 } // namespace Vulkan

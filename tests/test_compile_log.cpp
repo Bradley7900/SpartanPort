@@ -32,6 +32,13 @@ int main() {
     assert(FormatPipelineCompile(0x9f, {}, "") == "0x9f");
     assert(FormatPipelineCompile(0x9f, {}, "async") == "0x9f (async)");
     assert(FormatPipelineCompile(0x9f, {}, "cache") == "0x9f (cache)");
+
+    // The "Compiling <stage> shader" line before vkCreateShaderModule: the driver compiles at
+    // pipeline creation, so the one line per shader the preload and warm-up rebuild from the disk
+    // cache is Debug. The GPU thread's and the compile workers' lines stay at Info.
+    assert(!LogsShaderModuleCompileAtInfo("cache"));
+    assert(LogsShaderModuleCompileAtInfo("async"));
+    assert(LogsShaderModuleCompileAtInfo(""));
     std::puts("compile-log-test: ok");
     return EXIT_SUCCESS;
 }
