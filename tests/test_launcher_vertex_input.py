@@ -61,6 +61,9 @@ class VertexInputOptionsTest(unittest.TestCase):
         with mock.patch.object(launcher, 'LANG', 'pt'):
             self.assertEqual(launcher.vertex_input_options(HD630_PC, '0')[0][1],
                              ('Automático (Intel(R) HD Graphics 630: desligado)',))
+        with mock.patch.object(launcher, 'LANG', 'es'):
+            self.assertEqual(launcher.vertex_input_options(HD630_PC, '0')[0][1],
+                             ('Automático (Intel(R) HD Graphics 630: desactivado)',))
 
     def test_portuguese_texts(self):
         table = gow3_lang.table('pt')
@@ -68,6 +71,14 @@ class VertexInputOptionsTest(unittest.TestCase):
         for text in texts + tuple(text[0] for _value, text in launcher.VERTEX_INPUT):
             with self.subTest(text=text[:40]):
                 self.assertTrue(table.get(text), f'no Portuguese text for {text!r}')
+
+    def test_spanish_texts(self):
+        table = gow3_lang.table('es')
+        texts = ('Dynamic vertex input', launcher.VERTEX_INPUT_HINT)
+        for text in texts + tuple(text[0] for _value, text in launcher.VERTEX_INPUT):
+            with self.subTest(text=text[:40]):
+                self.assertTrue(table.get(text), f'no Spanish text for {text!r}')
+                self.assertNotEqual(table[text], text)
 
 
 class VertexInputLauncherTest(unittest.TestCase):
@@ -110,6 +121,8 @@ class VertexInputLauncherTest(unittest.TestCase):
         boxes = boxes_with(app.pages['performance'], 'On', 'Off')
         self.assertEqual(len(boxes), 1)
         self.assertEqual(tuple(boxes[0]['values']), ('Automatic (NVIDIA GeForce GTX 1050 Ti: on)', 'On', 'Off'))
+        # As wide as the multisampling box: 'Automatic (Intel(R) HD Graphics 630: off)' is 41 characters.
+        self.assertEqual(int(boxes[0].cget('width')), 46)
         self.assertEqual(app.vars['vertex_input'].get(), '')
         boxes[0].current(2)
         boxes[0].event_generate('<<ComboboxSelected>>')

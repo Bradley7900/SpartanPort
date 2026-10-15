@@ -1304,7 +1304,7 @@ class Launcher:
         card = self.var('gpu_id', 'app')
         box = self.choice(f, 'no_msaa', 'app', no_msaa_options(gpus, card.get()), width=46)
         self.row(f, _('Game multisampling'), box, _(NO_MSAA_HINT), restart=True)
-        vertex_box = self.choice(f, 'vertex_input', 'app', vertex_input_options(gpus, card.get()))
+        vertex_box = self.choice(f, 'vertex_input', 'app', vertex_input_options(gpus, card.get()), width=46)
         self.row(f, _('Dynamic vertex input'), vertex_box, _(VERTEX_INPUT_HINT), restart=True)
 
         def relabel(*_args):  # Automatic names the card the game will run on

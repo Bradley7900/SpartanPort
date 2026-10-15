@@ -931,6 +931,9 @@ EXTRA = {
         'Off (fixes black lines)': 'Desactivado (corrige las líneas negras)',
         "The game's 2-sample depth buffer, read as a texture by its lighting. AMD's and Intel's Windows drivers read it wrong and the lighting shows black lines, so Automatic turns multisampling off on those cards (Radeon, Arc) and keeps it on elsewhere (NVIDIA). Off and On force the choice on any card.":
             'El búfer de profundidad de 2 muestras del juego, leído como textura por su iluminación. Los controladores de AMD e Intel en Windows lo leen mal y la iluminación muestra líneas negras, así que Automático desactiva el multisampling en esas tarjetas (Radeon, Arc) y lo mantiene en las demás (NVIDIA). Desactivado y Activado fuerzan la elección en cualquier tarjeta.',
+        'Dynamic vertex input': 'Entrada de vértices dinámica',
+        "Vulkan's dynamic vertex input. Intel's Windows driver draws the 3D scene black or blue with it (HD 630, #35), so Automatic turns it off on Intel cards and keeps it on elsewhere. On and Off force the choice on any card; a wrong choice only changes how vertex formats reach the driver.":
+            'La entrada de vértices dinámica de Vulkan. El controlador de Intel en Windows dibuja la escena 3D negra o azul con ella (HD 630, #35), así que Automático la desactiva en las tarjetas Intel y la mantiene en las demás. Activado y Desactivado fuerzan la elección en cualquier tarjeta; una elección equivocada solo cambia cómo llegan los formatos de vértice al controlador.',
         'Display': 'Pantalla',
         'How the game appears on your screen.': 'Cómo se ve el juego en tu pantalla.',
         'Display mode': 'Modo de pantalla',
