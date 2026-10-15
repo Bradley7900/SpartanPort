@@ -21,7 +21,9 @@ cropped, stretched or missing at the edges) in an issue of the project.
 
 ## How to install
 
-**Versions after 2.2.0 (the easy way: one file).**
+**Versions that read zip mods (the easy way: one file).** That is the Ultrawide test build linked from pull
+request #202 and the releases after it is merged. 2.2.0 and 2.3.0 do not: with them the zip is ignored and the
+game stays at its usual resolution.
 
 1. Put `Ultrawide.zip` into the `mods` folder, next to `God of War III.exe` (in the launcher: **Mods** →
    **Open**; create the folder if it is not there). Do not unzip it: the game does that by itself.
@@ -52,7 +54,10 @@ is changed.
 ## Notes
 
 - **Cutscenes keep their borders.** They are pre-rendered 16:9 videos, so they play with black bars at
-  the sides; stretching them would distort the picture, and they cannot be re-rendered.
+  the sides (above and below at 16:10); stretching them would distort the picture, and they cannot be
+  re-rendered. Builds before the test build left the last game frame in those bars instead of black.
+- **Menus are 16:9.** The game fits its menus and HUD to a 16:9 area in the middle, so the darkened
+  background of a menu does not reach the sides (the top and bottom at 16:10).
 - **16:10 (taller than 16:9).** The game's camera keeps the horizontal view, so a taller picture simply shows
   more at the top and bottom, without distortion. These entries only set the resolution and the aspect ratio
   (no field of view change). 4:3 is not included.
@@ -71,15 +76,18 @@ campo de visão horizontal fixo, então só trocar a resolução corta a imagem 
 mod adiciona resoluções que também abrem o campo de visão: o mundo mantém as proporções e você vê mais dos
 lados.
 
-**Como instalar.** Nas versões **depois da 2.2.0**: coloque o `Ultrawide.zip` (sem extrair) na pasta `mods`, ao
-lado do `God of War III.exe` (no launcher: **Mods** → **Open**), abra o launcher e escolha o tamanho em
-**Render resolution**. Na **2.2.0** (que ainda não lê mods em zip): baixe o instalador
+**Como instalar.** Nas versões **que leem mods em zip** (a build de teste do Ultrawide indicada no pull request
+#202 e as releases depois do merge; a 2.2.0 e a 2.3.0 não leem, e o jogo fica na resolução de sempre): coloque o
+`Ultrawide.zip` (sem extrair) na pasta `mods`, ao lado do `God of War III.exe` (no launcher: **Mods** →
+**Open**), abra o launcher e escolha o tamanho em **Render resolution**. Na **2.2.0** (que ainda não lê mods em zip): baixe o instalador
 `Ultrawide-installer-2.2.0.zip` (anexado ao pull request #202), extraia, dê dois cliques no **`INSTALL.bat`**, cole
 a pasta do jogo, escolha a resolução no menu e inicie o jogo pelo **`Play God of War III.exe`** (não pelo
 launcher). Para desfazer: **`UNINSTALL.bat`**. Em **Render resolution** aparecem `3440x1440 (mod)` e os outros tamanhos (e no menu do jogo,
 tecla Insert). O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte e vale com qualquer resolução.
 
 **As cutscenes continuam com bordas:** são vídeos 16:9 pré-renderizados, então tocam com barras pretas dos
-lados. Só o 3440x1440 foi testado; se testar outro tamanho, conte como ficou numa issue do projeto.
+lados (em cima e embaixo no 16:10); as builds anteriores à de teste deixavam o último frame do jogo nessas
+barras. **Os menus são 16:9:** o fundo escurecido de um menu não chega aos lados (nem em cima e embaixo no
+16:10). Só o 3440x1440 foi testado; se testar outro tamanho, conte como ficou numa issue do projeto.
 Os tamanhos 16:10 (1920x1200 e 2560x1600) só mudam a resolução e o aspect ratio: como a câmera mantém o campo
 horizontal, uma imagem mais alta mostra mais em cima e embaixo, sem deformar.

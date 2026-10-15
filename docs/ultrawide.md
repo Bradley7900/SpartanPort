@@ -38,7 +38,13 @@ What you get:
 
 - The world and the HUD fill the screen; characters keep their proportions. Menus are in the right proportion.
 - **Cutscenes keep their borders.** They are pre-rendered 16:9 videos, so they play with black bars at
-  the sides. Stretching them to fill the screen would distort the picture, and they cannot be re-rendered.
+  the sides (above and below at 16:10). Stretching them to fill the screen would distort the picture, and
+  they cannot be re-rendered. The game draws a cutscene in a 16:9 picture in the middle and never clears the
+  rest of the screen (at 16:9 there is no rest), so the last game frame used to stay in the bars. While the
+  video decoder hands out pictures, the presenter now draws everything outside that picture black
+  (`video_core/renderer_vulkan/movie_bars.h`; render sizes within 1% of 16:9 are left alone).
+- **Menus are 16:9.** The game fits its menus and HUD to a 16:9 area in the middle, so the darkened
+  background of a menu does not reach the sides (the top and bottom at 16:10).
 - At 32:9 the field of view is multiplied by 2 horizontally. It is rectilinear, so objects at the very
   edges look stretched, as in any game with a very wide field of view.
 
@@ -110,5 +116,8 @@ resolution** (launcher e menu do jogo, tecla Insert) depois das embutidas, como 
 e **PLAY**. O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte e vale com qualquer resolução.
 
 **As cutscenes continuam com bordas:** são vídeos 16:9 pré-renderizados, então tocam com barras pretas dos
-lados; esticá-los deformaria a imagem. No 32:9 o campo de visão horizontal fica multiplicado por 2, e
+lados (em cima e embaixo no 16:10); esticá-los deformaria a imagem. O jogo desenha a cutscene num quadro 16:9
+no meio e nunca limpa o resto da tela, então o último frame do jogo ficava nas barras; enquanto o decodificador
+de vídeo entrega quadros, o presenter agora pinta de preto tudo fora desse quadro. **Os menus são 16:9:** o
+fundo escurecido de um menu não chega aos lados (nem em cima e embaixo no 16:10). No 32:9 o campo de visão horizontal fica multiplicado por 2, e
 objetos nas bordas extremas parecem esticados.
