@@ -27,6 +27,7 @@
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_hle.h"
+#include "video_core/renderer_vulkan/vk_state_probe.h"
 #include "video_core/texture_cache/image_view.h"
 #include "video_core/texture_cache/texture_cache.h"
 
@@ -42,6 +43,46 @@ static Shader::PushData MakeUserData(const AmdGpu::Regs& regs) {
     push_data.yscale = regs.viewport_control.yscale_enable ? regs.viewports[0].yscale : 1.f;
     return push_data;
 }
+
+namespace {
+/// gow3: GOW3_STATE_PROBE=viewport,depthreemit (vk_state_probe.h). UpdateDynamicState records
+/// dynamic state before the bindPipeline, and before vkCmdBeginRendering for a pass's first
+/// draw; this records it again after each bindPipeline, inside the render pass. The copy is
+/// taken after UpdateDynamicState, so it holds this draw's values.
+struct ProbeReemit {
+    StateProbe::Flags probe;
+    bool depth_bounds_supported;
+    DynamicState state;
+
+    void operator()(vk::CommandBuffer cmdbuf) const {
+        if (probe.viewport) {
+            cmdbuf.setViewportWithCount(state.viewports);
+            cmdbuf.setScissorWithCount(state.scissors);
+        }
+        if (probe.depthreemit) {
+            state.EmitDepthStencil(depth_bounds_supported,
+                                   [&](const auto& command) { command(cmdbuf); });
+        }
+    }
+};
+
+struct NoReemit {
+    void operator()(vk::CommandBuffer) const {}
+};
+
+/// Calls `record(reemit)`, where `reemit(cmdbuf)` is what a draw closure runs after each
+/// bindPipeline: a ProbeReemit only while a probe re-records state, so the draw closures stay
+/// as small as before otherwise.
+template <typename Record>
+void WithStateProbe(const Instance& instance, Scheduler& scheduler, Record&& record) {
+    const auto probe = StateProbe::Current();
+    if (probe.viewport || probe.depthreemit) [[unlikely]] {
+        record(ProbeReemit{probe, instance.IsDepthBoundsSupported(), scheduler.GetDynamicState()});
+    } else {
+        record(NoReemit{});
+    }
+}
+} // namespace
 
 Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime& runtime_,
                        AmdGpu::Liverpool* liverpool_)
@@ -80,6 +121,8 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
     // gow3: a log without any area check line still shows the check ran (CheckRenderArea).
     std::printf("GPU: area check on (issue #121 test build)\n");
     std::fflush(stdout);
+    // gow3: the GOW3_STATE_PROBE marker at startup, not at the first draw (vk_state_probe.h).
+    StateProbe::Current();
 }
 
 Rasterizer::~Rasterizer() = default;
@@ -1156,21 +1199,25 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const u32 num_instances = regs.num_instances.NumInstances();
     const u32 first_vertex = vertex_offset;
     const u32 first_instance = instance_offset;
-    scheduler.Record([=](vk::CommandBuffer cmdbuf) {
-        const auto draw = [&] {
-            if (is_indexed) {
-                cmdbuf.drawIndexed(num_indices, num_instances, 0, s32(first_vertex),
-                                   first_instance);
-            } else {
-                cmdbuf.draw(num_indices, num_instances, first_vertex, first_instance);
-            }
-        };
-        cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, handle);
-        draw();
-        if (square) [[unlikely]] {
-            cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, square);
+    WithStateProbe(instance, scheduler, [&](const auto& reemit) {
+        scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+            const auto draw = [&] {
+                if (is_indexed) {
+                    cmdbuf.drawIndexed(num_indices, num_instances, 0, s32(first_vertex),
+                                       first_instance);
+                } else {
+                    cmdbuf.draw(num_indices, num_instances, first_vertex, first_instance);
+                }
+            };
+            cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, handle);
+            reemit(cmdbuf);
             draw();
-        }
+            if (square) [[unlikely]] {
+                cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, square);
+                reemit(cmdbuf);
+                draw();
+            }
+        });
     });
     if (FrameCapture::Active()) {
         const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
@@ -1290,25 +1337,29 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     const u64 args_offset = base;
     const vk::Buffer counts = count_address != 0 ? count_buffer->Handle() : vk::Buffer{};
     const u64 counts_offset = count_address != 0 ? count_offset : 0;
-    scheduler.Record([=](vk::CommandBuffer cmdbuf) {
-        for (const vk::Pipeline bound : {handle, square}) {
-            if (!bound) {
-                break;
-            }
-            cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, bound);
-            if (is_indexed) {
-                if (counts) {
-                    cmdbuf.drawIndexedIndirectCount(args, args_offset, counts, counts_offset, max_count,
-                                                    stride);
-                } else {
-                    cmdbuf.drawIndexedIndirect(args, args_offset, max_count, stride);
+    WithStateProbe(instance, scheduler, [&](const auto& reemit) {
+        scheduler.Record([=](vk::CommandBuffer cmdbuf) {
+            for (const vk::Pipeline bound : {handle, square}) {
+                if (!bound) {
+                    break;
                 }
-            } else if (counts) {
-                cmdbuf.drawIndirectCount(args, args_offset, counts, counts_offset, max_count, stride);
-            } else {
-                cmdbuf.drawIndirect(args, args_offset, max_count, stride);
+                cmdbuf.bindPipeline(vk::PipelineBindPoint::eGraphics, bound);
+                reemit(cmdbuf);
+                if (is_indexed) {
+                    if (counts) {
+                        cmdbuf.drawIndexedIndirectCount(args, args_offset, counts, counts_offset,
+                                                        max_count, stride);
+                    } else {
+                        cmdbuf.drawIndexedIndirect(args, args_offset, max_count, stride);
+                    }
+                } else if (counts) {
+                    cmdbuf.drawIndirectCount(args, args_offset, counts, counts_offset, max_count,
+                                             stride);
+                } else {
+                    cmdbuf.drawIndirect(args, args_offset, max_count, stride);
+                }
             }
-        }
+        });
     });
     DebugState.IncDrawCall();
 

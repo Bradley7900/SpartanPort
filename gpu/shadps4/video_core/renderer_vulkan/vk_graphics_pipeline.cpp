@@ -19,6 +19,7 @@
 #include "common/elf_info.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
+#include "video_core/renderer_vulkan/vk_state_probe.h"
 
 namespace Vulkan {
 
@@ -413,6 +414,12 @@ GraphicsPipeline::GraphicsPipeline(
     // Required by spec unless VK_EXT_extended_dynamic_state3 is supported.
     // In practice, we use dynamic state for all of it.
     constexpr vk::PipelineDepthStencilStateCreateInfo depth_stencil_info = {};
+    // gow3: GOW3_STATE_PROBE=depthstruct passes it with EDS3 too (vk_state_probe.h). No cache
+    // version salt is needed: the pipeline archive stores keys and rebuilds every pipeline
+    // here in the current mode, the VkPipelineCache is never saved, and pipeline binaries are
+    // named by the driver's own key over this create info (CreateCachedGraphicsPipeline).
+    const bool depth_stencil_struct =
+        !instance.IsExtendedDynamicState3Supported() || StateProbe::Current().depthstruct;
 
     const vk::GraphicsPipelineCreateInfo pipeline_info = {
         .pNext = &pipeline_rendering_ci,
@@ -424,8 +431,7 @@ GraphicsPipeline::GraphicsPipeline(
         .pViewportState = &viewport_info,
         .pRasterizationState = &raster_chain.get(),
         .pMultisampleState = &sdata.multisampling,
-        .pDepthStencilState =
-            !instance.IsExtendedDynamicState3Supported() ? &depth_stencil_info : nullptr,
+        .pDepthStencilState = depth_stencil_struct ? &depth_stencil_info : nullptr,
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_info,
         .layout = *pipeline_layout,

@@ -185,7 +185,6 @@ struct DynamicState {
     template <typename Emit>
     void CommitWith(bool depth_bounds_supported, bool color_write_mask_supported,
                     bool feedback_loop_supported, Emit&& emit) {
-        using Face = vk::StencilFaceFlagBits;
         if (dirty_state.viewports) {
             dirty_state.viewports = false;
             emit([v = viewports](vk::CommandBuffer c) { c.setViewportWithCount(v); });
@@ -237,70 +236,10 @@ struct DynamicState {
             emit([v = stencil_test_enabled](vk::CommandBuffer c) { c.setStencilTestEnable(v); });
         }
         if (stencil_test_enabled) {
-            const auto ops = [&](Face face, const StencilOps& o) {
-                emit([face, o](vk::CommandBuffer c) {
-                    c.setStencilOp(face, o.fail_op, o.pass_op, o.depth_fail_op, o.compare_op);
-                });
-            };
-            if (dirty_state.stencil_front_ops && dirty_state.stencil_back_ops &&
-                stencil_front_ops == stencil_back_ops) {
-                ops(Face::eFrontAndBack, stencil_front_ops);
-            } else {
-                if (dirty_state.stencil_front_ops) {
-                    ops(Face::eFront, stencil_front_ops);
-                }
-                if (dirty_state.stencil_back_ops) {
-                    ops(Face::eBack, stencil_back_ops);
-                }
-            }
+            EmitStencilFaces(false, emit);
             dirty_state.stencil_front_ops = dirty_state.stencil_back_ops = false;
-
-            const auto reference = [&](Face face, u32 v) {
-                emit([face, v](vk::CommandBuffer c) { c.setStencilReference(face, v); });
-            };
-            if (dirty_state.stencil_front_reference && dirty_state.stencil_back_reference &&
-                stencil_front_reference == stencil_back_reference) {
-                reference(Face::eFrontAndBack, stencil_front_reference);
-            } else {
-                if (dirty_state.stencil_front_reference) {
-                    reference(Face::eFront, stencil_front_reference);
-                }
-                if (dirty_state.stencil_back_reference) {
-                    reference(Face::eBack, stencil_back_reference);
-                }
-            }
             dirty_state.stencil_front_reference = dirty_state.stencil_back_reference = false;
-
-            const auto write_mask = [&](Face face, u32 v) {
-                emit([face, v](vk::CommandBuffer c) { c.setStencilWriteMask(face, v); });
-            };
-            if (dirty_state.stencil_front_write_mask && dirty_state.stencil_back_write_mask &&
-                stencil_front_write_mask == stencil_back_write_mask) {
-                write_mask(Face::eFrontAndBack, stencil_front_write_mask);
-            } else {
-                if (dirty_state.stencil_front_write_mask) {
-                    write_mask(Face::eFront, stencil_front_write_mask);
-                }
-                if (dirty_state.stencil_back_write_mask) {
-                    write_mask(Face::eBack, stencil_back_write_mask);
-                }
-            }
             dirty_state.stencil_front_write_mask = dirty_state.stencil_back_write_mask = false;
-
-            const auto compare_mask = [&](Face face, u32 v) {
-                emit([face, v](vk::CommandBuffer c) { c.setStencilCompareMask(face, v); });
-            };
-            if (dirty_state.stencil_front_compare_mask && dirty_state.stencil_back_compare_mask &&
-                stencil_front_compare_mask == stencil_back_compare_mask) {
-                compare_mask(Face::eFrontAndBack, stencil_front_compare_mask);
-            } else {
-                if (dirty_state.stencil_front_compare_mask) {
-                    compare_mask(Face::eFront, stencil_front_compare_mask);
-                }
-                if (dirty_state.stencil_back_compare_mask) {
-                    compare_mask(Face::eBack, stencil_back_compare_mask);
-                }
-            }
             dirty_state.stencil_front_compare_mask = dirty_state.stencil_back_compare_mask = false;
         }
         if (dirty_state.primitive_restart_enable) {
@@ -344,6 +283,70 @@ struct DynamicState {
                                                        : vk::ImageAspectFlagBits::eNone);
             });
         }
+    }
+
+    /// gow3: GOW3_STATE_PROBE=depthreemit (vk_state_probe.h). Passes every depth and stencil
+    /// state to `emit`, dirty or not and whatever the tests, and leaves the flags alone. Only
+    /// states the guest pipelines declare dynamic: depth bounds when the device supports them.
+    template <typename Emit>
+    void EmitDepthStencil(bool depth_bounds_supported, Emit&& emit) const {
+        emit([v = depth_test_enabled](vk::CommandBuffer c) { c.setDepthTestEnable(v); });
+        emit([v = depth_write_enabled](vk::CommandBuffer c) { c.setDepthWriteEnable(v); });
+        emit([v = depth_compare_op](vk::CommandBuffer c) { c.setDepthCompareOp(v); });
+        if (depth_bounds_supported) {
+            emit([v = depth_bounds_test_enabled](vk::CommandBuffer c) {
+                c.setDepthBoundsTestEnable(v);
+            });
+            emit([lo = depth_bounds_min, hi = depth_bounds_max](vk::CommandBuffer c) {
+                c.setDepthBounds(lo, hi);
+            });
+        }
+        emit([v = depth_bias_enabled](vk::CommandBuffer c) { c.setDepthBiasEnable(v); });
+        emit([k = depth_bias_constant, clamp = depth_bias_clamp,
+              slope = depth_bias_slope](vk::CommandBuffer c) { c.setDepthBias(k, clamp, slope); });
+        emit([v = stencil_test_enabled](vk::CommandBuffer c) { c.setStencilTestEnable(v); });
+        EmitStencilFaces(true, emit);
+    }
+
+    /// gow3: the stencil ops, references, write masks and compare masks, in that order: the
+    /// dirty ones, or all of them with `all`. A pair due on both faces with equal values goes
+    /// out as one eFrontAndBack command. Leaves the flags alone.
+    template <typename Emit>
+    void EmitStencilFaces(bool all, Emit& emit) const {
+        using Face = vk::StencilFaceFlagBits;
+        const auto faces = [&](bool front_dirty, bool back_dirty, const auto& front,
+                               const auto& back, const auto& command) {
+            const bool front_due = all || front_dirty;
+            const bool back_due = all || back_dirty;
+            if (front_due && back_due && front == back) {
+                emit(command(Face::eFrontAndBack, front));
+                return;
+            }
+            if (front_due) {
+                emit(command(Face::eFront, front));
+            }
+            if (back_due) {
+                emit(command(Face::eBack, back));
+            }
+        };
+        faces(dirty_state.stencil_front_ops, dirty_state.stencil_back_ops, stencil_front_ops,
+              stencil_back_ops, [](Face face, const StencilOps& o) {
+                  return [face, o](vk::CommandBuffer c) {
+                      c.setStencilOp(face, o.fail_op, o.pass_op, o.depth_fail_op, o.compare_op);
+                  };
+              });
+        faces(dirty_state.stencil_front_reference, dirty_state.stencil_back_reference,
+              stencil_front_reference, stencil_back_reference, [](Face face, u32 v) {
+                  return [face, v](vk::CommandBuffer c) { c.setStencilReference(face, v); };
+              });
+        faces(dirty_state.stencil_front_write_mask, dirty_state.stencil_back_write_mask,
+              stencil_front_write_mask, stencil_back_write_mask, [](Face face, u32 v) {
+                  return [face, v](vk::CommandBuffer c) { c.setStencilWriteMask(face, v); };
+              });
+        faces(dirty_state.stencil_front_compare_mask, dirty_state.stencil_back_compare_mask,
+              stencil_front_compare_mask, stencil_back_compare_mask, [](Face face, u32 v) {
+                  return [face, v](vk::CommandBuffer c) { c.setStencilCompareMask(face, v); };
+              });
     }
 
     /// gow3: true when Commit() would record anything. Flags that Commit() defers (their
