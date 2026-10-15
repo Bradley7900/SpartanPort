@@ -7,6 +7,7 @@
 #include "common/shared_first_mutex.h"
 #include "video_core/buffer_cache/buffer_cache.h"
 #include "video_core/page_manager.h"
+#include "video_core/renderer_vulkan/vk_area_check.h"
 #include "video_core/renderer_vulkan/vk_bind_helper.h"
 #include "video_core/renderer_vulkan/vk_camera_motion.h"
 #include "video_core/renderer_vulkan/vk_constant_ring.h"
@@ -195,6 +196,14 @@ private:
         std::array<float, 2> target_scale{};
     } begin_memo;
     u64 begin_memo_hits = 0, begin_memo_misses = 0;
+    /// gow3: issue #121 test build: compares the pass's render area with the view bound for
+    /// each attachment (vk_area_check.h), logs what does not fit and requests the run's frame
+    /// capture. Sets `census_verdict` when not null (a capture is active) and then returns the
+    /// printed lines for the pass's capture note; otherwise returns nothing.
+    std::string CheckRenderArea(const GraphicsPipeline* pipeline, const RenderState& state,
+                                const AreaCheck::Override& overrides,
+                                std::string* census_verdict);
+    AreaCheck::Reporter area_reporter; ///< BeginRenderingFull only (stage B or the GPU thread)
     void Resolve();
     void DepthStencilCopy(bool is_depth, bool is_stencil);
     void EliminateFastClear();

@@ -16,6 +16,7 @@
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/buffer_cache/buffer_cache.h"
+#include "video_core/renderdoc.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
 #include "video_core/renderer_vulkan/vk_depth_stencil_state.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -76,6 +77,9 @@ Rasterizer::Rasterizer(const Instance& instance_, Scheduler& scheduler_, Runtime
         runtime.FlushBarriers();
         buffer_cache.SubmitPendingArenaBinds(info);
     });
+    // gow3: a log without any area check line still shows the check ran (CheckRenderArea).
+    std::printf("GPU: area check on (issue #121 test build)\n");
+    std::fflush(stdout);
 }
 
 Rasterizer::~Rasterizer() = default;
@@ -2766,6 +2770,9 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
     bool color_redirected = false, depth_redirected = false;
     std::pair<u32, u32> guest_extent{1, 1};
     std::pair<vk::ImageView, vk::ImageLayout> original_color{};
+    // gow3: for CheckRenderArea; the depth redirect overwrites `redirect`.
+    AreaCheck::Extent color_redirect_extent{};
+    bool redirect_applied = false;
     const auto& regs = Regs();
     const auto& key = pipeline->GetGraphicsKey();
     if (std::popcount(key.mrt_mask & 0x7f) >= 5 && db_desc.first &&
@@ -2904,6 +2911,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
             color_redirected = upscaler->RedirectColor(image_id, desc.view_info, redirect);
             if (color_redirected) {
                 guest_extent = {image->info.size.width, image->info.size.height};
+                color_redirect_extent = {redirect.width, redirect.height};
                 original_color = {attachment.image_view, attachment.image_layout};
                 attachment.image_view = redirect.view;
                 attachment.image_layout = redirect.layout;
@@ -3039,6 +3047,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
                 state.depth_stencil_attachment.image_layout = depth_image.backing->state.layout;
             }
         } else {
+            redirect_applied = true;
             state.width = redirect.width;
             state.height = redirect.height;
             // The UI movie viewport is now 1920x1080 even when the scene is 960x540.
@@ -3059,6 +3068,7 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         state.num_layers = 1;
     }
 
+    AreaCheck::Override overrides{};
     if (reduced) {
         // Half-resolution passes keep the scene's factor (proxy / native = scene / 1920).
         const auto size = scene_targets->Size();
@@ -3066,7 +3076,20 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         state.width = proxy.width;
         state.height = proxy.height;
         target_scale = {float(size.width) / 1920.0f, float(size.height) / 1080.0f};
+        overrides.proxy = {proxy.width, proxy.height};
     }
+    // gow3: issue #121 test build. Memo hits skip this, which is enough: a pass with other
+    // targets or scene state misses the memo (BeginSignature), so each pass is checked at its
+    // first draw.
+    if (color_redirected) {
+        overrides.color_redirect = color_redirect_extent;
+    }
+    if (depth_redirected) {
+        overrides.depth_redirect = {redirect.width, redirect.height};
+    }
+    overrides.rejected = (color_redirected || depth_redirected) && !redirect_applied;
+    const std::string area_note =
+        CheckRenderArea(pipeline, state, overrides, census_on ? &census.area_check : nullptr);
     if (census_on) {
         std::array<const VideoCore::ImageInfo*, AmdGpu::NUM_COLOR_BUFFERS> colors{};
         for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
@@ -3087,6 +3110,10 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         census.area = {state.width, state.height};
         FrameCapture::BeginPass(colors.data(), state.num_color_attachments, depth,
                                 PassCensus::Format(census));
+        // After BeginPass: a note goes to the last pass recorded.
+        if (!area_note.empty() && FrameCapture::IsRecording()) {
+            FrameCapture::Note(area_note.c_str());
+        }
         diag_targets.clear();
         for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
             if (cb_descs[cb].first) {
@@ -3099,6 +3126,116 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         object_motion->Attach(state, state.width, state.height);
     }
     return state;
+}
+
+std::string Rasterizer::CheckRenderArea(const GraphicsPipeline* pipeline,
+                                        const RenderState& state,
+                                        const AreaCheck::Override& overrides,
+                                        std::string* census_verdict) {
+    const auto& regs = Regs();
+    const auto& key = pipeline->GetGraphicsKey();
+    // The extents BeginRenderingFull used: colour at the bound mip, depth without a mip shift.
+    std::array<AreaCheck::Attachment, AmdGpu::NUM_COLOR_BUFFERS + 1> attachments{};
+    u32 count = 0;
+    for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
+        const auto& [id, desc] = cb_descs[cb];
+        if (!id) {
+            continue;
+        }
+        const auto& info = texture_cache.GetImage(id).info;
+        const u32 mip = desc.view_info.range.base.level;
+        const AreaCheck::Extent native{std::max(info.size.width >> mip, 1u),
+                                       std::max(info.size.height >> mip, 1u)};
+        attachments[count++] = {
+            .address = info.guest_address,
+            .format = static_cast<u32>(info.pixel_format),
+            .native = native,
+            .bound = AreaCheck::Bound(overrides, native, false, cb),
+            .slot = u8(cb),
+            .mip = u8(mip),
+            .samples = u8(info.num_samples),
+            .guest_samples = u8(info.guest_samples),
+            .depth = false,
+        };
+    }
+    if (db_desc.first) {
+        const auto& info = texture_cache.GetImage(db_desc.first).info;
+        const AreaCheck::Extent native{info.size.width, info.size.height};
+        attachments[count++] = {
+            .address = info.guest_address,
+            .format = static_cast<u32>(info.pixel_format),
+            .native = native,
+            .bound = AreaCheck::Bound(overrides, native, true, 0),
+            .slot = 0,
+            .mip = 0,
+            .samples = u8(info.num_samples),
+            .guest_samples = u8(info.guest_samples),
+            .depth = true,
+        };
+    }
+    // The guest viewport's far edge in host pixels (UpdateViewportScissorState), when it maps
+    // to the targets at all: a pass whose attachments are all wrongly small still draws a
+    // full-size viewport. The viewport of later draws in the pass is not checked.
+    AreaCheck::Extent viewport{};
+    const auto& vp = regs.viewports[0];
+    if (!regs.IsClipDisabled() && vp.xscale != 0) {
+        const auto& ctl = regs.viewport_control;
+        const auto edge = [](float offset, float scale, float factor) {
+            return u32(std::max(std::lround((offset + std::abs(scale)) * factor), 0L));
+        };
+        viewport = {edge(ctl.xoffset_enable ? vp.xoffset : 0.f,
+                         ctl.xscale_enable ? vp.xscale : 1.f, target_scale[0]),
+                    edge(ctl.yoffset_enable ? vp.yoffset : 0.f,
+                         ctl.yscale_enable ? vp.yscale : 1.f, target_scale[1])};
+    }
+    const auto stages = pipeline->GetStages();
+    const auto* vs = stages[u32(Shader::SwStage::Vertex)];
+    const auto* ps = stages[u32(Shader::SwStage::Fragment)];
+    const AreaCheck::Pass pass{
+        .area = {state.width, state.height},
+        .overrides = overrides,
+        .viewport = viewport,
+        .scene = std::popcount(key.mrt_mask) >= 5 && db_desc.first,
+        .vs_hash = vs ? vs->pgm_hash : 0,
+        .ps_hash = ps ? ps->pgm_hash : 0,
+        .mrt_mask = key.mrt_mask,
+        .scale_x = target_scale[0],
+        .scale_y = target_scale[1],
+    };
+    const std::span<const AreaCheck::Attachment> bound{attachments.data(), count};
+    const auto result = AreaCheck::Check(pass, bound);
+    if (census_verdict) {
+        *census_verdict = AreaCheck::Short(result, pass);
+    }
+    const auto signature =
+        result.verdict == AreaCheck::Verdict::Ok ? 0 : AreaCheck::Signature(result, pass, bound);
+    const auto decision = area_reporter.Note(result, signature, pass.scene);
+    std::string note;
+    if (decision.print) {
+        const std::string text = AreaCheck::Format(result, pass, bound, [](u32 format) {
+            return vk::to_string(static_cast<vk::Format>(format));
+        });
+        std::printf("%s\n", text.c_str());
+        std::fflush(stdout);
+        // A capture is active: the lines also go into the pass's note, one per line.
+        for (size_t pos = 0; census_verdict && pos < text.size();) {
+            const size_t end = std::min(text.find('\n', pos), text.size());
+            note += "\n  ";
+            note.append(text, pos, end - pos);
+            pos = end + 1;
+        }
+    }
+    if (decision.suppressed_notice) {
+        std::printf("%s\n", AreaCheck::Reporter::SuppressedLine().c_str());
+        std::fflush(stdout);
+    }
+    if (decision.capture != AreaCheck::Reporter::Capture::None) {
+        std::printf("%s\n", area_reporter.CaptureLine(decision.capture, result).c_str());
+        std::fflush(stdout);
+        FrameCapture::Request();
+        VideoCore::RequestScreenshot(VideoCore::ScreenshotRequest::GameOnly);
+    }
+    return note;
 }
 
 void Rasterizer::Resolve() {
