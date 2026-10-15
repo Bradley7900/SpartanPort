@@ -257,6 +257,32 @@ class QuietConsoleTest(unittest.TestCase):
             self.assertEqual(install.read('B', 'last_run.log').strip(),
                              'GPU: driver quiet, last_run.log of B-viewport')
             self.assertIn('GPU: driver quiet', install.read('B', 'summary.txt'))
+            # The run worked: no "did not start" scare.
+            self.assertIn('came from last_run.log', install.output)
+            self.assertNotIn('did not start', install.output)
+
+
+@unittest.skipUnless(sys.platform == 'win32', 'cmd.exe')
+class BigZipTest(unittest.TestCase):
+    """Over GitHub's attachment limit (T121_ZIP_LIMIT_MB stands in for the 24 MB): a second zip
+    without the screenshots, with the same folders."""
+
+    def test_makes_a_text_only_zip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install = Install(Path(tmp))
+            install.run('A', extra={'T121_ZIP_LIMIT_MB': '0'})
+            self.assertIsNotNone(install.session, install.output)
+            stamp = install.session.name
+            names = {path.name for path in install.zips}
+            self.assertEqual(names, {f'gow3-issue121-{stamp}.zip', f'gow3-issue121-{stamp}-text.zip'},
+                             install.output)
+            with zipfile.ZipFile(install.desktop / f'gow3-issue121-{stamp}-text.zip') as archive:
+                entries = set(archive.namelist())
+            self.assertIn(f'{stamp}/A-diagnostics/console.log', entries)
+            self.assertIn(f'{stamp}/system.txt', entries)
+            self.assertFalse([name for name in entries if name.endswith('.png')])
+            self.assertIn('too big for GitHub', install.output)
+            self.assertIn(f'gow3-issue121-{stamp}-text.zip', install.output)
 
 
 @unittest.skipUnless(sys.platform == 'win32', 'cmd.exe')
