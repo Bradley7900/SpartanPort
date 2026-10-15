@@ -207,10 +207,18 @@ private:
     const Shader::RuntimeInfo& BuildRuntimeInfo(PipelineSelection& sel, Shader::HwStage stage,
                                                 Shader::SwStage l_stage);
     /// gow3: "0x<pipeline> (<mode>; vs 0x..., fs 0x...)" for the line logged right before the
-    /// driver compiles a graphics pipeline (vk_compile_log.h).
+    /// driver compiles a graphics pipeline (vk_compile_log.h). Without a fragment shader it adds
+    /// the fragment state the pipeline is built with: from `fs_info` (runtime_infos[Fragment],
+    /// the last pixel shader bound) on a live compile...
     static std::string DescribeGraphicsPipeline(
         const GraphicsPipelineKey& key,
-        const std::array<const Shader::Info*, MaxShaderStages>& infos, std::string_view mode);
+        const std::array<const Shader::Info*, MaxShaderStages>& infos, std::string_view mode,
+        const Shader::HwFragmentRuntimeInfo& fs_info);
+    /// ...and from the stored `sdata` when the disk cache rebuilds it.
+    static std::string DescribeGraphicsPipeline(
+        const GraphicsPipelineKey& key,
+        const std::array<const Shader::Info*, MaxShaderStages>& infos, std::string_view mode,
+        const GraphicsPipeline::SerializationSupport& sdata);
     /// gow3: level of the "Compiling <stage> shader" line logged before a shader module is
     /// created in `mode` (vk_compile_log.h): Debug for the disk cache, Info otherwise.
     static Common::Log::Level ShaderModuleLogLevel(std::string_view mode);

@@ -19,6 +19,7 @@
 #include "core/debug_state.h"
 #include "core/emulator_settings.h"
 #include "shader_recompiler/backend/spirv/emit_spirv.h"
+#include "shader_recompiler/backend/spirv/emit_spirv_quad_rect.h"
 #include "shader_recompiler/info.h"
 #include "shader_recompiler/recompiler.h"
 #include "shader_recompiler/runtime_info.h"
@@ -465,11 +466,9 @@ struct CompileTimer {
 };
 } // namespace
 
-// gow3: "0x<pipeline> (vs 0x..., fs 0x...)" for the line logged right before the driver compiles
-// a graphics pipeline, so a crash in its shader compiler (igc64.dll, #35) names the shaders.
-std::string PipelineCache::DescribeGraphicsPipeline(
-    const GraphicsPipelineKey& key, const std::array<const Shader::Info*, MaxShaderStages>& infos,
-    std::string_view mode) {
+namespace {
+std::vector<CompileLogStage> CompileLogStages(
+    const std::array<const Shader::Info*, MaxShaderStages>& infos) {
     std::vector<CompileLogStage> stages;
     for (const auto stage : {SwStage::Vertex, SwStage::TessellationControl,
                              SwStage::TessellationEval, SwStage::Geometry, SwStage::Fragment}) {
@@ -477,7 +476,55 @@ std::string PipelineCache::DescribeGraphicsPipeline(
             stages.push_back({fmt::format("{}", info->hw_stage), info->pgm_hash});
         }
     }
-    return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), stages, mode);
+    return stages;
+}
+
+// gow3: the primitive GraphicsPipeline's constructor adds auxiliary TCS/TES for, or empty.
+std::string_view AuxTessPrimitive(const GraphicsPipelineKey& key,
+                                  const std::array<const Shader::Info*, MaxShaderStages>& infos) {
+    if (!GraphicsPipeline::UsesAuxTessShaders(key.prim_type) ||
+        (infos[u32(SwStage::TessellationControl)] && infos[u32(SwStage::TessellationEval)])) {
+        return {};
+    }
+    return key.prim_type == AmdGpu::PrimitiveType::QuadList ? "QuadList" : "RectList";
+}
+} // namespace
+
+// gow3: "0x<pipeline> (vs 0x..., fs 0x...)" for the line logged right before the driver compiles
+// a graphics pipeline, so a crash in its shader compiler (igc64.dll, #35) names the shaders.
+// Without a fragment shader the pipeline still takes sample shading and the auxiliary RectList /
+// QuadList tessellation shaders from `fs_info`, which the constructor reads the same way.
+std::string PipelineCache::DescribeGraphicsPipeline(
+    const GraphicsPipelineKey& key, const std::array<const Shader::Info*, MaxShaderStages>& infos,
+    std::string_view mode, const Shader::HwFragmentRuntimeInfo& fs_info) {
+    std::optional<NoFragmentShaderState> no_fs;
+    if (!infos[u32(SwStage::Fragment)]) {
+        no_fs = NoFragmentShaderState{
+            .sample_shading = GraphicsPipeline::SampleShadingEnable(fs_info),
+            .aux_tess = AuxTessPrimitive(key, infos),
+        };
+        if (!no_fs->aux_tess.empty()) {
+            no_fs->aux_tess_inputs = Shader::Backend::SPIRV::NumAuxTessInputs(fs_info);
+        }
+    }
+    return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), CompileLogStages(infos),
+                                 mode, no_fs);
+}
+
+std::string PipelineCache::DescribeGraphicsPipeline(
+    const GraphicsPipelineKey& key, const std::array<const Shader::Info*, MaxShaderStages>& infos,
+    std::string_view mode, const GraphicsPipeline::SerializationSupport& sdata) {
+    std::optional<NoFragmentShaderState> no_fs;
+    if (!infos[u32(SwStage::Fragment)]) {
+        // gow3: a disk cache rebuild uses the stored state. The auxiliary TCS/TES are stored as
+        // SPIR-V only, so their input count is not known here and not logged.
+        no_fs = NoFragmentShaderState{
+            .sample_shading = bool(sdata.multisampling.sampleShadingEnable),
+            .aux_tess = AuxTessPrimitive(key, infos),
+        };
+    }
+    return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), CompileLogStages(infos),
+                                 mode, no_fs);
 }
 
 Common::Log::Level PipelineCache::ShaderModuleLogLevel(std::string_view mode) {
@@ -784,7 +831,8 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
                 PhaseTimer compile{g_gow3_async_ns};
                 auto& s = build->selection;
                 LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                         DescribeGraphicsPipeline(s.graphics_key, s.infos, "async"));
+                         DescribeGraphicsPipeline(s.graphics_key, s.infos, "async",
+                                                  s.runtime_infos[u32(SwStage::Fragment)].hw.fs));
                 build->pipeline = std::make_unique<GraphicsPipeline>(
                     instance, scheduler, desc_heap, profile, s.graphics_key,
                     *worker_pipeline_caches[AsyncCompiler::WorkerIndex()],
@@ -802,7 +850,8 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
     if (is_new) {
         const auto pipeline_hash = std::hash<GraphicsPipelineKey>{}(sel.graphics_key);
         LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, ""));
+                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, "",
+                                          sel.runtime_infos[u32(SwStage::Fragment)].hw.fs));
         CompileTimer timer;
 
         GraphicsPipeline::SerializationSupport sdata{};

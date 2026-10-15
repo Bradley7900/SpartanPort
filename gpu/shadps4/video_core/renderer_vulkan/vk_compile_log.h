@@ -3,13 +3,15 @@
 // compiles a pipeline: on the GPU thread and on the compile workers (vk_pipeline_cache.cpp), and
 // when the preload or the background warm-up rebuilds one from the disk cache
 // (vk_pipeline_serialization.cpp). A crash inside the driver's shader compiler (igc64.dll on
-// Intel, #35) then leaves the pipeline and the hashes of its shaders as the last lines of
-// last_run.log. Also the level of the per-shader "Compiling <stage> shader" lines. Pure std/fmt,
-// so tests/test_compile_log.cpp checks the text without a Vulkan device.
+// Intel, #35) then leaves the pipeline, the hashes of its shaders and, without a fragment shader,
+// the fragment state it inherits as the last lines of last_run.log. Also the level of the
+// per-shader "Compiling <stage> shader" lines. Pure std/fmt, so tests/test_compile_log.cpp checks
+// the text without a Vulkan device.
 
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,16 +24,44 @@ struct CompileLogStage {
     std::uint64_t hash{}; ///< Shader::Info::pgm_hash
 };
 
+/// The fragment state a pipeline without a fragment shader is built with all the same (#35): on a
+/// live compile it comes from the pixel shader bound at an earlier draw (the selection only
+/// rewrites runtime_infos[Fragment] when one is bound), on a disk cache rebuild from the stored
+/// SerializationSupport. Values a call site does not know are left empty.
+struct NoFragmentShaderState {
+    /// PipelineMultisampleStateCreateInfo::sampleShadingEnable.
+    bool sample_shading{};
+    /// "RectList" / "QuadList" when auxiliary TCS/TES are added in place of missing ones.
+    std::string_view aux_tess{};
+    /// Fragment inputs those auxiliary shaders declare, when the call site knows it.
+    std::optional<std::uint32_t> aux_tess_inputs{};
+};
+
 /// "0x<pipeline> (vs 0x<hash>, fs 0x<hash>)"; a non-empty `mode` ("async" on a compile worker,
-/// "cache" for the preload and warm-up) comes first in the parenthesis, followed by "; ".
+/// "cache" for the preload and warm-up) comes first in the parenthesis, followed by "; ". A
+/// pipeline without a fragment shader passes `no_fs`, appended as "; no fs: ...".
 inline std::string FormatPipelineCompile(std::uint64_t pipeline_hash,
                                          std::span<const CompileLogStage> stages,
-                                         std::string_view mode) {
+                                         std::string_view mode,
+                                         const std::optional<NoFragmentShaderState>& no_fs = {}) {
     std::string details{mode};
     const char* separator = mode.empty() ? "" : "; ";
     for (const auto& stage : stages) {
         details += fmt::format("{}{} {:#x}", separator, stage.name, stage.hash);
         separator = ", ";
+    }
+    if (no_fs) {
+        details += details.empty() ? "no fs: " : "; no fs: ";
+        if (!no_fs->aux_tess.empty()) {
+            details += fmt::format("{}, ", no_fs->aux_tess);
+        }
+        details += no_fs->sample_shading ? "sample shading on" : "sample shading off";
+        if (!no_fs->aux_tess.empty()) {
+            details += ", aux tess";
+            if (const auto inputs = no_fs->aux_tess_inputs) {
+                details += fmt::format(" {} input{}", *inputs, *inputs == 1 ? "" : "s");
+            }
+        }
     }
     return details.empty() ? fmt::format("{:#x}", pipeline_hash)
                            : fmt::format("{:#x} ({})", pipeline_hash, details);

@@ -801,7 +801,7 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar) {
                            runtime_infos = sel.runtime_infos, fetch = sel.fetch_shader,
                            modules = sel.modules, sdata]() mutable {
             LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                     DescribeGraphicsPipeline(key, infos, "cache"));
+                     DescribeGraphicsPipeline(key, infos, "cache", sdata));
             auto pipeline = std::make_unique<GraphicsPipeline>(
                 instance, scheduler, desc_heap, profile, key, *pipeline_cache, infos,
                 runtime_infos, fetch, modules, sdata, true);
@@ -811,7 +811,7 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar) {
         });
     } else {
         LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, "cache"));
+                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, "cache", sdata));
         it.value() = std::make_unique<GraphicsPipeline>(
             instance, scheduler, desc_heap, profile, sel.graphics_key, *pipeline_cache, sel.infos,
             sel.runtime_infos, sel.fetch_shader, sel.modules, sdata, true);
@@ -1318,7 +1318,7 @@ void PipelineCache::PumpWarmUp() {
                     *infos[0], modules[0], compute_data, true);
             } else {
                 LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
-                         DescribeGraphicsPipeline(graphics_key, infos, "cache"));
+                         DescribeGraphicsPipeline(graphics_key, infos, "cache", sdata));
                 built.graphics = std::make_unique<GraphicsPipeline>(
                     instance, scheduler, desc_heap, profile, graphics_key, *pipeline_cache, infos,
                     no_runtime_infos, fetch, modules, sdata, true);
