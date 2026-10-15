@@ -26,6 +26,7 @@
 #include "video_core/amdgpu/liverpool.h"
 #include "video_core/cache_storage.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
+#include "video_core/renderer_vulkan/vk_compile_log.h"
 #include "video_core/renderer_vulkan/vk_depth_stencil_state.h"
 #include "video_core/renderer_vulkan/motion_history.h"
 #include "video_core/renderer_vulkan/vk_draw_prep.h"
@@ -456,6 +457,20 @@ struct CompileTimer {
         ++g_gow3_compiles;
     }
 };
+// gow3: "0x<pipeline> (vs 0x..., fs 0x...)" for the line logged right before the driver compiles
+// a graphics pipeline, so a crash in its shader compiler (igc64.dll, #35) names the shaders.
+std::string DescribeGraphicsPipeline(const GraphicsPipelineKey& key,
+                                     const std::array<const Shader::Info*, MaxShaderStages>& infos,
+                                     bool async) {
+    std::vector<CompileLogStage> stages;
+    for (const auto stage : {SwStage::Vertex, SwStage::TessellationControl,
+                             SwStage::TessellationEval, SwStage::Geometry, SwStage::Fragment}) {
+        if (const auto* info = infos[u32(stage)]) {
+            stages.push_back({fmt::format("{}", info->hw_stage), info->pgm_hash});
+        }
+    }
+    return FormatPipelineCompile(std::hash<GraphicsPipelineKey>{}(key), stages, async);
+}
 } // namespace
 
 bool PipelineCache::QueueShader(Program& program, HwStage stage, SwStage l_stage,
@@ -522,6 +537,8 @@ bool PipelineCache::QueueShader(Program& program, HwStage stage, SwStage l_stage
     const bool queued = build->job.Start(*compiler, [this, build] {
         PhaseTimer compile{g_gow3_async_ns};
         Shader::Gcn::ScopedFetchShaderSnapshot snapshot{build->fetch};
+        LOG_INFO(Render_Vulkan, "Compiling {} shader {:#x} (async; permutation {})",
+                 build->info.hw_stage, build->info.pgm_hash, build->permutation);
         auto spv = Shader::Backend::SPIRV::EmitSPIRV(profile, build->runtime, *build->ir,
                                                     build->binding);
         DumpShader(build->code, build->info.pgm_hash, build->info.hw_stage, build->permutation, "bin");
@@ -748,6 +765,8 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
                 Shader::Gcn::ScopedFetchShaderSnapshot snapshot{build->fetch[u32(SwStage::Vertex)]};
                 PhaseTimer compile{g_gow3_async_ns};
                 auto& s = build->selection;
+                LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
+                         DescribeGraphicsPipeline(s.graphics_key, s.infos, true));
                 build->pipeline = std::make_unique<GraphicsPipeline>(
                     instance, scheduler, desc_heap, profile, s.graphics_key,
                     *worker_pipeline_caches[AsyncCompiler::WorkerIndex()],
@@ -764,7 +783,8 @@ const GraphicsPipeline* PipelineCache::GetGraphicsPipeline(const DrawIndirectPar
     const auto [it, is_new] = graphics_pipelines.try_emplace(sel.graphics_key);
     if (is_new) {
         const auto pipeline_hash = std::hash<GraphicsPipelineKey>{}(sel.graphics_key);
-        LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {:#x}", pipeline_hash);
+        LOG_INFO(Render_Vulkan, "Compiling graphics pipeline {}",
+                 DescribeGraphicsPipeline(sel.graphics_key, sel.infos, false));
         CompileTimer timer;
 
         GraphicsPipeline::SerializationSupport sdata{};
