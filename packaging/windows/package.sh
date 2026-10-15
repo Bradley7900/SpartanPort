@@ -54,7 +54,7 @@ ldd "$dest/bin/gow3-probe.exe" "$dest/bin/gow3-gpu-capabilities.exe" |
         cp -u "$dll" "$dest/bin/"
     done
 cp -r scripts patches "$dest/"
-cp run.py LICENSE README.md packaging/windows/README-Windows.txt "$dest/"
+cp run.py LICENSE README.md packaging/windows/README-Windows.txt packaging/windows/issue121-test.bat "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
 [[ -f $dest/scripts/discord_presence.py ]] || { echo 'scripts/discord_presence.py is missing from the package' >&2; exit 1; }
 grep -Eq "^CLIENT_ID = '[0-9]+'" "$dest/scripts/discord_presence.py" ||

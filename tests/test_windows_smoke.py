@@ -51,6 +51,14 @@ class WindowsSmokeTests(unittest.TestCase):
     def test_a_shipped_player_file_fails(self):
         self.assertNotEqual(self.smoke(lambda tree: (tree / 'gow3.ini').write_text('[gow3]\n')), 0)
 
+    def test_a_bat_with_lf_line_endings_fails(self):
+        script = b'@echo off\nexit /b 0\n'
+        self.assertNotEqual(self.smoke(lambda tree: (tree / 'issue121-test.bat').write_bytes(script)), 0)
+
+    def test_a_bat_that_is_not_ascii_fails(self):
+        script = '@echo off\r\nrem Configuração\r\n'.encode('utf-8')
+        self.assertNotEqual(self.smoke(lambda tree: (tree / 'issue121-test.bat').write_bytes(script)), 0)
+
 
 if __name__ == '__main__':
     unittest.main()

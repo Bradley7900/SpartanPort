@@ -1,6 +1,7 @@
 # Opens dist/gow3-windows.zip as a player gets it, on a Windows without MSYS2: no game or player
-# file ships, gow3-probe.exe finds every DLL it links, the frozen launcher imports what the
-# preparation scripts need and its window stays open (.github/workflows/windows-zip.yml).
+# file ships, the .bat scripts are ASCII with CRLF line endings, gow3-probe.exe finds every DLL it
+# links, the frozen launcher imports what the preparation scripts need and its window stays open
+# (.github/workflows/windows-zip.yml).
 # Usage: powershell -File smoke-test.ps1 path\to\gow3-windows.zip
 param([Parameter(Mandatory)][string]$Package)
 $ErrorActionPreference = 'Stop'
@@ -18,6 +19,15 @@ $forbidden = 'eboot.bin', 'sce_module', 'sce_sys', 'savedata', 'user', 'cache', 
 $found = Get-ChildItem -LiteralPath $tree -Recurse -Force |
     Where-Object { $name = $_.Name; $forbidden | Where-Object { $name -like $_ } }
 if ($found) { $failed += "files that must not ship: $($found.FullName -join ', ')" }
+
+# cmd.exe reads a .bat in the OEM code page and misreads labels in LF-only files (.gitattributes).
+foreach ($bat in Get-ChildItem -LiteralPath $tree -Filter *.bat) {
+    $bytes = [IO.File]::ReadAllBytes($bat.FullName)
+    if (@($bytes | Where-Object { $_ -gt 127 }).Count) { $failed += "$($bat.Name) is not ASCII" }
+    if ([regex]::IsMatch([Text.Encoding]::ASCII.GetString($bytes), "(?<!`r)`n")) {
+        $failed += "$($bat.Name) has LF line endings"
+    }
+}
 
 # A missing DLL stops the probe before main (0xC0000135).
 $probe = Start-Process -FilePath (Join-Path $tree 'bin\gow3-probe.exe') -ArgumentList '--cpu-features' `
