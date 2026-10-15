@@ -6,6 +6,7 @@
 #include "common/types.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/vk_barrier_tracker.h"
+#include "video_core/renderer_vulkan/vk_overlap_copy.h"
 #include "video_core/renderer_vulkan/vk_staging_buffer_pool.h"
 #include "video_core/texture_cache/image.h"
 #include "video_core/texture_cache/types.h"
@@ -78,7 +79,8 @@ public:
                              const VideoCore::Buffer* buffer, u64 offset);
     void CopyMip(VideoCore::Image* src, VideoCore::Image* dst, u32 mip, u32 slice);
 
-    void CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst);
+    /// gow3: `reason` names the caller in the always-on log line (vk_overlap_copy.h).
+    void CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst, const char* reason);
 
     void CopyDepthStencil(VideoCore::Image* src, VideoCore::Image* dst,
                           const VideoCore::SubresourceRange& sub_range);
@@ -132,6 +134,8 @@ private:
     };
     std::array<AccessMemo, 512> access_memo{};
     u32 access_epoch = 1;
+    // gow3: CopyColorAndDepth log lines left (GPU thread only).
+    OverlapCopy::LogBudget overlap_copy_log;
 };
 
 } // namespace Vulkan

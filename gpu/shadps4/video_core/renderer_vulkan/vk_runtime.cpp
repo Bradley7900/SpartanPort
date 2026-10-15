@@ -5,6 +5,7 @@
 #include "gow3_toggles.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/renderer_vulkan/liverpool_to_vk.h"
+#include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
@@ -531,23 +532,62 @@ void Runtime::CopyMip(VideoCore::Image* src, VideoCore::Image* dst, u32 mip, u32
     dst->flags &= ~VideoCore::ImageFlagBits::Dirty;
 }
 
-void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst) {
+static OverlapCopy::Side OverlapCopySide(const VideoCore::ImageInfo& info) {
+    return {
+        .address = info.guest_address,
+        .format = vk::to_string(info.pixel_format),
+        .width = info.size.width,
+        .height = info.size.height,
+        .levels = info.resources.levels,
+        .layers = info.resources.layers,
+        .samples = info.num_samples,
+        .guest_samples = info.guest_samples,
+        .depth = info.props.is_depth,
+    };
+}
+
+void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst,
+                                const char* reason) {
     // gow3: with GOW3_NO_MSAA a guest multisampled depth target is single-sampled on the host; a
     // colour image aliasing it still holds the samples as channels, so sample 0 is channel 0.
-    const bool guest_ms_depth = dst->info.props.is_depth && dst->info.guest_samples > 1;
-    if (src->info.num_samples == 1 && dst->info.num_samples == 1 && !guest_ms_depth) {
-        if (instance.IsMaintenance8Supported() ||
-            src->info.props.is_depth == dst->info.props.is_depth) {
-            CopyImage(src, dst);
-        } else {
-            // Perform depth from/to color copy using the intermediate copy buffer.
-            static constexpr size_t COPY_BUFFER_SIZE = 128_MB;
-            const auto copy_ref =
-                staging_pool.Request(COPY_BUFFER_SIZE, VideoCore::MemoryType::DeviceLocal);
-            CopyImageWithBuffer(src, dst, copy_ref.buffer, copy_ref.offset);
+    // OverlapCopy::Choose holds the branch rules, so the logged path is the one that runs.
+    const auto path = OverlapCopy::Choose(src->info.num_samples, dst->info.num_samples,
+                                          src->info.props.is_depth, dst->info.props.is_depth,
+                                          dst->info.guest_samples,
+                                          instance.IsMaintenance8Supported());
+    // gow3: always-on, before the copy (CopyImageWithBuffer can assert); every copy of a
+    // captured frame also goes into the capture (#121).
+    const u32 number = overlap_copy_log.Take(path);
+    const bool logged = number != 0 && number <= OverlapCopy::LogBudget::Cap;
+    if (logged || FrameCapture::IsRecording()) {
+        const std::string line = OverlapCopy::Line(logged ? number : 0, path, reason,
+                                                   OverlapCopySide(src->info),
+                                                   OverlapCopySide(dst->info));
+        if (logged) {
+            std::printf("%s\n", line.c_str());
+            std::fflush(stdout);
         }
-    } else if (src->info.num_samples == 1 && (dst->info.num_samples > 1 || guest_ms_depth) &&
-               dst->info.props.is_depth) {
+        if (FrameCapture::IsRecording()) {
+            FrameCapture::Note(("\n  " + line).c_str());
+        }
+    }
+    if (number == OverlapCopy::LogBudget::Cap + 1) {
+        std::printf("%s\n", overlap_copy_log.LimitLine().c_str());
+        std::fflush(stdout);
+    }
+    switch (path) {
+    case OverlapCopy::Path::Copy:
+        CopyImage(src, dst);
+        break;
+    case OverlapCopy::Path::ViaBuffer: {
+        // Perform depth from/to color copy using the intermediate copy buffer.
+        static constexpr size_t COPY_BUFFER_SIZE = 128_MB;
+        const auto copy_ref =
+            staging_pool.Request(COPY_BUFFER_SIZE, VideoCore::MemoryType::DeviceLocal);
+        CopyImageWithBuffer(src, dst, copy_ref.buffer, copy_ref.offset);
+        break;
+    }
+    case OverlapCopy::Path::ColorToMsDepth: {
         // Perform a rendering pass to transfer the channels of source as samples in dest.
         bool needs_flush =
             Transit(src, vk::ImageLayout::eShaderReadOnlyOptimal,
@@ -563,8 +603,11 @@ void Runtime::CopyColorAndDepth(VideoCore::Image* src, VideoCore::Image* dst) {
         blit_helper->ReinterpretColorAsMsDepth(
             dst->info.size.width, dst->info.size.height, dst->info.num_samples,
             src->info.pixel_format, dst->info.pixel_format, src->GetImage(), dst->GetImage());
-    } else {
+        break;
+    }
+    case OverlapCopy::Path::Unimplemented:
         LOG_WARNING(Render_Vulkan, "Unimplemented depth overlap copy");
+        break;
     }
 }
 

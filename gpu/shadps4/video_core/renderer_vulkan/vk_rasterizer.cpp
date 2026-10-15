@@ -2038,7 +2038,7 @@ bool Rasterizer::IsComputeImageCopy(const Pipeline* pipeline) {
     // Perform image copy
     VideoCore::Image& src_image = desc0.is_written ? image1 : image0;
     VideoCore::Image& dst_image = desc0.is_written ? image0 : image1;
-    runtime.CopyColorAndDepth(&src_image, &dst_image);
+    runtime.CopyColorAndDepth(&src_image, &dst_image, "compute-copy");
     return true;
 }
 
