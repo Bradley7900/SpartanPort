@@ -315,26 +315,30 @@ public:
     enum class Capture : std::uint8_t { None, Verdict, ScenePass };
     struct Decision {
         bool print{};             ///< print Format(): a new signature within the budget
-        bool suppressed_notice{}; ///< print SuppressedLine(): the first one past the budget
+        bool suppressed_notice{}; ///< print SuppressedLine(severe): the first one past the budget
+        bool severe{};            ///< which budget: Result::high
         Capture capture{Capture::None};
     };
 
-    /// Every checked pass; `signature` (Signature) is unused for Ok results.
+    /// Every checked pass; `signature` (Signature) is unused for Ok results. Severe and mild
+    /// verdicts have separate budgets, so mild ones in the menus never hide the first severe one.
     Decision Note(const Result& r, std::uint64_t signature, bool scene) {
         Decision d{};
         ++checked;
         scene_passes += scene ? 1 : 0;
         if (r.verdict != Verdict::Ok) {
             ++flagged;
+            Budget& budget = r.high ? severe_budget : mild_budget;
+            d.severe = r.high;
             bool seen_before = false;
-            for (std::uint32_t i = 0; i < reports; ++i) {
-                seen_before |= seen[i] == signature;
+            for (std::uint32_t i = 0; i < budget.reports; ++i) {
+                seen_before |= budget.seen[i] == signature;
             }
-            if (!seen_before && reports < kMaxReports) {
-                seen[reports++] = signature;
+            if (!seen_before && budget.reports < kMaxReports) {
+                budget.seen[budget.reports++] = signature;
                 d.print = true;
-            } else if (!seen_before && !suppressed) {
-                suppressed = true;
+            } else if (!seen_before && !budget.suppressed) {
+                budget.suppressed = true;
                 d.suppressed_notice = true;
             }
         }
@@ -360,15 +364,20 @@ public:
         return out + ')';
     }
 
-    static std::string SuppressedLine() {
-        return std::string(kPrefix) + std::to_string(kMaxReports) +
-               " reports printed, further anomalies are not";
+    static std::string SuppressedLine(bool severe) {
+        const char* kind = severe ? "severe" : "mild";
+        return std::string(kPrefix) + std::to_string(kMaxReports) + ' ' + kind +
+               " reports printed, further " + kind + " anomalies are not";
     }
 
 private:
-    std::array<std::uint64_t, kMaxReports> seen{};
-    std::uint32_t reports{};
-    bool suppressed{};
+    struct Budget {
+        std::array<std::uint64_t, kMaxReports> seen{};
+        std::uint32_t reports{};
+        bool suppressed{};
+    };
+    Budget severe_budget{};
+    Budget mild_budget{};
     bool captured{};
     std::uint64_t checked{};
     std::uint64_t flagged{};

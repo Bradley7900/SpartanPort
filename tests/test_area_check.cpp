@@ -105,6 +105,15 @@ int main() {
         assert(AreaCheck::Short(r, Pass{}) == "area-below-all larger c0,c1,c2,c3,c4,d");
     }
 
+    // 3b. Only one dimension is unexplained: every attachment is 1920x1080 and the area is
+    // 1920x256. The width matches all of them, the height none.
+    {
+        const auto gbuffer = GBuffer({1920, 1080}, {1920, 1080});
+        const Result r = CheckArea({1920, 256}, gbuffer, false);
+        assert(r.verdict == Verdict::AreaBelowAll);
+        assert(r.high);
+    }
+
     // 4. A reduced pass: the views are the 1280x720 scene proxies and so is the area. Compared
     // with the native images it would be flagged, which is why bound extents are used.
     {
@@ -324,8 +333,9 @@ int main() {
         assert(AreaCheck::Signature(r, bigger, issue121) != sig);
     }
 
-    // 11. The reporter: a signature prints once, at most 16 reports and then one notice; one
-    // capture per run, on the first severe verdict.
+    // 11. The reporter: a signature prints once, at most 16 severe and 16 mild reports, each
+    // followed by one notice, so mild reports in the menus cannot use up the budget before the
+    // first severe one; one capture per run, on the first severe verdict.
     {
         Result severe{};
         severe.verdict = Verdict::MixedSizes;
@@ -339,19 +349,30 @@ int main() {
                "GPU: area check: frame capture requested (mixed-sizes on a scene pass)");
         d = reporter.Note(severe, 100, true);
         assert(!d.print && !d.suppressed_notice && d.capture == Reporter::Capture::None);
-        for (std::uint64_t sig = 1; sig < Reporter::kMaxReports; ++sig) {
+        for (std::uint64_t sig = 1; sig <= Reporter::kMaxReports; ++sig) {
             d = reporter.Note(mild, sig, false);
             assert(d.print && !d.suppressed_notice && d.capture == Reporter::Capture::None);
         }
         d = reporter.Note(mild, 5, false);
         assert(!d.print && !d.suppressed_notice);
         d = reporter.Note(mild, 200, false);
-        assert(!d.print && d.suppressed_notice);
-        assert(std::string(Reporter::SuppressedLine()) ==
-               "GPU: area check: 16 reports printed, further anomalies are not");
-        d = reporter.Note(severe, 201, true);
-        assert(!d.print && !d.suppressed_notice && d.capture == Reporter::Capture::None);
+        assert(!d.print && d.suppressed_notice && !d.severe);
+        assert(Reporter::SuppressedLine(false) ==
+               "GPU: area check: 16 mild reports printed, further mild anomalies are not");
         d = reporter.Note(mild, 100, true);
+        assert(!d.print && !d.suppressed_notice);
+        // The severe budget is untouched by the mild reports.
+        d = reporter.Note(severe, 201, true);
+        assert(d.print && !d.suppressed_notice && d.severe &&
+               d.capture == Reporter::Capture::None);
+        for (std::uint64_t sig = 202; sig < 202 + Reporter::kMaxReports - 2; ++sig) {
+            assert(reporter.Note(severe, sig, true).print);
+        }
+        d = reporter.Note(severe, 300, true);
+        assert(!d.print && d.suppressed_notice && d.severe);
+        assert(Reporter::SuppressedLine(true) ==
+               "GPU: area check: 16 severe reports printed, further severe anomalies are not");
+        d = reporter.Note(severe, 301, true);
         assert(!d.print && !d.suppressed_notice);
         // Ok results never print.
         assert(!reporter.Note(Result{}, 0, false).print);

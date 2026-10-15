@@ -3277,7 +3277,7 @@ std::string Rasterizer::CheckRenderArea(const GraphicsPipeline* pipeline,
         }
     }
     if (decision.suppressed_notice) {
-        std::printf("%s\n", AreaCheck::Reporter::SuppressedLine().c_str());
+        std::printf("%s\n", AreaCheck::Reporter::SuppressedLine(decision.severe).c_str());
         std::fflush(stdout);
     }
     if (decision.capture != AreaCheck::Reporter::Capture::None) {
