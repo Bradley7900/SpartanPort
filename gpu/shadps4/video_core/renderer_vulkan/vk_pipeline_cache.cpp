@@ -418,6 +418,12 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         });
         LOG_INFO(Render_Vulkan, "gow3: async graphics compilation ready ({} capture, {} compile workers)",
                  capture_count, count);
+        // gow3: at any log level, so a tester's log says whether new shaders compile on the GPU
+        // thread and which setting chose it.
+        const auto& settings = Gow3Settings::Get();
+        const bool async_on = settings.async_shaders.load(std::memory_order_relaxed);
+        async_shaders_logged.store(async_on, std::memory_order_relaxed);
+        std::printf("%s\n", Gow3Settings::AsyncShadersLine(async_on, settings.async_shaders_source).c_str());
     }
 }
 
@@ -662,7 +668,12 @@ void PipelineCache::FinishCompilations() {
 }
 
 bool PipelineCache::AsyncCompilation() const {
-    return compiler && Gow3Settings::Get().async_shaders.load(std::memory_order_relaxed);
+    const bool on = Gow3Settings::Get().async_shaders.load(std::memory_order_relaxed);
+    // gow3: the GPU thread calls this today; the switch is still logged once from any thread.
+    if (Gow3Settings::AsyncShadersSwitched(async_shaders_logged, on)) {
+        std::printf("%s\n", Gow3Settings::AsyncShadersSwitchLine(on).c_str());
+    }
+    return compiler && on;
 }
 
 void PipelineCache::SeedWorkerCaches() {

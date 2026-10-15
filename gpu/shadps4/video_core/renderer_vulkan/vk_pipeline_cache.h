@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <unordered_map>
 #include <shared_mutex>
@@ -231,6 +232,8 @@ private:
     std::unique_ptr<AsyncCompiler> compiler, capture_compiler;
     std::vector<vk::UniquePipelineCache> worker_pipeline_caches;
     bool worker_caches_seeded = false;
+    /// gow3: the async_shaders value last logged; AsyncCompilation logs each menu change.
+    mutable std::atomic<bool> async_shaders_logged{true};
     /// gow3: GOW3_PARALLEL_WARMUP: WarmUp builds the cached pipelines on these threads.
     struct WarmupPool;
     WarmupPool* warmup_pool = nullptr;
