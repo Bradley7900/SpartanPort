@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""God of War III (gow3) launcher for Windows and Linux (Tkinter).
+"""God of War III (gow3) launcher for Windows, Linux and macOS (Tkinter).
 
 Every setting of the port in one window: the game folder and saves, gow3.ini (upscaler,
 preset, output, effects), start-up options passed to run.py as environment variables
 (frame rate, presentation, HDR, ...), mods, third-party patches and controls.
-Launcher options live in %APPDATA%/gow3-launcher/settings.json (~/.config/gow3-launcher on Linux).
+Launcher options live in %APPDATA%/gow3-launcher/settings.json (~/.config/gow3-launcher on Linux and macOS).
 
 Frozen with PyInstaller (packaging/windows/package.sh) the same God of War III.exe also runs the
 game without the window (`--play`), run.py (`--run`) and the preparation scripts (`--script`),
@@ -34,9 +34,10 @@ import webbrowser
 import zipfile
 
 WINDOWS = sys.platform == 'win32'
-import ctypes  # GDI on Windows, fontconfig elsewhere
+MACOS = sys.platform == 'darwin'  # the Linux options (window system, GameMode, MangoHud, menu entry) are hidden
+import ctypes  # GDI on Windows, CoreText on macOS, fontconfig elsewhere
 # Windows without a cursor of their own show the X root window's, which XWayland leaves blank.
-ARROW = '' if WINDOWS else 'left_ptr'
+ARROW = '' if WINDOWS or MACOS else 'left_ptr'
 if WINDOWS:
     # AMD hybrid laptops: this layer hides the NVIDIA GPU from Vulkan and the game stays black (#263).
     os.environ.setdefault('VK_LOADER_LAYERS_DISABLE', 'VK_LAYER_AMD_switchable_graphics')
@@ -203,18 +204,23 @@ def pick_fonts(families):
 
 
 def host_environment():
-    """The environment of the user's session for programs outside the bundle (xdg-open)."""
+    """The environment of the user's session for programs outside the bundle (xdg-open, open)."""
     env = dict(os.environ)
     for name in ('LD_LIBRARY_PATH', 'PYTHONHOME', 'PYTHONPATH', 'TCL_LIBRARY', 'TK_LIBRARY'):
         env.pop(name, None)
     return env
 
 
+def opener():
+    """The program that opens a file, a folder or a URL with the desktop's choice: open on macOS."""
+    return 'open' if MACOS else 'xdg-open'
+
+
 def open_url(url):
     if WINDOWS:
         webbrowser.open(url)
     else:
-        subprocess.Popen(['xdg-open', url], env=host_environment(), stdin=subprocess.DEVNULL,
+        subprocess.Popen([opener(), url], env=host_environment(), stdin=subprocess.DEVNULL,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -245,20 +251,42 @@ def windows_language():
 
 
 def register_font(path):
-    """Makes a font file available to this process (nothing else sees it): GDI on Windows, fontconfig (which Tk
-    uses) elsewhere. False when the file is missing or the system refuses it: the launcher then keeps its
-    standard fonts."""
+    """Makes a font file available to this process (nothing else sees it): GDI on Windows, CoreText on macOS,
+    fontconfig (which Tk uses) elsewhere. False when the file is missing or the system refuses it: the
+    launcher then keeps its standard fonts."""
     if not path.is_file():
         return False
     try:
         if WINDOWS:
             return bool(ctypes.windll.gdi32.AddFontResourceExW(str(path), FR_PRIVATE, 0))
+        if MACOS:
+            return register_font_coretext(path)
         fontconfig = ctypes.CDLL('libfontconfig.so.1')
         fontconfig.FcConfigAppFontAddFile.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         fontconfig.FcConfigAppFontAddFile.restype = ctypes.c_int
         return bool(fontconfig.FcConfigAppFontAddFile(None, os.fsencode(path)))
     except (AttributeError, OSError):
         return False
+
+
+def register_font_coretext(path):
+    """macOS: CTFontManagerRegisterFontsForURL with the process scope, before Tk lists the families."""
+    frameworks = '/System/Library/Frameworks/{0}.framework/{0}'
+    corefoundation, coretext = ctypes.CDLL(frameworks.format('CoreFoundation')), ctypes.CDLL(frameworks.format('CoreText'))
+    corefoundation.CFURLCreateFromFileSystemRepresentation.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+                                                                       ctypes.c_long, ctypes.c_bool]
+    corefoundation.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+    corefoundation.CFRelease.argtypes = [ctypes.c_void_p]
+    coretext.CTFontManagerRegisterFontsForURL.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p]
+    coretext.CTFontManagerRegisterFontsForURL.restype = ctypes.c_bool
+    name = os.fsencode(path.resolve())
+    url = corefoundation.CFURLCreateFromFileSystemRepresentation(None, name, len(name), False)
+    if not url:
+        return False
+    try:
+        return bool(coretext.CTFontManagerRegisterFontsForURL(url, 1, None))  # kCTFontManagerScopeProcess
+    finally:
+        corefoundation.CFRelease(url)
 
 
 # The God of War face has ASCII letters only: the Latin-script languages use it for headings with
@@ -771,6 +799,47 @@ def write_linux_shortcut(command, appimage, icon_source, desktop, home=None, env
     return created
 
 
+MACOS_APP_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key><string>God of War III</string>
+	<key>CFBundleDisplayName</key><string>God of War III</string>
+	<key>CFBundleIdentifier</key><string>gow3pc.launcher</string>
+	<key>CFBundleExecutable</key><string>gow3</string>
+	<key>CFBundleIconFile</key><string>gow3</string>
+	<key>CFBundlePackageType</key><string>APPL</string>
+	<key>CFBundleShortVersionString</key><string>{version}</string>
+</dict>
+</plist>
+"""
+
+
+def write_macos_app(command, icon_source, desktop):
+    """The shortcut button on macOS: God of War III.app on the desktop, a bundle whose executable is a
+    shell script that starts the launcher (command) from the port folder. Finder starts it with a bare
+    PATH, so Homebrew's folders are put in front. The icon is an .icns that sips makes from the PNG;
+    without it Finder shows the generic one. Returns the bundle."""
+    app = Path(desktop) / f'{APP_NAME}.app'
+    contents = app / 'Contents'
+    (contents / 'MacOS').mkdir(parents=True, exist_ok=True)
+    (contents / 'Resources').mkdir(exist_ok=True)
+    (contents / 'Info.plist').write_text(MACOS_APP_PLIST.format(version=VERSION), encoding='utf-8')
+    script = contents / 'MacOS' / 'gow3'
+    script.write_text('#!/bin/bash\n'
+                      'export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"\n'
+                      f'cd {shlex.quote(str(PORT_DIR))} || exit 1\n'
+                      f'exec {shlex.join(str(part) for part in command)} "$@"\n', encoding='utf-8')
+    script.chmod(0o755)
+    icon = contents / 'Resources' / 'gow3.icns'
+    try:
+        subprocess.run(['sips', '-s', 'format', 'icns', str(icon_source), '--out', str(icon)],
+                       capture_output=True, timeout=30, check=True)
+    except (OSError, subprocess.SubprocessError):
+        icon.unlink(missing_ok=True)
+    return app
+
+
 def steam_icon(game):
     """Picture of the Steam shortcut's icon: the launcher's own on Linux, the game's on Windows."""
     return Path(game) / 'sce_sys' / 'icon0.png' if WINDOWS else PORT_DIR / 'launcher' / 'gow3.png'
@@ -802,7 +871,7 @@ def game_environment(s):
     env['GOW3_EXPERIMENTAL_UPSCALER'] = '0'
     if s.get('update_dir'):
         env['GOW3_PATCH_DIR'] = s['update_dir']
-    if not WINDOWS:
+    if not WINDOWS and not MACOS:
         backend = s.get('video_backend', 'auto')
         if backend in ('wayland', 'x11'):
             env['SDL_VIDEO_DRIVER'] = env['SDL_VIDEODRIVER'] = backend
@@ -925,7 +994,7 @@ class Launcher:
                 pass
         root.configure(bg=BG)
         self.dpi = root.winfo_fpixels('1i') / 96.0
-        left, top, width, height = (0, 0, 0, 0) if WINDOWS else monitor_under_pointer(root)
+        left, top, width, height = (0, 0, 0, 0) if WINDOWS or MACOS else monitor_under_pointer(root)
         if width:
             # Linux reports 96 dpi everywhere: size the interface by the monitor it opens on.
             boost = max(1.0, min(width / 1920, height / 1080, 2.0)) * 1.25
@@ -936,6 +1005,9 @@ class Launcher:
             window_width, window_height = min(window_width, int(width * 0.9)), min(window_height, int(height * 0.9))
             root.geometry(f'{window_width}x{window_height}+{left + (width - window_width) // 2}'
                           f'+{top + (height - window_height) // 2}')
+        elif MACOS:  # macOS sizes the window in points already; Tk would open it in the top left corner
+            root.geometry(f'{window_width}x{window_height}+{max(0, (root.winfo_screenwidth() - window_width) // 2)}'
+                          f'+{max(0, (root.winfo_screenheight() - window_height) // 3)}')
         else:
             root.geometry(f'{window_width}x{window_height}')
         root.minsize(min(self.px(980), window_width), min(self.px(660), window_height))
@@ -1228,16 +1300,38 @@ class Launcher:
         self.build_game()
         self.build_advanced()
         self.root.bind_all('<MouseWheel>', self.wheel)
-        if not WINDOWS:  # X11 (Tk 8.6): the wheel arrives as buttons 4 and 5; on Windows those are side buttons
+        if MACOS:  # Tk 9: the trackpad sends pixel deltas of its own event (Tk 8.6 has none)
+            self.touchpad_rest = 0
+            with contextlib.suppress(self.tk.TclError):
+                self.root.bind_all('<TouchpadScroll>', self.touchpad)
+        elif not WINDOWS:  # X11 (Tk 8.6): the wheel arrives as buttons 4 and 5; on Windows those are side buttons
             self.root.bind_all('<Button-4>', self.wheel)
             self.root.bind_all('<Button-5>', self.wheel)
         self.game_changed()
 
     def wheel(self, event):
+        units = {4: -1, 5: 1}.get(event.num) or int(-event.delta / 120)
+        if MACOS and not units:  # Tk 8.6 on macOS: a few units per notch instead of 120
+            units = -event.delta
+        self.scroll_page(event.widget, units)
+
+    def scroll_page(self, widget, units):
         page = self.pages.get(self.current_page)
-        if hasattr(page, 'scroll') and not isinstance(event.widget, (self.tk.Text, self.ttk.Combobox)) \
-                and 'popdown' not in str(event.widget):
-            page.scroll({4: -1, 5: 1}.get(event.num) or int(-event.delta / 120))
+        if hasattr(page, 'scroll') and not isinstance(widget, (self.tk.Text, self.ttk.Combobox)) \
+                and 'popdown' not in str(widget):
+            page.scroll(units)
+
+    def touchpad(self, event):
+        """macOS trackpad (Tk 9): pixel deltas, one scroll unit for every 40 of them."""
+        try:
+            pixels = int(self.root.tk.splitlist(self.root.tk.call('tk::PreciseScrollDeltas', event.delta))[1])
+        except (self.tk.TclError, IndexError, ValueError):
+            return
+        self.touchpad_rest -= pixels
+        units = int(self.touchpad_rest / 40)
+        if units:
+            self.touchpad_rest -= units * 40
+            self.scroll_page(event.widget, units)
 
     def show(self, name):
         for page in self.pages.values():
@@ -1710,7 +1804,7 @@ class Launcher:
         ttk.Button(holder, text=_('Desktop shortcut', 'Ярлык на рабочем столе'), command=self.shortcut).pack(side='left', padx=6)
         ttk.Button(holder, text=_('Add to Steam'), command=self.add_to_steam).pack(side='left')
         ttk.Label(holder, text=f'v{VERSION}', style='Muted.TLabel').pack(side='left', padx=10)
-        if not WINDOWS:
+        if not WINDOWS and not MACOS:
             self.build_linux_options(f)
         self.section(f, _('Files'))
         holder = ttk.Frame(f)
@@ -2202,7 +2296,7 @@ class Launcher:
         if WINDOWS:
             os.startfile(str(path))
         else:
-            subprocess.Popen(['xdg-open', str(path)], env=host_environment(), stdin=subprocess.DEVNULL,
+            subprocess.Popen([opener(), str(path)], env=host_environment(), stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # ---- updates -------------------------------------------------------------------------------
@@ -2309,7 +2403,11 @@ class Launcher:
                                                  'минут будет подтормаживать, пока кэш собирается заново.'))
 
     def shortcut(self):
-        """God of War III.lnk on the desktop (a .desktop entry in the menu and on the desktop on Linux)."""
+        """God of War III.lnk on the desktop (a .desktop entry in the menu and on the desktop on Linux,
+        God of War III.app on the desktop on macOS)."""
+        if MACOS:
+            self.macos_shortcut()
+            return
         if not WINDOWS:
             self.linux_shortcut()
             return
@@ -2345,6 +2443,15 @@ class Launcher:
             self.messagebox.showerror(APP_NAME, str(error))
             return
         self.messagebox.showinfo(APP_NAME, _('Shortcut created:', 'Ярлык создан:') + '\n' + '\n'.join(created))
+
+    def macos_shortcut(self):
+        command = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
+        try:
+            created = write_macos_app(command, PORT_DIR / 'launcher' / 'gow3.png', Path.home() / 'Desktop')
+        except OSError as error:
+            self.messagebox.showerror(APP_NAME, str(error))
+            return
+        self.messagebox.showinfo(APP_NAME, _('Shortcut created:', 'Ярлык создан:') + '\n' + str(created))
 
     def add_to_steam(self):
         """A non-Steam shortcut with the game's icon, capsules, hero and logo (scripts/steam_shortcut.py)."""
@@ -2546,7 +2653,7 @@ def main():
         sys.exit(run_role(args))
     settings = {**APP_DEFAULTS, **load_json(CONFIG_FILE, {})}
     LANG = settings.get('ui_language') or windows_language()
-    if not WINDOWS:
+    if not WINDOWS and not MACOS:
         integrate_desktop(settings.get('desktop_integration', True), os.environ.get('APPIMAGE'),
                           PORT_DIR / 'launcher' / 'gow3.png', DATA_DIR)
     if WINDOWS and args[:1] == ['--install-update'] and len(args) == 3:
@@ -2565,7 +2672,7 @@ def main():
     import tkinter as tk
     from tkinter import filedialog, font, messagebox, ttk
     root = tk.Tk() if WINDOWS else tk.Tk(className='gow3')
-    if not WINDOWS:
+    if not WINDOWS and not MACOS:
         root.configure(cursor=ARROW)
         for window in ('Toplevel', 'Dialog', 'TkFDialog', 'TkChooseDir'):  # dialogs: tk_messageBox, file pickers
             root.option_add(f'*{window}.cursor', ARROW)

@@ -156,8 +156,10 @@ compiles the x86-64 libraries and the Vulkan driver.
 
 **Status:** the C tests, the Python tests and the renderer's GPU tests pass on an M1 Max (macOS 27),
 and the window, Metal surface and swapchain work. The game itself has not been run on macOS yet.
-The Tk launcher is not ported: start the game with `run.sh` (below). Live render-scale changes are
-off (KosmicKrisp cannot blit D32S8 depth); the startup resolution patch still applies.
+The launcher runs with Homebrew's Python and Tk (below); it hides the Linux-only options, and
+**Advanced → Desktop shortcut** puts a `God of War III.app` on the desktop that opens it. Its
+settings are in `~/.config/gow3-launcher`. Live render-scale changes are off (KosmicKrisp cannot
+blit D32S8 depth); the startup resolution patch still applies.
 
 ## What works
 
@@ -423,6 +425,15 @@ cd gow3_pc
 bash packaging/macos/build-deps.sh
 bash build.sh
 GOW3_GAME_DIR=/path/to/CUSA01623 bash run.sh
+```
+
+The launcher needs Tk for Homebrew's Python (`python-tk` matches the default `python3`; for
+another version, install `python-tk@3.X` for that one). Its PLAY button starts `run.py` as
+`run.sh` does, without rebuilding: run `bash build.sh` again after pulling changes.
+
+```bash
+brew install python-tk
+python3 launcher/gow3_launcher_win.py
 ```
 
 `bash build.sh --test` runs the C tests. `out/gow3-probe --vulkan-only` checks the Vulkan driver.
