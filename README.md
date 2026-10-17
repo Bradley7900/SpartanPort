@@ -154,9 +154,12 @@ compiles the x86-64 libraries and the Vulkan driver.
 - Host objects handed to the game come from a small heap below 1 TiB (`src/compat_mac.c`).
 - Rosetta 2 is available through macOS 27; Apple has announced it will be limited after that.
 
-**Status:** the C tests, the Python tests and the renderer's GPU tests pass on an M1 Max (macOS 27),
-and the window, Metal surface and swapchain work. The game itself has not been run on macOS yet.
-The launcher runs with Homebrew's Python and Tk (below); it hides the Linux-only options, and
+**Status:** tested on an M1 Max (macOS 27) with CUSA01623: the intro, the menus and the first
+Gaia fights render correctly, with no crashes over about 12 minutes of play; the rest of the game
+has not been played. Frame rate: about 30 FPS at native 1080p, 40 at 720p and 45 at 480p; the
+GPU command thread is the limit (copies from guest memory and waits for the GPU), so 60 FPS is
+not reached yet. Guest multisampling is off by default on KosmicKrisp, which reads the 2-sample
+depth buffer wrong (an unlit, fully fogged scene). The launcher runs with Homebrew's Python and Tk (below); it hides the Linux-only options, and
 **Advanced → Desktop shortcut** puts a `God of War III.app` on the desktop that opens it. Its
 settings are in `~/.config/gow3-launcher`. Live render-scale changes are off (KosmicKrisp cannot
 blit D32S8 depth); the startup resolution patch still applies.
