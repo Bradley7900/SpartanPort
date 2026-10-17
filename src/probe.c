@@ -74,7 +74,7 @@ static IsaTable *isa_table; /* rewritten sites (--isa-rewrite); the fault handle
 static void isa_report_hook(void) { isa_rewrite_report(isa_table, stdout); }
 int vulkan_smoke(void);
 
-static void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message); exit(1); }
+static __attribute__((noreturn)) void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message); exit(1); }
 static uint64_t read64(FILE *f) {
     unsigned char b[8];
     if (fread(b, 1, 8, f) != 8) fail("truncated boot file");
@@ -270,6 +270,7 @@ static const int isa_gregs[16]={REG_RAX,REG_RCX,REG_RDX,REG_RBX,REG_RSP,REG_RBP,
                                 REG_R8,REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15};
 static greg_t *isa_gpr(void *context, int i) { return &((ucontext_t *)context)->uc_mcontext.gregs[isa_gregs[i]]; }
 #endif
+static int read_frame(uintptr_t rbp, uintptr_t frame[2]);
 static void fault(int sig, siginfo_t *info, void *context) {
     if (sig == SIGTRAP && isa_table) {
         /* An int3 ISA site (RIP is past the CC byte); any other trap ends in the report below. */
@@ -319,6 +320,41 @@ static void fault(int sig, siginfo_t *info, void *context) {
     else
         snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, info->si_addr);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+    /* GOW3_FAULT_REGS=1: the registers and 256 bytes at each of rbx, rdi, rsi and rsp. */
+    if (getenv("GOW3_FAULT_REGS")) {
+        static const char *gpr_names[16]={"rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"};
+        for (int i = 0; i < 16; ++i) {
+            snprintf(line, sizeof(line), "  %s=%#llx\n", gpr_names[i], (unsigned long long)*isa_gpr(context, i));
+            ssize_t written_=write(2, line, strlen(line)); (void)written_;
+        }
+        const int dumped[4]={3,7,6,4};
+        for (int d = 0; d < 4; ++d) {
+            uintptr_t at=(uintptr_t)*isa_gpr(context, dumped[d]);
+            for (int row = 0; row < 16; ++row) {
+                uintptr_t words[2];
+                if (!read_frame(at+row*16, words)) break;
+                snprintf(line, sizeof(line), "  [%s+%#04x] %016llx %016llx\n", gpr_names[dumped[d]], row*16,
+                         (unsigned long long)words[0], (unsigned long long)words[1]);
+                ssize_t written_=write(2, line, strlen(line)); (void)written_;
+            }
+        }
+    }
+    /* GOW3_FAULT_DUMP=address:length (hex): that memory too, as bytes and text. */
+    if (getenv("GOW3_FAULT_DUMP")) {
+        char *colon=NULL;
+        uintptr_t at=(uintptr_t)strtoull(getenv("GOW3_FAULT_DUMP"),&colon,16);
+        uint64_t length=colon && *colon==':' ? strtoull(colon+1,NULL,16) : 0x100;
+        for (uint64_t row = 0; row < length; row += 16) {
+            unsigned char bytes[16];
+            if (!read_frame(at+row, (uintptr_t *)bytes)) break;
+            int n=snprintf(line, sizeof(line), "  %#llx:", (unsigned long long)(at+row));
+            for (int i = 0; i < 16; ++i) n+=snprintf(line+n, sizeof(line)-(size_t)n, " %02x", bytes[i]);
+            n+=snprintf(line+n, sizeof(line)-(size_t)n, "  ");
+            for (int i = 0; i < 16; ++i) line[n++]=bytes[i]>=32 && bytes[i]<127 ? (char)bytes[i] : '.';
+            line[n++]='\n'; line[n]=0;
+            ssize_t written_=write(2, line, (size_t)n); (void)written_;
+        }
+    }
     if (gpu_enabled) gow3gpu_dump_guest_writes(context);
     /* Host call chain (frames with unwind info; guest frames end it). */
     void *frames[32];
@@ -680,6 +716,12 @@ static int cpu_supported(char *missing, size_t size) {
     return 1;
 }
 
+#ifdef __APPLE__
+/* macOS: the game runs on a host thread of its own; main (below) keeps the main thread for the
+ * window, which Cocoa requires (gow3gpu_main_loop). */
+#define main probe_main
+static
+#endif
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
 #if !defined(_WIN32) && !defined(__APPLE__)
@@ -1043,3 +1085,25 @@ int main(int argc, char **argv) {
 #endif
     fail("entry unexpectedly returned");
 }
+#ifdef __APPLE__
+#undef main
+typedef struct { int argc; char **argv; } ProbeArguments;
+static void *probe_thread(void *p) {
+    const ProbeArguments *arguments = p;
+    exit(probe_main(arguments->argc, arguments->argv));
+}
+int main(int argc, char **argv) {
+    static ProbeArguments arguments;
+    arguments = (ProbeArguments){argc, argv};
+    /* The loader's own frames (the guest main thread gets its own stack later) and the main
+     * thread's 8 MiB default alike. */
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 64u << 20);
+    pthread_t thread;
+    if (pthread_create(&thread, &attr, probe_thread, &arguments)) { fputs("ERROR: cannot start the game thread\n", stderr); return 1; }
+    pthread_attr_destroy(&attr);
+    gow3gpu_main_loop(); /* returns only when the window closes; the game thread usually exits first */
+    return 0;
+}
+#endif
