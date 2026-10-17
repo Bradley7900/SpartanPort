@@ -20,6 +20,7 @@ A PC port of **God of War III Remastered** (PlayStation 4) for Windows 10/11 and
   - [Contents](#contents)
   - [Download and play](#download-and-play)
   - [Linux (AppImage, experimental)](#linux-appimage-experimental)
+  - [macOS (Apple Silicon, experimental)](#macos-apple-silicon-experimental)
   - [What works](#what-works)
   - [Feature availability](#feature-availability)
   - [Settings](#settings)
@@ -31,6 +32,7 @@ A PC port of **God of War III Remastered** (PlayStation 4) for Windows 10/11 and
   - [Building from source](#building-from-source)
     - [Windows](#windows)
     - [Linux (Ubuntu 24.04)](#linux-ubuntu-2404)
+    - [macOS (Apple Silicon)](#macos-apple-silicon)
   - [Tests](#tests)
     - [Python](#python)
     - [Windows C++ tests (MSYS2 CLANG64)](#windows-c-tests-msys2-clang64)
@@ -129,6 +131,33 @@ Steam Deck/RADV rendering corruption is a known issue in the published 2.2.0 App
   the launcher and the game window show their icon in the dock; **Advanced → Linux** turns it off and
   removes the entry. When another tool (Gear Lever, AppImageLauncher…) already made an entry that
   starts the same file, it makes none and removes its own, so there are no duplicates.
+
+## macOS (Apple Silicon, experimental)
+
+The macOS build is built from source; there is no packaged release yet. The game's x86-64 code
+runs under Rosetta 2 with the same runtime as on Linux, and the graphics use Mesa's KosmicKrisp
+Vulkan driver on Metal (the driver upstream shadPS4 uses on macOS; MoltenVK lacks the
+`robustBufferAccess2` and `nullDescriptor` features the renderer requires).
+
+**You need:** an Apple Silicon Mac with macOS 26 (Tahoe) or newer, Rosetta 2, Xcode or its Command
+Line Tools, [Homebrew](https://brew.sh) and your own game dump. The first build takes a while: it
+compiles the x86-64 libraries and the Vulkan driver.
+
+**What differs from Linux**
+
+- Rosetta executes AVX, F16C, BMI1, LZCNT and MOVBE but lists them in CPUID only when
+  `ROSETTA_ADVERTISE_AVX=1` is set; `run.py` sets it, so no instructions are rewritten.
+- macOS keeps `0xfc0000000`–`0x7000000000` reserved in every process, so the PS4 user range
+  starts at `0x7000000000` (still below the 40-bit limit of GPU addresses).
+- The guest TCB is a pthread key: on x86-64 macOS, `gs:[8*key]` is that key's value, so the
+  loader rewrites the game's TCB loads the way the Windows build does with its TEB slot.
+- Host objects handed to the game come from a small heap below 1 TiB (`src/compat_mac.c`).
+- Rosetta 2 is available through macOS 27; Apple has announced it will be limited after that.
+
+**Status:** the C tests, the Python tests and the renderer's GPU tests pass on an M1 Max (macOS 27),
+and the window, Metal surface and swapchain work. The game itself has not been run on macOS yet.
+The Tk launcher is not ported: start the game with `run.sh` (below). Live render-scale changes are
+off (KosmicKrisp cannot blit D32S8 depth); the startup resolution patch still applies.
 
 ## What works
 
@@ -380,6 +409,23 @@ The build environment is created before the packaging command. Building on a new
 can require a newer glibc; public release builds use Ubuntu 24.04. From the repository, use
 `out/venv/bin/python launcher/gow3_launcher_win.py --play` for saved launcher settings, or
 `GOW3_GAME_DIR=/path/to/CUSA01623 out/venv/bin/python run.py` for a direct launch.
+
+### macOS (Apple Silicon)
+
+The dependency script installs Homebrew packages (CMake, Ninja, glslang, pkgconf, Boost, LLVM,
+SPIRV tools) and builds the x86-64 libraries (SDL3, FFmpeg, Vulkan loader, KosmicKrisp and
+others) into `~/Library/Caches/gow3-macos-deps`. Paths there have no spaces, which the FFmpeg and
+Mesa builds need.
+
+```bash
+git clone --recursive https://github.com/FelipePrado0/gow3_pc
+cd gow3_pc
+bash packaging/macos/build-deps.sh
+bash build.sh
+GOW3_GAME_DIR=/path/to/CUSA01623 bash run.sh
+```
+
+`bash build.sh --test` runs the C tests. `out/gow3-probe --vulkan-only` checks the Vulkan driver.
 
 ## Tests
 

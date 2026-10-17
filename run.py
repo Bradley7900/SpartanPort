@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Prepares the game image and starts gow3-probe (Windows and Linux; run.sh wraps it on Linux).
+"""Prepares the game image and starts gow3-probe (Windows, Linux and macOS; run.sh wraps it on Linux
+and macOS).
 
 Environment variables (GOW3_GAME_DIR, GOW3_DATA_DIR, GOW3_PATCHES, GOW3_MODS_*,
 GOW3_USER_DIR, ...). Extra arguments go to gow3-probe.
@@ -16,6 +17,7 @@ import sys
 import time
 
 WINDOWS = sys.platform == 'win32'
+MACOS = sys.platform == 'darwin'
 EXE_SUFFIX = '.exe' if WINDOWS else ''
 if WINDOWS:
     import ctypes
@@ -186,6 +188,13 @@ def main():
     probe = Path(env['GOW3_PROBE']) if env.get('GOW3_PROBE') else find_executable('gow3-probe' + EXE_SUFFIX)
     if not probe or not probe.is_file():
         fail(f'gow3-probe{EXE_SUFFIX} not found: build it with build.sh or use a packaged build.')
+    # macOS: the x86-64 probe runs under Rosetta 2, which executes AVX, F16C, BMI1, LZCNT and MOVBE
+    # but reports them in CPUID only when asked. The Vulkan driver (KosmicKrisp) is listed by the
+    # manifest build.sh writes next to the probe.
+    if MACOS:
+        env.setdefault('ROSETTA_ADVERTISE_AVX', '1')
+        if (icd := probe.parent / 'kosmickrisp_mesa_icd.json').is_file():
+            env.setdefault('VK_DRIVER_FILES', str(icd))
     # Development builds run from the MSYS2 tree: its CLANG64 DLLs (SDL3, FFmpeg, ...).
     if WINDOWS and not (probe.parent / 'SDL3.dll').is_file():
         clang64 = Path(env.get('MSYS2_ROOT', r'C:\msys64')) / 'clang64' / 'bin'
