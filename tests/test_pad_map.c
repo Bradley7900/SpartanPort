@@ -5,6 +5,7 @@
 
 int gow3gpu_overlay_captures_input(void) { return 0; }
 int gow3gpu_vibration_percent(void) { return 100; }
+void gow3gpu_engine_fps_cycle(void) {}
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
     return 0;
