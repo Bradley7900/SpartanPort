@@ -1,7 +1,9 @@
 """The title font (Cinzel Black): an optional launcher asset, never a reason the launcher cannot start."""
+import ctypes
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from paths import ROOT
 sys.path.insert(0, str(ROOT / 'launcher'))
@@ -20,12 +22,19 @@ class FontFileTest(unittest.TestCase):
                   if 'launcher/Cinzel-Black.ttf' in line and '"$dest/launcher/"' in line]
         self.assertTrue(copies, 'package.sh must copy launcher/Cinzel-Black.ttf into $dest/launcher/')
 
-    def test_windows_package_ships_the_font_license(self):
+    def test_packages_ship_the_font_license(self):
         # SIL OFL 1.1: the license text travels with the font.
         self.assertTrue((ROOT / 'launcher' / 'OFL-Cinzel.txt').is_file())
-        script = (ROOT / 'packaging' / 'windows' / 'package.sh').read_text(encoding='utf-8')
-        self.assertTrue([line for line in script.splitlines()
-                         if 'launcher/OFL-Cinzel.txt' in line and '"$dest/launcher/"' in line])
+        for script, dest in (('windows/package.sh', '"$dest/launcher/"'), ('linux/build.sh', '$share/launcher/')):
+            text = (ROOT / 'packaging' / script).read_text(encoding='utf-8')
+            self.assertTrue([line for line in text.splitlines() if 'launcher/OFL-Cinzel.txt' in line and dest in line], script)
+
+
+    def test_linux_package_ships_the_font(self):
+        script = (ROOT / 'packaging' / 'linux' / 'build.sh').read_text(encoding='utf-8')
+        copies = [line for line in script.splitlines()
+                  if 'launcher/Cinzel-Black.ttf' in line and '$share/launcher/' in line]
+        self.assertTrue(copies, 'build.sh must copy launcher/Cinzel-Black.ttf into $share/launcher/')
 
 
 class RegisterFontTest(unittest.TestCase):
@@ -39,6 +48,19 @@ class RegisterFontTest(unittest.TestCase):
     @unittest.skipUnless(sys.platform == 'win32', 'GDI font registration')
     def test_font_file_registers(self):
         self.assertTrue(launcher.register_font(launcher.FONT_FILE))
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'fontconfig font registration')
+    def test_font_file_registers_through_fontconfig(self):
+        try:
+            ctypes.CDLL('libfontconfig.so.1')
+        except OSError:
+            self.skipTest('no fontconfig')
+        self.assertTrue(launcher.register_font(launcher.FONT_FILE))
+
+    def test_a_missing_fontconfig_is_not_fatal(self):
+        with mock.patch.object(launcher, 'WINDOWS', False), \
+                mock.patch.object(launcher.ctypes, 'CDLL', side_effect=OSError('no fontconfig')):
+            self.assertFalse(launcher.register_font(launcher.FONT_FILE))
 
 
 class HeadingFontTest(unittest.TestCase):
