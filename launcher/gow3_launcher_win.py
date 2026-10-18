@@ -927,7 +927,7 @@ def pad_labels(style):
 
 
 RESOLUTION_CHOICES = [(name, (graphics_options.resolution_label(name),)) for name in graphics_options.RESOLUTIONS]
-ENGINE_FPS_CHOICES = [('60', ('60 (original)',)), ('120', ('120',)), ('240', ('240',))]
+ENGINE_FPS_CHOICES = [('60', ('60 (original)',)), ('100', ('100',)), ('120', ('120',)), ('240', ('240',))]
 
 
 def window_icon(root, tk, game_icon, own_icon, ico_file):
@@ -1481,7 +1481,7 @@ class Launcher:
         self.row(f, _('Frames queued'), self.choice(f, 'frames_queued', 'ini', FRAMES_QUEUED),
                  _('1 is the lowest input latency; more can raise FPS when the graphics card is the limit.'))
         self.row(f, _('Engine frame rate'), self.choice(f, 'engine_fps', 'ini', ENGINE_FPS_CHOICES),
-                 _('The highest frame rate the game itself runs at (a game patch).'), restart=True)
+                 _('The highest frame rate the game itself runs at (a game patch).'))
         self.row(f, _('Render resolution'), self.choice(f, 'render_resolution', 'ini', self.resolution_options),
                  _('The size the game draws at; higher is sharper and slower. A resolution patch replaces the '
                    'texture fix and reserves the memory it needs.'), restart=True)
