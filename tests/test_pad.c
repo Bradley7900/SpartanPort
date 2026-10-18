@@ -13,6 +13,10 @@ int gow3gpu_overlay_captures_input(void) { return capture; }
 int gow3gpu_vibration_percent(void) { return vibration_percent; }
 static int engine_fps_cycles;
 void gow3gpu_engine_fps_cycle(void) { ++engine_fps_cycles; }
+int gow3gpu_mouse_prompt_distance(void) { return 48; }
+void gow3gpu_mouse_pause_key(void) {}
+int gow3gpu_mouse_aim_style(void) { return 0; }
+int gow3gpu_mouse_aim_sensitivity(void) { return 100; }
 
 static bool SDLCALL record_rumble(void *userdata, uint16_t low, uint16_t high) {
     (void)userdata;
