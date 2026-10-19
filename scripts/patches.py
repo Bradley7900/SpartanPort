@@ -14,6 +14,7 @@ import struct
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+import legacy
 
 EBOOT_BASE=0x400000
 
@@ -328,8 +329,9 @@ def external_patches(directory, app_version, exclude, ids):
     found=[]
     directory=Path(directory)
     for path in sorted(directory.glob('*.xml')) if directory.is_dir() else []:
-        if path.resolve()==Path(exclude).resolve() or path.resolve() in {g[1].resolve() for g in GAMES}:
-            continue  # built-in files (patches/ in a checkout) are not also offered as external
+        if (path.resolve()==Path(exclude).resolve() or path.resolve() in {g[1].resolve() for g in GAMES}
+                or path.name==legacy.LEGACY_PATCH_FILE):
+            continue  # built-in files (patches/ in a checkout, or an older build's left by an update) are not external
         try:
             root=ET.parse(path).getroot()
         except ET.ParseError as error:

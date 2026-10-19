@@ -167,7 +167,11 @@ def main():
     # As run.sh: relative paths (SPARTAN_GAME_DIR, SPARTAN_DATA_DIR, fsr4_shaders/) are from the port.
     os.chdir(PORT)
     env = os.environ
+    sys.path.insert(0, str(PORT / 'scripts'))
+    import legacy
+    legacy.forward_environment(env)
     data = Path(env.get('SPARTAN_DATA_DIR', PORT))
+    legacy.copy_game_settings(data)
     out = data / 'out'
     out.mkdir(parents=True, exist_ok=True)
     env.setdefault('SPARTAN_CONFIG', str(data / 'spartanport.ini'))
@@ -176,7 +180,6 @@ def main():
     for key in env.pop('SPARTAN_DERIVED', '').split(','):
         env.pop(key, None)
     derived = []
-    sys.path.insert(0, str(PORT / 'scripts'))
     import graphics_options
     try:
         import discord_presence

@@ -6,6 +6,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import legacy
 from patches import (compile_patches, external_patches, external_selection, compile_external,
                      game_profile, selected_patches, patch_requirements, GAMES, merge_patch_files,
                      resolution_names, default_enabled)
@@ -52,6 +53,13 @@ class ExternalPatchTests(unittest.TestCase):
             writes = compile_external(external_selection(found, config), SEGMENTS)
             self.assertEqual(writes, [(0x2000, (0x12345678).to_bytes(4, 'little'))])
 
+    def test_an_older_builds_patch_file_left_by_an_update_is_not_external(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / legacy.LEGACY_PATCH_FILE).write_text(EXTERNAL)
+            (folder / 'extra.xml').write_text(EXTERNAL)
+            found = external_patches(folder, '01.02', SPARTAN, SPARTAN_IDS)
+            self.assertEqual({key.split('/')[0] for key, _, _ in found}, {'extra.xml'})
     def test_built_in_file_is_not_external(self):
         self.assertEqual(external_patches(SPARTAN.parent, '01.02', SPARTAN, SPARTAN_IDS), [])
 

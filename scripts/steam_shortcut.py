@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import legacy
 
 APP_NAME = 'SpartanPort'
 CAPSULE = (600, 900)    # vertical capsule: <id>p.png
@@ -286,7 +287,7 @@ def add_to_steam(game, command, icon, steam_root=None, running=None):
         tree = parse_vdf(file.read_bytes()) if file.is_file() and file.stat().st_size else {'shortcuts': {}}
         shortcuts = tree.setdefault('shortcuts', {})
         entry = shortcut_entry(app_id, exe, f'"{start_dir}"', options, icon_path)
-        slot = next((k for k, v in shortcuts.items() if v.get('appid') == app_id or v.get('AppName') == APP_NAME), None)
+        slot = next((k for k, v in shortcuts.items() if v.get('appid') == app_id or v.get('AppName') in (APP_NAME, legacy.LEGACY_TITLE)), None)
         if slot is None:
             slot = str(max((int(k) for k in shortcuts if k.isdigit()), default=-1) + 1)
         else:

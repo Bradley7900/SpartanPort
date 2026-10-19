@@ -43,6 +43,11 @@ rm -rf -- out/stage
 mkdir -p "$dest/bin" "$dest/launcher"
 cp -r "out/pyi-dist/SpartanPort/." "$dest/"
 llvm-strip -o "$dest/Play SpartanPort.exe" out/spartanport-play.exe
+# Until scripts/legacy.py goes: the same launcher and windowless start under their former names, which
+# installed updaters look for in the download and existing shortcuts point to.
+legacy_names=$(out/pyenv/Scripts/python.exe -c "import sys; sys.path.insert(0, 'scripts'); import legacy; print(legacy.LEGACY_EXE); print(legacy.LEGACY_PLAY_EXE)" | tr -d '\r')
+cp "$dest/SpartanPort.exe" "$dest/$(sed -n 1p <<< "$legacy_names")"
+cp "$dest/Play SpartanPort.exe" "$dest/$(sed -n 2p <<< "$legacy_names")"
 cp launcher/spartanport.ico launcher/spartanport.png launcher/logo.png launcher/Cinzel-Black.ttf launcher/OFL-Cinzel.txt "$dest/launcher/"
 # The executables without debug information (out/ keeps the symbols for crash reports).
 for exe in spartanport-probe.exe spartanport-gpu-capabilities.exe; do

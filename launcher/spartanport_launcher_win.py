@@ -45,10 +45,12 @@ FROZEN = getattr(sys, 'frozen', False)
 PORT_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PORT_DIR / 'scripts'))
 import graphics_options  # noqa: E402  (scripts/)
+import legacy  # noqa: E402  (scripts/)
 import save_backup  # noqa: E402  (scripts/)
 import steam_shortcut  # noqa: E402  (scripts/)
 from patches import game_profile, game_sfo  # noqa: E402  (scripts/)
 from prepare import load_sfo  # noqa: E402  (scripts/)
+legacy.forward_environment()  # before the folders below are read from the environment
 DATA_DIR = Path(os.environ.get('SPARTAN_DATA_DIR', PORT_DIR))
 CONFIG_DIR = (Path(os.environ.get('APPDATA', Path.home())) if WINDOWS else
               Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')) / 'spartanport-launcher'
@@ -3293,11 +3295,25 @@ def install_update(target, wait_pid):
     return 0
 
 
+def move_from_legacy_name():
+    """Settings, saves and shortcuts from before the rename (scripts/legacy.py). Never stops the
+    launcher: a failed copy is tried again at the next start."""
+    try:
+        for line in legacy.migrate(CONFIG_DIR, DATA_DIR, windows=WINDOWS):
+            print(f'Rename: {line}', flush=True)
+        if WINDOWS and FROZEN and UPDATE_DIR not in PORT_DIR.parents:
+            legacy.remove_leftovers(PORT_DIR)
+            legacy.retarget_desktop_shortcut(PORT_DIR)
+    except OSError as error:
+        print(f'Rename: {error}', flush=True)
+
+
 def main():
     global LANG, FONT_LOADED
     args = sys.argv[1:]
     if args and args[0] in ('--run', '--script'):
         sys.exit(run_role(args))
+    move_from_legacy_name()
     settings = {**APP_DEFAULTS, **migrate_controls(load_json(CONFIG_FILE, {}))}
     LANG = settings.get('ui_language') or windows_language()
     if not WINDOWS:

@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import legacy  # noqa: E402
 import steam_shortcut as steam
 
 try:
@@ -132,6 +133,12 @@ class AddToSteamTests(unittest.TestCase):
         self.assertTrue(result['updated'])
         self.assertEqual(len([v for v in self.shortcuts('2222').values() if v['AppName'] == steam.APP_NAME]), 1)
 
+    def test_a_shortcut_from_before_the_rename_is_updated_not_doubled(self):
+        old = {'shortcuts': {'0': {'appid': 7, 'AppName': legacy.LEGACY_TITLE, 'Exe': '"/old"'}}}
+        (self.steam / 'userdata' / '1111' / 'config' / 'shortcuts.vdf').write_bytes(steam.dump_vdf(old))
+        self.add()
+        names = [v['AppName'] for v in self.shortcuts('1111').values()]
+        self.assertEqual(names, [steam.APP_NAME])
     def test_steam_open_and_steam_missing_are_refused(self):
         with self.assertRaises(steam.SteamError) as caught:
             steam.add_to_steam(self.game, self.command, self.icon, steam_root=self.steam, running=True)
