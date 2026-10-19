@@ -165,6 +165,12 @@ public:
 
 private:
     void PrepareRenderState(const GraphicsPipeline* pipeline);
+    /// gow3: PrepareRenderState found a colour target for the draw.
+    bool HasColorTarget(const GraphicsPipeline* pipeline) const;
+    /// gow3: no colour or depth/stencil target and no shader stores (see DrawRecord).
+    bool DrawHasNoEffect(const GraphicsPipeline* pipeline) const;
+    /// gow3: a rect-list depth/stencil clear the render pass's load op performs (DrawRecord).
+    bool IsDepthClearDraw(const GraphicsPipeline* pipeline) const;
     RenderState BeginRendering(const GraphicsPipeline* pipeline);
     RenderState BeginRenderingFull(const GraphicsPipeline* pipeline);
     /// gow3: a draw continuing the open render pass with the same inputs gets the same render

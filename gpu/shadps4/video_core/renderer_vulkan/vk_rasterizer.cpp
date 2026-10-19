@@ -220,6 +220,51 @@ VideoCore::ImageId Rasterizer::FindTargetMemoized(VideoCore::TextureCache::Image
     return image_id;
 }
 
+namespace {
+/// Whether a stage of the pipeline stores to memory (storage buffers, GDS, storage images).
+bool HasShaderStores(const GraphicsPipeline* pipeline) {
+    for (const auto* stage : pipeline->GetStages()) {
+        if (!stage) {
+            continue;
+        }
+        if (std::ranges::any_of(stage->buffers, &Shader::BufferResource::is_written) ||
+            std::ranges::any_of(stage->images, &Shader::ImageResource::is_written)) {
+            return true;
+        }
+    }
+    return false;
+}
+} // namespace
+
+bool Rasterizer::HasColorTarget(const GraphicsPipeline* pipeline) const {
+    const u32 mrt_mask = pipeline->GetGraphicsKey().mrt_mask;
+    for (s32 cb = 0; cb < std::bit_width(mrt_mask); ++cb) {
+        if ((mrt_mask & (1u << cb)) && cb_descs[cb].first) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Rasterizer::DrawHasNoEffect(const GraphicsPipeline* pipeline) const {
+    // No target PrepareRenderState found and no shader stores.
+    return !db_desc.first && !HasColorTarget(pipeline) && !HasShaderStores(pipeline);
+}
+
+bool Rasterizer::IsDepthClearDraw(const GraphicsPipeline* pipeline) const {
+    const auto& regs = Regs();
+    if (pipeline->GetGraphicsKey().prim_type != AmdGpu::PrimitiveType::RectList ||
+        !db_desc.first || pipeline->GetStages()[u32(Shader::SwStage::Fragment)] ||
+        HasColorTarget(pipeline) || HasShaderStores(pipeline)) {
+        return false;
+    }
+    // The condition of the depth clear load op (BeginRenderingFull), with stencil either left
+    // alone or cleared as well.
+    return regs.depth_render_control.depth_clear_enable && regs.depth_control.depth_enable &&
+           regs.depth_control.depth_write_enable &&
+           (!regs.depth_control.stencil_enable || regs.depth_render_control.stencil_clear_enable);
+}
+
 void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
     // Prefetch render targets to handle overlaps with bound textures (e.g. mipgen)
     const auto& key = pipeline->GetGraphicsKey();
@@ -855,6 +900,24 @@ void Rasterizer::PrintPipeStats() {
                 (draw_pipe->drains - last_drains) / seconds,
                 100.0 * (draw_pipe->drain_cycles - last_drain_cycles) / cycles,
                 100.0 * (busy - last_busy) / cycles);
+    {
+        static u64 last_tess = 0, last_passes = 0, last_skipped = 0, last_clears = 0,
+                   last_folded = 0;
+        const u64 tess = Gow3Stats::tess_draws.load(), passes = Gow3Stats::render_passes.load(),
+                  skipped = Gow3Stats::no_effect_draws.load(),
+                  clears = Gow3Stats::clear_draws.load(), folded = Gow3Stats::folded_clears.load();
+        std::printf("  rect/quad lists %.0f/s, of which skipped without effect %.0f/s and clears "
+                    "left to the load op %.0f/s (%.0f/s folded into the next pass); render "
+                    "passes %.0f/s\n",
+                    (tess - last_tess) / seconds, (skipped - last_skipped) / seconds,
+                    (clears - last_clears) / seconds, (folded - last_folded) / seconds,
+                    (passes - last_passes) / seconds);
+        last_tess = tess;
+        last_passes = passes;
+        last_skipped = skipped;
+        last_clears = clears;
+        last_folded = folded;
+    }
     std::printf("  drains by reason/s:");
     for (u32 r = 0; r < DrawPipe::NumReasons; ++r) {
         if (const u64 n = draw_pipe->drains_by_reason[r]) {
@@ -1017,6 +1080,40 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     motion_geometry = 0;
 
     PrepareRenderState(pipeline);
+    if (const auto prim = pipeline->GetGraphicsKey().prim_type;
+        prim == AmdGpu::PrimitiveType::RectList || prim == AmdGpu::PrimitiveType::QuadList) {
+        Gow3Stats::tess_draws.fetch_add(1, std::memory_order_relaxed);
+    }
+    // gow3: rect lists are tessellated (RectListTCS), which KosmicKrisp runs as a compute
+    // pre-pass that splits the Metal render pass: the attachments are stored and loaded again.
+    // God of War III draws two kinds of rect lists that need no draw at all (Gaia fights at
+    // 720p: 30 -> ~45 FPS together with the clear folding in Scheduler::DeferDepthClear).
+    if (!Gow3Toggle::Disabled(Gow3Toggle::SkipNoEffectDraws) && DrawHasNoEffect(pipeline)) {
+        // ~8 a frame without colour target, depth/stencil or pixel shader: they change
+        // nothing (on KosmicKrisp each was also a 16384x16384 render pass).
+        Gow3Stats::no_effect_draws.fetch_add(1, std::memory_order_relaxed);
+        bind_prepared = nullptr; // as after a recorded draw (dispatches bind without it)
+        ResetBindings(false);
+        return;
+    }
+    if (!Gow3Toggle::Disabled(Gow3Toggle::SkipClearDraws) && IsDepthClearDraw(pipeline)) {
+        // ~12 a frame: depth/stencil clears drawn as a rect (DB_RENDER_CONTROL clear bits).
+        // The render pass for this state clears with its load op; the draw adds nothing.
+        const auto clear_state = BeginRendering(pipeline);
+        if (needs_barrier) {
+            runtime.FlushBarriers(); // layout transitions BeginRendering queued
+        }
+        if (Gow3Toggle::Disabled(Gow3Toggle::FoldClears)) {
+            MarkPass(pipeline, clear_state);
+            scheduler.BeginRendering(clear_state);
+        } else {
+            scheduler.DeferDepthClear(clear_state);
+        }
+        Gow3Stats::clear_draws.fetch_add(1, std::memory_order_relaxed);
+        bind_prepared = nullptr;
+        ResetBindings(false);
+        return;
+    }
     if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
         const auto& viewport = Regs().viewports[0];
         upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,

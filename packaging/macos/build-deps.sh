@@ -57,7 +57,9 @@ if ! step vulkan; then
     cmake_x86 "$src/vulkan-loader" "$src/vulkan-loader/build" -DUPDATE_DEPS=OFF -DBUILD_TESTS=OFF
     done_step vulkan
 fi
-if ! step kosmickrisp; then
+# gow3-1: performance fixes for this game under Rosetta 2 (kosmickrisp-gow3.patch and the
+# compiler flag below); a dependency folder built before them rebuilds the driver.
+if ! step kosmickrisp || ! step kosmickrisp-gow3-1; then
     # Mesa's build runs Python with mako: meson comes from a private virtual environment.
     [[ -x $prefix/venv/bin/meson ]] || {
         python3 -m venv "$prefix/venv"
@@ -69,6 +71,20 @@ if ! step kosmickrisp; then
         git -C "$src/mesa-kosmickrisp" checkout -q FETCH_HEAD
         git -C "$src/mesa-kosmickrisp" submodule update -q --init --depth 1
     fi
+    # Larger command upload blocks and render encoders started at the first draw unless a
+    # clear needs them (kosmickrisp-gow3.patch).
+    mesa=$src/mesa-kosmickrisp/externals/mesa
+    if ! git -C "$mesa" apply --reverse --check "$PWD/packaging/macos/kosmickrisp-gow3.patch" 2>/dev/null; then
+        git -C "$mesa" apply "$PWD/packaging/macos/kosmickrisp-gow3.patch"
+    fi
+    # Apple clang's hot/cold splitting marks hot driver functions (per-draw descriptor uploads)
+    # minsize, which turns their memcpy into `rep movsb`: Rosetta 2 runs that ~12x slower.
+    # Meson reads the cross file only when it sets up a build directory.
+    cross=$src/mesa-kosmickrisp/crossfiles/mesa-x86_64.ini
+    if ! grep -q fno-split-cold-code "$cross"; then
+        sed -i '' "/link_args/! s/'x86_64-apple-darwin'\]/'x86_64-apple-darwin', '-Xclang', '-fno-split-cold-code']/" "$cross"
+        rm -rf "$src/mesa-kosmickrisp/build"
+    fi
     PATH="$prefix/venv/bin:$PATH" cmake -S "$src/mesa-kosmickrisp" -B "$src/mesa-kosmickrisp/build" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=26.0 >/dev/null
     PATH="$prefix/venv/bin:$PATH" ninja -C "$src/mesa-kosmickrisp/build" >/dev/null
@@ -77,6 +93,7 @@ if ! step kosmickrisp; then
     sed 's|"library_path": *"[^"]*"|"library_path": "../../../lib/libvulkan_kosmickrisp.dylib"|' \
         "$src/mesa-kosmickrisp/build/outputs/kosmickrisp_mesa_icd.json" > "$prefix/share/vulkan/icd.d/kosmickrisp_mesa_icd.json"
     done_step kosmickrisp
+    done_step kosmickrisp-gow3-1
 fi
 if ! step sdl3; then
     [[ -d $src/SDL3-$SDL ]] ||
