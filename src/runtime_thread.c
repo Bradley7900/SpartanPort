@@ -259,15 +259,20 @@ static void set_host_name(const char *name) {
 /* The game's job workers take their queue with a bare spinlock (0x5a57f0: lock cmpxchg, no pause
  * or yield). On a 4-thread host the holder gets preempted and the others spin whole quanta,
  * starving the GPU command processor (#209: GPU 17% -> 72% with the workers below normal).
- * The game's own scePthreadSetprio (it raises them to 256) stays recorded only. */
-static void set_host_priority(const char *name) {
-    if (strncmp(name,"WorkerThread",12)) return;
+ * The game's own scePthreadSetprio (it raises them to 256) stays recorded only.
+ * Threads the game creates with a high PS4 priority (below 400: brbDriver, the sound driver at 306,
+ * and Fios I/O) run above normal, or the audio output starves on 4 threads (48 ms gaps). */
+enum { HIGH_GUEST_PRIO = 400 };
+static void set_host_priority(const char *name,int guest_prio) {
+    int lower=!strncmp(name,"WorkerThread",12);
+    if (!lower && guest_prio>=HIGH_GUEST_PRIO) return;
 #ifdef _WIN32
-    if (!SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL))
-        printf("Runtime: cannot lower the priority of '%s' (%lu)\n",name,GetLastError());
+    if (!SetThreadPriority(GetCurrentThread(),lower ? THREAD_PRIORITY_BELOW_NORMAL : THREAD_PRIORITY_ABOVE_NORMAL))
+        printf("Runtime: cannot change the priority of '%s' (%lu)\n",name,GetLastError());
 #else
-    if (setpriority(PRIO_PROCESS,(id_t)syscall(SYS_gettid),5))
-        printf("Runtime: cannot lower the priority of '%s' (%d)\n",name,errno);
+    /* Raising needs CAP_SYS_NICE; without it the thread keeps the normal priority. */
+    if (setpriority(PRIO_PROCESS,(id_t)syscall(SYS_gettid),lower ? 5 : -5) && lower)
+        printf("Runtime: cannot change the priority of '%s' (%d)\n",name,errno);
 #endif
 }
 #ifdef _WIN32
@@ -281,7 +286,7 @@ static void *host_start(void *p) {
     GuestThread *t=p;
     attach(t);
     set_host_name(t->name);
-    set_host_priority(t->name);
+    set_host_priority(t->name,t->attr.prio);
     if (!exit_setjmp(t)) t->result=t->entry(t->argument);
     runtime_thread_keys_cleanup();
     pthread_mutex_lock(&lock); t->finished=1; ++exited; pthread_mutex_unlock(&lock);
@@ -373,7 +378,7 @@ static ABI int32_t thread_rename(GuestThread *t,const char *name) {
     if (!find_thread(t)) return ERR(3);
     if (!name) return ERR(22);
     snprintf(t->name,sizeof(t->name),"%s",name);
-    if (t==current) { set_host_name(t->name); set_host_priority(t->name); }
+    if (t==current) { set_host_name(t->name); set_host_priority(t->name,t->attr.prio); }
     return 0;
 }
 static ABI int32_t thread_equal(GuestThread *a,GuestThread *b) { return a==b; }
