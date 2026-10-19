@@ -21,6 +21,7 @@
 #include <tlhelp32.h>
 #else
 #include <dirent.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/mman.h>
 #include <asm/prctl.h>
@@ -255,6 +256,20 @@ static void set_host_name(const char *name) {
     if (MultiByteToWideChar(CP_UTF8,0,name,-1,wide,32)) SetThreadDescription(GetCurrentThread(),wide);
 #endif
 }
+/* The game's job workers take their queue with a bare spinlock (0x5a57f0: lock cmpxchg, no pause
+ * or yield). On a 4-thread host the holder gets preempted and the others spin whole quanta,
+ * starving the GPU command processor (#209: GPU 17% -> 72% with the workers below normal).
+ * The game's own scePthreadSetprio (it raises them to 256) stays recorded only. */
+static void set_host_priority(const char *name) {
+    if (strncmp(name,"WorkerThread",12)) return;
+#ifdef _WIN32
+    if (!SetThreadPriority(GetCurrentThread(),THREAD_PRIORITY_BELOW_NORMAL))
+        printf("Runtime: cannot lower the priority of '%s' (%lu)\n",name,GetLastError());
+#else
+    if (setpriority(PRIO_PROCESS,(id_t)syscall(SYS_gettid),5))
+        printf("Runtime: cannot lower the priority of '%s' (%d)\n",name,errno);
+#endif
+}
 #ifdef _WIN32
 #define exit_setjmp(t) spartanport_setjmp((t)->exit_jump)
 #define exit_longjmp(t) spartanport_longjmp((t)->exit_jump,1)
@@ -266,6 +281,7 @@ static void *host_start(void *p) {
     GuestThread *t=p;
     attach(t);
     set_host_name(t->name);
+    set_host_priority(t->name);
     if (!exit_setjmp(t)) t->result=t->entry(t->argument);
     runtime_thread_keys_cleanup();
     pthread_mutex_lock(&lock); t->finished=1; ++exited; pthread_mutex_unlock(&lock);
@@ -357,7 +373,7 @@ static ABI int32_t thread_rename(GuestThread *t,const char *name) {
     if (!find_thread(t)) return ERR(3);
     if (!name) return ERR(22);
     snprintf(t->name,sizeof(t->name),"%s",name);
-    if (t==current) set_host_name(t->name);
+    if (t==current) { set_host_name(t->name); set_host_priority(t->name); }
     return 0;
 }
 static ABI int32_t thread_equal(GuestThread *a,GuestThread *b) { return a==b; }
