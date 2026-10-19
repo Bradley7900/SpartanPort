@@ -252,14 +252,11 @@ def main():
         from patches import game_profile_for, patch_requirements, patch_status, selected_patches
         profile = game_profile_for(game)
         engine_fps = 60
-        # The window shows the game's icon (BMP: the format SDL loads without extra libraries); on
-        # Linux the launcher's own icon (the AppImage ships the one chosen when it was built) and
-        # an application id the desktop entry matches, so the shell shows the same icon.
-        icon_file = game / 'sce_sys' / 'icon0.png'
+        # The window shows the port's own icon (BMP: the format SDL loads without extra libraries); on
+        # Linux also an application id the desktop entry matches, so the shell shows the same icon.
+        icon_file = PORT / 'launcher' / 'gow3.png'
         if not WINDOWS:
             env.setdefault('SDL_APP_ID', 'gow3')
-            if (PORT / 'launcher' / 'gow3.png').is_file():
-                icon_file = PORT / 'launcher' / 'gow3.png'
         try:
             from PIL import Image
             with Image.open(icon_file) as icon:

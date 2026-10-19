@@ -22,6 +22,7 @@ mkdir -p "$share/launcher"
 icon=launcher/gow3.png
 [[ -f packaging/linux/gow3.png ]] && icon=packaging/linux/gow3.png
 install -m644 "$icon" "$share/launcher/gow3.png"
+install -m644 launcher/logo.png "$share/launcher/logo.png"
 install -m644 launcher/Cinzel-Black.ttf "$share/launcher/Cinzel-Black.ttf"
 install -m644 launcher/OFL-Cinzel.txt "$share/launcher/OFL-Cinzel.txt"
 

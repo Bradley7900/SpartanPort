@@ -1048,8 +1048,8 @@ def write_linux_shortcut(command, appimage, icon_source, desktop, home=None, env
 
 
 def steam_icon(game):
-    """Picture of the Steam shortcut's icon: the launcher's own on Linux, the game's on Windows."""
-    return Path(game) / 'sce_sys' / 'icon0.png' if WINDOWS else PORT_DIR / 'launcher' / 'gow3.png'
+    """Picture of the Steam shortcut's icon: the port's own."""
+    return PORT_DIR / 'launcher' / 'gow3.png'
 
 
 def steam_launch_command():
@@ -1155,34 +1155,27 @@ RESOLUTION_CHOICES = [(name, (graphics_options.resolution_label(name),)) for nam
 ENGINE_FPS_CHOICES = [('60', ('60 (original)',)), ('100', ('100',)), ('120', ('120',)), ('240', ('240',))]
 
 
-def window_icon(root, tk, game_icon, own_icon, ico_file):
-    """The launcher window's icon: the game's (icon0.png) when the game is set, else the port's own.
-    Windows gets an .ico made with Pillow (ico_file); without Pillow, Tk reads the PNG itself.
-    Returns the PhotoImage the caller must keep alive, or None.
+def window_icon(root, tk, own_ico, own_png):
+    """The launcher window's icon, the port's own: the .ico on Windows (every size, sharp in the
+    title bar and the taskbar), else the PNG. Returns the PhotoImage the caller must keep alive, or None.
     Tk 9 applies the -default forms only to toplevels created later (the window itself kept Tk's
     feather in the title bar and the taskbar), so the window gets the icon by itself first."""
     if WINDOWS:
         try:
-            from PIL import Image
-            ico_file.parent.mkdir(parents=True, exist_ok=True)
-            with Image.open(game_icon) as image:
-                image.convert('RGBA').save(ico_file, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (256, 256)])
-            root.iconbitmap(str(ico_file))
-            root.iconbitmap(default=str(ico_file))
+            root.iconbitmap(str(own_ico))
+            root.iconbitmap(default=str(own_ico))
             return None
-        except (ImportError, OSError, tk.TclError):
+        except tk.TclError:
             pass
-    for icon in ((game_icon, own_icon) if WINDOWS else (own_icon, game_icon)):
-        try:
-            photo = tk.PhotoImage(file=str(icon))
-            if photo.width() > 128:
-                photo = photo.subsample(photo.width() // 64)
-            root.iconphoto(False, photo)
-            root.iconphoto(True, photo)
-            return photo
-        except (tk.TclError, OSError):
-            continue
-    return None
+    try:
+        photo = tk.PhotoImage(file=str(own_png))
+        if photo.width() > 128:
+            photo = photo.subsample(photo.width() // 64)
+        root.iconphoto(False, photo)
+        root.iconphoto(True, photo)
+        return photo
+    except (tk.TclError, OSError):
+        return None
 
 
 class Launcher:
@@ -1194,7 +1187,7 @@ class Launcher:
         self.vars = {}
         self.process = self.job = None
         self.output = queue.Queue()
-        self.banner_source = self.banner_image = None
+        self.banner_source = self.banner_image = self.banner_logo = None
         self.ui_calls = queue.Queue()  # work for the Tk thread from helper threads
         self.mod_order, self.mod_vars, self.patch_vars = [], {}, {}
         self.selected_mod, self.mod_rows, self.mod_conflicts, self.conflicts_open = None, {}, [], False
@@ -1276,9 +1269,8 @@ class Launcher:
         self.root.minsize(min(self.px(980), window_width), min(self.px(660), window_height))
 
     def set_icon(self):
-        game_icon = self.artwork_file('icon0.png')
-        self.icon = window_icon(self.root, self.tk, game_icon, PORT_DIR / 'launcher' / 'gow3.png',
-                                CONFIG_DIR / 'game_icon.ico')
+        self.icon = window_icon(self.root, self.tk, PORT_DIR / 'launcher' / 'gow3.ico',
+                                PORT_DIR / 'launcher' / 'gow3.png')
 
     # ---- look --------------------------------------------------------------------------------
     def check_images(self):
@@ -1564,9 +1556,10 @@ class Launcher:
         side = tk.Frame(self.root, bg=BG, width=self.px(220))
         side.pack(side='left', fill='y')
         side.pack_propagate(False)
+        self.logo = self.logo_image(self.px(176))
         self.side_title = tk.Label(side, text=APP_NAME.upper(), bg=BG, fg=TEXT,
                                    font=self.heading_font(15, every_language=True),
-                                   wraplength=self.px(190), justify='left')
+                                   wraplength=self.px(190), justify='left', image=self.logo or '')
         self.side_title.pack(anchor='w', padx=self.px(22), pady=self.px((24, 22)))
         self.side = side
         self.nav, self.current_page = {}, None
@@ -1684,8 +1677,13 @@ class Launcher:
             # A solid strip under the art: the title id and version sit in it, not over the picture.
             c.create_rectangle(0, h - bar, w, h, fill=PANEL, outline='')
         else:
-            c.create_text(self.px(30), h - self.px(74), text=APP_NAME.upper(), anchor='w', fill=TEXT,
-                          font=self.heading_font(32, every_language=True))
+            if not self.banner_logo:
+                self.banner_logo = self.logo_image(self.px(360))
+            if self.banner_logo:
+                c.create_image(self.px(30), h - self.px(74), image=self.banner_logo, anchor='w')
+            else:
+                c.create_text(self.px(30), h - self.px(74), text=APP_NAME.upper(), anchor='w', fill=TEXT,
+                              font=self.heading_font(32, every_language=True))
         if info:
             title_id = game_profile_of(folder)[0]
             sub = _('{} · version {}', '{} · версия {}').format(title_id or '?', info[1])
@@ -1694,6 +1692,17 @@ class Launcher:
             c.create_text(w // 2, h // 2 - self.px(40), text=_('Choose your game folder to play.'),
                           fill=TEXT, font=self.font(UI_FONT, 12))
             c.create_window(w // 2, h // 2, window=self.banner_button)
+
+    def logo_image(self, width):
+        """The port's name drawn as a logo (launcher/logo.png) at `width`; None without Pillow or the file,
+        then the sidebar shows the name as text."""
+        try:
+            from PIL import Image, ImageTk
+            with Image.open(PORT_DIR / 'launcher' / 'logo.png') as image:
+                height = round(image.height * width / image.width)
+                return ImageTk.PhotoImage(image.convert('RGBA').resize((width, height), Image.LANCZOS))
+        except (ImportError, OSError):
+            return None
 
     def scaled_art(self, path, width):
         """The cover art scaled to `width`: Pillow (smooth) or Tk's integer subsampling."""
@@ -2389,16 +2398,10 @@ class Launcher:
 
     # ---- state -------------------------------------------------------------------------------
     def game_changed(self):
-        folder = self.meta_dir()
-        info = game_info(folder)
-        title = info[0] if info else APP_NAME
-        self.root.title(f'{title} (PC)')
-        self.side_title.configure(text=title.upper())
         if self.current_page == 'game':
             self.refresh_game_patches()
         self.banner_source = None
         self.draw_banner()
-        self.set_icon()
         self.refresh_status()
 
     def refresh_status(self):

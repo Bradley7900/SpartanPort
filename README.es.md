@@ -1,4 +1,9 @@
-# God of War III Remastered for PC 
+<p align="center">
+  <img src="packaging/icon/monogram.png" alt="SP" width="160"><br>
+  <img src="docs/images/spartanport-logo.png" alt="SpartanPort" width="600">
+</p>
+
+# SpartanPort
 
 <div align="center">
   <a href="https://trendshift.io/repositories/299469?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-299469" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/299469/daily?language=C%2B%2B" alt="FelipePrado0%2Fgow3_pc | Trendshift" width="250" height="55"/></a>
@@ -6,17 +11,17 @@
 
 [English](https://github.com/FelipePrado0/gow3_pc/blob/main/README.md) | [Português (Brasil)](https://github.com/FelipePrado0/gow3_pc/blob/main/README.pt-BR.md) | **Español**
 
-Port para PC de **God of War III Remastered** (PlayStation 4) para Windows 10/11 y Linux
-(AppImage experimental).
+**SpartanPort** es un port no oficial para PC de **God of War III Remastered** (PlayStation 4) para Windows 10/11
+y Linux (AppImage experimental).
 
 > **No se incluyen archivos del juego.** Necesitás un dump de tu propia PS4 (probados: CUSA01623 y
 > CUSA01715, versiones 01.00 y 01.02).
-> Este proyecto no está afiliado a Sony Interactive Entertainment ni a Santa Monica Studio.
+> Este proyecto no está afiliado a Sony Interactive Entertainment ni a Santa Monica Studio, ni cuenta con su respaldo.
 > God of War es una marca registrada de Sony Interactive Entertainment.
 
 ## Índice
 
-- [God of War III Remastered for PC](#god-of-war-iii-remastered-for-pc)
+- [SpartanPort](#spartanport)
   - [Índice](#índice)
   - [Descargar y jugar](#descargar-y-jugar)
   - [Linux (AppImage, experimental)](#linux-appimage-experimental)

@@ -66,8 +66,8 @@ for differences between published packages and current source builds, including 
 
 The launcher texts are written in English with the Russian beside them; the other languages
 are in `launcher/gow3_lang.py` (one list per language in the order of `KEYS`; a missing or
-empty text falls back to English). The icon (`launcher/gow3.ico`/`.png`) is drawn by
-`packaging/windows/make_icon.py` and built into `God of War III.exe`, `gow3-probe.exe` (the game
+empty text falls back to English). The icon (`launcher/gow3.ico`/`.png`) is made from the
+SP monogram (`packaging/icon/monogram.png`) by `packaging/windows/make_icon.py` and built into `God of War III.exe`, `gow3-probe.exe` (the game
 window) and `gow3-gpu-capabilities.exe`.
 
 ## What is different from Linux
