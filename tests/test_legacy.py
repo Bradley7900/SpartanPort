@@ -135,5 +135,22 @@ class LegacyTest(unittest.TestCase):
         self.assertTrue((port / legacy.LEGACY_EXE).exists())
 
 
+class LauncherStartTest(unittest.TestCase):
+    def test_the_update_installer_does_not_migrate(self):
+        """--install-update runs from the unpacked download: migrating there marks the move as done
+        without the player's files, and the installed launcher then skips them."""
+        import sys
+        from unittest import mock
+        sys.path.insert(0, str(ROOT / 'launcher'))
+        import spartanport_launcher_win as launcher
+        with mock.patch.object(launcher, 'move_from_legacy_name') as move, \
+                mock.patch.object(launcher, 'install_update', return_value=0), \
+                mock.patch.object(launcher, 'WINDOWS', True), \
+                mock.patch.object(sys, 'argv', ['launcher', '--install-update', 'C:/game', '1']), \
+                self.assertRaises(SystemExit):
+            launcher.main()
+        move.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

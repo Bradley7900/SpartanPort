@@ -3336,7 +3336,8 @@ def main():
     args = sys.argv[1:]
     if args and args[0] in ('--run', '--script'):
         sys.exit(run_role(args))
-    move_from_legacy_name()
+    if args[:1] != ['--install-update']:  # that copy runs from the download, not from the player's folder
+        move_from_legacy_name()
     settings = {**APP_DEFAULTS, **migrate_controls(load_json(CONFIG_FILE, {}))}
     LANG = settings.get('ui_language') or windows_language()
     if not WINDOWS:
