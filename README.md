@@ -126,7 +126,7 @@ Steam Deck/RADV rendering corruption is a known issue in the published 2.2.0 App
   the Windows launcher (not tested there yet).
 - **Steam Deck / SteamOS (Gaming Mode):** if Steam tries to launch the AppImage with Proton, open
   the shortcut's **Properties → Compatibility** and select **Steam Linux Runtime** instead of Proton.
-  The AppImage is a native Linux application.
+  The AppImage is a native Linux application. If it fails to launch using **Steam Linux Runtime**, open the shortcut’s **Properties → Compatibility** and select **Default** to use the host libraries instead.
 - **Menu entry:** the AppImage writes `~/.local/share/applications/gow3.desktop` when it starts, so
   the launcher and the game window show their icon in the dock; **Advanced → Linux** turns it off and
   removes the entry. When another tool (Gear Lever, AppImageLauncher…) already made an entry that
@@ -173,11 +173,11 @@ blit D32S8 depth); the startup resolution patch still applies.
 - Controller (DualSense, Xbox and others, through SDL3) and keyboard at the same time, both
   remappable.
 - **In-game button icons** (opt-in, off by default): the PlayStation button icons in the game can
-  show your controller's, Xbox or Nintendo ones (Game page, Controls).
+  show your controller's, Xbox or Nintendo ones, or the keyboard keys you play with (Game page, Controls).
 - Saving and loading: the save list is shown on screen, as on the PS4. Autosave works too. The
   launcher backs the saves up before every start.
-- Patches: render resolution of 480p, 720p, 1440p, 1800p or 4K, corrupted texture fix and skip
-  videos with the X button (community); engine frame rate of 120 FPS (kvicken) or 240 FPS
+- Patches: render resolution of 480p, 720p, 900p, 1440p, 1800p or 4K, corrupted texture fix and skip
+  videos with the X button (community); engine frame rate of 120 FPS (kvicken), 100 FPS (for 100 Hz displays) or 240 FPS
   (adapted by Felipe Prado).
 - **Ultrawide (beta):** 21:9, 32:9 and 16:10 render resolutions (3440x1440 tested) with a wider field of view
   instead of a zoomed-in picture, built in: choose one in **Render resolution**, where every size shows its exact
@@ -195,7 +195,8 @@ blit D32S8 depth); the startup resolution patch still applies.
   performance, game folder and save backups, patches, mods (order, presets and conflicts),
   controls with PlayStation or Xbox button icons, updates and diagnostics.
 - **In-game menu** (Insert on the keyboard, R3+L2 on the controller), with four tabs:
-  - **Game:** cheats (infinite health, magic, item meter, Rage of Sparta, max red orbs);
+  - **Game:** cheats (infinite health, magic, item meter, Rage of Sparta, max red orbs,
+    automatic QTE: button and stick-rotation prompts answer themselves);
     multipliers from 0.1x to 100x for red, green (health), blue (magic) and gold (Rage of
     Sparta) orbs and for damage dealt and taken; an enemy health bar.
   - **Image:** display mode (windowed, borderless, fullscreen), VSync and RCAS sharpening.
@@ -225,8 +226,16 @@ packages can use different source revisions. Check the release notes for changes
 ## Settings
 
 Settings are kept in `gow3.ini` (the game and the in-game menu) and in
-`%APPDATA%\gow3-launcher\settings.json` (the launcher). Saves, the shader cache and
+`settings.json` (the launcher), in the port folder. Saves, the shader cache and
 `last_run.log` go to the project's `user` folder.
+
+**GUI Scale:** choose **Auto**, **1x** or **2x** under **Advanced → Launcher**,
+then click **Save**. Text, controls and layout resize together, without changing
+game resolution. Auto follows the desktop scale reported by Tk, with X11/XWayland
+font DPI and window-scale fallbacks on Linux. On macOS, Retina scaling stays with
+the operating system. Manual 1x/2x sets the launcher's logical size, including text,
+icons, controls, scrollbars and spacing. Screen resolution alone does not select
+a scale. The choice is saved in `settings.json`.
 
 On **Performance → GPU data → Stream buffer memory**, choose **System RAM (cached, default)**,
 **System RAM (uncached)** or **GPU memory (previous behavior)**. System RAM can improve frame
@@ -248,7 +257,7 @@ passes an inherited `GOW3_NO_MSAA` through. Applies on the next game launch.
 
 ## Keyboard controls
 
-Defaults; change them in the launcher's **Game** page, **Controls** section.
+Defaults; change them on the launcher's **Controls** page, under **Keyboard & Mouse Mapping**.
 
 | Key | Button |
 |---|---|
@@ -256,27 +265,43 @@ Defaults; change them in the launcher's **Game** page, **Controls** section.
 | Arrows | right stick (camera) |
 | Space | Cross |
 | Left Shift | Circle |
-| E | Square |
-| Q | Triangle |
-| 1 and 3 | L1 and R1 |
-| R and F | L2 and R2 |
-| Z and C | L3 and R3 |
-| I, K, J, L | d-pad |
-| Enter | Options |
-| Tab | left touchpad click (photo mode) |
-| Backspace | right touchpad click (pause menu) |
+| Left click | Square |
+| Right click | Triangle |
+| Q and E | L1 and R1 |
+| R and the mouse's forward button | L2 and R2 |
+| Z and X | L3 and R3 |
+| Wheel click | Rage of Sparta (L3 + R3) |
+| C | Grab (L1 + Circle) |
+| The mouse's back button | Dodge |
+| 1, 2, 3, 4 | d-pad up, right, down, left (weapons) |
+| Tab | Options |
+| P | left touchpad click (photo mode) |
+| Esc | right touchpad click (pause menu) |
 | Insert | the port's menu (R3+L2 on the controller) |
+
+**Rage of Sparta on one input** (on by default) leaves Z and X unused. **Joystick prompts** answer
+the stick-rotation quick-time events without a stick: type the turn (half turns D S A, A S D, A W D
+or D W A; full turns D S A W or A S D W) or, with *Adaptive mouse*, draw it. While you play, the
+mouse stays in the game window; the in-game menu, the pause key (Esc) and other windows get it back,
+and Esc again or a click in the window takes it back. With L2 held (R), the mouse aims with the
+right stick, for the Head of Helios or the Bow of Apollo: *Relative* follows the movement,
+*Absolute* points from where the mouse was when L2 was pressed, and *Right stick sensitivity* sets
+how much mouse it takes. Without the launcher the game keeps its own keys: E and Q for Square and
+Triangle, 1 and 3 for L1 and R1, F for R2, C for R3, I, K, J, L for the d-pad, Enter for Options,
+Tab and Backspace for the touchpad.
 
 On a controller without a touchpad (Xbox and others), View opens the pause menu (the right
 touchpad click) and L1 + View opens photo mode (the left click). On a DualSense the touchpad
 works as on the PS4, and Share/Create works like View.
 
-**In-game button icons** (off by default) are chosen in the launcher's Game page, Controls section, under
-*In-game button icons*: *Match my controller*, *Xbox* or *Nintendo*. They replace the PlayStation icons in the
+**In-game button icons** (off by default) are chosen on the launcher's Controls page, under
+*In-game button icons*: *Match my controller*, *Xbox*, *Nintendo* or *Keyboard*. They replace the PlayStation icons in the
 tutorial, move-list and quick-time prompts; the pause-menu controller drawing stays a DualShock 4.
+*Keyboard* shows the key that presses each button, following your keyboard mapping (a changed key shows
+on the next start); *Match my controller* shows the keys too when no gamepad is connected.
 The launcher writes a patched copy of two game files into the port's data folder and never changes
 your game folder. A new controller is picked up after a restart. Without the launcher, set
-`GOW3_GLYPH_STYLE` to `auto`, `xbox` or `nintendo` before starting `run.py`.
+`GOW3_GLYPH_STYLE` to `auto`, `xbox`, `nintendo` or `keyboard` before starting `run.py`.
 
 In the menu: L1/R1 or Q/E switch tabs. In the save list: arrows or the d-pad choose, Enter or
 Cross confirm, Esc or Circle cancel.
@@ -318,6 +343,10 @@ for every overlay configuration.
 
 ## Troubleshooting
 
+- Executable format errors: source builds accept plaintext PS4 SELF containers and unpacked
+  little-endian x86-64 ELF executables and modules. A valid unpacked ELF was previously rejected
+  with `prepare failed: expected PS4 SELF`. Files in another format and encrypted/compressed
+  SELF segments still need a correctly prepared game dump.
 - Black screen at start: use the latest release, which includes the startup deadlock patch.
   If it persists, report your GPU, driver, game build and **Advanced → Log** output. Clearing
   the shader cache is not a general fix and requires rebuilding it on the next launch.
@@ -527,7 +556,7 @@ It is a fork of [Supermedo's Windows port](https://github.com/Supermedo/bloodbor
 | Patches | `patches/God_of_War_III_Remastered.xml`, `scripts/patches.py` | Applied in memory at start, without changing the game files |
 | Launcher | `launcher/gow3_launcher_win.py` | Settings, patches, mods, controls and the play button |
 
-More documentation: [mods](https://github.com/FelipePrado0/gow3_pc/blob/main/docs/MODS.md), [frame map and historical upscaler research](https://github.com/FelipePrado0/gow3_pc/blob/main/docs/upscaler.md)
+More documentation: [mods](https://github.com/FelipePrado0/gow3_pc/blob/main/docs/MODS.md), [patches](https://github.com/FelipePrado0/gow3_pc/blob/main/docs/PATCHES.md), [frame map and historical upscaler research](https://github.com/FelipePrado0/gow3_pc/blob/main/docs/upscaler.md)
 and [parallel GPU work](https://github.com/FelipePrado0/gow3_pc/blob/main/docs/parallel_gpu.md).
 
 ## Credits
@@ -549,7 +578,8 @@ This project is a fork of Supermedo's Windows port, which builds on deadinside28
 Patches: kvicken and cuesta4 (resolution, texture fix, 120 FPS and skip videos, building on the
 PS3 patches by illusion0001), published for shadPS4 in
 [shadps4-emu/ps4_cheats#145](https://github.com/shadps4-emu/ps4_cheats/pull/145) and adapted to
-this executable. The 240 FPS patch was adapted by Felipe Prado from the 120 FPS patch.
+this executable. The 240 FPS patch was adapted by Felipe Prado from the 120 FPS patch; the 100 FPS one is the same
+patch with 100.
 Cheats: adapted from Celogamez's [GoldHEN cheats](https://github.com/GoldHEN/GoldHEN_Cheat_Repository).
 
 Also used: [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9), [FFmpeg](https://ffmpeg.org),

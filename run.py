@@ -119,10 +119,11 @@ def find_executable(name):
 def glyph_mounts(env, probe, game, out):
     """(probe arguments, style) of the controller glyphs: patched copies of the WADs that hold the
     game's button icons, mounted over them (scripts/glyphs.py). Opt-in: unless GOW3_GLYPH_STYLE is
-    auto, xbox or nintendo nothing is asked, drawn or mounted, and old copies are removed. The
-    game folder is never written."""
+    auto, xbox, nintendo or keyboard nothing is asked, drawn or mounted, and old copies are removed.
+    The keyboard keys follow GOW3_KEY_MAP; auto shows them when no gamepad is connected. The game
+    folder is never written."""
     choice = env.get('GOW3_GLYPH_STYLE', 'off')
-    if choice not in ('auto', 'xbox', 'nintendo'):
+    if choice not in ('auto', 'xbox', 'nintendo', 'keyboard'):
         shutil.rmtree(Path(out) / 'glyphs', ignore_errors=True)
         return [], None
     try:
@@ -132,17 +133,32 @@ def glyph_mounts(env, probe, game, out):
             pad = subprocess.run([str(probe), '--gamepad'], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                  text=True, timeout=15, creationflags=no_console()).stdout
         style, faces, name = glyphs.resolve(choice, pad)
-        mounts = glyphs.build(game, out, style, faces, env.get('GOW3_PAD_MAP', ''))
+        mounts = glyphs.build(game, out, style, faces, env.get('GOW3_PAD_MAP', ''), env.get('GOW3_KEY_MAP', ''))
     except Exception as error:  # noqa: BLE001  (icons only: whatever fails, the game still starts)
         print(f'Glyphs: {error}; the game keeps its own button icons', flush=True)
         return [], None
     if not mounts:
-        print('Glyphs: no Xbox or Nintendo controller, the game keeps its own button icons' if style == 'playstation'
+        print('Glyphs: a PlayStation controller, the game keeps its own button icons' if style == 'playstation'
               else 'Glyphs: no button icons found in this game folder', flush=True)
         return [], None
     print(f'Glyphs: {style}{f" ({name})" if name else ""}, on copies in {Path(out) / "glyphs"}; game files untouched',
           flush=True)
     return [part for guest, path in mounts.items() for part in ('--mount', f'{guest}={path}')], style
+
+
+def pause_menu_args(game, out, mounts):
+    """Probe arguments for the copy of R_UI.WAD with the pause menu's Exit to Desktop row
+    (scripts/pause_menu.py), made from the glyphs' copy when `mounts` has one. The probe mounts it
+    over both once its hook is in (src/menu_hook.h). The game folder is never written."""
+    import pause_menu
+    guest = '/app0/' + pause_menu.WAD
+    source = next((part.split('=', 1)[1] for part in mounts if part.startswith(guest + '=')), None)
+    try:
+        made = pause_menu.build(game, out, source)
+    except OSError as error:
+        print(f'Pause menu: {error}; no Exit to Desktop row', flush=True)
+        return []
+    return [part for path in made.values() for part in ('--pause-menu', str(path))]
 
 
 def main():
@@ -174,7 +190,8 @@ def main():
     # (the launcher and the in-game menu list them; GOW3_EXTRA_RESOLUTIONS tells the game).
     mod_patch_files = mods.enabled_patch_files(env.get('GOW3_MODS_DIR', data / 'mods'),
                                                env.get('GOW3_MODS_CONFIG', data / 'mods.json'),
-                                               env.get('GOW3_MODS_ENABLED', '1') != '0')
+                                               env.get('GOW3_MODS_ENABLED', '1') != '0',
+                                               env.get('GOW3_GAME_DIR', PORT.parent / 'CUSA01623'))
     extra_resolutions = [s for s in patches.resolution_names(mod_patch_files) if s not in graphics_options.RESOLUTIONS]
     env['GOW3_EXTRA_RESOLUTIONS'] = ';'.join(extra_resolutions)
     derived.append('GOW3_EXTRA_RESOLUTIONS')
@@ -296,17 +313,19 @@ def main():
         if 'GOW3_VBLANK_HZ' not in env:
             env['GOW3_VBLANK_HZ'] = '60'
             derived.append('GOW3_VBLANK_HZ')
-        # Without the frame rate patch the engine steps 1/60 s per frame: the present thread must
-        # not flip faster (gow3_graphics.h PresentLimit), or the game speeds up.
+        # The highest engine rate this launch allows (the menu picks a lower one live). Without the
+        # frame rate patch the engine steps 1/60 s per frame: the present thread must not flip
+        # faster (gow3_graphics.h PresentLimit), or the game speeds up.
         env['GOW3_ENGINE_FPS'] = str(engine_fps)
         derived.append('GOW3_ENGINE_FPS')
-        print(f'Engine frame rate: {engine_fps} FPS'
+        print(f'Engine frame rate: {min(int(graphics["engine_fps"]), engine_fps)} FPS, live up to {engine_fps}'
               + ('' if engine_fps > 60 or graphics['engine_fps'] == '60' else
                  ' (the frame rate patch was not found in this eboot.bin)'), flush=True)
         glyph_args, glyph_style = glyph_mounts(env, probe, game, out)
         if glyph_style:  # the in-game menu names the buttons the same way
             env['GOW3_GLYPHS'] = glyph_style
             derived.append('GOW3_GLYPHS')
+        mount_args = glyph_args + pause_menu_args(game, out, glyph_args)
         env['GOW3_DERIVED'] = ','.join(derived)
         # The guest memory pool is committed in full at start: a resolution patch above 1080p
         # can need more than 16 GB of RAM, and the game then closes when the page file cannot grow.
@@ -335,7 +354,7 @@ def main():
         command = [*launch_prefix(env), str(probe), str(out / 'boot-linked.bin'), '--content-profile', str(out / 'content.bin'),
                    '--patches', str(out / 'patches.bin'), '--app0', str(game),
                    '--user', str(user_dir),
-                   '--timeout', env.get('GOW3_TIMEOUT', '0'), *isa_args, *glyph_args, *args]
+                   '--timeout', env.get('GOW3_TIMEOUT', '0'), *isa_args, *mount_args, *args]
         # No stdin: an inherited pipe (shells such as Git Bash) cost the game its console output.
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, creationflags=no_console())
         presence = None
