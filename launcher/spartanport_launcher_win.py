@@ -1157,6 +1157,26 @@ RESOLUTION_CHOICES = [(name, (graphics_options.resolution_label(name),)) for nam
 ENGINE_FPS_CHOICES = [('60', ('60 (original)',)), ('100', ('100',)), ('120', ('120',)), ('240', ('240',))]
 
 
+def native_window_icons(root, ico):
+    """Windows: Tk gives the window one small icon for both slots, and under pythonw the taskbar then
+    shows Tk's feather. The .ico's own large and small images go to the window and its class."""
+    user32 = ctypes.windll.user32
+    user32.GetAncestor.argtypes, user32.GetAncestor.restype = (ctypes.c_void_p, ctypes.c_uint), ctypes.c_void_p
+    user32.LoadImageW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_int, ctypes.c_int,
+                                  ctypes.c_uint)
+    user32.LoadImageW.restype = ctypes.c_void_p
+    user32.SendMessageW.argtypes = (ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
+    user32.SetClassLongPtrW.argtypes = (ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p)
+    root.update_idletasks()
+    hwnd = user32.GetAncestor(root.winfo_id(), 2)  # GA_ROOT: the frame Tk wraps the window in
+    for slot, metric, class_index in ((1, 11, -14), (0, 49, -34)):  # big: SM_CXICON, small: SM_CXSMICON
+        size = user32.GetSystemMetrics(metric)
+        icon = user32.LoadImageW(None, str(ico), 1, size, size, 0x10)  # IMAGE_ICON, LR_LOADFROMFILE
+        if icon:
+            user32.SendMessageW(hwnd, 0x80, slot, icon)  # WM_SETICON
+            user32.SetClassLongPtrW(hwnd, class_index, icon)
+
+
 def window_icon(root, tk, own_ico, own_png):
     """The launcher window's icon, the port's own: the .ico on Windows (every size, sharp in the
     title bar and the taskbar), else the PNG. Returns the PhotoImage the caller must keep alive, or None.
@@ -1166,6 +1186,7 @@ def window_icon(root, tk, own_ico, own_png):
         try:
             root.iconbitmap(str(own_ico))
             root.iconbitmap(default=str(own_ico))
+            native_window_icons(root, own_ico)
             return None
         except tk.TclError:
             pass
@@ -1202,6 +1223,9 @@ class Launcher:
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('spartanport.launcher')
             except (AttributeError, OSError):
                 pass
+        # Again once the window shows: under pythonw the taskbar kept Tk's feather from the first call.
+        self.set_icon()
+        root.bind('<Map>', lambda event: event.widget is root and self.set_icon(), add='+')
         root.configure(bg=BG)
         self.fonts = {}
         self.desktop_scale = desktop_ui_scale(root)
@@ -1209,7 +1233,6 @@ class Launcher:
                         else (0, 0, 0, 0))
         self.apply_ui_scale()
         self.size_window()
-        self.set_icon()
         self.style()
         self.build()
         self.show('home')
