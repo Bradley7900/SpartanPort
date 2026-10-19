@@ -156,9 +156,11 @@ compiles the x86-64 libraries and the Vulkan driver.
 
 **Status:** tested on an M1 Max (macOS 27) with CUSA01623: the intro, the menus and the first
 Gaia fights render correctly, with no crashes over about 12 minutes of play; the rest of the game
-has not been played. Frame rate: about 30 FPS at native 1080p, 40 at 720p and 45 at 480p; the
-GPU command thread is the limit (copies from guest memory and waits for the GPU), so 60 FPS is
-not reached yet. Guest multisampling is off by default on KosmicKrisp, which reads the 2-sample
+has not been played. Frame rate in Gaia fights: about 58 FPS on average at 720p (most of the
+time 52-60) and 40 at native 1080p; the GPU is the limit (98% busy). Set **Render resolution**
+to 720p for close to 60 FPS. Dependency folders built before these numbers need
+`packaging/macos/build-deps.sh` again: it rebuilds the Vulkan driver with this port's fixes
+(`packaging/macos/kosmickrisp-gow3.patch`). Guest multisampling is off by default on KosmicKrisp, which reads the 2-sample
 depth buffer wrong (an unlit, fully fogged scene). The launcher runs with Homebrew's Python and Tk (below); it hides the Linux-only options, and
 **Advanced → Desktop shortcut** puts a `God of War III.app` on the desktop that opens it. Its
 settings are in `~/.config/gow3-launcher`. Live render-scale changes are off (KosmicKrisp cannot
@@ -438,6 +440,12 @@ another version, install `python-tk@3.X` for that one). Its PLAY button starts `
 brew install python-tk
 python3 launcher/gow3_launcher_win.py
 ```
+
+Without the launcher, `bash packaging/macos/make-app.sh` puts a `God of War III.app` on the
+desktop that asks for the render resolution (720p is about 60 FPS on an M1 Max, native 1080p
+about 40) and starts the game without Terminal. It runs this checkout as built: run
+`bash build.sh` again after pulling changes. If the game does not start, it shows the end of
+`out/launcher-app.log`.
 
 `bash build.sh --test` runs the C tests. `out/gow3-probe --vulkan-only` checks the Vulkan driver.
 
