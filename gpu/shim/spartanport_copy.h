@@ -42,4 +42,7 @@ void WaitAsync();
 /// Callbacks run in the order they were registered.
 void AfterCopies(std::function<void()> callback);
 
+/// Times a thread yielded while waiting for copies (diagnostics, #209).
+unsigned long long Yields();
+
 } // namespace SpartanCopy

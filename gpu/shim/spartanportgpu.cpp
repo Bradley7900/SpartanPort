@@ -289,6 +289,10 @@ extern "C" unsigned spartanportgpu_symbol_count(void) {
     return unsigned(g_symbols.size());
 }
 
+extern "C" unsigned long long spartanportgpu_copy_yields(void) {
+    return SpartanCopy::Yields();
+}
+
 // Kernel service thread: runs boost::asio timers for equeue timer events.
 namespace Libraries::Kernel {
 boost::asio::io_context io_context;

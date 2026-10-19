@@ -52,6 +52,8 @@ int spartanportgpu_mouse_aim_style(void);
 int spartanportgpu_mouse_aim_sensitivity(void);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned spartanportgpu_symbol_count(void);
+/* Yields of threads waiting for guest memory copies (CPU report, #209). */
+unsigned long long spartanportgpu_copy_yields(void);
 #ifdef __cplusplus
 }
 #endif
