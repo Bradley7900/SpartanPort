@@ -17,7 +17,7 @@ class LauncherArtworkTest(unittest.TestCase):
             (folder / 'sce_sys').mkdir(parents=True)
             (folder / 'eboot.bin').write_bytes(b'fixture')
             (folder / 'sce_sys/param.sfo').write_bytes(
-                sfo_bytes(TITLE_ID='CUSA01623', APP_VER=version, TITLE='God of War III'))
+                sfo_bytes(TITLE_ID='CUSA01623', APP_VER=version, TITLE='SpartanPort'))
         for name in ('pic1.png', 'icon0.png'):
             (self.base / 'sce_sys' / name).write_bytes(b'base artwork')
 
@@ -49,8 +49,8 @@ class LauncherArtworkTest(unittest.TestCase):
         app = self.app()
         with mock.patch.object(launcher, 'window_icon') as icon:
             app.set_icon()
-        self.assertEqual(icon.call_args.args[2:], (launcher.PORT_DIR / 'launcher' / 'gow3.ico',
-                                                   launcher.PORT_DIR / 'launcher' / 'gow3.png'))
+        self.assertEqual(icon.call_args.args[2:], (launcher.PORT_DIR / 'launcher' / 'spartanport.ico',
+                                                   launcher.PORT_DIR / 'launcher' / 'spartanport.png'))
 
     def test_update_artwork_overrides_base_when_present(self):
         for name in ('pic1.png', 'icon0.png'):

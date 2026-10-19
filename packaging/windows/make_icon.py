@@ -1,5 +1,5 @@
 """Makes the port's icon (the SP monogram, packaging/icon/monogram.png) as .ico and .png. Needs Pillow.
-usage: make_icon.py launcher/gow3.ico launcher/gow3.png"""
+usage: make_icon.py launcher/spartanport.ico launcher/spartanport.png"""
 import sys
 from pathlib import Path
 from PIL import Image, ImageFilter

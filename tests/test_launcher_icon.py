@@ -9,14 +9,14 @@ from pathlib import Path
 
 from paths import ROOT
 sys.path.insert(0, str(ROOT / 'launcher'))
-import gow3_launcher_win as launcher  # noqa: E402
+import spartanport_launcher_win as launcher  # noqa: E402
 
 try:
     import tkinter as tk
 except ImportError:  # pragma: no cover
     tk = None
-OWN_ICO = ROOT / 'launcher' / 'gow3.ico'
-OWN_PNG = ROOT / 'launcher' / 'gow3.png'
+OWN_ICO = ROOT / 'launcher' / 'spartanport.ico'
+OWN_PNG = ROOT / 'launcher' / 'spartanport.png'
 WM_GETICON, ICON_SMALL, ICON_BIG = 0x7F, 0, 1
 
 
