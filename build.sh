@@ -98,8 +98,7 @@ Darwin)
         "${cc[@]}" -mbmi -mlzcnt -mmovbe tests/test_isa_emulate.c out/isa_emulate.o -o out/isa-emulate-test
         "${cc[@]}" -c src/isa_rewrite.c -o out/isa_rewrite.o
         "${cc[@]}" -mbmi -mlzcnt tests/test_isa_stub.c out/isa_rewrite.o out/isa_emulate.o -o out/isa-stub-test
-        # Every test runs; the failed ones are named at the end. pad-test's click windows are
-        # 50 ms wide, and macOS timer coalescing can stretch its 60 ms sleeps past them.
+        # Every test runs; the failed ones are named at the end.
         failed=()
         for test in pad-test runtime-test file-mods-test sema-test content-test "mp3-test tests/data/sine.mp3" \
                     "videodec-test tests/data/tiny.h264" services-test macos-low-heap-test audio-downmix-test isa-emulate-test \

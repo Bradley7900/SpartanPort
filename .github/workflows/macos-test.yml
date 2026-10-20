@@ -30,8 +30,20 @@ jobs:
         run: |
           if ! arch -x86_64 /usr/bin/true; then softwareupdate --install-rosetta --agree-to-license; fi
           brew install cmake ninja glslang pkgconf boost llvm spirv-tools spirv-llvm-translator python python-tk
+      - name: Restore x86-64 dependencies
+        id: dependency-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/Library/Caches/spartanport-macos-deps
+          key: macos-26-x86-deps-${{ hashFiles('packaging/macos/build-deps.sh', 'packaging/macos/kosmickrisp-spartanport.patch') }}
       - name: Build x86-64 dependencies
         run: bash packaging/macos/build-deps.sh
+      - name: Cache x86-64 dependencies
+        if: steps.dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/Library/Caches/spartanport-macos-deps
+          key: ${{ steps.dependency-cache.outputs.cache-primary-key }}
       - name: Build runtime and run native tests
         run: |
           bash build.sh --test
