@@ -56,8 +56,8 @@ class MacosPackageTest(unittest.TestCase):
             library = prefix / 'lib/libSDL3.dylib'
             library.parent.mkdir()
             library.write_bytes(b'library')
-            self.assertEqual(bundle.resolve_library('@rpath/libSDL3.dylib', prefix / 'probe', prefix), library)
-            self.assertEqual(bundle.resolve_library(str(library), prefix / 'probe', prefix), library)
+            self.assertEqual(bundle.resolve_library('@rpath/libSDL3.dylib', prefix / 'probe', prefix), library.resolve())
+            self.assertEqual(bundle.resolve_library(str(library), prefix / 'probe', prefix), library.resolve())
             self.assertIsNone(bundle.resolve_library('/usr/lib/libSystem.B.dylib', prefix / 'probe', prefix))
 
     def test_missing_or_external_dependency_stops_packaging(self):
