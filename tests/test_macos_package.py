@@ -160,9 +160,23 @@ int main(int argc, char **argv) {
     }
     free(extensions);
     if (!surface || !metal) return 8;
+    PFN_vkCreateInstance create = (PFN_vkCreateInstance)get(NULL, "vkCreateInstance");
+    if (!create) return 9;
+    const char *enabled[] = {"VK_KHR_surface", "VK_EXT_metal_surface", "VK_KHR_portability_enumeration"};
+    const VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                                   .apiVersion = VK_API_VERSION_1_3};
+    const VkInstanceCreateInfo info = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR, .pApplicationInfo = &app,
+        .enabledExtensionCount = 3, .ppEnabledExtensionNames = enabled};
+    VkInstance instance = VK_NULL_HANDLE;
+    VkResult result = create(&info, NULL, &instance);
+    if (result != VK_SUCCESS) { fprintf(stderr, "vkCreateInstance: %d\n", result); return 10; }
     for (uint32_t i = 0; i < _dyld_image_count(); ++i)
         printf("IMAGE %s\n", _dyld_get_image_name(i));
-    puts("Bundled Vulkan loader and Metal surface extensions available");
+    puts("Bundled Vulkan instance created with Metal surface extensions");
+    PFN_vkDestroyInstance destroy = (PFN_vkDestroyInstance)get(instance, "vkDestroyInstance");
+    if (!destroy) return 11;
+    destroy(instance, NULL);
     dlclose(loader);
     return 0;
 }
