@@ -46,7 +46,10 @@ static int entered_game;
 static int gpu_enabled;
 static unsigned cpu_missing_sets; /* CPU_SET_* the host lacks; the guest code needs them rewritten */
 static IsaTable *isa_table; /* rewritten sites (--isa-rewrite); the fault handlers and the report read it */
-static void isa_report_hook(void) { isa_rewrite_report(isa_table, stdout); }
+static void loader_report_hook(void) {
+    if (isa_table) isa_rewrite_report(isa_table, stdout);
+    if (gpu_enabled) printf("GPU: copy waits yielded %llu times\n", spartanportgpu_copy_yields());
+}
 int vulkan_smoke(void);
 
 static void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message); exit(1); }
@@ -1088,9 +1091,9 @@ int main(int argc, char **argv) {
         if (isa_sets == 0xffffffffu) printf("ISA: forced rewrite of all %u sites (SPARTAN_ISA_REWRITE=1), %u skipped\n", r.rewritten, r.skipped);
         else printf("ISA: CPU lacks %s: %u sites rewritten (%u jmp, %u relocated, %u int3), %u skipped\n",
                     missing, r.rewritten, r.jmp, r.relocated, r.int3, r.skipped);
-        runtime_set_report_hook(isa_report_hook);
         protect(stubs, stub_area, 5);
     }
+    runtime_set_report_hook(loader_report_hook);
     protect(traps, round_page((import_count + 1) * 32), 5);
     protect(image, round_page(size), 0);
     int executable_entry = 0;

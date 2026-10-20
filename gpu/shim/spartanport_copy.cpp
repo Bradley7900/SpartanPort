@@ -20,6 +20,8 @@ namespace SpartanCopy {
 namespace {
 
 thread_local bool in_copy_thread = false;
+/// Yields while waiting for copies to finish (#209 CPU report).
+std::atomic<unsigned long long> yields{0};
 
 class Pool {
 public:
@@ -91,6 +93,7 @@ public:
             if (task.run) {
                 RunAsync(task);
             } else {
+                yields.fetch_add(1, std::memory_order_relaxed);
                 std::this_thread::yield();
             }
         }
@@ -109,6 +112,7 @@ public:
         Work(*job);
         // Workers only call the task for indices below count, all done before this returns.
         while (job->done.load(std::memory_order_acquire) < count) {
+            yields.fetch_add(1, std::memory_order_relaxed);
             std::this_thread::yield();
         }
         std::scoped_lock lk{mutex};
@@ -236,6 +240,10 @@ struct Batch {
 thread_local Batch batch;
 
 } // namespace
+
+unsigned long long Yields() {
+    return yields.load(std::memory_order_relaxed);
+}
 
 bool Enabled() {
     return GetPool().Enabled() && !SpartanToggle::Disabled(SpartanToggle::ParallelCopies);
