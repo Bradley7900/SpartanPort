@@ -291,7 +291,17 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(patch_requirements(SPARTAN, ['Resolution Patch - 4K', 'Skip Any Video With X Button'], '01.02'),
                          (5056 + 6144, None))
         self.assertEqual(patch_requirements(SPARTAN, ['Frame Rate Patch - 120 FPS'], '01.02'), (None, 120))
+        self.assertEqual(patch_requirements(SPARTAN, ['Frame Rate Patch - 144 FPS'], '01.02'), (None, 144))
         self.assertEqual(patch_requirements(SPARTAN, [], '01.02'), (None, None))
+
+    def test_144_frame_rate_patch_has_the_reference_sites_and_value(self):
+        metadata = next(m for m in ET.parse(SPARTAN).getroot().iter('Metadata')
+                        if m.get('Name') == 'Frame Rate Patch - 144 FPS')
+        lines = list(metadata.find('PatchList'))
+        self.assertEqual([line.get('Address') for line in lines],
+                         ['0x0048ff1a', '0x0075dbe4'])
+        self.assertEqual(lines[1].get('Value'), '00001043')
+        self.assertIn('VBlank to 144 FPS', metadata.get('Note'))
 
 
 
