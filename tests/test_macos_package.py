@@ -129,7 +129,7 @@ class MacosVulkanSmokeTest(unittest.TestCase):
         data = json.loads(manifest.read_text())
         self.assertEqual(data['ICD']['library_path'], './libvulkan_kosmickrisp.dylib')
         with tempfile.TemporaryDirectory() as directory:
-            work = Path(directory)
+            work = Path(directory).resolve()
             source = work / 'vulkan-smoke.c'
             binary = work / 'vulkan-smoke'
             source.write_text(r'''
