@@ -51,7 +51,7 @@ typedef struct { int used, host; Listing *dir; size_t position; char path[512]; 
 typedef struct { char guest[64]; char host[512]; } Mount;
 static File files[MAX_FILES];
 static Mount mounts[MAX_MOUNTS];
-static size_t mount_count, opens, reads, writes, missing;
+static size_t mount_count, opens, reads, writes, missing, recovered_reads;
 static uint64_t bytes_read;
 static pthread_mutex_t lock=PTHREAD_MUTEX_INITIALIZER;
 
@@ -283,32 +283,65 @@ static ssize_t host_write(int h,const void *buffer,uint64_t size) { return write
 #define host_read read
 #define host_write write
 #endif
-/* Pages of the destination may be write-protected for GPU tracking: the kernel's copy then
- * fails with EFAULT instead of faulting to our handler. A user-mode write to each page first
- * goes through the handler, which unprotects it (and records the upcoming write). */
-static void touch_for_write(void *buffer,uint64_t size) {
-    if (!size) return;
-    uintptr_t p=(uintptr_t)buffer & ~(uintptr_t)4095, end=(uintptr_t)buffer+size;
-    for (; p<end; p+=4096) {
-        volatile unsigned char *b=(volatile unsigned char *)(p<(uintptr_t)buffer ? (uintptr_t)buffer : p);
-        *b=*b;
+/* The GPU tracker can re-protect guest pages even after a preparatory write. Read into
+ * host memory, then copy in user mode so protected stores reach the GPU fault handler. */
+static int64_t read_to_guest(int h,void *buffer,uint64_t size,int64_t offset) {
+    if (size>INT64_MAX) return -EINVAL;
+    if (!size) return 0;
+    if (!buffer || size>UINTPTR_MAX-(uintptr_t)buffer) return -EFAULT;
+    size_t capacity=(size_t)(size>(256u<<10) ? (256u<<10) : size);
+    unsigned char *host=malloc(capacity);
+    if (!host) return -ENOMEM;
+    uint64_t done=0;
+    int error=0;
+    while (done<size) {
+        size_t want=(size_t)(size-done>capacity ? capacity : size-done);
+        if (offset>=0 && done>(uint64_t)(INT64_MAX-offset)) { error=EOVERFLOW; break; }
+        ssize_t n=offset<0 ? host_read(h,host,want) : pread(h,host,want,offset+(int64_t)done);
+        if (n<0) { error=errno; break; }
+        if (!n) break;
+        memcpy((unsigned char *)buffer+done,host,(size_t)n);
+        done+=(uint64_t)n;
+        if ((size_t)n<want) break;
     }
+    free(host);
+    return done ? (int64_t)done : error ? -error : 0;
 }
 static int64_t do_read(int fd,void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
-    touch_for_write(buffer,size);
-    ssize_t n=host_read(h,buffer,size);
-    if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,errno); return -errno; }
+    int64_t n=read_to_guest(h,buffer,size,-1);
+    if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,(int)-n); return n; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
 static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
-    touch_for_write(buffer,size);
-    ssize_t n=pread(h,buffer,size,offset);
-    if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,errno); return -errno; }
+    if (offset<0 || size>INT64_MAX) return -EINVAL;
+    if (!size) return 0;
+    if (!buffer || size>UINTPTR_MAX-(uintptr_t)buffer) return -EFAULT;
+    uintptr_t page=(uintptr_t)buffer & ~(uintptr_t)4095,end=(uintptr_t)buffer+size;
+    for (; page<end; page+=4096) {
+        volatile unsigned char *b=(volatile unsigned char *)(page<(uintptr_t)buffer ? (uintptr_t)buffer : page);
+        *b=*b;
+    }
+    /* Keep the direct path for ordinary reads. A protected kernel copy cannot invoke the
+     * GPU fault handler; retry only its missing bytes through user-mode stores. */
+    int64_t n=pread(h,buffer,size,offset);
+    if (n<0) n=-errno;
+    if (n==-EFAULT || (n>0 && (uint64_t)n<size && n<=INT64_MAX-offset)) {
+        uint64_t done=n<0 ? 0 : (uint64_t)n;
+        int64_t rest=read_to_guest(h,(unsigned char *)buffer+done,size-done,offset+(int64_t)done);
+        if (rest>0) {
+            size_t count=__atomic_add_fetch(&recovered_reads,1,__ATOMIC_RELAXED);
+            if (count<=8) printf("Runtime: pread fd %d host-buffer retry: %llu of %llu bytes @%lld\n",
+                               fd,(unsigned long long)(done+(uint64_t)rest),(unsigned long long)size,(long long)offset);
+        }
+        if (rest>=0) n=(int64_t)done+rest;
+        else if (!done) n=rest;
+    }
+    if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,(int)-n); return n; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
@@ -514,7 +547,7 @@ int64_t runtime_file_fstat(int fd,void *s) { return do_fstat(fd,s); }
 int64_t runtime_file_getdents(int fd,char *b,uint64_t n,int64_t *base) { return do_getdents(fd,b,n,base); }
 int runtime_file_translate(const char *guest,char *out,size_t size) { return translate(guest,out,size); }
 void runtime_file_report(void) {
-    printf("Runtime: files opened=%zu, reads=%zu (%llu bytes), writes=%zu, not found=%zu\n",
-           opens,reads,(unsigned long long)bytes_read,writes,missing);
+    printf("Runtime: files opened=%zu, reads=%zu (%llu bytes), writes=%zu, not found=%zu, read recoveries=%zu\n",
+           opens,reads,(unsigned long long)bytes_read,writes,missing,recovered_reads);
 }
 
