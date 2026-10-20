@@ -15,6 +15,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <time.h>
 #ifdef _WIN32
 #include <windows.h>
 /* 64-bit sizes and times; directories are never opened as CRT descriptors. */
@@ -191,6 +192,63 @@ static File *get(int fd) {
 }
 /* SPARTAN_AUDIO_TRACE=1: sound file opens and failed reads (missing game sounds). */
 static int audio_trace(void) { static int v=-1; if (v<0) { const char *e=getenv("SPARTAN_AUDIO_TRACE"); v=e && e[0]=='1'; } return v; }
+typedef struct { size_t id; int fd; uint64_t started; int64_t file_size; } FileTrace;
+static int file_trace_enabled(void) {
+    static int enabled=-1;
+    int value=__atomic_load_n(&enabled,__ATOMIC_RELAXED);
+    if (value<0) {
+        int saved_errno=errno,expected=-1;
+        const char *env=getenv("SPARTAN_FILE_TRACE"); value=env && !strcmp(env,"1");
+        if (__atomic_compare_exchange_n(&enabled,&expected,value,0,__ATOMIC_RELAXED,__ATOMIC_RELAXED) && value) {
+            puts("Runtime: WAD file tracing enabled (SPARTAN_FILE_TRACE=1)"); fflush(stdout);
+        }
+        errno=saved_errno;
+    }
+    return value;
+}
+static uint64_t file_trace_time(void) {
+    struct timespec now;
+    return clock_gettime(CLOCK_MONOTONIC,&now) ? 0 : (uint64_t)now.tv_sec*1000000+(uint64_t)now.tv_nsec/1000;
+}
+static FileTrace file_trace_begin(const char *op,int fd,const char *guest,int64_t offset,uint64_t size) {
+    FileTrace trace={0};
+    if (!file_trace_enabled()) return trace;
+    int saved_errno=errno;
+    char path[512]={0};
+    if (guest) snprintf(path,sizeof(path),"%s",guest);
+    else {
+        pthread_mutex_lock(&lock);
+        File *f=get(fd);
+        if (f) {
+            memcpy(path,f->path,sizeof(path));
+            if (!strcmp(op,"read") && f->host>=0) offset=host_lseek(f->host,0,SEEK_CUR);
+        }
+        pthread_mutex_unlock(&lock);
+    }
+    size_t n=strlen(path);
+    if (n<4 || path[n-4]!='.' || (path[n-3]!='w' && path[n-3]!='W') ||
+        (path[n-2]!='a' && path[n-2]!='A') || (path[n-1]!='d' && path[n-1]!='D')) {
+        errno=saved_errno; return trace;
+    }
+    for (size_t i=0;i<n;++i) if ((unsigned char)path[i]<32 || path[i]==127) path[i]='?';
+    static size_t sequence;
+    trace.id=__atomic_add_fetch(&sequence,1,__ATOMIC_RELAXED);
+    trace.fd=fd; trace.started=file_trace_time(); trace.file_size=-1;
+    printf("File trace: id=%zu phase=begin op=%s fd=%d time_us=%llu offset=%lld requested=%llu path=%s\n",
+           trace.id,op,fd,(unsigned long long)trace.started,(long long)offset,(unsigned long long)size,path);
+    /* Preserve the last in-flight operation even if the process never reaches shutdown. */
+    fflush(stdout); errno=saved_errno;
+    return trace;
+}
+static void file_trace_end(const FileTrace *trace,const char *op,int64_t result) {
+    if (!trace->id) return;
+    int saved_errno=errno;
+    uint64_t now=file_trace_time();
+    printf("File trace: id=%zu phase=end op=%s fd=%d result=%lld errno=%d file_size=%lld elapsed_us=%llu\n",
+           trace->id,op,trace->fd,(long long)result,result<0 ? (int)-result : 0,
+           (long long)trace->file_size,(unsigned long long)(now>=trace->started ? now-trace->started : 0));
+    fflush(stdout); errno=saved_errno;
+}
 /* Game mounts (including linked mod overlays) are read-only. Saves use other mounts. */
 static int game_path(const char *p) {
     if (!p || !*p) return 0;
@@ -199,7 +257,7 @@ static int game_path(const char *p) {
            (!strncmp(p,"/hostapp",8) && (!p[8] || p[8]=='/'));
 }
 /* All operations return >=0 or -(host errno); wrappers adapt the convention. */
-static int64_t do_open(const char *guest,int flags,int mode) {
+static int64_t open_file(const char *guest,int flags,int mode,int64_t *file_size) {
     if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
@@ -257,9 +315,16 @@ static int64_t do_open(const char *guest,int flags,int mode) {
                 printf("Mods: open %s -> %s\n",guest,actual);
         }
     }
+    if (file_size) *file_size=s.st_size;
     return fd;
 }
-static int64_t do_close(int fd) {
+static int64_t do_open(const char *guest,int flags,int mode) {
+    FileTrace trace=file_trace_begin("open",-1,guest,-1,0);
+    int64_t result=open_file(guest,flags,mode,trace.id ? &trace.file_size : NULL);
+    file_trace_end(&trace,"open",result);
+    return result;
+}
+static int64_t close_file(int fd) {
     if (fd>=0 && fd<3) return 0;
     pthread_mutex_lock(&lock);
     File *f=get(fd);
@@ -269,6 +334,12 @@ static int64_t do_close(int fd) {
     *f=(File){0};
     pthread_mutex_unlock(&lock);
     return 0;
+}
+static int64_t do_close(int fd) {
+    FileTrace trace=file_trace_begin("close",fd,NULL,-1,0);
+    int64_t result=close_file(fd);
+    file_trace_end(&trace,"close",result);
+    return result;
 }
 static int host_fd(int fd) {
     if (fd>=0 && fd<3) return fd;
@@ -307,7 +378,7 @@ static int64_t read_to_guest(int h,void *buffer,uint64_t size,int64_t offset) {
     free(host);
     return done ? (int64_t)done : error ? -error : 0;
 }
-static int64_t do_read(int fd,void *buffer,uint64_t size) {
+static int64_t read_file(int fd,void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     int64_t n=read_to_guest(h,buffer,size,-1);
@@ -315,7 +386,13 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
-static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
+static int64_t do_read(int fd,void *buffer,uint64_t size) {
+    FileTrace trace=file_trace_begin("read",fd,NULL,-1,size);
+    int64_t result=read_file(fd,buffer,size);
+    file_trace_end(&trace,"read",result);
+    return result;
+}
+static int64_t pread_file(int fd,void *buffer,uint64_t size,int64_t offset) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     if (offset<0 || size>INT64_MAX) return -EINVAL;
@@ -344,6 +421,12 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,(int)-n); return n; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
+}
+static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
+    FileTrace trace=file_trace_begin("pread",fd,NULL,offset,size);
+    int64_t result=pread_file(fd,buffer,size,offset);
+    file_trace_end(&trace,"pread",result);
+    return result;
 }
 static int64_t do_write(int fd,const void *buffer,uint64_t size) {
     int h=host_fd(fd);

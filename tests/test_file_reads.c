@@ -96,7 +96,64 @@ uintptr_t runtime_lookup(const RuntimeExport *table,size_t n,const char *name) {
     return 0;
 }
 
-int main(void) {
+static void trace_contract(const char *path,int enabled) {
+#ifdef _WIN32
+    assert(!_putenv_s("SPARTAN_FILE_TRACE",enabled ? "1" : "0"));
+#else
+    assert(!setenv("SPARTAN_FILE_TRACE",enabled ? "1" : "0",1));
+#endif
+    FILE *capture=tmpfile(); assert(capture);
+    fflush(stdout);
+    int saved=dup(fileno(stdout)); assert(saved>=0);
+    assert(dup2(fileno(capture),fileno(stdout))>=0);
+    assert(!runtime_file_mount("/app0/test.wad",path));
+    int fd=(int)runtime_file_open("/app0/test.wad",0,0); assert(fd>=3);
+    char data[32];
+    assert(runtime_file_pread(fd,data,sizeof(data),7)==sizeof(data));
+    assert(runtime_file_read(fd,data,sizeof(data))==sizeof(data));
+    read_error=EIO;
+    assert(runtime_file_pread(fd,data,sizeof(data),0)==-EIO);
+    assert(runtime_file_pread(fd,data,sizeof(data),-1)==-EINVAL);
+    assert(!runtime_file_close(fd));
+    assert(runtime_file_open("/app0/missing.WAD",0,0)==-ENOENT);
+    assert(!runtime_file_mount("/app0/ignored.bin",path));
+    fd=(int)runtime_file_open("/app0/ignored.bin",0,0); assert(fd>=3);
+    assert(runtime_file_read(fd,data,sizeof(data))==sizeof(data));
+    assert(!runtime_file_close(fd));
+    fflush(stdout);
+    assert(dup2(saved,fileno(stdout))>=0 && !close(saved));
+    assert(!fseek(capture,0,SEEK_SET));
+    char log[16384]; size_t length=fread(log,1,sizeof(log)-1,capture); log[length]=0;
+    assert(feof(capture) && !fclose(capture));
+    if (!enabled) assert(!strstr(log,"File trace:") && !strstr(log,"WAD file tracing enabled"));
+    else {
+        assert(strstr(log,"WAD file tracing enabled (SPARTAN_FILE_TRACE=1)"));
+        assert(strstr(log,"File trace:"));
+        assert(strstr(log,"offset=7 requested=32"));
+        assert(strstr(log,"offset=0 requested=32"));
+        char expected_size[64]; snprintf(expected_size,sizeof(expected_size),"file_size=%zu",region_size);
+        assert(strstr(log,expected_size));
+        assert(strstr(log,"result=-5 errno=5"));
+        assert(strstr(log,"result=-22 errno=22"));
+        assert(strstr(log,"result=-2 errno=2"));
+        assert(strstr(log,"path=/app0/missing.WAD"));
+        assert(!strstr(log,"ignored.bin") && !strstr(log,path));
+        unsigned begin[8]={0},end[8]={0};
+        for (char *line=log;(line=strstr(line,"File trace:"));++line) {
+            size_t id; char phase[16];
+            assert(sscanf(line,"File trace: id=%zu phase=%15s",&id,phase)==2);
+            assert(id>0 && id<8);
+            if (!strcmp(phase,"begin")) ++begin[id];
+            else { assert(!strcmp(phase,"end")); assert(begin[id]==1); ++end[id]; }
+        }
+        for (size_t id=1;id<8;++id) assert(begin[id]==1 && end[id]==1);
+    }
+    runtime_file_unmount("/app0/test.wad");
+    runtime_file_unmount("/app0/ignored.bin");
+    puts(enabled ? "WAD trace: paired operations, offsets, errors and filtering PASS" : "WAD trace disabled: no diagnostic output PASS");
+}
+
+int main(int argc,char **argv) {
     (void)tracked_malloc;
     char path[512];
 #ifdef _WIN32
@@ -117,6 +174,16 @@ int main(void) {
     for (size_t i=0;i<region_size;++i) data[i]=(unsigned char)(i*31+i/251);
     FILE *file=fopen(path,"wb"); assert(file);
     assert(fwrite(data,1,region_size,file)==region_size && !fclose(file));
+    if (argc>1) {
+        trace_contract(path,!strcmp(argv[1],"--trace-on"));
+        assert(!remove(path)); free(data);
+#ifdef _WIN32
+        assert(RemoveVectoredExceptionHandler(handler));
+#else
+        assert(!sigaction(SIGSEGV,&old,NULL));
+#endif
+        return 0;
+    }
 #ifdef _WIN32
     destination=VirtualAlloc(NULL,region_size,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
     assert(destination);
