@@ -67,7 +67,6 @@ for exe in spartanport-probe spartanport-gpu-capabilities; do
 done
 strip -S -o "$res/bin/gpu/libspartanportgpu.dylib" out/gpu/libspartanportgpu.dylib
 cp "$deps/lib/libvulkan_kosmickrisp.dylib" "$res/bin/vulkan/"
-printf '%s\n' '{"file_format_version":"1.0.0","ICD":{"library_path":"libvulkan_kosmickrisp.dylib","api_version":"1.3.0"}}' > "$res/bin/vulkan/kosmickrisp_mesa_icd.json"
 "$python" packaging/macos/bundle_libraries.py "$res/bin" "$deps"
 cp -R scripts patches "$res/"
 cp run.py "$res/"

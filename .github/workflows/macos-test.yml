@@ -56,6 +56,15 @@ jobs:
           out/test-venv/bin/python -m unittest discover -s tests -p 'test_*.py'
       - name: Package application
         run: bash packaging/macos/package.sh
+      - name: Test Vulkan from the mounted DMG without system libraries
+        run: |
+          mountpoint=$(mktemp -d)
+          hdiutil attach dist/spartanport-macos.dmg -readonly -nobrowse -mountpoint "$mountpoint"
+          trap 'hdiutil detach "$mountpoint"' EXIT
+          export SPARTAN_MACOS_PACKAGE="$mountpoint/SpartanPort.app/Contents/Resources/bin"
+          export SPARTAN_MACOS_DEPS="$HOME/Library/Caches/spartanport-macos-deps"
+          codesign --verify --deep --strict "$mountpoint/SpartanPort.app"
+          out/test-venv/bin/python -m unittest discover -s tests -p test_macos_package.py -v
       - name: Record source and verify checksum
         run: |
           git rev-parse HEAD > dist/source-commit.txt

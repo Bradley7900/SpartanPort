@@ -1,6 +1,7 @@
 """Relocate the x86-64 runtime libraries into a self-contained Mac application."""
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -33,6 +34,19 @@ def verify_contents(root):
 
 def output(*command):
     return subprocess.check_output(command, text=True)
+
+
+def configure_vulkan(root):
+    root = Path(root)
+    loaders = list((root / 'lib').glob('libvulkan.1.*.dylib'))
+    driver = root / 'vulkan/libvulkan_kosmickrisp.dylib'
+    if len(loaders) != 1 or not loaders[0].is_file() or not driver.is_file():
+        raise ValueError('Vulkan package requires one versioned loader and the KosmicKrisp driver')
+    for name in ('libvulkan.dylib', 'libvulkan.1.dylib'):
+        (root / 'lib' / name).symlink_to(loaders[0].name)
+    manifest = {'file_format_version': '1.0.0', 'ICD': {
+        'library_path': './' + driver.name, 'api_version': '1.3.0'}}
+    (driver.parent / 'kosmickrisp_mesa_icd.json').write_text(json.dumps(manifest) + '\n', encoding='utf-8')
 
 
 def relocate(root, prefix):
@@ -90,4 +104,5 @@ if __name__ == '__main__':
     parser.add_argument('dependencies', type=Path)
     args = parser.parse_args()
     relocate(args.runtime, args.dependencies)
+    configure_vulkan(args.runtime)
     verify_contents(args.runtime)
