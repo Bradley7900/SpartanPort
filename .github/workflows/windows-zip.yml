@@ -49,13 +49,32 @@ jobs:
             spirv-tools:p spirv-headers:p spirv-cross:p
       - name: Build
         run: bash build.sh
-      - name: Validate native audio and settings
+      - name: Build native audio and settings tests
+        timeout-minutes: 5
         run: |
           source ./msys2-env.sh
           ninja -C out/gpu -j2 audio-test audio-downmix-test graphics-settings-test
-          out/gpu/audio-test.exe
-          out/gpu/audio-downmix-test.exe
-          out/gpu/graphics-settings-test.exe
+      - name: Validate native audio logic and settings without a sound device
+        timeout-minutes: 5
+        shell: pwsh
+        env:
+          SDL_AUDIO_DRIVER: dummy
+        run: |
+          $env:PATH = "C:\msys64\clang64\bin;$env:PATH"
+          # audio-test's WASAPI/DirectSound cases require real devices; compile them above.
+          foreach ($test in @('audio-downmix-test', 'graphics-settings-test')) {
+            $stdout = Join-Path $env:RUNNER_TEMP "$test.stdout.txt"
+            $stderr = Join-Path $env:RUNNER_TEMP "$test.stderr.txt"
+            $process = Start-Process -FilePath "$PWD/out/gpu/$test.exe" -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            $null = $process.Handle
+            if (-not $process.WaitForExit(120000)) {
+              Stop-Process -Id $process.Id -Force
+              Get-Content $stdout, $stderr
+              throw "$test exceeded 120 seconds"
+            }
+            Get-Content $stdout, $stderr
+            if ($process.ExitCode -ne 0) { throw "$test exited with $($process.ExitCode)" }
+          }
       # Freezes the launcher; this Python ships Tk, as the python.org one does. Set up after the
       # build so its Python_ROOT_DIR and PKG_CONFIG_PATH do not reach CMake.
       - uses: actions/setup-python@v5
@@ -74,6 +93,7 @@ jobs:
           PYTHON_EXE: ${{ steps.python.outputs.python-path }}
         run: |
           & $env:PYTHON_EXE -m pip install --disable-pip-version-check pillow iced-x86==1.21.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $env:PYTHON_EXE packaging/windows/validate-test-release.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
