@@ -27,6 +27,7 @@ indexmap = { version = "2", features = ["serde"] }
 tempfile = "3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
+roxmltree = "0.21"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

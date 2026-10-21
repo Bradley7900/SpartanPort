@@ -11,6 +11,7 @@ pub mod launch;
 pub mod log;
 pub mod mods;
 pub mod options;
+pub mod patches;
 pub mod paths;
 pub mod platform;
 pub mod settings;
