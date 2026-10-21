@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use spartanport_launcher::core::controls::migrate_controls;
+use spartanport_launcher::core::env::game_environment;
 use spartanport_launcher::core::ini::{load_ini, save_ini};
+use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::settings::{app_defaults, save_settings, Settings};
 
 fn fixture_dir(case: &str) -> PathBuf {
@@ -73,4 +75,77 @@ fn settings_match_python_for_case_edited() {
 fn legacy_controls_settings_match_python() {
     let expected = fs::read(fixture_dir("legacy_controls").join("settings.json")).unwrap();
     assert_eq!(settings_bytes_for_case("legacy_controls"), expected);
+}
+
+fn environment_for_case(case: &str) -> (IndexMap<String, String>, String) {
+    let input = load_input(case);
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().to_string_lossy().into_owned();
+    let data_for_paths = data.clone();
+    let path_env = move |key: &str| (key == "SPARTAN_DATA_DIR").then(|| data_for_paths.clone());
+    let paths = Paths::from_env(dir.path(), &path_env);
+    let env = |key: &str| input["env"][key].as_str().map(str::to_string);
+    let mut merged = app_defaults(Path::new("<port>"), true, &env);
+    let saved = input["settings"].as_object().unwrap().clone();
+    for (key, value) in migrate_controls(saved) {
+        merged.insert(key, value);
+    }
+    let mut settings = Settings(merged);
+    for (key, value) in input["edits"]["app"].as_object().unwrap() {
+        settings.set(key, value.clone());
+    }
+    let base: IndexMap<String, String> = serde_json::from_value(input["env"].clone()).unwrap();
+    let lang = settings.get_str("ui_language");
+    let lang = if lang.is_empty() {
+        "en".to_string()
+    } else {
+        lang
+    };
+    let result = game_environment(&settings, &paths, &lang, &base, true);
+    let kept = result
+        .into_iter()
+        .filter(|(k, _)| {
+            ["SPARTAN_", "SDL_", "PYTHON"]
+                .iter()
+                .any(|p| k.starts_with(p))
+        })
+        .collect();
+    (kept, data)
+}
+
+fn assert_environment_matches(case: &str) {
+    let (actual, data) = environment_for_case(case);
+    let expected: IndexMap<String, String> = serde_json::from_str(
+        &fs::read_to_string(fixture_dir(case).join("environment.json")).unwrap(),
+    )
+    .unwrap();
+    let norm = |s: &str| s.replace(['\\', '/'], std::path::MAIN_SEPARATOR_STR);
+    for (key, want) in &expected {
+        let got = actual.get(key);
+        let matches = if want.contains("<DATA_DIR>") {
+            let want = want.replace("<DATA_DIR>", &data);
+            got.is_some_and(|g| norm(g) == norm(&want))
+        } else {
+            got == Some(want)
+        };
+        assert!(matches, "{case}: {key}: expected {want:?}, got {got:?}");
+    }
+    for key in actual.keys() {
+        assert!(expected.contains_key(key), "{case}: unexpected key {key}");
+    }
+}
+
+#[test]
+fn environment_matches_python_for_case_defaults() {
+    assert_environment_matches("defaults");
+}
+
+#[test]
+fn environment_matches_python_for_case_edited() {
+    assert_environment_matches("edited");
+}
+
+#[test]
+fn environment_matches_python_for_case_legacy_controls() {
+    assert_environment_matches("legacy_controls");
 }
