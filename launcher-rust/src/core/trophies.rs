@@ -134,7 +134,8 @@ pub fn trophy_tier(png: &[u8]) -> Option<Tier> {
     })
 }
 
-/// Locks every trophy again: the file is moved to `<name>.bak` (replacing an older copy).
+/// Locks every trophy again: the file is moved to `<name>.bak`; `fs::rename` replaces an older copy
+/// in one step on every platform.
 /// Returns how many trophies were unlocked (0: nothing is changed). The game must be closed:
 /// it keeps the trophies in memory while it runs.
 pub fn reset_trophies(path: &Path) -> io::Result<usize> {
@@ -143,9 +144,6 @@ pub fn reset_trophies(path: &Path) -> io::Result<usize> {
         let mut name = path.file_name().unwrap_or_default().to_os_string();
         name.push(".bak");
         let backup = path.with_file_name(name);
-        if cfg!(windows) && backup.exists() {
-            fs::remove_file(&backup)?;
-        }
         fs::rename(path, &backup)?;
     }
     Ok(unlocked)
