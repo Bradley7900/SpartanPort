@@ -44,7 +44,10 @@ fn state_in(dir: &Path) -> State {
         "APPDATA" | "USERPROFILE" | "HOME" | "XDG_CONFIG_HOME" => Some(root.clone()),
         _ => None,
     };
-    State::new(Paths::from_env(dir, &env))
+    let mut state = State::new(Paths::from_env(dir, &env));
+    // These tests are about the tabs, not the splash that covers them at start.
+    state.splash.done = true;
+    state
 }
 
 fn click(state: &mut State, label: &str) {

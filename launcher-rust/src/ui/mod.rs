@@ -7,6 +7,7 @@ pub mod pages;
 pub mod persist;
 pub mod play;
 pub mod splash;
+pub mod tasks;
 pub mod theme;
 pub mod update;
 pub mod widgets;

@@ -7,7 +7,7 @@ use iced::animation::{Animation, Easing};
 use iced::keyboard::key::Named;
 use iced::keyboard::{self, Key, Modifiers};
 use iced::time::Instant;
-use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
+use iced::widget::{button, canvas, column, container, mouse_area, row, space, stack, text};
 use iced::{
     window, Background, Bottom, Center, Color, Element, Fill, Right, Size, Subscription, Task,
 };
@@ -20,7 +20,7 @@ use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::paths::Paths;
 use crate::core::settings::{load_app_settings, Settings};
 use crate::ui::drawer::{self, DrawerState};
-use crate::ui::fire::Fire;
+use crate::ui::fire::{intensity_for, Fire};
 use crate::ui::lang_menu::{LangMenu, LangMessage};
 use crate::ui::pages::controls::ControlsMessage;
 use crate::ui::pages::game::PatchesView;
@@ -29,7 +29,7 @@ use crate::ui::pages::trophies::{TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
 use crate::ui::persist::Persisted;
 use crate::ui::play::{GameMessage, GameState};
-use crate::ui::splash::{SplashMessage, SplashState};
+use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::theme::{self, palette, CINZEL_BOLD};
 use crate::ui::update::{UpdateMessage, UpdateState};
 use crate::ui::widgets;
@@ -68,6 +68,12 @@ pub struct State {
     pub modal: Option<Modal>,
     pub effects: bool,
     pub fire: Fire,
+    /// Whether the window is shown (Task 33 clears it while hidden to the tray).
+    pub visible: bool,
+    /// Whether the window has the focus.
+    pub focused: bool,
+    /// Whether the game folder passed the splash check; `None` until it ran.
+    pub game_ready: Option<bool>,
     /// Logical window size, for the drawer width.
     pub window_size: Size,
     /// Clock of the animations, advanced by `Tick` and by the messages that start them.
@@ -84,6 +90,7 @@ impl State {
             lang => lang,
         };
         let scale = theme::ui_scale(&settings.get_str("ui_scale"), 1.0);
+        let now = Instant::now();
         State {
             paths,
             settings,
@@ -98,7 +105,7 @@ impl State {
                 .easing(Easing::EaseOutQuint),
             lang,
             scale,
-            splash: Default::default(),
+            splash: SplashState::new(now),
             game: Default::default(),
             log: LogBuffer::new(MAX_LOG_LINES),
             gpus: Vec::new(),
@@ -110,10 +117,13 @@ impl State {
             update: Default::default(),
             lang_menu: Default::default(),
             modal: None,
-            effects: false,
+            effects: true,
             fire: Default::default(),
+            visible: true,
+            focused: true,
+            game_ready: None,
             window_size: WINDOW_SIZE,
-            now: Instant::now(),
+            now,
         }
     }
 }
@@ -170,6 +180,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::NextPage => show_page(state, state.page.next()),
         Message::PreviousPage => show_page(state, state.page.previous()),
         Message::Key(key, _modifiers) => {
+            // While the splash shows, any key only skips it.
+            if !state.splash.done {
+                splash::apply(state, SplashMessage::Skip);
+                return Task::none();
+            }
             return match key_message(state, &key) {
                 Some(Message::Play) => Task::done(Message::Play),
                 Some(message) => update(state, message),
@@ -177,8 +192,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             };
         }
         Message::Resized(size) => state.window_size = size,
-        // Task 22 also advances the splash and the fire here.
-        Message::Tick(at) => state.now = at,
+        Message::Tick(at) => tick(state, at),
         // Task 33
         Message::Play | Message::Stop => {}
         // Task 32
@@ -189,9 +203,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         // Task 26
         Message::Browse(_) | Message::Browsed(_, _) => {}
-        // Task 22
-        Message::WindowFocused(_) => {}
-        Message::Splash(message) => match message {},
+        Message::WindowFocused(focused) => state.focused = focused,
+        Message::Splash(message) => splash::apply(state, message),
         // Task 23
         Message::Lang(message) => match message {},
         // Task 33
@@ -207,6 +220,23 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Noop => {}
     }
     Task::none()
+}
+
+/// Advances the clock, the fire and the splash.
+fn tick(state: &mut State, at: Instant) {
+    let dt = at
+        .saturating_duration_since(state.now)
+        .as_secs_f32()
+        .min(0.1);
+    state.now = at;
+    state.fire.set_intensity(intensity_for(
+        !state.splash.done,
+        state.focused,
+        state.visible,
+        state.effects,
+    ));
+    state.fire.tick(dt, state.window_size);
+    state.splash.advance(at);
 }
 
 /// Home closes the drawer; any other page opens it, sliding in when it was closed.
@@ -248,11 +278,17 @@ pub fn view(state: &State) -> Element<'_, Message> {
             background: Some(Background::Color(palette::BG)),
             ..container::Style::default()
         });
-    let mut scene = stack![home_background].width(Fill).height(Fill);
+    let fire = match &state.fire {
+        Fire::Canvas(fire) => canvas(fire).width(Fill).height(Fill),
+    };
+    let mut scene = stack![home_background, fire].width(Fill).height(Fill);
     if let DrawerState::Open(_) = state.drawer {
         scene = scene.push(dim_close_catcher());
     }
     scene = scene.push(home_interactive(state));
+    if !state.splash.done {
+        scene = scene.push(splash::view(state, &state.lang));
+    }
     if let DrawerState::Open(page) = state.drawer {
         scene = scene.push(drawer::view(state, page));
     }
@@ -351,12 +387,23 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     } else {
         Subscription::none()
     };
-    Subscription::batch([keys, resized, frames])
+    // The splash needs the clock even when the fire is off.
+    let clock = if (state.effects && state.visible) || !state.splash.done {
+        iced::time::every(Duration::from_millis(33)).map(Message::Tick)
+    } else {
+        Subscription::none()
+    };
+    Subscription::batch([keys, resized, frames, clock])
 }
 
 /// Opens the launcher window and runs until it closes.
 pub fn run(paths: Paths) -> iced::Result {
-    let app = iced::application(move || State::new(paths.clone()), update, view)
+    let boot = move || {
+        let state = State::new(paths.clone());
+        let checks = splash::start_checks(&state);
+        (state, checks)
+    };
+    let app = iced::application(boot, update, view)
         .title("SpartanPort (PC)")
         .theme(|_: &State| theme::theme())
         .subscription(subscription)
