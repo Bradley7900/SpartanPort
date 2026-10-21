@@ -1,0 +1,127 @@
+//! Starting the game, reading its merged output and stopping it.
+
+use super::log::RunLog;
+use super::paths::Paths;
+use super::platform;
+use indexmap::IndexMap;
+use std::io::{BufRead, BufReader, Read};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::sync::mpsc::{channel, Receiver};
+
+/// The longest piece of output delivered at once. A line longer than this is split into chunks
+/// of at most this many bytes, so a huge line without a newline never grows the buffer unbounded.
+const MAX_CHUNK: u64 = 64 * 1024;
+
+/// What the reader thread reports.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameEvent {
+    /// A piece of output: normally one whole line including its `\n`.
+    Output(String),
+    /// The process ended; `-1` when it was killed by a signal.
+    Exited(i32),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LaunchError {
+    #[error("the command is empty")]
+    EmptyCommand,
+    #[error("could not start the game: {0}")]
+    Spawn(#[from] std::io::Error),
+}
+
+/// The Python interpreter command. `SPARTANPORT_PYTHON` is taken as one program path (it is not
+/// split into arguments). Otherwise Windows uses `py -3` when `py.exe` is on `PATH`, else
+/// `python`; other systems use `python3`.
+pub fn python_command(env: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, LaunchError> {
+    if let Some(program) = env("SPARTANPORT_PYTHON").filter(|p| !p.is_empty()) {
+        return Ok(vec![program]);
+    }
+    if cfg!(windows) {
+        let path = env("PATH").unwrap_or_default();
+        let has_py = std::env::split_paths(&path).any(|dir| dir.join("py.exe").is_file());
+        if has_py {
+            Ok(vec!["py".to_string(), "-3".to_string()])
+        } else {
+            Ok(vec!["python".to_string()])
+        }
+    } else {
+        Ok(vec!["python3".to_string()])
+    }
+}
+
+/// The interpreter command followed by `<port_dir>/run.py`.
+pub fn run_py_command(
+    paths: &Paths,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<String>, LaunchError> {
+    let mut command = python_command(env)?;
+    command.push(paths.port_dir.join("run.py").to_string_lossy().into_owned());
+    Ok(command)
+}
+
+/// A running game: its events and the means to stop it.
+pub struct GameHandle {
+    pub pid: u32,
+    pub events: Receiver<GameEvent>,
+    job: platform::Job,
+}
+
+impl GameHandle {
+    /// Stops the game and everything it started.
+    pub fn terminate(&mut self) {
+        self.job.terminate();
+    }
+
+    /// Releases the job control resources; the game keeps running if it was not terminated.
+    pub fn close(&mut self) {
+        self.job.close();
+    }
+}
+
+/// Starts `command` in `cwd` with exactly `env`, stdin closed and stdout and stderr merged into
+/// one pipe. A thread reads that pipe and sends the events; it also writes `run_log`.
+pub fn spawn_game(
+    command: &[String],
+    cwd: &Path,
+    env: &IndexMap<String, String>,
+    run_log: RunLog,
+) -> Result<GameHandle, LaunchError> {
+    let (program, args) = command.split_first().ok_or(LaunchError::EmptyCommand)?;
+    let (reader, writer) = std::io::pipe()?;
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .current_dir(cwd)
+        .env_clear()
+        .envs(env)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(writer.try_clone()?))
+        .stderr(Stdio::from(writer));
+    platform::prepare(&mut cmd);
+    // `cmd` owns the writer ends; dropping it after the spawn closes them in this process, so the
+    // reader sees EOF once the child and any descendant holding the pipe are gone.
+    let child = cmd.spawn();
+    drop(cmd);
+    let mut child = child?;
+    let pid = child.id();
+    let job = platform::Job::attach(&child);
+    let (tx, events) = channel();
+    std::thread::spawn(move || {
+        let mut run_log = run_log;
+        let mut reader = BufReader::new(reader);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match reader.by_ref().take(MAX_CHUNK).read_until(b'\n', &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&buf).into_owned();
+            run_log.write(&text);
+            let _ = tx.send(GameEvent::Output(text));
+        }
+        let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
+        let _ = tx.send(GameEvent::Exited(code));
+    });
+    Ok(GameHandle { pid, events, job })
+}

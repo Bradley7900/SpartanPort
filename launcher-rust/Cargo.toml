@@ -2,7 +2,7 @@
 name = "spartanport-launcher"
 version = "2.6.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.87"
 
 [lib]
 name = "spartanport_launcher"
@@ -10,6 +10,10 @@ name = "spartanport_launcher"
 [[bin]]
 name = "spartanport-launcher"
 path = "src/main.rs"
+
+[[bin]]
+name = "fake-game"
+path = "src/bin/fake_game.rs"
 
 [lints.clippy]
 unwrap_used = "deny"
@@ -23,4 +27,13 @@ indexmap = { version = "2", features = ["serde"] }
 tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.30", features = ["signal"] }
