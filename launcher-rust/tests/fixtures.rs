@@ -5,10 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
+use spartanport_launcher::core::controls::migrate_controls;
 use spartanport_launcher::core::ini::{load_ini, save_ini};
-use spartanport_launcher::core::settings::{
-    app_defaults, migrate_controls, save_settings, Settings,
-};
+use spartanport_launcher::core::settings::{app_defaults, save_settings, Settings};
 
 fn fixture_dir(case: &str) -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures")).join(case)
@@ -68,4 +67,10 @@ fn settings_match_python_for_case_defaults() {
 fn settings_match_python_for_case_edited() {
     let expected = fs::read(fixture_dir("edited").join("settings.json")).unwrap();
     assert_eq!(settings_bytes_for_case("edited"), expected);
+}
+
+#[test]
+fn legacy_controls_settings_match_python() {
+    let expected = fs::read(fixture_dir("legacy_controls").join("settings.json")).unwrap();
+    assert_eq!(settings_bytes_for_case("legacy_controls"), expected);
 }

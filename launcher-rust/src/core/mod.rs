@@ -1,5 +1,6 @@
 //! Launcher logic with no UI dependency.
 
+pub mod controls;
 pub mod fs;
 pub mod game;
 pub mod gpu;

@@ -6,6 +6,7 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
+use crate::core::controls::migrate_controls;
 use crate::core::fs::{atomic_write, load_json};
 use crate::core::paths::Paths;
 
@@ -107,14 +108,6 @@ pub fn app_defaults(
         Value::Object(map) => map,
         _ => Map::new(),
     }
-}
-
-/// Upgrades the saved control bindings to the current layout.
-///
-/// Placeholder: Task 11 replaces this with the port of the Python `migrate_controls`. The Python
-/// returns its input unchanged when it is empty or `controls_layout` is already 2.
-pub fn migrate_controls(saved: Map<String, Value>) -> Map<String, Value> {
-    saved
 }
 
 /// Copies the previous launcher's `settings.json` and `game_icon.ico` into the data folder, once.
