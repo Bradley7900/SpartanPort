@@ -31,6 +31,7 @@ roxmltree = "0.21"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+iced = { version = "0.14", features = ["wgpu", "tiny-skia", "image", "canvas", "advanced", "tokio"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
@@ -44,3 +45,6 @@ windows-sys = { version = "0.61", features = [
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.30", features = ["fs", "signal"] }
+
+[dev-dependencies]
+iced_test = "0.14"
