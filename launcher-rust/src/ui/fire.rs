@@ -181,6 +181,12 @@ impl FireCanvas {
     /// Advances the fire by `dt` seconds in a window of `size`.
     pub fn tick(&mut self, dt: f32, size: Size) {
         self.size = size;
+        if self.intensity <= 0.0 {
+            // Nothing stays frozen on screen when the clock stops.
+            self.particles.clear();
+            self.cache.clear();
+            return;
+        }
         for particle in &mut self.particles {
             particle.life += dt;
             particle.pos += particle.vel * dt;
@@ -242,6 +248,18 @@ impl canvas::Program<Message> for FireCanvas {
 mod tests {
     use super::*;
     use iced::Size;
+
+    #[test]
+    fn zero_intensity_leaves_no_particles() {
+        let size = Size::new(1000.0, 800.0);
+        let mut fire = FireCanvas::seeded(7);
+        fire.set_intensity(1.0);
+        fire.tick(0.033, size);
+        assert!(!fire.particles.is_empty());
+        fire.set_intensity(0.0);
+        fire.tick(0.033, size);
+        assert!(fire.particles.is_empty());
+    }
 
     #[test]
     fn intensity_rules() {

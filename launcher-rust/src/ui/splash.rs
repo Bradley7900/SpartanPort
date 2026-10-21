@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use iced::animation::{Animation, Easing};
 use iced::time::Instant;
-use iced::widget::{container, image, mouse_area, space, stack, text};
+use iced::widget::{canvas, container, image, mouse_area, space, stack, text};
 use iced::{Background, Border, Bottom, Color, Element, Fill, Padding, Task};
 
 use crate::core::game::ready_to_play;
@@ -13,6 +13,7 @@ use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
 use crate::core::update::{can_self_update, latest_release, version_tuple, Release};
 use crate::ui::app::{Message, State, BAR_HEIGHT};
+use crate::ui::fire::Fire;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::palette;
 use crate::ui::update::UpdateState;
@@ -164,6 +165,22 @@ pub fn start_checks(state: &State) -> Task<Message> {
     Task::batch([gpus, game, update])
 }
 
+/// Where the fire is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SplashLayers {
+    /// The splash draws the fire above its dark background and below the monogram.
+    pub fire_on_top_of_background: bool,
+    /// The Home background draws the fire (only once the splash is gone), so it is never doubled.
+    pub home_draws_fire: bool,
+}
+
+pub fn layers(state: &State) -> SplashLayers {
+    SplashLayers {
+        fire_on_top_of_background: !state.splash.done,
+        home_draws_fire: state.splash.done,
+    }
+}
+
 fn lerp(from: f32, to: f32, t: f32) -> f32 {
     from + (to - from) * t
 }
@@ -239,8 +256,12 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
             ..Padding::ZERO
         });
 
+    let fire = match &state.fire {
+        Fire::Canvas(fire) => canvas(fire).width(Fill).height(Fill),
+    };
+
     mouse_area(
-        stack![background, status, hint, monogram_layer]
+        stack![background, fire, status, hint, monogram_layer]
             .width(Fill)
             .height(Fill),
     )
@@ -255,6 +276,18 @@ mod tests {
 
     fn ms(start: Instant, n: u64) -> Instant {
         start + Duration::from_millis(n)
+    }
+
+    #[test]
+    fn the_fire_is_drawn_inside_the_splash_layer() {
+        let dir = tempfile::tempdir().unwrap_or_else(|_| std::process::abort());
+        let paths = crate::core::paths::Paths::from_env(dir.path(), &|_| None);
+        let mut state = State::new(paths);
+        assert!(layers(&state).fire_on_top_of_background);
+        assert!(!layers(&state).home_draws_fire);
+        state.splash.done = true;
+        assert!(!layers(&state).fire_on_top_of_background);
+        assert!(layers(&state).home_draws_fire);
     }
 
     #[test]

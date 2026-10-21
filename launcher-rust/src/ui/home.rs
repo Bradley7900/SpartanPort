@@ -26,6 +26,7 @@ use crate::ui::app::{home_interactive_enabled, home_interactive_opacity, Message
 use crate::ui::fire::Fire;
 use crate::ui::lang_menu;
 use crate::ui::play::GameState;
+use crate::ui::splash;
 use crate::ui::theme::{button_flat, button_play, palette, text_muted, CINZEL_BLACK};
 use crate::ui::update::{UpdateMessage, UpdateState};
 use crate::ui::widgets::{chip, ChipKind};
@@ -376,10 +377,14 @@ pub fn background(state: &State) -> Element<'_, Message> {
         .push(layer(Layer::Veil))
         .push(layer(Layer::Fog))
         .push(layer(Layer::Heat(elapsed)));
-    let fire = match &state.fire {
-        Fire::Canvas(fire) => canvas_widget(fire).width(Fill).height(Fill),
-    };
-    layers.push(fire).into()
+    // While the splash is live it draws the fire itself, above its own dark background.
+    if splash::layers(state).home_draws_fire {
+        let fire = match &state.fire {
+            Fire::Canvas(fire) => canvas_widget(fire).width(Fill).height(Fill),
+        };
+        layers = layers.push(fire);
+    }
+    layers.into()
 }
 
 // --- Texts ---

@@ -251,7 +251,12 @@ fn tick(state: &mut State, at: Instant) {
         state.visible,
         state.effects,
     ));
-    state.fire.tick(dt, state.window_size);
+    // The scene is the window minus the tab bar.
+    let scene = Size::new(
+        state.window_size.width,
+        (state.window_size.height - BAR_HEIGHT).max(0.0),
+    );
+    state.fire.tick(dt, scene);
     state.splash.advance(at);
 }
 
