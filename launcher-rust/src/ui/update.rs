@@ -11,6 +11,9 @@ pub enum UpdateState {
     Available(Release),
 }
 
-/// Update events; Task 34 adds them.
+/// Update events; Task 34 adds the others.
 #[derive(Debug, Clone)]
-pub enum UpdateMessage {}
+pub enum UpdateMessage {
+    /// The Home pill was pressed.
+    Install,
+}

@@ -7,21 +7,20 @@ use iced::animation::{Animation, Easing};
 use iced::keyboard::key::Named;
 use iced::keyboard::{self, Key, Modifiers};
 use iced::time::Instant;
-use iced::widget::{button, canvas, column, container, mouse_area, row, space, stack, text};
-use iced::{
-    window, Background, Bottom, Center, Color, Element, Fill, Right, Size, Subscription, Task,
-};
+use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
+use iced::{window, Background, Center, Color, Element, Fill, Size, Subscription, Task};
 use serde_json::Value;
 
 use crate::core::gpu::{Display, GpuRow};
-use crate::core::i18n::{system_language, tr};
+use crate::core::i18n::{is_rtl, system_language, tr};
 use crate::core::ini::{load_ini, Ini};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::paths::Paths;
 use crate::core::settings::{load_app_settings, Settings};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, Fire};
-use crate::ui::lang_menu::{LangMenu, LangMessage};
+use crate::ui::home::{self, HomeFacts};
+use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::controls::ControlsMessage;
 use crate::ui::pages::game::PatchesView;
 use crate::ui::pages::mods::{ModsMessage, ModsView};
@@ -40,6 +39,8 @@ use crate::VERSION;
 pub const WINDOW_SIZE: Size = Size::new(1280.0, 800.0);
 /// Height of the bottom tab bar.
 pub const BAR_HEIGHT: f32 = 52.0;
+/// Clock period while nothing animates.
+const IDLE_CLOCK: Duration = Duration::from_millis(100);
 /// Drawer slide duration.
 pub const DRAWER_SLIDE: Duration = Duration::from_millis(220);
 
@@ -53,6 +54,8 @@ pub struct State {
     pub drawer: DrawerState,
     pub drawer_progress: Animation<bool>,
     pub lang: String,
+    /// Whether the interface language reads right to left (Arabic).
+    pub rtl: bool,
     pub scale: f32,
     pub splash: SplashState,
     pub game: GameState,
@@ -65,6 +68,10 @@ pub struct State {
     pub patches: PatchesView,
     pub update: UpdateState,
     pub lang_menu: LangMenu,
+    /// The art of the Home background, `sce_sys/pic1.png` of the game folder.
+    pub home_art: Option<iced::widget::image::Handle>,
+    /// What the Home chips read from the disk.
+    pub home: HomeFacts,
     pub modal: Option<Modal>,
     pub effects: bool,
     pub fire: Fire,
@@ -91,7 +98,8 @@ impl State {
         };
         let scale = theme::ui_scale(&settings.get_str("ui_scale"), 1.0);
         let now = Instant::now();
-        State {
+        let rtl = is_rtl(&lang);
+        let mut state = State {
             paths,
             settings,
             ini,
@@ -104,6 +112,7 @@ impl State {
                 .duration(DRAWER_SLIDE)
                 .easing(Easing::EaseOutQuint),
             lang,
+            rtl,
             scale,
             splash: SplashState::new(now),
             game: Default::default(),
@@ -116,6 +125,8 @@ impl State {
             patches: Default::default(),
             update: Default::default(),
             lang_menu: Default::default(),
+            home_art: None,
+            home: Default::default(),
             modal: None,
             effects: true,
             fire: Default::default(),
@@ -124,7 +135,10 @@ impl State {
             game_ready: None,
             window_size: WINDOW_SIZE,
             now,
-        }
+        };
+        home::load_home_art(&mut state);
+        home::refresh_facts(&mut state);
+        state
     }
 }
 
@@ -192,7 +206,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             };
         }
         Message::Resized(size) => state.window_size = size,
-        Message::Tick(at) => tick(state, at),
+        Message::Tick(at) => {
+            tick(state, at);
+            lang_menu::update(state, LangMessage::Tick(at));
+        }
         // Task 33
         Message::Play | Message::Stop => {}
         // Task 32
@@ -205,12 +222,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Browse(_) | Message::Browsed(_, _) => {}
         Message::WindowFocused(focused) => state.focused = focused,
         Message::Splash(message) => splash::apply(state, message),
-        // Task 23
-        Message::Lang(message) => match message {},
+        Message::Lang(message) => lang_menu::update(state, message),
         // Task 33
         Message::Game(message) => match message {},
         // Task 34
-        Message::Update(message) => match message {},
+        Message::Update(UpdateMessage::Install) => {}
         // Task 27
         Message::Trophies(message) => match message {},
         // Task 29
@@ -271,21 +287,14 @@ pub fn home_interactive_opacity(state: &State) -> f32 {
 /// the drawer when clicked (only while it is open), the Home block, and the drawer. The Home
 /// block sits above the dim layer so it stays clickable next to a 46 % drawer.
 pub fn view(state: &State) -> Element<'_, Message> {
-    let home_background = container(space())
-        .width(Fill)
-        .height(Fill)
-        .style(|_| container::Style {
-            background: Some(Background::Color(palette::BG)),
-            ..container::Style::default()
-        });
-    let fire = match &state.fire {
-        Fire::Canvas(fire) => canvas(fire).width(Fill).height(Fill),
-    };
-    let mut scene = stack![home_background, fire].width(Fill).height(Fill);
+    let mut scene = stack![home::background(state)].width(Fill).height(Fill);
     if let DrawerState::Open(_) = state.drawer {
         scene = scene.push(dim_close_catcher());
     }
-    scene = scene.push(home_interactive(state));
+    scene = scene.push(home::block(state));
+    if state.lang_menu.open {
+        scene = scene.push(lang_menu::menu(state));
+    }
     if !state.splash.done {
         scene = scene.push(splash::view(state, &state.lang));
     }
@@ -317,18 +326,6 @@ fn dim_close_catcher<'a>() -> Element<'a, Message> {
             ..container::Style::default()
         });
     mouse_area(dim).on_press(Message::CloseDrawer).into()
-}
-
-/// The right-hand Home block, anchored bottom-right; Task 23 fills it and applies
-/// `home_interactive_opacity` and `home_interactive_enabled`.
-fn home_interactive(_state: &State) -> Element<'_, Message> {
-    // Task 23 fills this
-    container(space())
-        .width(Fill)
-        .height(Fill)
-        .align_x(Right)
-        .align_y(Bottom)
-        .into()
 }
 
 /// The bottom bar: the nine tabs and the version.
@@ -388,11 +385,16 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         Subscription::none()
     };
     // The splash needs the clock even when the fire is off.
-    let clock = if (state.effects && state.visible) || !state.splash.done {
-        iced::time::every(Duration::from_millis(33)).map(Message::Tick)
-    } else {
-        Subscription::none()
-    };
+    // The hover timers of the language menu need it too, and a slow clock keeps `now` fresh for
+    // their stamps while the fire is off.
+    let clock =
+        if (state.effects && state.visible) || !state.splash.done || lang_menu::timing(state) {
+            iced::time::every(Duration::from_millis(33)).map(Message::Tick)
+        } else if state.visible {
+            iced::time::every(IDLE_CLOCK).map(Message::Tick)
+        } else {
+            Subscription::none()
+        };
     Subscription::batch([keys, resized, frames, clock])
 }
 
