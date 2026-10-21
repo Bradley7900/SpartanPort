@@ -176,11 +176,11 @@ def test_fixture_cases_exist_with_every_file():
             assert (folder / name).is_file(), f'{case}/{name}'
 ```
 
-- [ ] **Step 2: Run it to verify it fails**: `python -m pytest tests/test_launcher_generators.py -q` → FAIL, files missing.
+- [ ] **Step 2: Run it to verify it fails**: `python -m unittest tests.test_launcher_generators -v` → FAIL, files missing (the repo's tests are `unittest` modules; `pytest` is not installed).
 
 - [ ] **Step 3: Write `tools/launcher_i18n.py`**: import `launcher/spartanport_lang.py` and `spartanport_trophies.py`; walk the AST of `spartanport_launcher_win.py` for `Call` nodes named `_` with two string constants → `ru` map (strip the `WARN` suffix `'  ⚠'` from both); write the JSON above with `ensure_ascii=False, indent=1, sort_keys=False`. Write `tools/launcher_fixtures.py`: for each case, set `SPARTAN_DATA_DIR` to a temp folder, write `input.json`'s settings and ini lines there, import the launcher module (no Tk), apply `edits` by calling `migrate_controls`, `save_ini(edits.ini, lines)` and `atomic_write(CONFIG_FILE, json.dumps({**APP_DEFAULTS, **migrate_controls(settings), **edits.app}, indent=2, ensure_ascii=False))`, then `game_environment(app)` with `os.environ` replaced by `input.env` → `environment.json` (only `SPARTAN_*`, `SDL_*`, `PYTHON*` keys, sorted); copy the results into the fixture folder. Cases: `defaults` (empty settings, no ini, no edits); `edited` (settings `{"game_dir": "D:\\Games\\GOW3", "ui_language": "pt", "monitor": "1", "hdr": true, "gpu_id": "0", "controls": {"key": {"cross": "Space", "square": "F"}, "pad": {"cross": "b"}}, "controls_layout": 2, "game_patches": {"CUSA01623": ["Skip Intro"]}}`, ini lines `["# spartanport settings (in-game menu: Insert / R3+L2)", "upscaler=fsr3", "fps_limit=60", "extra=a=b"]`, edits ini `{"fps_limit": "120", "vsync": "0"}`, edits app `{"close_on_play": true}`); `legacy_controls` (settings `{"controls": {"native": {"cross": "Space"}}, "native_input": true, "native_rage": false}`, no `controls_layout`).
 
-- [ ] **Step 4: Run the generators, then the test**: `python tools/launcher_i18n.py && python tools/launcher_fixtures.py && python -m pytest tests/test_launcher_generators.py -q` → PASS.
+- [ ] **Step 4: Run the generators, then the test**: `python tools/launcher_i18n.py && python tools/launcher_fixtures.py && python -m unittest tests.test_launcher_generators -v` → PASS.
 
 - [ ] **Step 5: Commit**
 
