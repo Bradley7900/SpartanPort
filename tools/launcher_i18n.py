@@ -53,5 +53,6 @@ def build():
 
 if __name__ == '__main__':
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(build(), ensure_ascii=False, indent=1, sort_keys=False) + '\n', encoding='utf-8')
+    with open(OUTPUT, 'w', encoding='utf-8', newline='\n') as stream:
+        stream.write(json.dumps(build(), ensure_ascii=False, indent=1, sort_keys=False) + '\n')
     print(f'wrote {OUTPUT.relative_to(ROOT)}')

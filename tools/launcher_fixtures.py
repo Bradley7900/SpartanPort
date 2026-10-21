@@ -79,10 +79,12 @@ def run_case(name, case):
 
     folder = FIXTURES / name
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / 'input.json').write_text(json.dumps(case, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-    (folder / 'environment.json').write_text(json.dumps(kept, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+    # Fixtures hold the LF form: the launcher's text-mode writes give CRLF on Windows, the Rust launcher writes \n.
+    for fixture, value in (('input.json', case), ('environment.json', kept)):
+        text = json.dumps(value, indent=2, ensure_ascii=False) + '\n'
+        (folder / fixture).write_bytes(text.encode('utf-8'))
     for written in ('settings.json', 'spartanport.ini'):
-        shutil.copyfile(data / written, folder / written)
+        (folder / written).write_bytes((data / written).read_bytes().replace(b'\r\n', b'\n'))
 
 
 if __name__ == '__main__':
