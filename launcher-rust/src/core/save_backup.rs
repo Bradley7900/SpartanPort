@@ -29,21 +29,21 @@ pub fn backups_dir(user_dir: &Path) -> PathBuf {
 
 /// `(YYYYMMDD-HHMMSS, n)` of `YYYYMMDD-HHMMSS[-n]`; any other name sorts by itself, before them.
 fn backup_order(name: &str) -> (String, u64) {
-    let digits = |s: &str, n: usize| s.len() == n && s.bytes().all(|b| b.is_ascii_digit());
-    let stamp_ok = name.len() >= 15
-        && name.is_char_boundary(15)
-        && digits(&name[..8], 8)
-        && name.as_bytes()[8] == b'-'
-        && digits(&name[9..15], 6);
+    // Only ASCII digits and '-' can match, so byte-wise checks are exact and never split a
+    // multibyte character; anything else keeps its own name as the key.
+    let bytes = name.as_bytes();
+    let digits = |part: Option<&[u8]>| part.is_some_and(|p| p.iter().all(u8::is_ascii_digit));
+    let stamp_ok =
+        bytes.len() >= 15 && digits(bytes.get(..8)) && bytes[8] == b'-' && digits(bytes.get(9..15));
     if stamp_ok {
-        let rest = &name[15..];
-        if rest.is_empty() {
-            return (name[..15].to_string(), 1);
-        }
-        if let Some(n) = rest.strip_prefix('-') {
-            if !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) {
-                return (name[..15].to_string(), n.parse().unwrap_or(u64::MAX));
+        let stamp = name[..15].to_string();
+        match &bytes[15..] {
+            [] => return (stamp, 1),
+            [b'-', n @ ..] if !n.is_empty() && n.iter().all(u8::is_ascii_digit) => {
+                let number = std::str::from_utf8(n).ok().and_then(|t| t.parse().ok());
+                return (stamp, number.unwrap_or(u64::MAX));
             }
+            _ => {}
         }
     }
     (name.to_string(), 0)
@@ -113,7 +113,7 @@ fn copy_backup(user_dir: &Path, now: Option<SystemTime>) -> io::Result<Option<Pa
     for entry in fs::read_dir(&root)?.flatten() {
         let (stamp, sequence) = backup_order(&entry.file_name().to_string_lossy());
         if stamp == base {
-            n = n.max(sequence + 1);
+            n = n.max(sequence.saturating_add(1));
         }
     }
     let target = root.join(if n == 1 { base } else { format!("{base}-{n}") });
@@ -361,5 +361,40 @@ mod tests {
             ));
         }
         assert_eq!(fs::read_to_string(&f.save).unwrap(), "v");
+    }
+
+    #[test]
+    fn multibyte_folder_names_do_not_panic_and_are_not_timestamps() {
+        let f = fixture();
+        write(&f.save, "v");
+        let root = backups_dir(&f.user);
+        let odd = [
+            "abc\u{421}\u{43e}\u{445}\u{440}\u{430}\u{43d}\u{435}\u{43d}\u{438}\u{435}",
+            "aaaaaaa\u{1F600}bbbb",
+            "aaaaaaa\u{e9}bbbbbbbb",
+        ];
+        for name in odd {
+            assert!(name.len() >= 15);
+            fs::create_dir_all(root.join(name)).unwrap();
+            assert_eq!(backup_order(name), (name.to_string(), 0));
+        }
+        let made = backup(&f.user, f.now()).unwrap().unwrap();
+        let names = f.names();
+        // Odd names sort by themselves, as in the Python; only their presence is the contract.
+        assert!(names.contains(&name_of(&made)));
+        for name in odd {
+            assert!(names.iter().any(|n| n == name));
+        }
+    }
+
+    #[test]
+    fn a_maximal_sequence_suffix_does_not_overflow() {
+        let f = fixture();
+        write(&f.save, "v");
+        let huge = "20261009-180000-18446744073709551615";
+        fs::create_dir_all(backups_dir(&f.user).join(huge)).unwrap();
+        assert_eq!(backup_order(huge).1, u64::MAX);
+        // The name cannot be incremented: it may fail or pick a name, but never panic.
+        let _ = backup(&f.user, f.now());
     }
 }
