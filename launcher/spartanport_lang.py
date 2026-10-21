@@ -1895,8 +1895,17 @@ EXTRA.setdefault('zh', {}).update({'   (game patches)': '   （游戏补丁）',
  '⚠ {} file(s) replaced by more than one mod (the last one wins):': '⚠ 有 {} 个文件被多个模组替换（最后加载的优先）：',
  '⚠ {} files are changed by more than one mod. The lower one in the list wins.': '⚠ 有 {} 个文件被多个模组修改，列表下方的优先。',
  '✓ Game version {}: the game patches apply': '✓ 游戏版本 {}：可应用游戏补丁'})
+# The Trophies page: its texts (and the trophy names) live in spartanport_trophies.py.
+import spartanport_trophies  # noqa: E402
 
-EXTRA['zh'].update({"Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.": '将游戏中的 PlayStation 按键图标替换为你的控制器图标。使用移植版数据文件夹内最多三个游戏文件的副本（约 410 MB），不会更改游戏文件夹。启动游戏时生效。'})
+for _language, _texts in spartanport_trophies.UI.items():
+    EXTRA.setdefault(_language, {}).update(_texts)
+
+
+EXTRA['zh'].update({
+    "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.":
+        '将游戏中的 PlayStation 按键图标替换为你的控制器图标。使用移植版数据文件夹内最多三个游戏文件的副本（约 410 MB），不会更改游戏文件夹。启动游戏时生效。',
+})
 
 _tables = {}
 
