@@ -14,3 +14,4 @@ pub mod paths;
 pub mod platform;
 pub mod settings;
 pub mod sfo;
+pub mod trophies;
