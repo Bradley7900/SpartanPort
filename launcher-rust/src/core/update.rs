@@ -1,0 +1,560 @@
+//! The launcher updating itself: the zip on Windows, the AppImage on Linux, checked against the
+//! checksum the release publishes.
+
+use std::fs;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+use indexmap::IndexMap;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+
+pub const RELEASES_API: &str =
+    "https://api.github.com/repos/FelipePrado0/SpartanPort/releases/latest";
+pub const RELEASES_PAGE: &str = "https://github.com/FelipePrado0/SpartanPort/releases/latest";
+const USER_AGENT: &str = "spartanport-launcher";
+const CHUNK: usize = 1 << 20;
+
+#[derive(Debug, Error)]
+pub enum UpdateError {
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error("{0}")]
+    Http(String),
+    #[error("{0}")]
+    Json(String),
+    #[error("{0}")]
+    BadChecksum(String),
+}
+
+/// The newest release: its version, the package for this system (`None` while the release has
+/// none) and the page to open for a manual download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Release {
+    pub version: String,
+    pub url: Option<String>,
+    pub page: String,
+}
+
+/// Every run of digits in `text`, as numbers.
+pub fn version_tuple(text: &str) -> Vec<u64> {
+    digit_runs(text)
+        .into_iter()
+        .map(|run| run.parse().unwrap_or(u64::MAX))
+        .collect()
+}
+
+fn digit_runs(text: &str) -> Vec<&str> {
+    text.split(|c: char| !c.is_ascii_digit())
+        .filter(|run| !run.is_empty())
+        .collect()
+}
+
+/// The release in GitHub's JSON: the zip on Windows, the AppImage elsewhere.
+pub fn parse_release(json: &Value, windows: bool) -> Result<Release, UpdateError> {
+    let tag = json
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .ok_or_else(|| UpdateError::Json("the release has no tag_name".to_string()))?;
+    let suffix = if windows { ".zip" } else { ".appimage" };
+    let url = json
+        .get("assets")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|asset| {
+            asset
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name.to_lowercase().ends_with(suffix))
+        })
+        .and_then(|asset| asset.get("browser_download_url"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let page = json
+        .get("html_url")
+        .and_then(Value::as_str)
+        .filter(|page| !page.is_empty())
+        .unwrap_or(RELEASES_PAGE)
+        .to_string();
+    Ok(Release {
+        version: digit_runs(tag).join("."),
+        url,
+        page,
+    })
+}
+
+fn http_error(error: ureq::Error) -> UpdateError {
+    UpdateError::Http(error.to_string())
+}
+
+/// A GET with the launcher's user agent. `global` bounds the whole request; without it only
+/// connecting and the wait for the response are bounded (a download may take a while).
+fn get(
+    url: &str,
+    accept: Option<&str>,
+    global: Option<Duration>,
+) -> Result<(Box<dyn Read>, Option<u64>), UpdateError> {
+    let mut config = ureq::Agent::config_builder();
+    config = match global {
+        Some(limit) => config.timeout_global(Some(limit)),
+        None => config
+            .timeout_connect(Some(Duration::from_secs(60)))
+            .timeout_recv_response(Some(Duration::from_secs(60))),
+    };
+    let agent: ureq::Agent = config.build().into();
+    let mut request = agent.get(url).header("User-Agent", USER_AGENT);
+    if let Some(accept) = accept {
+        request = request.header("Accept", accept);
+    }
+    let response = request.call().map_err(http_error)?;
+    let body = response.into_body();
+    let total = body.content_length();
+    Ok((Box::new(body.into_reader()), total))
+}
+
+/// The newest GitHub release for this system.
+pub fn latest_release(windows: bool) -> Result<Release, UpdateError> {
+    let (mut reader, _) = get(
+        RELEASES_API,
+        Some("application/vnd.github+json"),
+        Some(Duration::from_secs(15)),
+    )?;
+    let mut text = String::new();
+    reader.read_to_string(&mut text)?;
+    let json = serde_json::from_str(&text).map_err(|e| UpdateError::Json(e.to_string()))?;
+    parse_release(&json, windows)
+}
+
+/// The SHA-256 in a `<package>.sha256` file (`sha256sum` format).
+pub fn parse_checksum(text: &str) -> Result<String, UpdateError> {
+    match text.split_whitespace().next() {
+        Some(word) if word.len() == 64 && word.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            Ok(word.to_ascii_lowercase())
+        }
+        _ => Err(UpdateError::BadChecksum(
+            "the release has no valid checksum".to_string(),
+        )),
+    }
+}
+
+/// The SHA-256 the release publishes beside a package.
+pub fn release_checksum(url: &str) -> Result<String, UpdateError> {
+    let (reader, _) = get(
+        &format!("{url}.sha256"),
+        None,
+        Some(Duration::from_secs(30)),
+    )?;
+    let mut bytes = Vec::new();
+    reader.take(4096).read_to_end(&mut bytes)?;
+    parse_checksum(&String::from_utf8_lossy(&bytes))
+}
+
+fn partial_path(target: &Path) -> PathBuf {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(".update");
+    target.with_file_name(name)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Streams `source` into `partial` in 1 MiB chunks, reporting the percent when it changes, and
+/// checks the digest. The caller removes `partial` on failure.
+fn fetch_into(
+    source: &mut dyn Read,
+    total: Option<u64>,
+    partial: &Path,
+    expected: Option<&str>,
+    progress: &mut dyn FnMut(u8),
+) -> Result<(), UpdateError> {
+    if let Some(parent) = partial.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
+    let mut out = fs::File::create(partial)?;
+    let mut digest = Sha256::new();
+    let mut buffer = vec![0u8; CHUNK];
+    let (mut done, mut shown) = (0u64, None);
+    loop {
+        let read = source.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        out.write_all(&buffer[..read])?;
+        digest.update(&buffer[..read]);
+        done += read as u64;
+        let percent = match total {
+            Some(total) if total > 0 => (done.saturating_mul(100) / total).min(100) as u8,
+            _ => 0,
+        };
+        if shown != Some(percent) {
+            shown = Some(percent);
+            progress(percent);
+        }
+    }
+    out.sync_all()?;
+    drop(out);
+    if let Some(expected) = expected {
+        if hex(&digest.finalize()) != expected.to_ascii_lowercase() {
+            return Err(UpdateError::BadChecksum(
+                "the download does not match the published checksum".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Saves `source` as `target` through a temp file beside it: the target is replaced only by a
+/// complete download that matches `expected`.
+fn download_from(
+    source: &mut dyn Read,
+    total: Option<u64>,
+    target: &Path,
+    expected: Option<&str>,
+    progress: &mut dyn FnMut(u8),
+) -> Result<(), UpdateError> {
+    let partial = partial_path(target);
+    let result = fetch_into(source, total, &partial, expected, progress)
+        .and_then(|()| fs::rename(&partial, target).map_err(UpdateError::from));
+    if result.is_err() {
+        let _ = fs::remove_file(&partial);
+    }
+    result
+}
+
+/// Downloads `url` to `target`, checking `expected_sha256` when given.
+pub fn download(
+    url: &str,
+    target: &Path,
+    expected_sha256: Option<&str>,
+    progress: &mut dyn FnMut(u8),
+) -> Result<(), UpdateError> {
+    let (mut reader, total) = get(url, None, None)?;
+    download_from(&mut *reader, total, target, expected_sha256, progress)
+}
+
+/// Windows installs replace the folder; elsewhere only an AppImage can replace itself.
+pub fn can_self_update(env: &dyn Fn(&str) -> Option<String>, windows: bool) -> bool {
+    windows || env("APPIMAGE").is_some_and(|v| !v.is_empty())
+}
+
+pub fn update_dir() -> PathBuf {
+    std::env::temp_dir().join("spartanport-update")
+}
+
+/// Downloads the AppImage beside `target`, checks it against the release checksum and swaps it
+/// in. The swap is a rename, so a running copy keeps its own file until it exits; nothing is
+/// replaced when the download or the checksum fails.
+pub fn replace_appimage(
+    url: &str,
+    target: &Path,
+    progress: &mut dyn FnMut(u8),
+) -> Result<(), UpdateError> {
+    // Opened through a symlink, the file behind it is the one to replace.
+    let target = fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    let expected = release_checksum(url)?;
+    let partial = partial_path(&target);
+    let result = (|| {
+        let (mut reader, total) = get(url, None, None)?;
+        fetch_into(&mut *reader, total, &partial, Some(&expected), progress)?;
+        make_executable(&partial)?;
+        fs::rename(&partial, &target)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&partial);
+    }
+    result
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = fs::metadata(path)?.permissions().mode();
+    fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o755))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> io::Result<()> {
+    Ok(())
+}
+
+/// The environment for the new AppImage: the old mount's variables must not leak into it.
+fn relaunch_environment(env: &IndexMap<String, String>) -> IndexMap<String, String> {
+    let mut env = env.clone();
+    let appdir = env.get("APPDIR").cloned().unwrap_or_default();
+    for name in ["APPIMAGE", "APPDIR", "ARGV0", "OWD"] {
+        env.shift_remove(name);
+    }
+    if let Some(paths) = env
+        .get("LD_LIBRARY_PATH")
+        .filter(|p| !appdir.is_empty() && !p.is_empty())
+    {
+        let kept: Vec<&str> = paths
+            .split(':')
+            .filter(|entry| !entry.is_empty() && !entry.starts_with(&appdir))
+            .collect();
+        if kept.is_empty() {
+            env.shift_remove("LD_LIBRARY_PATH");
+        } else {
+            let joined = kept.join(":");
+            env.insert("LD_LIBRARY_PATH".to_string(), joined);
+        }
+    }
+    env
+}
+
+/// Starts the new AppImage apart from this one (its own process group on Unix).
+pub fn relaunch_appimage(target: &Path, env: &IndexMap<String, String>) -> io::Result<()> {
+    let mut command = Command::new(target);
+    command
+        .current_dir(target.parent().unwrap_or_else(|| Path::new(".")))
+        .env_clear()
+        .envs(relaunch_environment(env))
+        .stdin(Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.spawn().map(drop)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+    use std::io::Cursor;
+
+    const NEW_APPIMAGE: &[u8] = b"\x7fELF new appimage";
+
+    fn release() -> Value {
+        json!({"tag_name": "windows-v2.6.0", "html_url": "https://example.test/release", "assets": [
+            {"name": "spartanport-windows.zip", "browser_download_url": "https://example.test/spartanport-windows.zip"},
+            {"name": "spartanport-x86_64.AppImage", "browser_download_url": "https://example.test/spartanport-x86_64.AppImage"},
+            {"name": "spartanport-x86_64.AppImage.sha256", "browser_download_url": "https://example.test/a.sha256"}]})
+    }
+
+    #[test]
+    fn windows_takes_the_zip() {
+        let found = parse_release(&release(), true).unwrap();
+        assert_eq!(found.version, "2.6.0");
+        assert_eq!(
+            found.url.as_deref(),
+            Some("https://example.test/spartanport-windows.zip")
+        );
+        assert_eq!(found.page, "https://example.test/release");
+    }
+
+    #[test]
+    fn linux_takes_the_appimage_not_its_checksum() {
+        let found = parse_release(&release(), false).unwrap();
+        assert_eq!(
+            found.url.as_deref(),
+            Some("https://example.test/spartanport-x86_64.AppImage")
+        );
+    }
+
+    #[test]
+    fn linux_has_no_package_while_the_release_has_no_appimage() {
+        let mut value = release();
+        value["assets"].as_array_mut().unwrap().truncate(1);
+        let found = parse_release(&value, false).unwrap();
+        assert_eq!((found.version.as_str(), found.url), ("2.6.0", None));
+    }
+
+    #[test]
+    fn a_release_without_a_page_points_to_the_releases_page() {
+        let value = json!({"tag_name": "v1.2", "assets": []});
+        assert_eq!(parse_release(&value, true).unwrap().page, RELEASES_PAGE);
+        assert!(parse_release(&json!({}), true).is_err());
+    }
+
+    #[test]
+    fn versions_are_their_digit_runs() {
+        assert_eq!(version_tuple("windows-v2.6.10"), vec![2, 6, 10]);
+        assert!(version_tuple("none").is_empty());
+    }
+
+    #[test]
+    fn a_garbled_checksum_file_is_not_installed() {
+        for text in ["not a hash at all\n", "", "   \n", &"g".repeat(64)] {
+            let error = parse_checksum(text).unwrap_err();
+            assert_eq!(error.to_string(), "the release has no valid checksum");
+        }
+        let digest = "AB".repeat(32);
+        let text = format!("{digest} *spartanport-x86_64.AppImage\n");
+        assert_eq!(parse_checksum(&text).unwrap(), digest.to_lowercase());
+    }
+
+    fn sha(bytes: &[u8]) -> String {
+        Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    fn target_in(dir: &Path) -> PathBuf {
+        let target = dir.join("games").join("spartanport.AppImage");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"old appimage").unwrap();
+        target
+    }
+
+    fn leftovers(target: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_matching_download_replaces_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = target_in(dir.path());
+        let mut source = Cursor::new(NEW_APPIMAGE.to_vec());
+        let expected = sha(NEW_APPIMAGE);
+        download_from(
+            &mut source,
+            Some(NEW_APPIMAGE.len() as u64),
+            &target,
+            Some(&expected),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), NEW_APPIMAGE);
+        assert_eq!(leftovers(&target), ["spartanport.AppImage"]);
+    }
+
+    #[test]
+    fn progress_reaches_one_hundred_percent() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = target_in(dir.path());
+        let mut seen = Vec::new();
+        let mut source = Cursor::new(NEW_APPIMAGE.to_vec());
+        download_from(
+            &mut source,
+            Some(NEW_APPIMAGE.len() as u64),
+            &target,
+            None,
+            &mut |p| seen.push(p),
+        )
+        .unwrap();
+        assert_eq!(seen.last(), Some(&100));
+    }
+
+    #[test]
+    fn progress_is_reported_only_when_it_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = target_in(dir.path());
+        let data = vec![7u8; (3 << 20) + 5];
+        let mut seen = Vec::new();
+        download_from(
+            &mut Cursor::new(data.clone()),
+            Some(data.len() as u64),
+            &target,
+            None,
+            &mut |p| seen.push(p),
+        )
+        .unwrap();
+        assert_eq!(seen, vec![33, 66, 99, 100]);
+        seen.clear();
+        download_from(&mut Cursor::new(data), None, &target, None, &mut |p| {
+            seen.push(p)
+        })
+        .unwrap();
+        assert_eq!(seen, vec![0]);
+    }
+
+    #[test]
+    fn a_download_that_does_not_match_the_checksum_leaves_the_target_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = target_in(dir.path());
+        let mut source = Cursor::new(NEW_APPIMAGE.to_vec());
+        let wrong = "0".repeat(64);
+        let error = download_from(
+            &mut source,
+            Some(NEW_APPIMAGE.len() as u64),
+            &target,
+            Some(&wrong),
+            &mut |_| {},
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("checksum"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"old appimage");
+        assert_eq!(leftovers(&target), ["spartanport.AppImage"]);
+    }
+
+    #[test]
+    fn linux_updates_only_as_an_appimage() {
+        let with = |k: &str| (k == "APPIMAGE").then(|| "/games/spartanport.AppImage".to_string());
+        let without = |_: &str| None;
+        let empty = |_: &str| Some(String::new());
+        assert!(can_self_update(&with, false));
+        assert!(!can_self_update(&without, false));
+        assert!(!can_self_update(&empty, false));
+    }
+
+    #[test]
+    fn windows_always_updates() {
+        assert!(can_self_update(&|_| None, true));
+    }
+
+    #[test]
+    fn the_update_folder_is_under_the_temp_folder() {
+        assert_eq!(
+            update_dir(),
+            std::env::temp_dir().join("spartanport-update")
+        );
+    }
+
+    fn map(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn the_old_mount_does_not_leak_into_the_new_appimage() {
+        let env = map(&[
+            ("APPIMAGE", "/games/spartanport.AppImage"),
+            ("APPDIR", "/tmp/.mount_spartanportabc"),
+            ("ARGV0", "x"),
+            ("OWD", "/home"),
+            (
+                "LD_LIBRARY_PATH",
+                "/tmp/.mount_spartanportabc/usr/lib:/opt/lib",
+            ),
+            ("HOME", "/h"),
+        ]);
+        let out = relaunch_environment(&env);
+        for name in ["APPIMAGE", "APPDIR", "ARGV0", "OWD"] {
+            assert!(!out.contains_key(name));
+        }
+        assert_eq!(out["LD_LIBRARY_PATH"], "/opt/lib");
+        assert_eq!(out["HOME"], "/h");
+    }
+
+    #[test]
+    fn a_library_path_that_was_only_the_mount_is_dropped() {
+        let env = map(&[
+            ("APPDIR", "/tmp/.mount_spartanportabc"),
+            ("LD_LIBRARY_PATH", "/tmp/.mount_spartanportabc/usr/lib"),
+        ]);
+        assert!(!relaunch_environment(&env).contains_key("LD_LIBRARY_PATH"));
+    }
+
+    #[test]
+    fn a_library_path_is_kept_without_an_appdir() {
+        let env = map(&[("LD_LIBRARY_PATH", "/opt/lib")]);
+        assert_eq!(relaunch_environment(&env)["LD_LIBRARY_PATH"], "/opt/lib");
+    }
+}
