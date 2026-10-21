@@ -49,6 +49,13 @@ jobs:
             spirv-tools:p spirv-headers:p spirv-cross:p
       - name: Build
         run: bash build.sh
+      - name: Validate native audio and settings
+        run: |
+          source ./msys2-env.sh
+          ninja -C out/gpu -j2 audio-test audio-downmix-test graphics-settings-test
+          out/gpu/audio-test.exe
+          out/gpu/audio-downmix-test.exe
+          out/gpu/graphics-settings-test.exe
       # Freezes the launcher; this Python ships Tk, as the python.org one does. Set up after the
       # build so its Python_ROOT_DIR and PKG_CONFIG_PATH do not reach CMake.
       - uses: actions/setup-python@v5
@@ -61,6 +68,14 @@ jobs:
         run: |
           WINPYTHON=$(cygpath -u "$PYTHON_EXE") bash packaging/windows/package.sh
           cd dist && sha256sum -b spartanport-windows.zip > spartanport-windows.zip.sha256
+      - name: Validate Python logic
+        shell: pwsh
+        env:
+          PYTHON_EXE: ${{ steps.python.outputs.python-path }}
+        run: |
+          & $env:PYTHON_EXE -m pip install --disable-pip-version-check pillow iced-x86==1.21.0
+          & $env:PYTHON_EXE packaging/windows/validate-test-release.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: spartanport-windows.zip
