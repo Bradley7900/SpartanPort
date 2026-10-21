@@ -8,7 +8,9 @@ use iced::keyboard::key::Named;
 use iced::keyboard::{self, Key, Modifiers};
 use iced::time::Instant;
 use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
-use iced::{window, Background, Center, Element, Fill, Size, Subscription, Task};
+use iced::{
+    window, Background, Bottom, Center, Color, Element, Fill, Right, Size, Subscription, Task,
+};
 use serde_json::Value;
 
 use crate::core::gpu::{Display, GpuRow};
@@ -89,10 +91,11 @@ impl State {
             saved: None,
             page: Page::Home,
             drawer: DrawerState::Closed,
-            // The spec's cubic-bezier(.2, .8, .2, 1) has no lilt easing; EaseOutCubic is closest.
+            // EaseOutQuint follows the spec's cubic-bezier(.2, .8, .2, 1) within 0.01; lilt's
+            // `Easing::Custom` can take the exact curve if it is ever needed.
             drawer_progress: Animation::new(false)
                 .duration(DRAWER_SLIDE)
-                .easing(Easing::EaseOutCubic),
+                .easing(Easing::EaseOutQuint),
             lang,
             scale,
             splash: Default::default(),
@@ -180,8 +183,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Play | Message::Stop => {}
         // Task 32
         Message::Save => {}
-        // Stored by the settings pages (later tasks)
+        // Task 32 (save flow) handles Set
         Message::Set(_, _) => {}
+        // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         // Task 26
         Message::Browse(_) | Message::Browsed(_, _) => {}
@@ -219,19 +223,38 @@ fn show_page(state: &mut State, page: Page) {
     state.drawer_progress.go_mut(open, now);
 }
 
-/// The background, the drawer when open, and the tab bar under them.
+/// Whether the Home block (PLAY, chips, language, update pill) responds: not behind a wide drawer.
+pub fn home_interactive_enabled(state: &State) -> bool {
+    !matches!(state.drawer, DrawerState::Open(page) if page.wide())
+}
+
+/// Opacity of the Home block: 35 % behind a wide drawer, full otherwise.
+pub fn home_interactive_opacity(state: &State) -> f32 {
+    if home_interactive_enabled(state) {
+        1.0
+    } else {
+        0.35
+    }
+}
+
+/// The scene over the tab bar, bottom to top: the Home background, the dim layer that closes
+/// the drawer when clicked (only while it is open), the Home block, and the drawer. The Home
+/// block sits above the dim layer so it stays clickable next to a 46 % drawer.
 pub fn view(state: &State) -> Element<'_, Message> {
-    let background = container(space())
+    let home_background = container(space())
         .width(Fill)
         .height(Fill)
         .style(|_| container::Style {
             background: Some(Background::Color(palette::BG)),
             ..container::Style::default()
         });
-    let mut scene = stack![background].width(Fill).height(Fill);
+    let mut scene = stack![home_background].width(Fill).height(Fill);
+    if let DrawerState::Open(_) = state.drawer {
+        scene = scene.push(dim_close_catcher());
+    }
+    scene = scene.push(home_interactive(state));
     if let DrawerState::Open(page) = state.drawer {
-        let outside = mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseDrawer);
-        scene = scene.push(outside).push(drawer::view(state, page));
+        scene = scene.push(drawer::view(state, page));
     }
     let page = column![scene, bar(state)];
     match &state.modal {
@@ -242,6 +265,34 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .into(),
         None => page.into(),
     }
+}
+
+/// Darkens the Home view behind an open drawer; a press on it closes the drawer. The spec also
+/// blurs the background, but iced has no cheap backdrop blur, so only the darkening is kept.
+fn dim_close_catcher<'a>() -> Element<'a, Message> {
+    let dim = container(space())
+        .width(Fill)
+        .height(Fill)
+        .style(|_| container::Style {
+            background: Some(Background::Color(Color {
+                a: 0.45,
+                ..palette::BG
+            })),
+            ..container::Style::default()
+        });
+    mouse_area(dim).on_press(Message::CloseDrawer).into()
+}
+
+/// The right-hand Home block, anchored bottom-right; Task 23 fills it and applies
+/// `home_interactive_opacity` and `home_interactive_enabled`.
+fn home_interactive(_state: &State) -> Element<'_, Message> {
+    // Task 23 fills this
+    container(space())
+        .width(Fill)
+        .height(Fill)
+        .align_x(Right)
+        .align_y(Bottom)
+        .into()
 }
 
 /// The bottom bar: the nine tabs and the version.

@@ -6,12 +6,18 @@
 //! `Message::Key(...)` to `app::update` directly, as the subscription does at run time.
 
 use std::path::Path;
+use std::time::Duration;
 
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Modifiers};
-use iced_test::simulator;
+use iced::time::Instant;
+use iced::{Point, Size};
+use iced_test::core::Settings;
+use iced_test::simulator::{self, simulator, Simulator};
 use spartanport_launcher::core::paths::Paths;
-use spartanport_launcher::ui::app::{self, key_message, Message, State};
+use spartanport_launcher::ui::app::{
+    self, home_interactive_enabled, home_interactive_opacity, key_message, Message, State,
+};
 use spartanport_launcher::ui::drawer::{drawer_width, DrawerState};
 use spartanport_launcher::ui::pages::Page;
 
@@ -50,6 +56,20 @@ fn click(state: &mut State, label: &str) {
     }
 }
 
+/// Presses the left button at `(x, y)` of a 1280 × 800 window and applies what it emitted.
+fn click_at(state: &mut State, x: f32, y: f32) {
+    let mut ui = Simulator::with_size(
+        Settings::default(),
+        Size::new(1280.0, 800.0),
+        app::view(state),
+    );
+    ui.point_at(Point::new(x, y));
+    let _ = ui.simulate(simulator::click());
+    for message in ui.into_messages() {
+        let _ = app::update(state, message);
+    }
+}
+
 fn press(state: &mut State, key: Named) {
     let _ = app::update(state, Message::Key(Key::Named(key), Modifiers::default()));
 }
@@ -60,6 +80,8 @@ fn every_tab_opens_its_drawer_with_the_right_width() {
     let mut state = state_in(dir.path());
     assert_eq!(state.lang, "en");
     assert_eq!(Page::ALL, ORDER);
+    assert!(home_interactive_enabled(&state));
+    assert_eq!(home_interactive_opacity(&state), 1.0);
     for page in Page::ALL.into_iter().filter(|page| *page != Page::Home) {
         click(&mut state, page.label_en());
         assert_eq!(state.drawer, DrawerState::Open(page));
@@ -69,6 +91,10 @@ fn every_tab_opens_its_drawer_with_the_right_width() {
         let expected = 1280.0 * if wide { 0.72 } else { 0.46 };
         let width = drawer_width(&state);
         assert!((width - expected).abs() < 0.01, "{page:?}: {width}");
+        // The Home block fades to 35 % and stops responding only behind a wide drawer.
+        assert_eq!(home_interactive_enabled(&state), !wide, "{page:?}");
+        let opacity = if wide { 0.35 } else { 1.0 };
+        assert_eq!(home_interactive_opacity(&state), opacity, "{page:?}");
     }
 }
 
@@ -142,4 +168,22 @@ fn enter_on_home_sends_play() {
     let task = app::update(&mut state, Message::Key(enter, Modifiers::default()));
     assert_eq!(task.units(), 0);
     assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
+}
+
+#[test]
+fn background_click_closes_but_the_drawer_body_does_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    click(&mut state, "Graphics");
+    // Let the slide finish so the drawer sits at x = 0 .. 588.8.
+    let _ = app::update(
+        &mut state,
+        Message::Tick(Instant::now() + Duration::from_secs(1)),
+    );
+
+    click_at(&mut state, 200.0, 300.0);
+    assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
+
+    click_at(&mut state, 1200.0, 300.0);
+    assert_eq!(state.drawer, DrawerState::Closed);
 }
