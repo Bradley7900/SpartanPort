@@ -904,7 +904,7 @@ EXTRA = {
         'Original (default)': 'Original (padrão)',
         'Match my controller': 'Igual ao meu controle',
         'Keyboard': 'Teclado',
-        "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of two game files in the port's data folder (about 70 MB); your game folder is never changed. Applied when the game starts.": 'Troca os ícones de botões PlayStation dentro do jogo pelos do seu controle. Funciona com uma cópia de dois arquivos do jogo na pasta de dados do port (cerca de 70 MB); a pasta do jogo nunca é alterada. Aplicado quando o jogo inicia.',
+        "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.": 'Troca os ícones de botões PlayStation dentro do jogo pelos do seu controle. Funciona com uma cópia de até três arquivos do jogo na pasta de dados do port (cerca de 410 MB); a pasta do jogo nunca é alterada. Aplicado quando o jogo inicia.',
         'Textures': 'Texturas',
         'Anisotropic filtering': 'Filtro anisotrópico',
         'Game default': 'Padrão do jogo',
@@ -1200,8 +1200,8 @@ EXTRA = {
         'Original (default)': 'Original (predeterminado)',
         'Match my controller': 'Igual que mi mando',
         'Keyboard': 'Teclado',
-        "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of two game files in the port's data folder (about 70 MB); your game folder is never changed. Applied when the game starts.":
-            'Sustituye los iconos de botones de PlayStation dentro del juego por los de tu mando. Trabaja sobre una copia de dos archivos del juego en la carpeta de datos del port (unos 70 MB); tu carpeta del juego nunca se modifica. Se aplica al iniciar el juego.',
+        "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.":
+            'Sustituye los iconos de botones de PlayStation dentro del juego por los de tu mando. Trabaja sobre una copia de hasta tres archivos del juego en la carpeta de datos del port (unos 410 MB); tu carpeta del juego nunca se modifica. Se aplica al iniciar el juego.',
         'Windows could not reserve the memory the game needs. Close other programs, or let the Windows page file grow (for example 16384 MB initial, 32768 MB maximum), and start again.':
             'Windows no pudo reservar la memoria que necesita el juego. Cierra otros programas, o deja que el archivo de paginación de Windows crezca (por ejemplo 16384 MB inicial, 32768 MB máximo), y vuelve a iniciarlo.',
         'The game stopped while reading its files: the game dump may be incomplete. Extract the pkg again and check that the game folder is about 40 GB.':
@@ -1895,6 +1895,8 @@ EXTRA.setdefault('zh', {}).update({'   (game patches)': '   （游戏补丁）',
  '⚠ {} file(s) replaced by more than one mod (the last one wins):': '⚠ 有 {} 个文件被多个模组替换（最后加载的优先）：',
  '⚠ {} files are changed by more than one mod. The lower one in the list wins.': '⚠ 有 {} 个文件被多个模组修改，列表下方的优先。',
  '✓ Game version {}: the game patches apply': '✓ 游戏版本 {}：可应用游戏补丁'})
+
+EXTRA['zh'].update({"Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.": '将游戏中的 PlayStation 按键图标替换为你的控制器图标。使用移植版数据文件夹内最多三个游戏文件的副本（约 410 MB），不会更改游戏文件夹。启动游戏时生效。'})
 
 _tables = {}
 
