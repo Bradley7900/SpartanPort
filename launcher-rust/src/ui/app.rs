@@ -30,6 +30,7 @@ use crate::ui::play::{GameMessage, GameState};
 use crate::ui::splash::{SplashMessage, SplashState};
 use crate::ui::theme::{self, palette, CINZEL_BOLD};
 use crate::ui::update::{UpdateMessage, UpdateState};
+use crate::ui::widgets;
 use crate::ui::widgets::modal::{Modal, ModalMessage};
 use crate::VERSION;
 
@@ -179,9 +180,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Play | Message::Stop => {}
         // Task 32
         Message::Save => {}
-        // Task 21
+        // Stored by the settings pages (later tasks)
         Message::Set(_, _) => {}
-        Message::Modal(message) => match message {},
+        Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         // Task 26
         Message::Browse(_) | Message::Browsed(_, _) => {}
         // Task 22
@@ -232,7 +233,15 @@ pub fn view(state: &State) -> Element<'_, Message> {
         let outside = mouse_area(space().width(Fill).height(Fill)).on_press(Message::CloseDrawer);
         scene = scene.push(outside).push(drawer::view(state, page));
     }
-    column![scene, bar(state)].into()
+    let page = column![scene, bar(state)];
+    match &state.modal {
+        Some(open) => stack![
+            page,
+            widgets::modal(open.kind.clone(), &open.title, &open.text, &state.lang)
+        ]
+        .into(),
+        None => page.into(),
+    }
 }
 
 /// The bottom bar: the nine tabs and the version.
