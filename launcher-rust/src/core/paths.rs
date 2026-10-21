@@ -102,10 +102,7 @@ impl Paths {
 
     /// Next to the port; in the data folder when the port folder is read-only (AppImage).
     pub fn fsr4_folder(&self) -> PathBuf {
-        let writable = cfg!(windows)
-            || std::fs::metadata(&self.port_dir)
-                .map(|m| !m.permissions().readonly())
-                .unwrap_or(false);
+        let writable = cfg!(windows) || folder_is_writable(&self.port_dir);
         if writable {
             self.port_dir.join("fsr4_shaders")
         } else {
@@ -120,6 +117,11 @@ impl Paths {
             PathBuf::from(setting)
         }
     }
+}
+
+/// Like `os.access(W_OK)`: whether a file can really be created in `dir` (probe is removed on drop).
+fn folder_is_writable(dir: &Path) -> bool {
+    tempfile::NamedTempFile::new_in(dir).is_ok()
 }
 
 #[cfg(test)]
@@ -233,5 +235,27 @@ mod tests {
                 .join("gow3-launcher")
                 .join("settings.json")
         );
+    }
+
+    #[test]
+    fn fsr4_folder_is_next_to_the_port_when_writable() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::from_env(dir.path(), &env_of(&[("SPARTAN_DATA_DIR", "data")]));
+        assert_eq!(paths.fsr4_folder(), dir.path().join("fsr4_shaders"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fsr4_folder_falls_back_to_data_dir_when_port_is_read_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
+        let paths = Paths::from_env(dir.path(), &env_of(&[("SPARTAN_DATA_DIR", "data")]));
+        let root_ignores_modes = tempfile::NamedTempFile::new_in(dir.path()).is_ok();
+        let folder = paths.fsr4_folder();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        if !root_ignores_modes {
+            assert_eq!(folder, Path::new("data").join("fsr4_shaders"));
+        }
     }
 }
