@@ -388,6 +388,7 @@ struct Member {
     index: usize,
     relative: PathBuf,
     is_dir: bool,
+    size: u64,
 }
 
 fn zip_error(error: zip::result::ZipError) -> ModsError {
@@ -448,9 +449,35 @@ fn zip_members<R: Read + io::Seek>(
             index,
             relative: parts.iter().collect(),
             is_dir,
+            size: entry.size(),
         });
     }
     Ok(members)
+}
+
+/// Copies at most `declared` bytes (the size the zip announced for the member) and no more than
+/// `budget`, which shrinks by what was written. A member that inflates past either is refused, so
+/// a zip that lies about its sizes cannot fill the disk.
+fn copy_capped<R: Read, W: io::Write>(
+    reader: &mut R,
+    writer: &mut W,
+    declared: u64,
+    budget: &mut u64,
+) -> Result<(), ModsError> {
+    let limit = declared.min(*budget);
+    let written = io::copy(&mut reader.take(limit.saturating_add(1)), writer)?;
+    if written > declared {
+        return Err(ModsError::Invalid(
+            "a file in the zip is larger than its declared size".to_string(),
+        ));
+    }
+    if written > *budget {
+        return Err(ModsError::Invalid(
+            "the zip unpacks to more than 16 GiB".to_string(),
+        ));
+    }
+    *budget -= written;
+    Ok(())
 }
 
 /// Extracts one zip into `target` (replacing what the last unpack left) and writes the marker.
@@ -475,6 +502,7 @@ fn extract_zip(
     if target.exists() {
         fs::remove_dir_all(target)?;
     }
+    let mut budget = ZIP_LIMIT;
     for (member, destination) in members.iter().zip(&destinations) {
         if member.is_dir {
             fs::create_dir_all(destination)?;
@@ -485,7 +513,7 @@ fn extract_zip(
         }
         let mut source = archive.by_index(member.index).map_err(zip_error)?;
         let mut out = fs::File::create(destination)?;
-        io::copy(&mut source, &mut out)?;
+        copy_capped(&mut source, &mut out, member.size, &mut budget)?;
     }
     fs::create_dir_all(target)?;
     fs::write(target.join(ZIP_STAMP), stamp)?;
@@ -1095,6 +1123,29 @@ mod tests {
         );
         assert!(unpack_zips(&f.moddir, None).is_empty());
         assert!(!f.moddir.join("Unsafe").exists());
+    }
+
+    #[test]
+    fn extraction_is_capped_at_the_declared_size_and_the_total() {
+        let data = [7u8; 10];
+        let mut out = Vec::new();
+        let mut budget = 100;
+        copy_capped(&mut io::Cursor::new(data), &mut out, 10, &mut budget).unwrap();
+        assert_eq!((out.len(), budget), (10, 90));
+        // More bytes than declared.
+        let mut out = Vec::new();
+        let error = copy_capped(&mut io::Cursor::new(data), &mut out, 4, &mut budget).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "a file in the zip is larger than its declared size"
+        );
+        assert!(out.len() <= 5); // stopped reading right after the cap
+                                 // The running total, lowered for the test.
+        let mut out = Vec::new();
+        let mut budget = 6;
+        let error = copy_capped(&mut io::Cursor::new(data), &mut out, 10, &mut budget).unwrap_err();
+        assert_eq!(error.to_string(), "the zip unpacks to more than 16 GiB");
+        assert!(out.len() <= 7);
     }
 
     #[test]
