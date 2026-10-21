@@ -7,6 +7,7 @@ pub mod game;
 pub mod gpu;
 pub mod i18n;
 pub mod ini;
+pub mod log;
 pub mod options;
 pub mod paths;
 pub mod platform;
