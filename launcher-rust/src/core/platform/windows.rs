@@ -3,13 +3,15 @@
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
+use windows_sys::Win32::System::Console::{
+    GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
 };
-
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 /// The user's UI language id (LANGID), or `None` when Windows reports 0.
 pub fn user_default_ui_language() -> Option<u32> {
@@ -65,5 +67,23 @@ impl Job {
 impl Drop for Job {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+/// Closes this process's stdout and stderr (the same pipe for the game), so a reader of that
+/// pipe sees end of file while the process keeps running. Later writes do nothing.
+pub fn close_std_streams() {
+    let mut closed: Vec<HANDLE> = Vec::new();
+    for which in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle takes a plain id and returns a handle value or null/invalid.
+        let handle = unsafe { GetStdHandle(which) };
+        if !handle.is_null() && handle != INVALID_HANDLE_VALUE && !closed.contains(&handle) {
+            // SAFETY: the handle belongs to this process and each distinct value is closed once;
+            // the std slots are cleared below so nothing uses it afterwards.
+            unsafe { CloseHandle(handle) };
+            closed.push(handle);
+        }
+        // SAFETY: setting a std slot to null is always allowed.
+        unsafe { SetStdHandle(which, std::ptr::null_mut()) };
     }
 }

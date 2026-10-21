@@ -6,6 +6,6 @@ mod unix;
 mod windows;
 
 #[cfg(not(windows))]
-pub use unix::{prepare, user_default_ui_language, Job};
+pub use unix::{close_std_streams, prepare, user_default_ui_language, Job};
 #[cfg(windows)]
-pub use windows::{prepare, user_default_ui_language, Job};
+pub use windows::{close_std_streams, prepare, user_default_ui_language, Job};

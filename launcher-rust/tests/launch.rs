@@ -102,7 +102,7 @@ fn terminate_ends_a_running_child_and_reports_exit() {
     handle.terminate();
     let events = collect(&handle);
     match events.last().unwrap().0 {
-        GameEvent::Exited(code) => assert_ne!(code, 0),
+        GameEvent::Exited(code) => assert_eq!(code, if cfg!(windows) { 1 } else { -1 }),
         GameEvent::Output(_) => unreachable!(),
     }
     handle.close();

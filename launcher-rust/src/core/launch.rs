@@ -120,6 +120,7 @@ pub fn spawn_game(
             run_log.write(&text);
             let _ = tx.send(GameEvent::Output(text));
         }
+        drop(run_log);
         let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
         let _ = tx.send(GameEvent::Exited(code));
     });

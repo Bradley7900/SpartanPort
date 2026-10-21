@@ -1,8 +1,9 @@
 //! A stand-in for the game used by the launch tests.
 //!
 //! `fake-game --lines N --delay-ms D --exit CODE [--silent-after N]` prints `line K` for K in
-//! 1..=N, sleeping D ms between lines. With `--silent-after N` it stops printing after N lines
-//! and keeps running for 500 ms before exiting, so the exit comes well after the last output.
+//! 1..=N, sleeping D ms between lines. With `--silent-after N` it stops after N lines,
+//! closes stdout and stderr (the pipe), keeps running for 700 ms and then exits. The pipe
+//! therefore reaches end of file well before the process exits.
 
 use std::io::Write;
 use std::time::Duration;
@@ -42,17 +43,16 @@ fn main() {
     };
     let printed = args.silent_after.map_or(args.lines, |n| n.min(args.lines));
     let mut out = std::io::stdout();
-    for k in 1..=args.lines {
-        if k <= printed {
-            let _ = writeln!(out, "line {k}");
-            let _ = out.flush();
-        }
+    for k in 1..=printed {
+        let _ = writeln!(out, "line {k}");
+        let _ = out.flush();
         if args.delay_ms > 0 {
             std::thread::sleep(Duration::from_millis(args.delay_ms));
         }
     }
     if args.silent_after.is_some() {
-        std::thread::sleep(Duration::from_millis(500));
+        spartanport_launcher::core::platform::close_std_streams();
+        std::thread::sleep(Duration::from_millis(700));
     }
     std::process::exit(args.exit);
 }

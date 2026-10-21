@@ -51,3 +51,12 @@ impl Job {
 
     pub fn close(&mut self) {}
 }
+
+/// Points this process's stdout and stderr at `/dev/null`, which closes the pipe the game's
+/// reader holds the other end of. Errors are ignored.
+pub fn close_std_streams() {
+    if let Ok(null) = std::fs::File::options().write(true).open("/dev/null") {
+        let _ = nix::unistd::dup2_stdout(&null);
+        let _ = nix::unistd::dup2_stderr(&null);
+    }
+}
