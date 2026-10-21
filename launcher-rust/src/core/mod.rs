@@ -2,6 +2,7 @@
 
 pub mod fs;
 pub mod game;
+pub mod gpu;
 pub mod ini;
 pub mod options;
 pub mod paths;
