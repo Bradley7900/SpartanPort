@@ -1269,6 +1269,10 @@ EXTRA['pt'].update({
     'Auto': 'Automático',
     'For launcher only. Applies after Save.':
         'Somente para o inicializador. Aplica-se após Salvar.',
+    'Monitor': 'Monitor',
+    'Primary (default)': 'Principal (padrão)',
+    'The screen the game opens its window on. Primary is the monitor the system considers the main one.':
+        'A tela em que o jogo abre a sua janela. Principal é o monitor que o sistema considera o principal.',
 })
 
 EXTRA['pt'].update({
@@ -1316,6 +1320,10 @@ EXTRA['es'].update({
     '⚠ 1 file is changed by two mods. {} wins.': '⚠ 1 archivo lo cambian dos mods. Gana {}.',
     '⚠ {} also in {}. {} wins.': '⚠ {} también en {}. Gana {}.',
     '⚠ {} files are changed by more than one mod. The lower one in the list wins.': '⚠ {} archivos los cambian varios mods. Gana el que está más abajo.',
+    'Monitor': 'Monitor',
+    'Primary (default)': 'Principal (predeterminado)',
+    'The screen the game opens its window on. Primary is the monitor the system considers the main one.':
+        'La pantalla en la que el juego abre su ventana. Principal es el monitor que el sistema considera el principal.',
 })
 
 EXTRA['pt'].update({
@@ -1903,6 +1911,10 @@ for _language, _texts in spartanport_trophies.UI.items():
 
 
 EXTRA['zh'].update({
+    'Monitor': '显示器',
+    'Primary (default)': '主显示器（默认）',
+    'The screen the game opens its window on. Primary is the monitor the system considers the main one.':
+        '游戏窗口打开所在的屏幕。主显示器是系统指定的主要屏幕。',
     "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.":
         '将游戏中的 PlayStation 按键图标替换为你的控制器图标。使用移植版数据文件夹内最多三个游戏文件的副本（约 410 MB），不会更改游戏文件夹。启动游戏时生效。',
 })
