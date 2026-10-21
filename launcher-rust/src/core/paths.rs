@@ -1,0 +1,237 @@
+//! Where the launcher keeps its files, resolved once from the environment.
+
+use std::path::{Path, PathBuf};
+
+/// Folder name of the previous launcher's settings (`scripts/legacy.py`).
+const LEGACY_CONFIG_DIR: &str = "gow3-launcher";
+
+/// Every launcher folder and file, derived from the executable's folder and the environment.
+#[derive(Debug, Clone)]
+pub struct Paths {
+    pub port_dir: PathBuf,
+    pub data_dir: PathBuf,
+    ini: PathBuf,
+    legacy_config_dir: PathBuf,
+}
+
+impl Paths {
+    /// `env` reads one environment variable; nothing else touches the OS.
+    pub fn from_env(exe_dir: &Path, env: &dyn Fn(&str) -> Option<String>) -> Paths {
+        let data_dir = env("SPARTAN_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| exe_dir.to_path_buf());
+        let ini = env("SPARTAN_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| data_dir.join("spartanport.ini"));
+        let home = || {
+            let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+            env(key)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."))
+        };
+        let base = if cfg!(windows) {
+            env("APPDATA").map(PathBuf::from).unwrap_or_else(home)
+        } else {
+            env("XDG_CONFIG_HOME")
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home().join(".config"))
+        };
+        Paths {
+            port_dir: exe_dir.to_path_buf(),
+            data_dir,
+            ini,
+            legacy_config_dir: base.join(LEGACY_CONFIG_DIR),
+        }
+    }
+
+    pub fn config_file(&self) -> PathBuf {
+        self.data_dir.join("settings.json")
+    }
+
+    pub fn legacy_config_file(&self) -> PathBuf {
+        self.legacy_config_dir.join("settings.json")
+    }
+
+    pub fn ini_path(&self) -> PathBuf {
+        self.ini.clone()
+    }
+
+    /// The saves folder: the setting, or `data_dir/user` when it is empty.
+    pub fn user_dir(&self, settings_user_dir: &str) -> PathBuf {
+        self.setting_or_default(settings_user_dir, "user")
+    }
+
+    pub fn mods_dir(&self, settings_mods_dir: &str) -> PathBuf {
+        self.setting_or_default(settings_mods_dir, "mods")
+    }
+
+    pub fn patches_dir(&self, settings_patches_dir: &str) -> PathBuf {
+        self.setting_or_default(settings_patches_dir, "patches")
+    }
+
+    pub fn mod_presets(&self) -> PathBuf {
+        self.data_dir.join("mods_presets.json")
+    }
+
+    pub fn mods_json(&self) -> PathBuf {
+        self.data_dir.join("mods.json")
+    }
+
+    pub fn patches_json(&self) -> PathBuf {
+        self.data_dir.join("patches.json")
+    }
+
+    /// `<saves folder>/last_run.log`, where `user_dir` is the saves-folder setting.
+    pub fn run_log_path(&self, user_dir: &str) -> PathBuf {
+        self.user_dir(user_dir).join("last_run.log")
+    }
+
+    /// A port executable: `bin/` in a packaged build, `out/` in a source checkout.
+    pub fn find_tool(&self, name: &str) -> Option<PathBuf> {
+        let file = if cfg!(windows) {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        };
+        ["bin", "out"]
+            .iter()
+            .map(|folder| self.port_dir.join(folder).join(&file))
+            .find(|candidate| candidate.is_file())
+    }
+
+    /// Next to the port; in the data folder when the port folder is read-only (AppImage).
+    pub fn fsr4_folder(&self) -> PathBuf {
+        let writable = cfg!(windows)
+            || std::fs::metadata(&self.port_dir)
+                .map(|m| !m.permissions().readonly())
+                .unwrap_or(false);
+        if writable {
+            self.port_dir.join("fsr4_shaders")
+        } else {
+            self.data_dir.join("fsr4_shaders")
+        }
+    }
+
+    fn setting_or_default(&self, setting: &str, default: &str) -> PathBuf {
+        if setting.is_empty() {
+            self.data_dir.join(default)
+        } else {
+            PathBuf::from(setting)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |key| map.get(key).cloned()
+    }
+
+    #[test]
+    fn data_dir_defaults_to_the_executables_folder() {
+        let paths = Paths::from_env(Path::new("exe"), &env_of(&[]));
+        assert_eq!(paths.port_dir, Path::new("exe"));
+        assert_eq!(paths.data_dir, Path::new("exe"));
+        assert_eq!(paths.config_file(), Path::new("exe").join("settings.json"));
+        assert_eq!(
+            paths.mod_presets(),
+            Path::new("exe").join("mods_presets.json")
+        );
+    }
+
+    #[test]
+    fn data_dir_follows_spartan_data_dir() {
+        let paths = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_DATA_DIR", "data")]));
+        assert_eq!(paths.port_dir, Path::new("exe"));
+        assert_eq!(paths.data_dir, Path::new("data"));
+        assert_eq!(paths.mods_json(), Path::new("data").join("mods.json"));
+        assert_eq!(paths.patches_json(), Path::new("data").join("patches.json"));
+        assert_eq!(paths.user_dir(""), Path::new("data").join("user"));
+        assert_eq!(paths.user_dir("saves"), Path::new("saves"));
+        assert_eq!(paths.mods_dir(""), Path::new("data").join("mods"));
+        assert_eq!(paths.patches_dir("p"), Path::new("p"));
+        assert_eq!(
+            paths.run_log_path(""),
+            Path::new("data").join("user").join("last_run.log")
+        );
+    }
+
+    #[test]
+    fn ini_path_follows_spartan_config() {
+        let default = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_DATA_DIR", "data")]));
+        assert_eq!(
+            default.ini_path(),
+            Path::new("data").join("spartanport.ini")
+        );
+        let custom = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_CONFIG", "my.ini")]));
+        assert_eq!(custom.ini_path(), Path::new("my.ini"));
+    }
+
+    #[test]
+    fn find_tool_prefers_bin_over_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = if cfg!(windows) { "tool.exe" } else { "tool" };
+        let paths = Paths::from_env(dir.path(), &env_of(&[]));
+        assert_eq!(paths.find_tool("tool"), None);
+        std::fs::create_dir_all(dir.path().join("out")).unwrap();
+        std::fs::write(dir.path().join("out").join(file), b"").unwrap();
+        assert_eq!(
+            paths.find_tool("tool"),
+            Some(dir.path().join("out").join(file))
+        );
+        std::fs::create_dir_all(dir.path().join("bin")).unwrap();
+        std::fs::write(dir.path().join("bin").join(file), b"").unwrap();
+        assert_eq!(
+            paths.find_tool("tool"),
+            Some(dir.path().join("bin").join(file))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn legacy_config_file_is_appdata_gow3_launcher_on_windows() {
+        let paths = Paths::from_env(Path::new("exe"), &env_of(&[("APPDATA", "roaming")]));
+        assert_eq!(
+            paths.legacy_config_file(),
+            Path::new("roaming")
+                .join("gow3-launcher")
+                .join("settings.json")
+        );
+        let no_appdata = Paths::from_env(Path::new("exe"), &env_of(&[("USERPROFILE", "home")]));
+        assert_eq!(
+            no_appdata.legacy_config_file(),
+            Path::new("home")
+                .join("gow3-launcher")
+                .join("settings.json")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_config_file_is_xdg_config_gow3_launcher_on_unix() {
+        let paths = Paths::from_env(Path::new("exe"), &env_of(&[("XDG_CONFIG_HOME", "xdg")]));
+        assert_eq!(
+            paths.legacy_config_file(),
+            Path::new("xdg").join("gow3-launcher").join("settings.json")
+        );
+        let fallback = Paths::from_env(
+            Path::new("exe"),
+            &env_of(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "")]),
+        );
+        assert_eq!(
+            fallback.legacy_config_file(),
+            Path::new("/h")
+                .join(".config")
+                .join("gow3-launcher")
+                .join("settings.json")
+        );
+    }
+}
