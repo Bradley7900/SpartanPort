@@ -31,3 +31,9 @@ patches.json
 !packaging/icon/monogram.png
 /.vscode
 
+# Rust launcher (docs/specs/2026-10-21-rust-launcher-design.md)
+launcher-rust/target/
+!launcher-rust/assets/*.png
+!docs/specs/assets/**/*.png
+# Brainstorming companion sessions
+.superpowers/
