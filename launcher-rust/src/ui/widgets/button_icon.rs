@@ -4,6 +4,7 @@
 //! chooses PlayStation, Xbox or Nintendo symbols, colours and labels.
 
 use iced::alignment::Vertical;
+use iced::border::Radius;
 use iced::mouse::Cursor;
 use iced::widget::canvas::{self, Canvas, Frame, Geometry, Path, Stroke, Text};
 use iced::widget::text::Alignment;
@@ -239,6 +240,22 @@ fn label(frame: &mut Frame, content: &str, at: Point, size: f32, color: Color) {
     });
 }
 
+/// Corner radii of a bumper, trigger or pill bar: half the height all round, except triggers,
+/// which are rounded (`0.2 s`) at the top only and square at the bottom.
+fn bar_radius(kind: IconKind, s: f32, top: f32, bottom: f32) -> Radius {
+    if kind == IconKind::Trigger {
+        let r = s * 0.2;
+        Radius {
+            top_left: r,
+            top_right: r,
+            bottom_right: 0.0,
+            bottom_left: 0.0,
+        }
+    } else {
+        ((bottom - top) / 2.0).into()
+    }
+}
+
 fn paint(frame: &mut Frame, spec: &IconSpec, s: f32) {
     let m = s / 2.0;
     let center = Point::new(m, m);
@@ -249,7 +266,13 @@ fn paint(frame: &mut Frame, spec: &IconSpec, s: f32) {
             let letter = spec.kind == IconKind::Letter;
             frame.fill(&disc, if letter { color } else { BODY });
             if letter {
-                label(frame, &spec.text, center, (s * 0.42).max(7.0), LETTER_INK);
+                label(
+                    frame,
+                    &spec.text,
+                    center,
+                    (s * 0.42).floor().max(7.0),
+                    LETTER_INK,
+                );
                 return;
             }
             let stroke = Stroke::default()
@@ -299,7 +322,13 @@ fn paint(frame: &mut Frame, spec: &IconSpec, s: f32) {
                     .with_color(DIM)
                     .with_width((s / 14.0).floor().max(1.0)),
             );
-            label(frame, &spec.text, center, (s * 0.28).max(6.0), color);
+            label(
+                frame,
+                &spec.text,
+                center,
+                (s * 0.28).floor().max(6.0),
+                color,
+            );
         }
         IconKind::Bumper | IconKind::Trigger | IconKind::Pill => {
             // Bumpers: a flat bar; triggers: taller with a rounded top; the rest: a small pill.
@@ -308,15 +337,11 @@ fn paint(frame: &mut Frame, spec: &IconSpec, s: f32) {
                 IconKind::Trigger => (s * 0.12, s * 0.88),
                 _ => (s * 0.3, s * 0.7),
             };
-            let r = if spec.kind == IconKind::Trigger {
-                s * 0.2
-            } else {
-                (bottom - top) / 2.0
-            };
+            let radius = bar_radius(spec.kind, s, top, bottom);
             let bar = Path::rounded_rectangle(
                 Point::new(1.0, top),
                 Size::new(s - 2.0, bottom - top),
-                r.into(),
+                radius,
             );
             frame.fill(&bar, BODY);
             let ratio = if spec.text.chars().count() > 3 {
@@ -328,7 +353,7 @@ fn paint(frame: &mut Frame, spec: &IconSpec, s: f32) {
                 frame,
                 &spec.text,
                 Point::new(m, (top + bottom) / 2.0),
-                (s * ratio).max(5.0),
+                (s * ratio).floor().max(5.0),
                 color,
             );
         }
@@ -367,6 +392,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn triggers_are_rounded_on_top_and_square_at_the_bottom() {
+        let trigger = bar_radius(IconKind::Trigger, 28.0, 3.36, 24.64);
+        assert_eq!(trigger.top_left, 5.6);
+        assert_eq!(trigger.top_right, 5.6);
+        assert_eq!(trigger.bottom_left, 0.0);
+        assert_eq!(trigger.bottom_right, 0.0);
+        let bumper = bar_radius(IconKind::Bumper, 28.0, 7.84, 20.16);
+        assert_eq!(bumper.bottom_left, bumper.top_left);
+        assert!(bumper.bottom_left > 0.0);
     }
 
     #[test]
