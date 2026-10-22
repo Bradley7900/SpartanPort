@@ -1,7 +1,7 @@
 # Rust launcher parity: Python tests → Rust tests
 
 Every test method of `tests/test_launcher_*.py`, `tests/test_trophies.py` and `tests/test_button_icons.py`
-(the Python launcher 2.6.0, reference `541739b`, plus the generator checks of Task 2) with the Rust test
+(the Python launcher 2.7.0, reference `003e42b`, plus the generator checks of Task 2) with the Rust test
 of `launcher-rust/` that covers its behaviour (spec §7). `tests/test_launcher_parity_doc.py` keeps this
 map honest: it finds the methods by scanning those files, and fails when one has no row, a row has no
 status, or a named Rust test does not exist. That checker is not itself a row.
@@ -29,11 +29,12 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 |---|---|---|---|---|---|---|
 | `tests/test_launcher_artwork.py` | 7 | 0 | 3 | 0 | 0 | 4 |
 | `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_cache.py` | 3 | 3 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 |
-| `tests/test_launcher_controls.py` | 49 | 18 | 18 | 0 | 0 | 13 |
+| `tests/test_launcher_controls.py` | 51 | 20 | 18 | 0 | 0 | 13 |
 | `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 |
 | `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 |
-| `tests/test_launcher_exit_hint.py` | 6 | 2 | 4 | 0 | 0 | 0 |
+| `tests/test_launcher_exit_hint.py` | 17 | 10 | 5 | 0 | 0 | 2 |
 | `tests/test_launcher_font.py` | 19 | 0 | 6 | 6 | 0 | 7 |
 | `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 | 0 |
 | `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 |
@@ -55,7 +56,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **320** | **114** | **84** | **20** | **2** | **100** |
+| **Total** | **336** | **127** | **85** | **20** | **2** | **102** |
 
 ## Map
 
@@ -69,6 +70,9 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_still_uses_the_existing_placeholder` | `tests/ui_snapshots.rs::home` | replaced by `tests/ui_snapshots.rs::home` |
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_shows_the_ports_logo` | `tests/ui_snapshots.rs::home` | replaced by `tests/ui_snapshots.rs::home` |
 | `tests/test_launcher_aspect.py::AspectFilterTest::test_aspect_follows_and_filters_the_render_resolution` | `tests/ui_pages.rs::aspect_follows_and_filters_the_render_resolution` | ported |
+| `tests/test_launcher_cache.py::ClearShaderCache::test_asks_then_deletes` | `tests/ui_pages.rs::deleting_the_shader_cache_asks_then_deletes` | ported |
+| `tests/test_launcher_cache.py::ClearShaderCache::test_refuses_while_the_game_runs` | `tests/ui_play.rs::a_running_game_blocks_restore_reset_and_cache_clear` | ported |
+| `tests/test_launcher_cache.py::ClearShaderCache::test_empty_cache_needs_no_question` | `tests/ui_pages.rs::deleting_the_shader_cache_asks_then_deletes` | ported |
 | `tests/test_launcher_close_on_play.py::CloseOnPlayTest::test_active_game_hides_window_without_destroying_the_reader_owner` | `tests/ui_play.rs::close_on_play_hides_only_while_running` | ported |
 | `tests/test_launcher_close_on_play.py::CloseOnPlayTest::test_early_failure_and_stale_timer_do_not_hide_the_launcher` | `tests/ui_play.rs::close_on_play_hides_only_while_running` | ported |
 | `tests/test_launcher_close_on_play.py::CloseOnPlayTest::test_hidden_launcher_exits_after_game_output_is_finished` | `tests/ui_play.rs::a_hidden_launcher_exits_after_the_game` | ported |
@@ -77,6 +81,8 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::DiskModsTest::test_frozen_launcher_uses_disk_loader_in_every_import` | — | dropped: no Rust counterpart — the frozen launcher imports scripts/mods.py from the port folder over its bundled copy (the Rust mods code is compiled in) |
 | `tests/test_launcher_controls.py::DiskModsTest::test_missing_disk_loader_uses_the_bundle` | — | dropped: no Rust counterpart — without scripts/mods.py on disk the frozen launcher uses its bundled copy |
 | `tests/test_launcher_controls.py::DiskModsTest::test_invalid_disk_loader_has_a_clear_error_and_keeps_the_bundle` | — | dropped: no Rust counterpart — a broken scripts/mods.py raises an error naming the file and keeps the bundled copy |
+| `tests/test_launcher_controls.py::ControlMapTest::test_shader_notes_are_off_without_a_saved_choice` | `src/core/env.rs::tests::shader_notes_are_off_without_a_saved_choice` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_saved_shader_notes_choice_is_preserved` | `src/core/env.rs::tests::saved_shader_notes_choice_is_preserved` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_new_cheats_default_to_disabled` | `tests/fixtures.rs::collect_matches_python_for_edited_case` | replaced by `tests/fixtures.rs::collect_matches_python_for_edited_case` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_pipeline_binary_cache_switch` | — | dropped: no Rust counterpart — pipeline_binary_cache off sends SPARTAN_PIPELINE_BINARIES=0 (the default 1 is only in the environment fixtures) |
 | `tests/test_launcher_controls.py::ControlMapTest::test_changed_buttons_in_table_order` | `src/core/controls.rs::tests::changed_buttons_in_table_order` | ported |
@@ -159,12 +165,23 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_diagnostics_layout.py::DiagnosticsLayoutTest::test_english` | — | dropped: Tk-only: the expanded Diagnostics body must not share the Log section's grid row (Tk grid geometry); the iced page stacks its sections in one column (collapsing is in tests/ui_pages.rs::diagnostics_start_collapsed) |
 | `tests/test_launcher_diagnostics_layout.py::DiagnosticsLayoutTest::test_portuguese` | — | dropped: Tk-only: the same grid-row check in Portuguese |
 | `tests/test_launcher_diagnostics_layout.py::DiagnosticsLayoutTest::test_scaled_fonts` | — | dropped: Tk-only: the same grid-row check at Tk scaling 1.5 |
-| `tests/test_launcher_exit_hint.py::ExitHintTest::test_guest_memory_failure_points_to_the_page_file` | `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` | replaced by `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_guest_memory_failure_points_to_the_page_file_on_windows` | `src/core/log.rs::tests::guest_memory_failure_points_to_the_page_file_on_windows` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_guest_memory_failure_points_to_linux_memory_on_linux` | `src/core/log.rs::tests::guest_memory_failure_points_to_linux_memory_on_linux` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_guest_memory_mapping_failure_on_linux` | `src/core/log.rs::tests::guest_memory_mapping_failure_on_linux` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_windows_environment_uses_windows_advice_for_generic_error` | `src/core/log.rs::tests::windows_environment_uses_windows_advice_for_generic_error` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_linux_environment_uses_linux_advice_for_generic_error` | `src/core/log.rs::tests::linux_environment_uses_linux_advice_for_generic_error` | ported |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_debug_exception_while_reading_files_points_to_the_dump` | `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` | replaced by `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_other_lines_have_no_hint` | `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` | replaced by `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_the_hint_follows_the_exit_line` | `tests/ui_play.rs::play_runs_the_fake_game_and_shows_its_lines_then_the_exit` | replaced by `tests/ui_play.rs::play_runs_the_fake_game_and_shows_its_lines_then_the_exit` |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_exit_hint_switches_to_advanced_page_and_scrolls_log` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_exit_hint_unhides_launcher_when_hidden_for_game` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_clean_exit_destroys_root_when_hidden_for_game` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | ported |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_logs_hint_and_shows_messagebox` | — | dropped: no Rust counterpart — --play writes the exit advice to the log and shows a message box when no console is attached (--play is forwarded to the Python launcher) |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_clean_exit_does_not_show_messagebox` | — | dropped: no Rust counterpart — --play shows no message box after a clean exit (--play is forwarded to the Python launcher) |
 | `tests/test_launcher_exit_hint.py::HybridGpuTest::test_windows_hides_the_amd_switchable_layer` | `src/core/env.rs::tests::windows_hides_the_amd_switchable_layer` | ported |
 | `tests/test_launcher_exit_hint.py::HybridGpuTest::test_a_value_set_by_the_player_is_kept` | `src/core/env.rs::tests::a_value_set_by_the_player_is_kept` | ported |
+| `tests/test_launcher_exit_hint.py::RealLauncherExitTest::test_real_launcher_memory_failure_navigates_to_advanced_without_key_error` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | replaced by `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` |
+| `tests/test_launcher_exit_hint.py::RealLauncherExitTest::test_real_launcher_restores_from_hidden_state_on_memory_failure` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | replaced by `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` |
 | `tests/test_launcher_font.py::FontFileTest::test_font_file_is_a_launcher_asset_under_port_dir` | `src/ui/theme.rs::tests::fonts_are_embedded` | replaced by `src/ui/theme.rs::tests::fonts_are_embedded` |
 | `tests/test_launcher_font.py::FontFileTest::test_windows_package_ships_the_font` | `src/ui/theme.rs::tests::fonts_are_embedded` | replaced by `src/ui/theme.rs::tests::fonts_are_embedded` |
 | `tests/test_launcher_font.py::FontFileTest::test_packages_ship_the_font_license` | — | dropped: no Rust counterpart — the Cinzel OFL license text ships with the face (launcher-rust/assets/OFL-Cinzel.txt exists; no test checks it or its packaging) |
@@ -400,6 +417,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 14. Without a game in the game folder the Home has no "Choose the game folder first." line: the game chip ("✗ No eboot.bin in the game folder") says it, and the line under the settings shows the in-game menu hint (R85). With a game, that line names the patches the last start left out ("{} patches not found in this eboot.bin at the last start (see Log)") instead of the Python's whole summary.
 15. GUI Scale offers 1x (the default) and 1.5x, both absolute on any desktop (R90; the Python offered Auto, the default, 1x and 2x). A stored "auto" loads as 1x and a stored "2" as 1.5x; `tests/fixtures.rs` expects `"ui_scale": "1"` where the Python's fixtures hold its default.
 16. Discord Rich Presence is on by default (R91; the Python's default was off): a new `settings.json` holds `"discord_rpc": true`, and the game gets `SPARTAN_DISCORD=1` unless the player switches it off. `tests/fixtures.rs` lists it with `ui_scale` in `DECIDED_DEFAULTS`, the only defaults allowed to differ from the Python's fixtures.
+17. When the game exits with advice the Rust opens the Log page and scrolls to its end (the 2.7.0 Python scrolls the Advanced page to its log section). The Delete shader cache button of Performance and the Clear shader cache button of Advanced ask the same question, as the Python's two buttons do.
 
 ## Partly covered
 
@@ -460,7 +478,7 @@ the Python test:
 
 ## Gaps
 
-The 100 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_update_artwork_overrides_base_when_present` — the update's pic1.png is the cover when it has one
@@ -480,6 +498,8 @@ The 100 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_controls.py::PadStyleTest::test_connected_gamepad_reads_the_probe` — the probe's "Gamepad: type=" line means a gamepad, "No gamepad" none, a timeout unknown (only a missing probe is asserted)
 - `tests/test_launcher_controls.py::PadStyleTest::test_nintendo_icons` — the Nintendo icons put B on the south button and ZL on the left trigger
 - `tests/test_launcher_desktop.py::DesktopIntegrationTest::test_without_the_environment_argument_the_real_one_is_read` — the start-up integration honours DESKTOPINTEGRATION from the real environment
+- `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_logs_hint_and_shows_messagebox` — --play writes the exit advice to the log and shows a message box when no console is attached (--play is forwarded to the Python launcher)
+- `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_clean_exit_does_not_show_messagebox` — --play shows no message box after a clean exit (--play is forwarded to the Python launcher)
 - `tests/test_launcher_font.py::FontFileTest::test_packages_ship_the_font_license` — the Cinzel OFL license text ships with the face (launcher-rust/assets/OFL-Cinzel.txt exists; no test checks it or its packaging)
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_prefers_windows_cjk_font_for_body_and_headings` — Chinese uses an installed CJK face (Microsoft YaHei UI) for the body and the headings
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_can_use_noto_on_linux` — Chinese uses Noto Sans CJK SC on Linux for the body and serif text
