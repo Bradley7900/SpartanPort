@@ -372,6 +372,35 @@ fn the_home_glows_fall_off_without_bands() {
 }
 
 #[test]
+fn the_splash_halo_fades_out_from_the_monogram() {
+    // Ruling R80: the halo is the glows' soft sprite. A flat disc showed as a ball: one red up to
+    // its edge, then a step down to the background.
+    let (width, height) = (1280, 800);
+    let dir = tempfile::tempdir().unwrap();
+    let size = Size::new(width as f32, height as f32);
+    let state = fixture(dir.path(), Shot::Splash, size, "en");
+    let image = render(&state, width, height);
+    // The monogram is 200 px, centred 30 px above the middle of the scene (the window less the
+    // 52 px bar); the row through its centre, from just right of it outwards.
+    let (centre_x, centre_y) = (width / 2, (height - 52) / 2 - 30);
+    let reds: Vec<u8> = (centre_x + 110..centre_x + 460)
+        .map(|x| image.get_pixel(x, centre_y)[0])
+        .collect();
+    let first = reds[0];
+    let last = *reds.last().unwrap();
+    assert!(
+        first > last + 20,
+        "no halo: {first} beside the monogram, {last} far out"
+    );
+    for (inner, outer) in reds.iter().zip(&reds[1..]) {
+        assert!(
+            *outer <= inner + 1 && inner.saturating_sub(*outer) <= 2,
+            "not a smooth falloff: {reds:?}"
+        );
+    }
+}
+
+#[test]
 fn the_home_block_behind_a_wide_drawer_has_no_shade_box() {
     // Ruling R79: the block fades through its own colours. A shade over its bounds, darker than
     // the dim layer around it, showed as a black box.

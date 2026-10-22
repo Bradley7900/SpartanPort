@@ -5,9 +5,14 @@
 use std::time::Duration;
 
 use iced::animation::{Animation, Easing};
+use iced::mouse;
 use iced::time::Instant;
-use iced::widget::{container, image, mouse_area, space, stack, text};
-use iced::{Background, Border, Bottom, Color, Element, Fill, Padding, Task};
+use iced::widget::canvas::{self, Geometry};
+use iced::widget::{canvas as canvas_widget, container, image, mouse_area, space, stack, text};
+use iced::{
+    Background, Bottom, Color, Element, Fill, Padding, Point, Rectangle, Renderer, Size, Task,
+    Theme,
+};
 
 use crate::core::game::ready_to_play;
 use crate::core::gpu::{list_gpus, GpuRow};
@@ -31,8 +36,11 @@ pub const FLY: Duration = Duration::from_millis(700);
 const BIG: f32 = 200.0;
 const SMALL: f32 = 60.0;
 const CORNER: f32 = 24.0;
-/// Width of the red halo around the monogram.
-const GLOW: f32 = 80.0;
+/// The red halo behind the monogram (ruling R80, mockup `#slogo` drop shadow
+/// `rgba(200, 30, 37, .35)`): the Home glows' soft sprite, its radius a multiple of the monogram's
+/// size and its alpha in the middle.
+const HALO_RADIUS: f32 = 1.6;
+const HALO_PEAK: f32 = 0.35;
 
 /// What a finished start-up check found.
 #[derive(Debug, Clone)]
@@ -189,6 +197,36 @@ fn lerp(from: f32, to: f32, t: f32) -> f32 {
     from + (to - from) * t
 }
 
+/// The halo: the glow sprite around `centre`, `radius` wide, at `opacity` in its middle. A canvas
+/// draws it, so it may reach past the window's edges as the monogram flies to the corner.
+#[derive(Debug, Clone, Copy)]
+struct Halo {
+    centre: Point,
+    radius: f32,
+    opacity: f32,
+}
+
+impl canvas::Program<Message> for Halo {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &(),
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let corner = Point::new(self.centre.x - self.radius, self.centre.y - self.radius);
+        frame.draw_image(
+            Rectangle::new(corner, Size::new(2.0 * self.radius, 2.0 * self.radius)),
+            canvas::Image::new(home::glow_sprite(palette::RED_HI)).opacity(self.opacity),
+        );
+        vec![frame.into_geometry()]
+    }
+}
+
 /// The monogram image: the Home corner's handle, made once per process, so the view rebuilt on
 /// every tick does not ask wgpu to decode the picture again (it draws nothing while it decodes).
 pub fn monogram() -> image::Handle {
@@ -212,7 +250,6 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
     };
     let x = lerp((width - BIG) / 2.0, corner_x, t);
     let y = lerp((height - BIG) / 2.0 - 30.0, CORNER, t);
-    let glow = lerp(GLOW, 0.0, t);
 
     let background = container(space())
         .width(Fill)
@@ -225,25 +262,22 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
             ..container::Style::default()
         });
 
+    let halo = canvas_widget(Halo {
+        centre: Point::new(x + size / 2.0, y + size / 2.0),
+        radius: HALO_RADIUS * size,
+        opacity: HALO_PEAK * fade,
+    })
+    .width(Fill)
+    .height(Fill);
     let monogram = image(monogram()).width(size).height(size);
-    let halo = container(monogram)
-        .padding(glow)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(Color {
-                a: 0.16 * fade,
-                ..palette::RED
-            })),
-            border: Border {
-                radius: (size + 2.0 * glow).into(),
-                ..Border::default()
-            },
-            ..container::Style::default()
+    let monogram_layer = container(monogram)
+        .width(Fill)
+        .height(Fill)
+        .padding(Padding {
+            top: y.max(0.0),
+            left: x.max(0.0),
+            ..Padding::ZERO
         });
-    let monogram_layer = container(halo).width(Fill).height(Fill).padding(Padding {
-        top: (y - glow).max(0.0),
-        left: (x - glow).max(0.0),
-        ..Padding::ZERO
-    });
 
     let muted = Color {
         a: fade,
@@ -270,7 +304,7 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
     let fire = state.fire.view();
 
     mouse_area(
-        stack![background, fire, status, hint, monogram_layer]
+        stack![background, fire, halo, status, hint, monogram_layer]
             .width(Fill)
             .height(Fill),
     )
