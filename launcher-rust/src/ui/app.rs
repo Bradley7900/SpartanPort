@@ -37,7 +37,7 @@ use crate::ui::play::{self, GameMessage, GameState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, CINZEL_BOLD};
-use crate::ui::update::{UpdateMessage, UpdateState};
+use crate::ui::update::{self, UpdateMessage, UpdateState};
 use crate::ui::widgets;
 use crate::ui::widgets::modal::{Modal, ModalMessage};
 use crate::VERSION;
@@ -93,6 +93,8 @@ pub struct State {
     /// The backup chosen in the Saves row.
     pub backup_choice: String,
     pub update: UpdateState,
+    /// The percentages the update worker sends; `update::drain` empties it on each clock tick.
+    pub update_progress: Option<std::sync::mpsc::Receiver<u8>>,
     pub lang_menu: LangMenu,
     /// The art of the Home background, `sce_sys/pic1.png` of the game folder.
     pub home_art: Option<iced::widget::image::Handle>,
@@ -175,6 +177,7 @@ impl State {
             backups: Vec::new(),
             backup_choice: String::new(),
             update: Default::default(),
+            update_progress: None,
             lang_menu: Default::default(),
             home_art: None,
             home: Default::default(),
@@ -300,6 +303,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             tick(state, at);
             lang_menu::update(state, LangMessage::Tick(at));
             controls::tick(state, at);
+            update::drain(state);
             // The game's output arrives with the clock.
             return play::drain(state);
         }
@@ -351,8 +355,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::Game(message) => return play::update(state, message),
-        // Task 34
-        Message::Update(UpdateMessage::Install | UpdateMessage::Check { .. }) => {}
+        Message::Update(message) => return update::update(state, message),
         Message::Trophies(message) => return trophies::update(state, message),
         Message::Mods(message) => return mods::update(state, message),
         Message::Log(message) => return log::update(state, message),

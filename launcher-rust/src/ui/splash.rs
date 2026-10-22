@@ -11,13 +11,12 @@ use iced::{Background, Border, Bottom, Color, Element, Fill, Padding, Task};
 use crate::core::game::ready_to_play;
 use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
-use crate::core::update::{can_self_update, latest_release, version_tuple, Release};
+use crate::core::update::{can_self_update, latest_release, Release};
 use crate::ui::app::{Message, State, BAR_HEIGHT};
 use crate::ui::fire::Fire;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::palette;
-use crate::ui::update::UpdateState;
-use crate::VERSION;
+use crate::ui::update;
 
 /// Splash background (spec 4.2).
 pub const SPLASH_BG: Color = Color::from_rgb8(0x07, 0x06, 0x06);
@@ -134,10 +133,8 @@ pub fn apply(state: &mut State, message: SplashMessage) {
             match check {
                 Check::Gpus(gpus) => state.gpus = gpus,
                 Check::GameFolder(ready) => state.game_ready = Some(ready),
-                Check::Update(Some(release))
-                    if version_tuple(&release.version) > version_tuple(VERSION) =>
-                {
-                    state.update = UpdateState::Available(release);
+                Check::Update(Some(release)) if update::is_newer(&release) => {
+                    update::offer(state, release);
                 }
                 Check::Update(_) => {}
             }

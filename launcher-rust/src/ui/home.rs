@@ -615,14 +615,30 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
 
 fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
     let mut line = row![].spacing(10).align_y(Center);
-    if let UpdateState::Available(release) = &state.update {
-        let pill = text(update_pill_text(&state.lang, &release.version)).size(11);
-        line = line.push(
-            button(pill)
-                .padding([3, 10])
-                .style(button_flat)
-                .on_press_maybe(enabled.then_some(Message::Update(UpdateMessage::Install))),
-        );
+    match &state.update {
+        UpdateState::Available(release) => {
+            let pill = text(update_pill_text(&state.lang, &release.version)).size(11);
+            line = line.push(
+                button(pill)
+                    .padding([3, 10])
+                    .style(button_flat)
+                    .on_press_maybe(enabled.then_some(Message::Update(UpdateMessage::Install))),
+            );
+        }
+        // Not pressable while the package downloads.
+        UpdateState::Downloading(release, percent) => {
+            let shown = tr_fmt(
+                &state.lang,
+                "Downloading version {}… {}%",
+                &[&release.version, &percent.to_string()],
+            );
+            line = line.push(
+                button(text(shown).size(11))
+                    .padding([3, 10])
+                    .style(button_flat),
+            );
+        }
+        _ => {}
     }
     line = line.push(lang_menu::button_view(state));
     container(dimmed(line.into(), state))
