@@ -14,7 +14,7 @@ use serde_json::Value;
 use crate::core::desktop::{host_environment, windows_shortcut, write_linux_shortcut};
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::launch::python_command;
-use crate::core::options::{UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
+use crate::core::options::{ui_scale_choice, UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
 use crate::core::paths::Paths;
 use crate::core::platform;
 use crate::core::settings::Settings;
@@ -77,7 +77,8 @@ pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
         SelectRow {
             key: "ui_scale",
             pairs: choice_pairs(UI_SCALES, lang),
-            current: app("ui_scale"),
+            // An older file's "auto" or "2" shows as the choice it now stands for (R90).
+            current: ui_scale_choice(&app("ui_scale")).to_string(),
         },
     ];
     if !cfg!(windows) {

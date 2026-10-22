@@ -353,7 +353,7 @@ pub fn save(state: &mut State) -> Task<Message> {
         return Task::none();
     }
     let language = launcher_language(&state.settings.get_str("ui_language"), system_language);
-    let scale = theme::ui_scale(&state.settings.get_str("ui_scale"), state.desktop_scale);
+    let scale = theme::ui_scale(&state.settings.get_str("ui_scale"));
     let rezoomed = scale != state.scale;
     if language != state.lang || rezoomed {
         let rebuilt = rebuild(state, language, scale);

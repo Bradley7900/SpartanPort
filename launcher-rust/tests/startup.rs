@@ -172,18 +172,47 @@ fn a_new_desktop_scale_keeps_the_chosen_zoom() {
     // The window keeps its place and size: only a new zoom, no refit.
     assert_eq!(state.window_size, WINDOW_SIZE);
 
-    // Auto follows the desktop it is on.
+    // GUI Scale 1.5 (R90) stays 1.5 screen pixels per logical pixel on either desktop.
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_with(dir.path(), r#"{"ui_scale": "auto"}"#);
+    let mut state = state_with(dir.path(), r#"{"ui_scale": "1.5"}"#);
     let _ = app::update(&mut state, Message::WindowOpened(id, WINDOW_SIZE));
     let _ = app::update(&mut state, Message::DesktopScale(1.5));
-    let _ = app::update(&mut state, Message::DesktopRescaled(2.0));
-    assert_eq!((state.desktop_scale, state.scale), (2.0, 2.0));
+    assert_eq!(state.scale, 1.5);
     assert_eq!(window_zoom(state.scale, state.desktop_scale), 1.0);
+    let _ = app::update(&mut state, Message::DesktopRescaled(1.0));
+    assert_eq!((state.desktop_scale, state.scale), (1.0, 1.5));
+    assert_eq!(window_zoom(state.scale, state.desktop_scale), 1.5);
+
+    // A file from before R90: "auto" no longer follows the desktop, it is 1x; "2" is 1.5x.
+    for (stored, scale) in [("auto", 1.0), ("2", 1.5)] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state_with(dir.path(), &format!(r#"{{"ui_scale": "{stored}"}}"#));
+        let _ = app::update(&mut state, Message::WindowOpened(id, WINDOW_SIZE));
+        let _ = app::update(&mut state, Message::DesktopScale(1.5));
+        let _ = app::update(&mut state, Message::DesktopRescaled(2.0));
+        assert_eq!((state.desktop_scale, state.scale), (2.0, scale), "{stored}");
+    }
 }
 
 #[test]
-fn the_desktop_scale_sets_the_automatic_zoom() {
+fn the_window_fits_the_monitor_at_1_5x() {
+    // R49/R70 at GUI Scale 1.5 on a 100 % 1920 × 1080 monitor: iced reports the monitor in
+    // logical pixels of the total zoom (1280 × 720), and the window takes 90 % of that.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with(dir.path(), r#"{"ui_scale": "1.5"}"#);
+    let id = window::Id::unique();
+    let _ = app::update(&mut state, Message::WindowOpened(id, WINDOW_SIZE));
+    let _ = app::update(&mut state, Message::DesktopScale(1.0));
+    assert_eq!(window_zoom(state.scale, state.desktop_scale), 1.5);
+    let _ = app::update(
+        &mut state,
+        Message::MonitorSize(Some(Size::new(1280.0, 720.0))),
+    );
+    assert_eq!(state.window_size, Size::new(1152.0, 648.0));
+}
+
+#[test]
+fn the_desktop_scale_is_read_when_the_window_opens() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().display().to_string();
     let env = move |key: &str| match key {
@@ -198,9 +227,11 @@ fn the_desktop_scale_sets_the_automatic_zoom() {
     );
     assert_eq!(state.window_size, Size::new(1000.0, 700.0));
     assert_eq!(state.scale, 1.0);
+    // The default GUI Scale is 1x (R90): the zoom takes the desktop's 150 % back out.
     let _ = app::update(&mut state, Message::DesktopScale(1.5));
     assert_eq!(state.desktop_scale, 1.5);
-    assert_eq!(state.scale, 1.5);
+    assert_eq!(state.scale, 1.0);
+    assert!((window_zoom(state.scale, state.desktop_scale) - 1.0 / 1.5).abs() < 1e-6);
     let _ = app::update(
         &mut state,
         Message::MonitorSize(Some(Size::new(1366.0, 768.0))),

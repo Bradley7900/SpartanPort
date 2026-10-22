@@ -1582,9 +1582,16 @@ fn language_and_scale_rows_change_settings() {
     assert_eq!(state.settings.get_str("ui_language"), "pt");
     // The interface changes language when the launcher opens again (Save is Task 32).
     assert_eq!(state.lang, "en");
-    let pick = pick_row(&state, "ui_scale", "2");
+    let pick = pick_row(&state, "ui_scale", "1.5");
     let _ = app::update(&mut state, pick);
-    assert_eq!(state.settings.get_str("ui_scale"), "2");
+    assert_eq!(state.settings.get_str("ui_scale"), "1.5");
+    // R90: a file from before shows its closest choice, "auto" as 1x and "2" as 1.5x.
+    for (stored, shown) in [("auto", "1"), ("2", "1.5")] {
+        state.settings.set("ui_scale", stored.into());
+        let rows = advanced::rows(&state, "en");
+        let row = rows.iter().find(|row| row.key == "ui_scale").unwrap();
+        assert_eq!(row.current, shown, "{stored}");
+    }
 }
 
 #[test]

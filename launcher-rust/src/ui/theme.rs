@@ -5,6 +5,8 @@ use iced::font::{Family, Weight};
 use iced::widget::{button, checkbox, container, pick_list, text, text_input};
 use iced::{Background, Border, Color, Font, Padding, Theme};
 
+use crate::core::options::ui_scale_choice;
+
 /// Colours of the launcher (spec section 3.3).
 pub mod palette {
     use iced::Color;
@@ -224,12 +226,12 @@ pub fn text_muted(_theme: &Theme) -> text::Style {
     text::Style { color: Some(MUTED) }
 }
 
-/// Zoom factor: `"1"` and `"2"` are absolute, anything else follows the desktop.
-pub fn ui_scale(mode: &str, desktop_scale: f32) -> f32 {
-    match mode {
-        "1" => 1.0,
-        "2" => 2.0,
-        _ => desktop_scale.clamp(1.0, 4.0),
+/// Zoom factor of the stored GUI Scale, in screen pixels per logical pixel whatever the desktop's
+/// scale (R90): 1x or 1.5x (`options::ui_scale_choice` maps an older file's values).
+pub fn ui_scale(mode: &str) -> f32 {
+    match ui_scale_choice(mode) {
+        "1.5" => 1.5,
+        _ => 1.0,
     }
 }
 
@@ -306,12 +308,14 @@ mod tests {
 
     #[test]
     fn ui_scale_rules() {
-        assert_eq!(ui_scale("1", 2.0), 1.0);
-        assert_eq!(ui_scale("2", 1.5), 2.0);
-        assert_eq!(ui_scale("auto", 1.5), 1.5);
-        assert_eq!(ui_scale("bogus", 1.25), 1.25);
-        assert_eq!(ui_scale("auto", 0.5), 1.0);
-        assert_eq!(ui_scale("auto", 8.0), 4.0);
+        // R90: GUI Scale is 1x or 1.5x, absolute on any desktop (`window_zoom` leaves the
+        // desktop's own scale out). An older file's "auto" loads as 1x and its "2" as 1.5x.
+        assert_eq!(ui_scale("1"), 1.0);
+        assert_eq!(ui_scale("1.5"), 1.5);
+        assert_eq!(ui_scale("auto"), 1.0);
+        assert_eq!(ui_scale("2"), 1.5);
+        assert_eq!(ui_scale("bogus"), 1.0);
+        assert_eq!(ui_scale(""), 1.0);
     }
 
     #[test]

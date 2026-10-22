@@ -20,6 +20,52 @@ fn load_input(case: &str) -> serde_json::Value {
     serde_json::from_str(&text).unwrap()
 }
 
+/// A default the user changed on purpose after the Python 2.6.0 fixtures were generated.
+struct DecidedDefault {
+    /// The `settings.json` key.
+    key: &'static str,
+    /// Its default as the Python writes it (JSON text) and as the Rust launcher does.
+    python: &'static str,
+    rust: &'static str,
+}
+
+/// The only differences from the Python's defaults the fixtures allow, each a user's ruling. They
+/// apply to a case whose input neither stores nor edits the key, so the file holds the default.
+const DECIDED_DEFAULTS: &[DecidedDefault] = &[
+    // R90: GUI Scale is 1x or 1.5x, 1x by default (the Python's "auto" followed the desktop).
+    DecidedDefault {
+        key: "ui_scale",
+        python: r#""auto""#,
+        rust: r#""1""#,
+    },
+];
+
+/// The decided defaults the case `input` leaves at their default.
+fn decided_defaults(
+    input: &serde_json::Value,
+) -> impl Iterator<Item = &'static DecidedDefault> + '_ {
+    DECIDED_DEFAULTS.iter().filter(|decided| {
+        input["settings"].get(decided.key).is_none()
+            && input["edits"]["app"].get(decided.key).is_none()
+    })
+}
+
+/// The Python's `settings.json` of `case` with the decided defaults in place of its own.
+fn expected_settings(case: &str, input: &serde_json::Value) -> String {
+    let path = fixture_dir(case).join("settings.json");
+    let mut text = String::from_utf8(fs::read(path).unwrap()).unwrap();
+    for decided in decided_defaults(input) {
+        let python = format!(r#""{}": {}"#, decided.key, decided.python);
+        assert_eq!(text.matches(&python).count(), 1, "{case}: {python}");
+        text = text.replacen(
+            &python,
+            &format!(r#""{}": {}"#, decided.key, decided.rust),
+            1,
+        );
+    }
+    text
+}
+
 #[test]
 fn ini_matches_python_for_case_edited() {
     let input = load_input("edited");
@@ -59,22 +105,25 @@ fn settings_bytes_for_case(case: &str) -> Vec<u8> {
     fs::read(&path).unwrap()
 }
 
+/// `settings.json` of `case` as the Rust launcher writes it, against the Python's.
+fn assert_settings_match(case: &str) {
+    let got = String::from_utf8(settings_bytes_for_case(case)).unwrap();
+    assert_eq!(got, expected_settings(case, &load_input(case)));
+}
+
 #[test]
 fn settings_match_python_for_case_defaults() {
-    let expected = fs::read(fixture_dir("defaults").join("settings.json")).unwrap();
-    assert_eq!(settings_bytes_for_case("defaults"), expected);
+    assert_settings_match("defaults");
 }
 
 #[test]
 fn settings_match_python_for_case_edited() {
-    let expected = fs::read(fixture_dir("edited").join("settings.json")).unwrap();
-    assert_eq!(settings_bytes_for_case("edited"), expected);
+    assert_settings_match("edited");
 }
 
 #[test]
 fn legacy_controls_settings_match_python() {
-    let expected = fs::read(fixture_dir("legacy_controls").join("settings.json")).unwrap();
-    assert_eq!(settings_bytes_for_case("legacy_controls"), expected);
+    assert_settings_match("legacy_controls");
 }
 
 /// The Save flow against `fixtures/collected/`: what the Python launcher's own `collect()` wrote for
@@ -122,7 +171,11 @@ fn collect_matches_python_for_edited_case() {
     for name in ["settings.json", "spartanport.ini"] {
         // Byte for byte; as text so a failure shows the differing lines.
         let got = String::from_utf8(fs::read(dir.path().join(name)).unwrap()).unwrap();
-        let want = String::from_utf8(fs::read(expected.join(name)).unwrap()).unwrap();
+        let want = if name == "settings.json" {
+            expected_settings("collected", &input)
+        } else {
+            String::from_utf8(fs::read(expected.join(name)).unwrap()).unwrap()
+        };
         assert_eq!(got, want, "{name}");
     }
     for name in ["mods.json", "patches.json"] {

@@ -47,7 +47,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_portable_settings.py` | 7 | 0 | 3 | 0 | 0 | 4 |
 | `tests/test_launcher_run_log.py` | 7 | 4 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_save.py` | 17 | 12 | 2 | 0 | 0 | 3 |
-| `tests/test_launcher_scaling.py` | 17 | 0 | 5 | 9 | 0 | 3 |
+| `tests/test_launcher_scaling.py` | 17 | 0 | 4 | 9 | 1 | 3 |
 | `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 | 0 |
 | `tests/test_launcher_stream_memory.py` | 4 | 0 | 3 | 0 | 0 | 1 |
 | `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 0 | 8 |
@@ -55,7 +55,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **320** | **114** | **85** | **20** | **1** | **100** |
+| **Total** | **320** | **114** | **84** | **20** | **2** | **100** |
 
 ## Map
 
@@ -321,13 +321,13 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_save.py::EverySettingSavesTest::test_all_settings_save_without_detected_gpus` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back` | replaced by `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back` |
 | `tests/test_launcher_save.py::EverySettingSavesTest::test_every_setting_lights_save_persists_and_comes_back` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back` | ported |
 | `tests/test_launcher_scaling.py::ScaleSelectionTest::test_manual_factors_are_absolute_even_on_a_scaled_desktop` | `src/ui/theme.rs::tests::ui_scale_rules` | replaced by `src/ui/theme.rs::tests::ui_scale_rules` |
-| `tests/test_launcher_scaling.py::ScaleSelectionTest::test_auto_uses_the_desktop_scale_once` | `src/ui/theme.rs::tests::ui_scale_rules`, `tests/startup.rs::the_window_zoom_leaves_out_the_desktop_scale` | replaced by `src/ui/theme.rs::tests::ui_scale_rules`, `tests/startup.rs::the_window_zoom_leaves_out_the_desktop_scale` |
+| `tests/test_launcher_scaling.py::ScaleSelectionTest::test_auto_uses_the_desktop_scale_once` | — | dropped: spec §4.7 GUI Scale has no Auto since R90 (1x or 1.5x, absolute on any desktop; a stored "auto" loads as 1x) |
 | `tests/test_launcher_scaling.py::ScaleSelectionTest::test_ui_scale_does_not_change_the_game_environment` | — | dropped: no Rust counterpart — the GUI scale does not change the game environment |
 | `tests/test_launcher_scaling.py::DesktopScaleTest::test_gdk_scale_is_used_without_querying_xfce` | — | dropped: Tk-only: Tk on X11 reads the desktop scale from GDK_SCALE; iced takes the scale factor from winit |
 | `tests/test_launcher_scaling.py::DesktopScaleTest::test_xfce_window_scaling_is_read_when_gdk_scale_is_unset` | — | dropped: Tk-only: Tk on X11 asks xfconf-query for the Xfce window scaling |
 | `tests/test_launcher_scaling.py::DesktopScaleTest::test_missing_or_unresponsive_xfconf_is_not_fatal` | — | dropped: Tk-only: the xfconf-query fallback of the X11 scale query |
 | `tests/test_launcher_scaling.py::DesktopScaleTest::test_invalid_environment_values_are_ignored` | — | dropped: Tk-only: GDK_SCALE values the X11 scale query rejects |
-| `tests/test_launcher_scaling.py::NativeScaleTest::test_windows_uses_native_scale_without_x11_queries` | `tests/startup.rs::the_desktop_scale_sets_the_automatic_zoom` | replaced by `tests/startup.rs::the_desktop_scale_sets_the_automatic_zoom` |
+| `tests/test_launcher_scaling.py::NativeScaleTest::test_windows_uses_native_scale_without_x11_queries` | `tests/startup.rs::the_desktop_scale_is_read_when_the_window_opens` | replaced by `tests/startup.rs::the_desktop_scale_is_read_when_the_window_opens` |
 | `tests/test_launcher_scaling.py::NativeScaleTest::test_aqua_leaves_retina_to_macos_and_never_changes_native_scaling` | — | dropped: Tk-only: Tk's aqua windowing system (macOS is out of scope) |
 | `tests/test_launcher_scaling.py::NativeScaleTest::test_x11_uses_font_dpi_instead_of_physical_screen_size` | — | dropped: Tk-only: Tk on X11 takes the scale from Xft.dpi and sets tk scaling |
 | `tests/test_launcher_scaling.py::NativeScaleTest::test_tk9_native_scale_is_not_lost_when_font_dpi_is_smaller` | — | dropped: Tk-only: Tk 9's tk::scalingPct against Xft.dpi |
@@ -398,6 +398,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 12. The Home background is the launcher's key art (`launcher-rust/assets/background.png`), not the dump's `sce_sys/pic1.png` (R72).
 13. `game_dir` starts empty on Windows too (the Python guesses `<port parent>/CUSA01623`); the player browses to the folder (R83).
 14. Without a game in the game folder the Home has no "Choose the game folder first." line: the game chip ("✗ No eboot.bin in the game folder") says it, and the line under the settings shows the in-game menu hint (R85). With a game, that line names the patches the last start left out ("{} patches not found in this eboot.bin at the last start (see Log)") instead of the Python's whole summary.
+15. GUI Scale offers 1x (the default) and 1.5x, both absolute on any desktop (R90; the Python offered Auto, the default, 1x and 2x). A stored "auto" loads as 1x and a stored "2" as 1.5x; `tests/fixtures.rs` expects `"ui_scale": "1"` where the Python's fixtures hold its default.
 
 ## Partly covered
 
@@ -446,7 +447,7 @@ the Python test:
 - `tests/test_launcher_save.py::SaveButtonTest::test_failed_replace_keeps_files_and_changes_pending`: the Rust test runs on Unix only (a read-only folder).
 - `tests/test_launcher_save.py::SaveButtonTest::test_repeated_language_switching_preserves_page_and_cleans_traces`: the Tk variable traces have no Rust counterpart.
 - `tests/test_launcher_save.py::EverySettingSavesTest::test_all_settings_save_without_detected_gpus`: the graphics card list holding only Automatic is not asserted.
-- `tests/test_launcher_scaling.py::ScaleSelectionTest::test_auto_uses_the_desktop_scale_once`: covered as the zoom leaving the desktop scale out.
+- `tests/test_launcher_scaling.py::ScaleSelectionTest::test_manual_factors_are_absolute_even_on_a_scaled_desktop`: the factors are 1 and 1.5 since R90; a stored "2" loads as 1.5.
 - `tests/test_launcher_scaling.py::NativeScaleTest::test_windows_uses_native_scale_without_x11_queries`: the scale comes from winit; the Rust test starts from the scale message.
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_saved_scale_is_applied_when_a_new_window_starts`: a saved 1 on a 150 % desktop, not a saved 2.
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_hint_labels_keep_their_smaller_font`: only the snapshots show it (pixels compared on Windows only).

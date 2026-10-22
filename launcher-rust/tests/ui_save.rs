@@ -458,7 +458,7 @@ fn other_value(dir: &Path, key: &str, current: &Value) -> Value {
             if key == "ui_language" {
                 json!("pt")
             } else if key == "ui_scale" {
-                json!("2")
+                json!("1.5")
             } else if key.ends_with("_dir") {
                 json!(dir.join(key).display().to_string())
             } else if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {

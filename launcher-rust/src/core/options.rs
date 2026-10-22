@@ -68,7 +68,17 @@ pub static FPS_LIMITS: &[Choice] = &[
     c("0", "Unlimited"),
 ];
 
-pub static UI_SCALES: &[Choice] = &[c("auto", "Auto"), c("1", "1x"), c("2", "2x")];
+/// GUI Scale (R90): absolute zooms, 1x by default.
+pub static UI_SCALES: &[Choice] = &[c("1", "1x"), c("1.5", "1.5x")];
+
+/// The GUI Scale choice a stored value stands for: an older file's "2" is 1.5x, and its "auto"
+/// (which followed the desktop) or anything unknown is 1x.
+pub fn ui_scale_choice(stored: &str) -> &'static str {
+    match stored {
+        "1.5" | "2" => "1.5",
+        _ => "1",
+    }
+}
 
 pub static STICK_PROMPTS: &[Choice] = &[
     c("keyboard", "Keyboard (native)"),
@@ -485,6 +495,23 @@ mod tests {
         let names: HashSet<_> = RESOLUTIONS.iter().collect();
         assert_eq!(names.len(), RESOLUTIONS.len());
         assert_eq!(RESOLUTIONS.len(), 23);
+    }
+
+    #[test]
+    fn gui_scale_is_1x_or_1_5x() {
+        // R90: two choices, 1x first; what an older file stored is shown as the closest one.
+        let values: Vec<&str> = UI_SCALES.iter().map(|choice| choice.value).collect();
+        assert_eq!(values, ["1", "1.5"]);
+        for (stored, shown) in [
+            ("1", "1"),
+            ("1.5", "1.5"),
+            ("auto", "1"),
+            ("2", "1.5"),
+            ("", "1"),
+            ("bogus", "1"),
+        ] {
+            assert_eq!(ui_scale_choice(stored), shown, "{stored:?}");
+        }
     }
 
     #[test]

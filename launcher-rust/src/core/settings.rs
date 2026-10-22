@@ -51,7 +51,7 @@ pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> 
     let game_dir = env("SPARTAN_GAME_DIR").unwrap_or_default();
     let defaults = json!({
         "ui_language": "en",
-        "ui_scale": "auto",
+        "ui_scale": "1",
         "game_dir": game_dir,
         "update_dir": "",
         "experimental_upscaler": false,
@@ -170,6 +170,8 @@ mod tests {
         assert_eq!(defaults.keys().next_back().unwrap(), "glyph_style");
         // Ruling R83: no folder is guessed, on any system.
         assert_eq!(defaults["game_dir"], json!(""));
+        // Ruling R90: GUI Scale starts at 1x (the Python's "auto" followed the desktop).
+        assert_eq!(defaults["ui_scale"], json!("1"));
         let env = |k: &str| (k == "SPARTAN_GAME_DIR").then(|| "/games".to_string());
         assert_eq!(app_defaults(&env)["game_dir"], json!("/games"));
     }

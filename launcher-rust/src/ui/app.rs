@@ -150,8 +150,8 @@ impl State {
         .filter_map(|(failed, file)| failed.then_some(file))
         .collect();
         let lang = launcher_language(&settings.get_str("ui_language"), system_language);
-        // The desktop's scale is known once the window opens (`DesktopScale`).
-        let scale = theme::ui_scale(&settings.get_str("ui_scale"), 1.0);
+        // The desktop's scale, which `window_zoom` takes out, is known once the window opens.
+        let scale = theme::ui_scale(&settings.get_str("ui_scale"));
         let now = Instant::now();
         let rtl = is_rtl(&lang);
         let aspect = aspect_of(
@@ -352,17 +352,17 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             state.window_size = size;
             return window::scale_factor(id).map(Message::DesktopScale);
         }
-        // GUI Scale "Auto" follows the monitor the window opened on.
+        // The monitor the window opened on: the zoom takes its scale out of GUI Scale.
         Message::DesktopScale(factor) => {
             state.desktop_scale = factor;
-            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"), factor);
+            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"));
             return fit_window(state);
         }
-        // GUI Scale 1 or 2 keeps its size on the new desktop and Auto follows it; the window is
-        // neither refitted nor moved. Its logical size changes with the zoom, so it is read again.
+        // GUI Scale (1x or 1.5x) keeps its size on the new desktop; the window is neither refitted
+        // nor moved. Its logical size changes with the zoom, so it is read again.
         Message::DesktopRescaled(factor) => {
             state.desktop_scale = factor;
-            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"), factor);
+            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"));
             if let Some(id) = state.window {
                 return window::size(id).map(Message::Resized);
             }

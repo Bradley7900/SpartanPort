@@ -232,8 +232,9 @@ gamepad diretamente neste sub-projeto. Janela mínima 1280 × 800.
 
 As tabelas de `spartanport_lang.py` e `spartanport_trophies.py` são convertidas uma vez para JSON
 por `tools/launcher_i18n.py` e embutidas; o inglês é a chave, entrada ausente cai no inglês, o
-russo continua ao lado do inglês como hoje. Escala: Auto pelo DPI do monitor onde a janela abre,
-1x ou 2x pela opção GUI Scale; aplica no próximo start, como hoje.
+russo continua ao lado do inglês como hoje. Escala: 1x (padrão) ou 1,5x pela opção GUI Scale,
+absolutas em qualquer desktop (R90; sem Auto); um "auto" gravado antes vale 1x e um "2", 1,5x;
+aplica depois do Save.
 
 ## 5. Fluxo de dados
 
