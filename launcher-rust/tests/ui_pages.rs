@@ -1411,20 +1411,39 @@ fn steam_bridge_command_matches_the_spec() {
     state.settings.set("game_dir", "D:/CUSA01623".into());
     let exe = std::path::Path::new("C:/SP/spartanport-launcher.exe");
     let command = advanced::steam_bridge_command(&state.paths, &state.settings, exe);
-    let port = state.paths.port_dir.display();
+    let literal = |path: std::path::PathBuf| advanced::python_literal(&path.display().to_string());
+    let port = &state.paths.port_dir;
     assert_eq!(command[0], "-c");
     assert_eq!(
         command[1],
         format!(
-            "import sys; sys.path.insert(0, r'{port}/scripts'); import steam_shortcut as s; \
-             print(s.add_to_steam(r'D:/CUSA01623', (r'C:/SP/spartanport-launcher.exe', '--play', r'{port}'), r'{port}/launcher/spartanport.png'))"
-        )
-        .replace(
-            "/launcher/spartanport.png",
-            &format!("{}launcher{}spartanport.png", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR)
+            "import sys; sys.path.insert(0, {}); import steam_shortcut as s; \
+             print(s.add_to_steam('D:/CUSA01623', ('C:/SP/spartanport-launcher.exe', '--play', {}), {}))",
+            literal(port.join("scripts")),
+            literal(port.clone()),
+            literal(port.join("launcher").join("spartanport.png")),
         )
     );
     assert_eq!(command.len(), 2);
+
+    // An apostrophe or a final backslash no longer ends the string early.
+    state
+        .settings
+        .set("game_dir", r"D:\Kratos' Games\GoW3\".into());
+    let command = advanced::steam_bridge_command(&state.paths, &state.settings, exe);
+    assert!(
+        command[1].contains(r"s.add_to_steam('D:\\Kratos\' Games\\GoW3\\', "),
+        "{}",
+        command[1]
+    );
+}
+
+#[test]
+fn python_literals_quote_every_path() {
+    assert_eq!(advanced::python_literal("C:/SP"), "'C:/SP'");
+    assert_eq!(advanced::python_literal(r"C:\it's\"), r"'C:\\it\'s\\'");
+    assert_eq!(advanced::python_literal("a\nb\tc\u{1}"), r"'a\nb\tc\x01'");
+    assert_eq!(advanced::python_literal("Jogos/Ação"), "'Jogos/Ação'");
 }
 
 #[test]

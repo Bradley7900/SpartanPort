@@ -461,21 +461,39 @@ fn make_shortcut(paths: &Paths) -> Result<Vec<String>, String> {
     .map_err(|error| error.to_string())
 }
 
+/// `text` as a Python string literal: quotes and backslashes escaped, so any folder name (an
+/// apostrophe, a final backslash) stays one string in the bridge's script.
+pub fn python_literal(text: &str) -> String {
+    let mut literal = String::with_capacity(text.len() + 2);
+    literal.push('\'');
+    for c in text.chars() {
+        match c {
+            '\\' => literal.push_str(r"\\"),
+            '\'' => literal.push_str(r"\'"),
+            '\n' => literal.push_str(r"\n"),
+            '\r' => literal.push_str(r"\r"),
+            '\t' => literal.push_str(r"\t"),
+            c if c.is_ascii_control() => literal.push_str(&format!(r"\x{:02x}", u32::from(c))),
+            c => literal.push(c),
+        }
+    }
+    literal.push('\'');
+    literal
+}
+
 /// The arguments after the interpreter that add the game to Steam through
 /// `scripts/steam_shortcut.py` (spec 3.5, until the shortcut is ported). `exe` is the program
 /// Steam starts; it gets `--play` and starts in the port folder.
 pub fn steam_bridge_command(paths: &Paths, settings: &Settings, exe: &Path) -> Vec<String> {
-    let port = paths.port_dir.display();
+    let path = |path: &Path| python_literal(&path.display().to_string());
     let script = format!(
-        "import sys; sys.path.insert(0, r'{port}/scripts'); import steam_shortcut as s; \
-         print(s.add_to_steam(r'{game}', (r'{exe}', '--play', r'{port}'), r'{icon}'))",
-        game = settings.get_str("game_dir"),
-        exe = exe.display(),
-        icon = paths
-            .port_dir
-            .join("launcher")
-            .join("spartanport.png")
-            .display(),
+        "import sys; sys.path.insert(0, {scripts}); import steam_shortcut as s; \
+         print(s.add_to_steam({game}, ({exe}, '--play', {port}), {icon}))",
+        scripts = path(&paths.port_dir.join("scripts")),
+        game = python_literal(&settings.get_str("game_dir")),
+        exe = path(exe),
+        port = path(&paths.port_dir),
+        icon = path(&paths.port_dir.join("launcher").join("spartanport.png")),
     );
     vec!["-c".to_string(), script]
 }
