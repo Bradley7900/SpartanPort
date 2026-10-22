@@ -84,6 +84,41 @@ fn lookup(lang: &str, en: &str) -> Option<String> {
         .cloned()
 }
 
+/// Rust-only UI strings absent from the Python tables, as (English, [(language, text)]). Other
+/// languages fall back to English: a translator gap to fill.
+static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
+    (
+        "Americas",
+        &[("pt", "Américas"), ("es", "América"), ("ru", "Америка")],
+    ),
+    (
+        "Europe",
+        &[("pt", "Europa"), ("es", "Europa"), ("ru", "Европа")],
+    ),
+    (
+        "Asia & Middle East",
+        &[
+            ("pt", "Ásia e Oriente Médio"),
+            ("es", "Asia y Oriente Medio"),
+            ("ru", "Азия и Ближний Восток"),
+        ],
+    ),
+    (
+        "Primary",
+        &[("pt", "Principal"), ("es", "Principal"), ("ru", "Основной")],
+    ),
+];
+
+fn ui_extra(lang: &str, en: &str) -> Option<&'static str> {
+    UI_EXTRA
+        .iter()
+        .find(|(key, _)| *key == en)?
+        .1
+        .iter()
+        .find(|(code, _)| *code == lang)
+        .map(|(_, text)| *text)
+}
+
 /// The text in `lang`; the English text when there is no translation.
 pub fn tr(lang: &str, en: &str) -> String {
     if let Some(base) = en.strip_suffix(WARN) {
@@ -91,6 +126,7 @@ pub fn tr(lang: &str, en: &str) -> String {
     }
     lookup(lang, en)
         .filter(|text| !text.is_empty())
+        .or_else(|| ui_extra(lang, en).map(str::to_string))
         .unwrap_or_else(|| en.to_string())
 }
 
@@ -204,6 +240,17 @@ pub fn native_name(lang: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rust_only_strings_have_the_spec_translations() {
+        assert_eq!(tr("pt", "Americas"), "Américas");
+        assert_eq!(tr("pt", "Asia & Middle East"), "Ásia e Oriente Médio");
+        assert_eq!(tr("ru", "Europe"), "Европа");
+        assert_eq!(tr("es", "Primary"), "Principal");
+        assert_eq!(tr("de", "Americas"), "Americas");
+        // A key of the JSON table still comes from it.
+        assert_eq!(tr("pt", "Graphics"), "Gráficos");
+    }
 
     #[test]
     fn embedded_table_parses() {

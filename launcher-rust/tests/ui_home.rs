@@ -171,9 +171,17 @@ fn picking_portuguese_changes_the_tab_labels() {
     assert_eq!(state.settings.get_str("ui_language"), "pt");
     assert!(!state.lang_menu.open);
     assert_eq!(tr("pt", "Graphics"), "Gráficos");
+    {
+        let mut ui = simulator(app::view(&state));
+        assert!(ui.find("Gráficos").is_ok());
+        assert!(ui.find("Português (Brasil) ▾").is_ok());
+    }
+
+    lang(&mut state, LangMessage::Toggle);
     let mut ui = simulator(app::view(&state));
-    assert!(ui.find("Gráficos").is_ok());
-    assert!(ui.find("Português (Brasil) ▾").is_ok());
+    for header in ["Américas", "Europa", "Ásia e Oriente Médio"] {
+        assert!(ui.find(header).is_ok(), "{header} missing");
+    }
 }
 
 #[test]
