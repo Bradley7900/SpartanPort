@@ -1,4 +1,4 @@
-//! The launcher's own update offer and install (spec 5.6).
+//! The release list and the install of any listed release (spec 5.6).
 //!
 //! Progress: the download runs on a worker thread that sends percentages through an `mpsc`
 //! channel kept in `State::update_progress`; the app clock (`Message::Tick`) drains it with
@@ -14,17 +14,16 @@ use iced::Task;
 use crate::core::desktop::{host_environment, open_url};
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::platform;
+use crate::core::release::{newer_stable, version_tuple, Release, ReleaseId};
 use crate::core::update::{
-    download, latest_release, relaunch_appimage, release_checksum, replace_appimage, update_dir,
-    version_tuple, Release,
+    download, list_releases, relaunch_appimage, release_checksum, replace_appimage, update_dir,
 };
 use crate::ui::app::{Message, State};
 use crate::ui::pages::game::restore_blocked;
-use crate::ui::play::WORKER_LOST;
-use crate::ui::play::{self, GameState};
+use crate::ui::play::{self, WORKER_LOST};
 use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
-use crate::{APP_NAME, VERSION};
+use crate::APP_NAME;
 
 /// The file name of the packaged Windows launcher (ruling R47: a source tree is not packaged).
 const PACKAGED_EXE: &str = "SpartanPort.exe";
@@ -36,31 +35,35 @@ pub enum UpdateState {
     None,
     /// A check is running.
     Checking,
-    /// A newer release exists; the Home pill offers it.
-    Available(Release),
-    /// The package is downloading: the release and the percent done.
-    Downloading(Release, u8),
+    /// The releases of this system, newest first.
+    Ready(Vec<Release>),
+    /// `release`'s package is downloading; the list stays.
+    Downloading {
+        releases: Vec<Release>,
+        release: Release,
+        percent: u8,
+    },
     Failed(String),
 }
 
 /// Update events.
 #[derive(Debug, Clone)]
 pub enum UpdateMessage {
-    /// A check: the Check for updates button (`manual`) or the start-up one.
+    /// A check: the Check for updates button (`manual`) or a silent one.
     Check {
         manual: bool,
     },
     /// The answer of a check; `manual` is what the check was started as.
     Checked {
         manual: bool,
-        result: Result<Release, String>,
+        result: Result<Vec<Release>, String>,
     },
-    /// The Home pill was pressed.
-    Install,
-    /// The dialog's Yes to a read-only AppImage folder: open the releases page.
-    OpenPage,
+    /// A listed release was picked.
+    Install(Release),
+    /// The dialog's Yes to a read-only AppImage folder: open this release page.
+    OpenPage(String),
     /// The dialog's Yes to the install.
-    Confirmed,
+    Confirmed(Release),
     Progress(u8),
     Done(Result<(), String>),
 }
@@ -68,39 +71,68 @@ pub enum UpdateMessage {
 /// What a finished check means for the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// Offer the update on the Home pill.
+    /// A newer stable is listed.
     Offer,
-    /// Manual check: newer, but this system has no package yet.
-    NoLinuxBuild,
     /// Manual check: nothing newer.
     Latest,
     Nothing,
 }
 
-/// Whether `release` is newer than this launcher.
-pub fn is_newer(release: &Release) -> bool {
-    version_tuple(&release.version) > version_tuple(VERSION)
+/// The listed releases: those of `Ready` or `Downloading`, else none.
+pub fn releases(state: &State) -> &[Release] {
+    match &state.update {
+        UpdateState::Ready(releases) | UpdateState::Downloading { releases, .. } => releases,
+        _ => &[],
+    }
 }
 
-/// Python `check_update`'s `show`.
-pub fn offer_decision(release: &Release, manual: bool, windows: bool) -> Decision {
-    let newer = is_newer(release);
-    if newer && (release.url.is_some() || windows) {
+/// The newest listed stable above the installed release.
+pub fn newer(state: &State) -> Option<&Release> {
+    newer_stable(releases(state), &state.installed)
+}
+
+/// Keeps `releases` as the list; a running download keeps its state.
+pub fn ready(state: &mut State, releases: Vec<Release>) {
+    if !matches!(state.update, UpdateState::Downloading { .. }) {
+        state.update = UpdateState::Ready(releases);
+    }
+}
+
+/// Whether `release`'s version is below the installed one.
+pub fn is_older(release: &Release, installed: &ReleaseId) -> bool {
+    version_tuple(&release.id.version) < version_tuple(&installed.version)
+}
+
+/// The install question, with a warning when `release` is older than the installed one.
+pub fn confirm_text(lang: &str, release: &Release, installed: &ReleaseId) -> String {
+    let mut text = tr_fmt(
+        lang,
+        "Install version {} now? The launcher closes, installs it and opens again. Saves and settings are kept.",
+        &[&release.id.short()],
+    );
+    if is_older(release, installed) {
+        text.push('\n');
+        text.push_str(&tr(lang, "This version is older than the installed one."));
+    }
+    text
+}
+
+/// Python `check_update`'s `show`, over the list.
+pub fn offer_decision(newer: bool, manual: bool) -> Decision {
+    if newer {
         Decision::Offer
-    } else if newer && manual {
-        Decision::NoLinuxBuild
-    } else if manual && !newer {
+    } else if manual {
         Decision::Latest
     } else {
         Decision::Nothing
     }
 }
 
-/// What the Update button does (Python `install_update`, before the download).
+/// What installing a release does (Python `install_update`, before the download).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallPlan {
     Blocked,
-    /// Download by hand: open the releases page.
+    /// Download by hand: open the release page.
     OpenPage,
     /// The AppImage's folder cannot be written; offer the page.
     ReadOnly(PathBuf),
@@ -108,10 +140,9 @@ pub enum InstallPlan {
     Confirm,
 }
 
-/// Decides the Update button. `appimage` is the `APPIMAGE` path (Linux), `packaged` whether this
-/// is the packaged Windows launcher, `writable` the folder probe.
+/// Decides an install. `appimage` is the `APPIMAGE` path (Linux), `packaged` whether this is the
+/// packaged Windows launcher, `writable` the folder probe.
 pub fn install_decision(
-    release: &Release,
     busy: bool,
     windows: bool,
     packaged: bool,
@@ -122,13 +153,13 @@ pub fn install_decision(
         return InstallPlan::Blocked;
     }
     if windows {
-        return if packaged && release.url.is_some() {
+        return if packaged {
             InstallPlan::Confirm
         } else {
             InstallPlan::OpenPage
         };
     }
-    let Some(image) = appimage.filter(|_| release.url.is_some()) else {
+    let Some(image) = appimage else {
         return InstallPlan::OpenPage;
     };
     let real = fs::canonicalize(image).unwrap_or_else(|_| image.to_path_buf());
@@ -138,20 +169,6 @@ pub fn install_decision(
     } else {
         InstallPlan::ReadOnly(folder)
     }
-}
-
-/// Shows the pill for `release` (the start-up check and the manual one share this).
-pub fn offer(state: &mut State, release: Release) {
-    if matches!(
-        state.update,
-        UpdateState::Available(_) | UpdateState::Downloading(..)
-    ) {
-        return;
-    }
-    if matches!(state.game, GameState::Idle) {
-        state.status = tr_fmt(&state.lang, "Version {} is available.", &[&release.version]);
-    }
-    state.update = UpdateState::Available(release);
 }
 
 fn show(state: &mut State, kind: ModalKind, text: String) {
@@ -190,43 +207,40 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             if matches!(state.update, UpdateState::None | UpdateState::Failed(_)) {
                 state.update = UpdateState::Checking;
             }
-            blocking(|| latest_release(cfg!(windows)).map_err(|error| error.to_string()))
+            blocking(|| list_releases(cfg!(windows)).map_err(|error| error.to_string()))
                 .map(move |result| Message::Update(UpdateMessage::Checked { manual, result }))
         }
         UpdateMessage::Checked { manual, result } => {
-            if matches!(state.update, UpdateState::Checking) {
-                state.update = UpdateState::None;
-            }
             match result {
+                Ok(releases) => {
+                    ready(state, releases);
+                    if offer_decision(newer(state).is_some(), manual) == Decision::Latest {
+                        let text = tr_fmt(
+                            &lang,
+                            "You have the latest version ({}).",
+                            &[&state.installed.version],
+                        );
+                        show(state, ModalKind::Info, text);
+                    }
+                }
                 Err(error) => {
+                    if !matches!(state.update, UpdateState::Downloading { .. }) {
+                        state.update = UpdateState::Failed(error.clone());
+                    }
                     if manual {
                         let text = tr_fmt(&lang, "Could not check for updates: {}", &[&error]);
                         show(state, ModalKind::Error, text);
                     }
                 }
-                Ok(release) => match offer_decision(&release, manual, cfg!(windows)) {
-                    Decision::Offer => offer(state, release),
-                    Decision::NoLinuxBuild => {
-                        let text = tr_fmt(
-                            &lang,
-                            "Version {} is out, but it has no Linux build yet.",
-                            &[&release.version],
-                        );
-                        show(state, ModalKind::Info, text);
-                    }
-                    Decision::Latest => {
-                        let text = tr_fmt(&lang, "You have the latest version ({}).", &[VERSION]);
-                        show(state, ModalKind::Info, text);
-                    }
-                    Decision::Nothing => {}
-                },
             }
             Task::none()
         }
-        UpdateMessage::Install => {
-            let UpdateState::Available(release) = state.update.clone() else {
+        UpdateMessage::Install(release) => {
+            if matches!(state.update, UpdateState::Downloading { .. })
+                || release.id == state.installed
+            {
                 return Task::none();
-            };
+            }
             let appimage = if cfg!(windows) {
                 None
             } else {
@@ -235,7 +249,6 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                     .map(PathBuf::from)
             };
             let plan = install_decision(
-                &release,
                 restore_blocked(state),
                 cfg!(windows),
                 is_packaged(),
@@ -256,20 +269,16 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                         &[&folder.display().to_string()],
                     );
                     let kind = ModalKind::YesNo {
-                        yes: Message::Update(UpdateMessage::OpenPage),
+                        yes: Message::Update(UpdateMessage::OpenPage(release.page)),
                         no: Message::Modal(ModalMessage::Dismiss),
                     };
                     show(state, kind, text);
                     Task::none()
                 }
                 InstallPlan::Confirm => {
-                    let text = tr_fmt(
-                        &lang,
-                        "Install version {} now? The launcher closes, installs it and opens again. Saves and settings are kept.",
-                        &[&release.version],
-                    );
+                    let text = confirm_text(&lang, &release, &state.installed);
                     let kind = ModalKind::YesNo {
-                        yes: Message::Update(UpdateMessage::Confirmed),
+                        yes: Message::Update(UpdateMessage::Confirmed(release)),
                         no: Message::Modal(ModalMessage::Dismiss),
                     };
                     show(state, kind, text);
@@ -277,14 +286,11 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                 }
             }
         }
-        UpdateMessage::OpenPage => {
+        UpdateMessage::OpenPage(page) => {
             state.modal = None;
-            match &state.update {
-                UpdateState::Available(release) => open_page(release.page.clone()),
-                _ => Task::none(),
-            }
+            open_page(page)
         }
-        UpdateMessage::Confirmed => {
+        UpdateMessage::Confirmed(release) => {
             state.modal = None;
             // The question may have been asked before the game started.
             if play::game_live(state) {
@@ -295,17 +301,16 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                 );
                 return Task::none();
             }
-            let UpdateState::Available(release) = state.update.clone() else {
-                return Task::none();
+            let url = release.url.clone();
+            state.update = UpdateState::Downloading {
+                releases: releases(state).to_vec(),
+                release,
+                percent: 0,
             };
-            let Some(url) = release.url.clone() else {
-                return Task::none();
-            };
-            state.update = UpdateState::Downloading(release, 0);
             let (sender, receiver) = mpsc::channel();
             state.update_progress = Some(receiver);
             let port_dir = state.paths.port_dir.clone();
-            // A download that dies still ends `Downloading`, so the pill comes back.
+            // A download that dies still ends `Downloading`, so the list comes back.
             blocking_or(
                 move || install(&url, &port_dir, &sender),
                 Err(WORKER_LOST.to_string()),
@@ -313,7 +318,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             .map(|result| Message::Update(UpdateMessage::Done(result)))
         }
         UpdateMessage::Progress(percent) => {
-            if let UpdateState::Downloading(_, shown) = &mut state.update {
+            if let UpdateState::Downloading { percent: shown, .. } = &mut state.update {
                 *shown = percent;
             }
             Task::none()
@@ -321,8 +326,8 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
         UpdateMessage::Done(Ok(())) => iced::exit(),
         UpdateMessage::Done(Err(error)) => {
             state.update_progress = None;
-            if let UpdateState::Downloading(release, _) = state.update.clone() {
-                state.update = UpdateState::Available(release);
+            if let UpdateState::Downloading { releases, .. } = &mut state.update {
+                state.update = UpdateState::Ready(std::mem::take(releases));
             }
             let text = tr_fmt(&lang, "Update failed: {}", &[&error]);
             show(state, ModalKind::Error, text);

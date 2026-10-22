@@ -13,11 +13,10 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub use crate::core::release::version_tuple;
-use crate::core::release::{self, digit_runs, Channel, ReleaseId};
+use crate::core::release::{self, Channel, ReleaseId};
 
 pub const RELEASES_API: &str =
     "https://api.github.com/repos/FelipePrado0/SpartanPort/releases?per_page=100";
-const LATEST_API: &str = "https://api.github.com/repos/FelipePrado0/SpartanPort/releases/latest";
 pub const RELEASES_PAGE: &str = "https://github.com/FelipePrado0/SpartanPort/releases/latest";
 const USER_AGENT: &str = "spartanport-launcher";
 const CHUNK: usize = 1 << 20;
@@ -32,49 +31,6 @@ pub enum UpdateError {
     Json(String),
     #[error("{0}")]
     BadChecksum(String),
-}
-
-/// The newest release: its version, the package for this system (`None` while the release has
-/// none) and the page to open for a manual download.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Release {
-    pub version: String,
-    pub url: Option<String>,
-    pub page: String,
-}
-
-/// The release in GitHub's JSON: the zip on Windows, the AppImage elsewhere.
-pub fn parse_release(json: &Value, windows: bool) -> Result<Release, UpdateError> {
-    let tag = json
-        .get("tag_name")
-        .and_then(Value::as_str)
-        .ok_or_else(|| UpdateError::Json("the release has no tag_name".to_string()))?;
-    let suffix = if windows { ".zip" } else { ".appimage" };
-    let url = json
-        .get("assets")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .find(|asset| {
-            asset
-                .get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|name| name.to_lowercase().ends_with(suffix))
-        })
-        .and_then(|asset| asset.get("browser_download_url"))
-        .and_then(Value::as_str)
-        .map(str::to_string);
-    let page = json
-        .get("html_url")
-        .and_then(Value::as_str)
-        .filter(|page| !page.is_empty())
-        .unwrap_or(RELEASES_PAGE)
-        .to_string();
-    Ok(Release {
-        version: digit_runs(tag).join("."),
-        url,
-        page,
-    })
 }
 
 fn http_error(error: ureq::Error) -> UpdateError {
@@ -104,19 +60,6 @@ fn get(
     let body = response.into_body();
     let total = body.content_length();
     Ok((Box::new(body.into_reader()), total))
-}
-
-/// The newest GitHub release for this system.
-pub fn latest_release(windows: bool) -> Result<Release, UpdateError> {
-    let (mut reader, _) = get(
-        LATEST_API,
-        Some("application/vnd.github+json"),
-        Some(Duration::from_secs(15)),
-    )?;
-    let mut text = String::new();
-    reader.read_to_string(&mut text)?;
-    let json = serde_json::from_str(&text).map_err(|e| UpdateError::Json(e.to_string()))?;
-    parse_release(&json, windows)
 }
 
 /// One GET of the list (Accept `application/vnd.github+json`, global timeout 15 s), then `parse_releases`.
@@ -364,53 +307,10 @@ pub fn relaunch_appimage(target: &Path, env: &IndexMap<String, String>) -> io::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use sha2::{Digest, Sha256};
     use std::io::Cursor;
 
     const NEW_APPIMAGE: &[u8] = b"\x7fELF new appimage";
-
-    fn release() -> Value {
-        json!({"tag_name": "windows-v2.6.0", "html_url": "https://example.test/release", "assets": [
-            {"name": "spartanport-windows.zip", "browser_download_url": "https://example.test/spartanport-windows.zip"},
-            {"name": "spartanport-x86_64.AppImage", "browser_download_url": "https://example.test/spartanport-x86_64.AppImage"},
-            {"name": "spartanport-x86_64.AppImage.sha256", "browser_download_url": "https://example.test/a.sha256"}]})
-    }
-
-    #[test]
-    fn windows_takes_the_zip() {
-        let found = parse_release(&release(), true).unwrap();
-        assert_eq!(found.version, "2.6.0");
-        assert_eq!(
-            found.url.as_deref(),
-            Some("https://example.test/spartanport-windows.zip")
-        );
-        assert_eq!(found.page, "https://example.test/release");
-    }
-
-    #[test]
-    fn linux_takes_the_appimage_not_its_checksum() {
-        let found = parse_release(&release(), false).unwrap();
-        assert_eq!(
-            found.url.as_deref(),
-            Some("https://example.test/spartanport-x86_64.AppImage")
-        );
-    }
-
-    #[test]
-    fn linux_has_no_package_while_the_release_has_no_appimage() {
-        let mut value = release();
-        value["assets"].as_array_mut().unwrap().truncate(1);
-        let found = parse_release(&value, false).unwrap();
-        assert_eq!((found.version.as_str(), found.url), ("2.6.0", None));
-    }
-
-    #[test]
-    fn a_release_without_a_page_points_to_the_releases_page() {
-        let value = json!({"tag_name": "v1.2", "assets": []});
-        assert_eq!(parse_release(&value, true).unwrap().page, RELEASES_PAGE);
-        assert!(parse_release(&json!({}), true).is_err());
-    }
 
     #[test]
     fn versions_are_their_digit_runs() {

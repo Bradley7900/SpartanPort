@@ -14,8 +14,8 @@ use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::ini::{load_ini, INI_FLAGS};
 use spartanport_launcher::core::patches::PatchMeta;
 use spartanport_launcher::core::paths::Paths;
+use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::core::settings::app_defaults;
-use spartanport_launcher::core::update::Release;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::drawer::DrawerState;
 use spartanport_launcher::ui::pages::controls::ControlsMessage;
@@ -23,7 +23,7 @@ use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::persist::{dirty, SHOWN_INI_KEYS};
 use spartanport_launcher::ui::play::GameState;
-use spartanport_launcher::ui::update::UpdateState;
+use spartanport_launcher::ui::update::{newer, UpdateState};
 use spartanport_launcher::ui::widgets::modal::ModalKind;
 
 const SAVE_FAILED: &str =
@@ -179,21 +179,27 @@ fn saving_a_new_launcher_language_rebuilds_the_window_in_it() {
 
 #[test]
 fn rebuilding_keeps_the_status_of_a_running_game() {
-    // The game state, the log and a pending update offer stay.
+    // The game state, the log and the release list stay.
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     state.log.push_text("The game is running.\n");
-    state.update = UpdateState::Available(Release {
-        version: "2.7.0".to_string(),
-        url: None,
+    state.update = UpdateState::Ready(vec![Release {
+        id: ReleaseId {
+            channel: Channel::Release,
+            version: "2.7.0".to_string(),
+            build: None,
+        },
+        published: String::new(),
+        url: String::new(),
         page: String::new(),
-    });
+    }]);
     set(&mut state, "ui_language", json!("ru"));
     save(&mut state);
     assert_eq!(state.lang, "ru");
     assert!(matches!(state.game, GameState::Idle));
     assert!(state.log.text().contains("The game is running."));
-    assert!(matches!(&state.update, UpdateState::Available(release) if release.version == "2.7.0"));
+    assert!(matches!(state.update, UpdateState::Ready(_)));
+    assert_eq!(newer(&state).map(|r| r.id.version.as_str()), Some("2.7.0"));
 }
 
 #[test]

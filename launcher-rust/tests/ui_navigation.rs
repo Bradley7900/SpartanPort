@@ -19,6 +19,7 @@ use iced_test::core::Settings;
 use iced_test::simulator::{self, simulator, Simulator};
 use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::paths::Paths;
+use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::ui::app::{
     self, home_interactive_enabled, home_interactive_opacity, key_message, Message, State,
 };
@@ -176,7 +177,16 @@ fn keys_do_nothing_under_a_dialog() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     state.modal = dialog(ModalKind::YesNo {
-        yes: Message::Update(UpdateMessage::Confirmed),
+        yes: Message::Update(UpdateMessage::Confirmed(Release {
+            id: ReleaseId {
+                channel: Channel::Release,
+                version: "9.9.9".into(),
+                build: None,
+            },
+            published: String::new(),
+            url: "https://example.invalid/SpartanPort.zip".into(),
+            page: String::new(),
+        })),
         no: Message::Modal(ModalMessage::Dismiss),
     });
     // On Home, Enter presses PLAY; behind the update question it would start the game.

@@ -2202,31 +2202,44 @@ fn log_header_translates() {
     assert!(ui.find("6 000 linhas mantidas").is_ok());
 }
 
-/// The update offer and install (Task 34): nothing here reaches the network or spawns anything.
+/// The release list and the install of any listed release (Task 34, version menu Task 5):
+/// nothing here reaches the network or spawns anything.
 mod update_flow {
     use std::path::{Path, PathBuf};
+    use std::sync::mpsc;
 
-    use iced_test::simulator::simulator;
-    use spartanport_launcher::core::update::Release;
+    use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
     use spartanport_launcher::ui::app::{self, Message};
     use spartanport_launcher::ui::splash;
     use spartanport_launcher::ui::update::{
-        install_decision, offer_decision, Decision, InstallPlan, UpdateMessage, UpdateState,
+        confirm_text, install_decision, is_older, newer, offer_decision, releases, Decision,
+        InstallPlan, UpdateMessage, UpdateState,
     };
     use spartanport_launcher::ui::widgets::ModalKind;
     use spartanport_launcher::VERSION;
 
     use super::common::state;
 
-    fn release(version: &str, url: Option<&str>) -> Release {
+    const OLDER: &str = "This version is older than the installed one.";
+
+    fn release(version: &str, build: Option<&str>, prerelease: bool) -> Release {
         Release {
-            version: version.to_string(),
-            url: url.map(str::to_string),
+            id: ReleaseId {
+                channel: if prerelease {
+                    Channel::PreRelease
+                } else {
+                    Channel::Release
+                },
+                version: version.to_string(),
+                build: build.map(str::to_string),
+            },
+            published: "2026-10-22T00:00:00Z".to_string(),
+            url: format!("https://example.test/{version}.zip"),
             page: "https://example.test/page".to_string(),
         }
     }
 
-    fn checked(manual: bool, result: Result<Release, String>) -> Message {
+    fn checked(manual: bool, result: Result<Vec<Release>, String>) -> Message {
         Message::Update(UpdateMessage::Checked { manual, result })
     }
 
@@ -2238,31 +2251,38 @@ mod update_flow {
             .unwrap_or_default()
     }
 
+    fn downloading(release: Release) -> UpdateState {
+        UpdateState::Downloading {
+            releases: vec![release.clone()],
+            release,
+            percent: 0,
+        }
+    }
+
     #[test]
-    fn a_newer_release_shows_the_pill() {
+    fn a_list_with_a_newer_stable_is_ready_and_newer() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
-        let _ = app::update(
-            &mut state,
-            checked(
-                false,
-                Ok(release("999.0.0", Some("https://example.test/a.zip"))),
-            ),
-        );
-        assert!(matches!(&state.update, UpdateState::Available(r) if r.version == "999.0.0"));
-        assert_eq!(state.status, "Version 999.0.0 is available.");
+        let status = state.status.clone();
+        let list = vec![
+            release("999.0.0", None, false),
+            release(VERSION, None, false),
+        ];
+        let _ = app::update(&mut state, checked(false, Ok(list.clone())));
+        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert_eq!(releases(&state), list.as_slice());
+        assert_eq!(newer(&state), Some(&list[0]));
         assert!(state.modal.is_none());
-        assert!(simulator(app::view(&state))
-            .find("Version 999.0.0 is available · Update")
-            .is_ok());
+        assert_eq!(state.status, status);
     }
 
     #[test]
     fn manual_check_with_latest_shows_the_info() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
-        let _ = app::update(&mut state, checked(true, Ok(release(VERSION, None))));
-        assert!(matches!(state.update, UpdateState::None));
+        let list = vec![release(VERSION, None, false)];
+        let _ = app::update(&mut state, checked(true, Ok(list.clone())));
+        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
         assert_eq!(
             modal_text(&state),
             format!("You have the latest version ({VERSION}).")
@@ -2271,9 +2291,9 @@ mod update_flow {
             state.modal.as_ref().map(|m| &m.kind),
             Some(ModalKind::Info)
         ));
-        // The same release found silently shows nothing.
+        // The same list found silently shows nothing.
         state.modal = None;
-        let _ = app::update(&mut state, checked(false, Ok(release(VERSION, None))));
+        let _ = app::update(&mut state, checked(false, Ok(list)));
         assert!(state.modal.is_none());
     }
 
@@ -2283,121 +2303,169 @@ mod update_flow {
         let mut state = state(dir.path());
         let _ = app::update(&mut state, checked(true, Err("offline".into())));
         assert_eq!(modal_text(&state), "Could not check for updates: offline");
+        assert!(matches!(
+            state.modal.as_ref().map(|m| &m.kind),
+            Some(ModalKind::Error)
+        ));
         state.modal = None;
         let _ = app::update(&mut state, checked(false, Err("offline".into())));
         assert!(state.modal.is_none());
-        assert!(matches!(state.update, UpdateState::None));
+        assert!(matches!(&state.update, UpdateState::Failed(error) if error == "offline"));
     }
 
     #[test]
-    fn the_offer_depends_on_the_build_and_the_system() {
-        let newer = release("999.0.0", None);
-        assert_eq!(offer_decision(&newer, false, false), Decision::Nothing);
-        assert_eq!(offer_decision(&newer, true, false), Decision::NoLinuxBuild);
-        assert_eq!(offer_decision(&newer, false, true), Decision::Offer);
-        let built = release("999.0.0", Some("https://example.test/a.AppImage"));
-        assert_eq!(offer_decision(&built, false, false), Decision::Offer);
-        let same = release(VERSION, Some("https://example.test/a.zip"));
-        assert_eq!(offer_decision(&same, true, true), Decision::Latest);
-        assert_eq!(offer_decision(&same, false, true), Decision::Nothing);
-
-        // The message itself only shows on a host without a Windows build.
-        if !cfg!(windows) {
-            let dir = tempfile::tempdir().unwrap();
-            let mut state = state(dir.path());
-            let _ = app::update(&mut state, checked(true, Ok(newer)));
-            assert_eq!(
-                modal_text(&state),
-                "Version 999.0.0 is out, but it has no Linux build yet."
-            );
-        }
+    fn offer_decision_follows_newer_and_manual() {
+        assert_eq!(offer_decision(true, true), Decision::Offer);
+        assert_eq!(offer_decision(true, false), Decision::Offer);
+        assert_eq!(offer_decision(false, true), Decision::Latest);
+        assert_eq!(offer_decision(false, false), Decision::Nothing);
     }
 
     #[test]
-    fn the_start_up_offer_follows_the_url_or_windows_rule() {
-        let no_url = release("999.0.0", None);
+    fn the_start_up_list_is_ready() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
-        splash::start_up_offer(&mut state, no_url.clone(), false);
-        assert!(matches!(state.update, UpdateState::None));
-        assert!(state.status.is_empty());
-        splash::start_up_offer(&mut state, no_url, true);
-        assert!(matches!(&state.update, UpdateState::Available(_)));
-        // A release with a package is offered on both systems.
-        let built = release("999.0.0", Some("https://example.test/a.AppImage"));
-        let mut other = super::common::state(dir.path());
-        splash::start_up_offer(&mut other, built, false);
-        assert!(matches!(&other.update, UpdateState::Available(_)));
+        let list = vec![release("2.7.0", None, false), release("2.6.0", None, false)];
+        splash::start_up_offer(&mut state, list.clone());
+        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        // A download keeps its state.
+        let fetching = release("2.7.0", None, false);
+        state.update = downloading(fetching.clone());
+        splash::start_up_offer(&mut state, vec![release("2.8.0", None, false)]);
+        assert!(matches!(
+            &state.update,
+            UpdateState::Downloading { release, .. } if *release == fetching
+        ));
+    }
+
+    #[test]
+    fn installing_the_installed_release_does_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        let installed = release(VERSION, None, false);
+        assert_eq!(installed.id, state.installed);
+        let task = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Install(installed)),
+        );
+        assert!(state.modal.is_none());
+        assert_eq!(task.units(), 0);
     }
 
     #[test]
     fn install_is_blocked_while_running() {
-        let built = release("999.0.0", Some("https://example.test/a.zip"));
         let always = |_: &Path| true;
         assert_eq!(
-            install_decision(&built, true, true, true, None, &always),
+            install_decision(true, true, true, None, &always),
             InstallPlan::Blocked
         );
         assert_eq!(
-            install_decision(&built, false, true, true, None, &always),
+            install_decision(false, true, true, None, &always),
             InstallPlan::Confirm
         );
     }
 
     #[test]
     fn windows_source_tree_opens_the_page() {
-        let built = release("999.0.0", Some("https://example.test/a.zip"));
         let always = |_: &Path| true;
         assert_eq!(
-            install_decision(&built, false, true, false, None, &always),
-            InstallPlan::OpenPage
-        );
-        let no_url = release("999.0.0", None);
-        assert_eq!(
-            install_decision(&no_url, false, true, true, None, &always),
+            install_decision(false, true, false, None, &always),
             InstallPlan::OpenPage
         );
     }
 
     #[test]
     fn linux_needs_a_writable_appimage_folder() {
-        let built = release("999.0.0", Some("https://example.test/a.AppImage"));
         let image = PathBuf::from("/opt/app/SpartanPort.AppImage");
         let yes = |_: &Path| true;
         let no = |_: &Path| false;
         assert_eq!(
-            install_decision(&built, false, false, false, None, &yes),
+            install_decision(false, false, false, None, &yes),
             InstallPlan::OpenPage
         );
         assert_eq!(
-            install_decision(&built, false, false, false, Some(&image), &yes),
+            install_decision(false, false, false, Some(&image), &yes),
             InstallPlan::Confirm
         );
         assert!(matches!(
-            install_decision(&built, false, false, false, Some(&image), &no),
+            install_decision(false, false, false, Some(&image), &no),
             InstallPlan::ReadOnly(_)
         ));
     }
 
     #[test]
-    fn progress_updates_the_pill_text() {
+    fn install_asks_and_marks_an_older_release() {
+        let installed = release("2.6.0", None, false).id;
+        let question = "Install version {} now? The launcher closes, installs it and opens again. \
+                        Saves and settings are kept.";
+        let older = release("2.5.0", None, false);
+        assert!(is_older(&older, &installed));
+        assert_eq!(
+            confirm_text("en", &older, &installed),
+            format!("{}\n{OLDER}", question.replace("{}", "2.5.0"))
+        );
+        let newer = release("2.7.0", None, false);
+        assert!(!is_older(&newer, &installed));
+        assert_eq!(
+            confirm_text("en", &newer, &installed),
+            question.replace("{}", "2.7.0")
+        );
+        // A test build of the installed version is not older.
+        let test = release("2.6.0", Some("x"), true);
+        assert!(!is_older(&test, &installed));
+        let text = confirm_text("en", &test, &installed);
+        assert!(text.starts_with("Install version 2.6.0 · x now?"), "{text}");
+        assert!(!text.ends_with(OLDER), "{text}");
+    }
+
+    #[test]
+    fn install_is_ignored_while_downloading() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
-        let built = release("2.7.0", Some("https://example.test/a.zip"));
-        state.update = UpdateState::Downloading(built.clone(), 0);
-        let _ = app::update(&mut state, Message::Update(UpdateMessage::Progress(42)));
-        assert!(simulator(app::view(&state))
-            .find("Downloading version 2.7.0… 42%")
-            .is_ok());
+        let fetching = release("2.7.0", None, false);
+        state.update = downloading(fetching.clone());
+        let task = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Install(release("2.5.0", None, false))),
+        );
+        assert!(matches!(
+            &state.update,
+            UpdateState::Downloading { release, .. } if *release == fetching
+        ));
+        assert!(state.modal.is_none());
+        assert_eq!(task.units(), 0);
+    }
 
+    #[test]
+    fn a_failed_download_goes_back_to_the_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        let fetched = release("2.7.0", None, false);
+        state.update = downloading(fetched.clone());
+        let (_sender, receiver) = mpsc::channel();
+        state.update_progress = Some(receiver);
         let _ = app::update(
             &mut state,
             Message::Update(UpdateMessage::Done(Err("boom".into()))),
         );
-        assert!(matches!(&state.update, UpdateState::Available(r) if *r == built));
+        assert!(matches!(&state.update, UpdateState::Ready(list) if *list == vec![fetched]));
         assert_eq!(modal_text(&state), "Update failed: boom");
-        assert!(simulator(app::view(&state))
-            .find("Version 2.7.0 is available · Update")
-            .is_ok());
+        assert!(matches!(
+            state.modal.as_ref().map(|m| &m.kind),
+            Some(ModalKind::Error)
+        ));
+        assert!(state.update_progress.is_none());
+    }
+
+    #[test]
+    fn progress_updates_the_percent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        state.update = downloading(release("2.7.0", None, false));
+        let _ = app::update(&mut state, Message::Update(UpdateMessage::Progress(42)));
+        assert!(matches!(
+            state.update,
+            UpdateState::Downloading { percent: 42, .. }
+        ));
     }
 }

@@ -18,7 +18,8 @@ use iced::{
 use crate::core::game::ready_to_play;
 use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
-use crate::core::update::{can_self_update, latest_release, Release};
+use crate::core::release::Release;
+use crate::core::update::{can_self_update, list_releases};
 use crate::ui::app::{Message, State, BAR_HEIGHT};
 use crate::ui::home;
 use crate::ui::tasks::blocking;
@@ -56,7 +57,7 @@ const HALO_PEAK: f32 = 0.35;
 pub enum Check {
     Gpus(Vec<GpuRow>),
     GameFolder(bool),
-    Update(Option<Release>),
+    Update(Option<Vec<Release>>),
 }
 
 /// The position of the settings check's text in `CHECK_TEXTS` and `SplashState::done_at`.
@@ -168,19 +169,16 @@ pub fn apply(state: &mut State, message: SplashMessage) {
             match check {
                 Check::Gpus(gpus) => state.gpus = gpus,
                 Check::GameFolder(ready) => state.game_ready = Some(ready),
-                Check::Update(Some(release)) => start_up_offer(state, release, cfg!(windows)),
+                Check::Update(Some(releases)) => start_up_offer(state, releases),
                 Check::Update(None) => {}
             }
         }
     }
 }
 
-/// The start-up check's release: offered by the same rule as a manual check (newer, and a package
-/// for this system or Windows). `windows` is a parameter so tests can cover both systems.
-pub fn start_up_offer(state: &mut State, release: Release, windows: bool) {
-    if update::offer_decision(&release, false, windows) == update::Decision::Offer {
-        update::offer(state, release);
-    }
+/// The start-up check's list: kept as a manual check's is.
+pub fn start_up_offer(state: &mut State, releases: Vec<Release>) {
+    update::ready(state, releases);
 }
 
 /// Starts the checks in parallel: the update check of the splash and, in the background, the
@@ -196,8 +194,8 @@ pub fn start_checks(state: &State) -> Task<Message> {
     let wants_update = can_self_update(&|key| std::env::var(key).ok(), cfg!(windows))
         && state.settings.get_bool("check_updates");
     let update = if wants_update {
-        blocking(|| latest_release(cfg!(windows)).ok())
-            .map(move |release| done(Check::Update(release)))
+        blocking(|| list_releases(cfg!(windows)).ok())
+            .map(move |releases| done(Check::Update(releases)))
     } else {
         Task::done(done(Check::Update(None)))
     };

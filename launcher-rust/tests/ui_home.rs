@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-//! The Home page (chips, quick line, PLAY, update pill) and the language menu.
+//! The Home page (chips, quick line, PLAY) and the language menu.
 
 mod common;
 
@@ -13,13 +13,11 @@ use iced_test::simulator::simulator;
 use serde_json::json;
 use spartanport_launcher::core::gpu::GpuRow;
 use spartanport_launcher::core::i18n::tr;
-use spartanport_launcher::core::update::Release;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::drawer::DrawerState;
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::Page;
-use spartanport_launcher::ui::update::UpdateState;
 
 /// A state over `dir` only, with the splash already gone.
 fn state_in(dir: &Path) -> State {
@@ -530,20 +528,6 @@ fn arabic_sets_rtl() {
     lang(&mut state, LangMessage::Pick("en".to_string()));
     assert!(!state.rtl);
     assert_eq!(state.settings.get("ui_language"), Some(&json!("en")));
-}
-
-#[test]
-fn update_pill_only_when_available() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    let pill = "Version 2.7.0 is available · Update";
-    assert!(simulator(app::view(&state)).find(pill).is_err());
-    state.update = UpdateState::Available(Release {
-        version: "2.7.0".to_string(),
-        url: None,
-        page: String::new(),
-    });
-    assert!(simulator(app::view(&state)).find(pill).is_ok());
 }
 
 #[test]

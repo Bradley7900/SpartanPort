@@ -20,8 +20,9 @@ use crate::core::ini::{read_ini, Ini, INI_DEFAULTS, INI_FLAGS};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
+use crate::core::release::ReleaseId;
 use crate::core::settings::{read_app_settings, Settings};
-use crate::core::update::can_self_update;
+use crate::core::update::{can_self_update, installed_release, stamp_path};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
 use crate::ui::home::{self, HomeFacts};
@@ -101,6 +102,8 @@ pub struct State {
     /// The backup chosen in the Saves row.
     pub backup_choice: String,
     pub update: UpdateState,
+    /// The installed release: the stamp beside the launcher, or this version.
+    pub installed: ReleaseId,
     /// The percentages the update worker sends; `update::drain` empties it on each clock tick.
     pub update_progress: Option<std::sync::mpsc::Receiver<u8>>,
     pub lang_menu: LangMenu,
@@ -163,6 +166,11 @@ impl State {
         let effects = advanced::effects_enabled(&settings);
         // `start_monitor_listing` lists them under this one.
         let displays_backend = settings.get_str("video_backend");
+        let installed = installed_release(&stamp_path(
+            &paths.port_dir,
+            std::env::var_os("APPDIR").map(PathBuf::from).as_deref(),
+            cfg!(windows),
+        ));
         let mut state = State {
             paths,
             settings,
@@ -198,6 +206,7 @@ impl State {
             backups: Vec::new(),
             backup_choice: String::new(),
             update: Default::default(),
+            installed,
             update_progress: None,
             lang_menu: Default::default(),
             home: Default::default(),
@@ -556,7 +565,7 @@ pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
     }
 }
 
-/// Whether the Home block (PLAY, chips, language, update pill) responds: not behind a wide drawer.
+/// Whether the Home block (PLAY, chips, language) responds: not behind a wide drawer.
 pub fn home_interactive_enabled(state: &State) -> bool {
     !matches!(state.drawer, DrawerState::Open(page) if page.wide())
 }

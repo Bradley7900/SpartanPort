@@ -30,7 +30,6 @@ use crate::ui::play::GameState;
 use crate::ui::theme::{
     button_flat, button_play, faded, faded_button, mirror_padding, mirror_x, palette, CINZEL_BLACK,
 };
-use crate::ui::update::{UpdateMessage, UpdateState};
 use crate::ui::widgets::{chip, ChipKind};
 
 // --- Background layers (spec 4.3, mockup `launcher-mockup-v13.html`) ---
@@ -602,16 +601,6 @@ fn chip_kind(label: &str) -> ChipKind {
     }
 }
 
-/// The text of the pill: "Version X is available · Update".
-pub fn update_pill_text(lang: &str, version: &str) -> String {
-    let available = tr_fmt(lang, "Version {} is available.", &[version]);
-    format!(
-        "{} · {}",
-        available.trim_end_matches('.'),
-        tr(lang, "Update")
-    )
-}
-
 // --- The block ---
 
 fn logo() -> Handle {
@@ -713,43 +702,8 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
     placed.into()
 }
 
-fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
-    let opacity = home_interactive_opacity(state);
-    let pill_style = move |theme: &Theme, status| faded_button(button_flat(theme, status), opacity);
-    let mut line = row![].spacing(10).align_y(Center);
-    // Right to left, the line is mirrored: the language button keeps the outer corner.
-    if state.rtl {
-        line = line.push(lang_menu::button_view(state));
-    }
-    match &state.update {
-        UpdateState::Available(release) => {
-            let pill = text(update_pill_text(&state.lang, &release.version)).size(11);
-            line = line.push(
-                button(pill)
-                    .padding([3, 10])
-                    .style(pill_style)
-                    .on_press_maybe(enabled.then_some(Message::Update(UpdateMessage::Install))),
-            );
-        }
-        // Not pressable while the package downloads.
-        UpdateState::Downloading(release, percent) => {
-            let shown = tr_fmt(
-                &state.lang,
-                "Downloading version {}… {}%",
-                &[&release.version, &percent.to_string()],
-            );
-            line = line.push(
-                button(text(shown).size(11))
-                    .padding([3, 10])
-                    .style(pill_style),
-            );
-        }
-        _ => {}
-    }
-    if !state.rtl {
-        line = line.push(lang_menu::button_view(state));
-    }
-    container(line)
+fn top_right(state: &State) -> Element<'_, Message> {
+    container(lang_menu::button_view(state))
         .width(Fill)
         .height(Fill)
         .align_x(mirror_x(Right, state.rtl))
@@ -765,7 +719,7 @@ fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
         .into()
 }
 
-/// The interactive Home layer: corner monogram, update pill and language button, and the block
+/// The interactive Home layer: corner monogram and language button, and the block
 /// with the logotype, PLAY, chips, settings line and hint. Each part is sized to its content, so
 /// the empty space between them lets clicks through to the layers below.
 pub fn block(state: &State) -> Element<'_, Message> {
@@ -781,7 +735,7 @@ pub fn block(state: &State) -> Element<'_, Message> {
         );
     }
     layers
-        .push(top_right(state, enabled))
+        .push(top_right(state))
         .push(bottom_block(state, enabled))
         .into()
 }

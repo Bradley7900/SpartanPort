@@ -8,6 +8,9 @@ use crate::ui::app::Message;
 use crate::ui::theme::{self, palette, CINZEL_BOLD};
 
 /// What a dialog asks.
+// The Yes/No answers carry a `Message`, which now holds a `Release`: boxing every answer costs
+// more than the bytes.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ModalKind {
     Info,

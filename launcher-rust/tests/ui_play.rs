@@ -15,7 +15,7 @@ use iced_test::simulator::simulator;
 use serde_json::json;
 use spartanport_launcher::core::log::ExitHint;
 use spartanport_launcher::core::paths::Paths;
-use spartanport_launcher::core::update::Release;
+use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::pages::trophies::TrophiesMessage;
@@ -634,17 +634,26 @@ fn a_confirmed_update_waits_for_the_game() {
         dir.path(),
         &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
     );
-    state.update = UpdateState::Available(Release {
-        version: "9.9.9".into(),
-        url: Some("https://example.invalid/SpartanPort.zip".into()),
+    let release = Release {
+        id: ReleaseId {
+            channel: Channel::Release,
+            version: "9.9.9".into(),
+            build: None,
+        },
+        published: "2026-10-22T00:00:00Z".into(),
+        url: "https://example.invalid/SpartanPort.zip".into(),
         page: "https://example.invalid/releases".into(),
-    });
+    };
+    state.update = UpdateState::Ready(vec![release.clone()]);
     // The install question was open when the game started: its Yes must not install over it.
     send(&mut state, Message::Play);
     assert!(play::game_live(&state));
-    let task = app::update(&mut state, Message::Update(UpdateMessage::Confirmed));
+    let task = app::update(
+        &mut state,
+        Message::Update(UpdateMessage::Confirmed(release.clone())),
+    );
     assert_eq!(task.units(), 0);
-    assert!(matches!(state.update, UpdateState::Available(_)));
+    assert!(matches!(&state.update, UpdateState::Ready(list) if *list == vec![release]));
     assert!(state.update_progress.is_none());
     let shown = state.modal.take().expect("a dialog");
     assert_eq!(shown.text, "Close the game before updating.");
