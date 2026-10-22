@@ -39,7 +39,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 |
 | `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 0 | 3 |
-| `tests/test_launcher_mod_resolutions.py` | 3 | 2 | 1 | 0 | 0 | 0 |
+| `tests/test_launcher_mod_resolutions.py` | 3 | 1 | 2 | 0 | 0 | 0 |
 | `tests/test_launcher_monitor.py` | 73 | 17 | 16 | 0 | 1 | 39 |
 | `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 |
 | `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 |
@@ -55,7 +55,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **320** | **115** | **84** | **20** | **1** | **100** |
+| **Total** | **320** | **114** | **85** | **20** | **1** | **100** |
 
 ## Map
 
@@ -199,7 +199,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_icon.py::WindowIconTest::test_icon_has_every_windows_size` | — | dropped: no Rust counterpart — spartanport.ico holds the 16, 24, 32, 48, 64, 128 and 256 px sizes |
 | `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_region_mods_follow_the_game_selected_in_the_launcher` | `src/core/mods.rs::tests::region_folders_do_not_leak_to_another_game` | replaced by `src/core/mods.rs::tests::region_folders_do_not_leak_to_another_game` |
 | `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_the_list_follows_the_mods` | `tests/ui_pages.rs::the_list_follows_the_mods` | ported |
-| `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_a_saved_mod_resolution_stays_chosen_while_its_mod_is_on` | `tests/ui_pages.rs::a_saved_mod_resolution_stays_chosen_while_its_mod_is_on` | ported |
+| `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_a_saved_mod_resolution_stays_chosen_while_its_mod_is_on` | `tests/ui_pages.rs::a_saved_mod_resolution_stays_chosen_while_its_mod_is_on` | replaced by `tests/ui_pages.rs::a_saved_mod_resolution_stays_chosen_while_its_mod_is_on` |
 | `tests/test_launcher_monitor.py::DisplayParserTest::test_seven_columns_are_read` | `src/core/gpu.rs::tests::seven_columns_are_read` | ported |
 | `tests/test_launcher_monitor.py::DisplayParserTest::test_names_keep_spaces_quotes_and_utf8` | `src/core/gpu.rs::tests::names_keep_spaces_quotes_and_utf8` | ported |
 | `tests/test_launcher_monitor.py::DisplayParserTest::test_a_name_with_a_straight_quote_is_preserved` | `src/core/gpu.rs::tests::a_name_with_a_straight_quote_is_preserved` | ported |
@@ -430,6 +430,7 @@ the Python test:
 - `tests/test_launcher_game_files.py::LauncherGameFilesTests::test_cancel_then_copy_keeps_existing_files_and_reports_missing_module`: the missing module named after the copy is not asserted.
 - `tests/test_launcher_generators.py::LauncherGeneratorOutput::test_fixture_cases_exist_with_every_file`: the spartanport.ini of the defaults and legacy_controls cases is read by no Rust test.
 - `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_region_mods_follow_the_game_selected_in_the_launcher`: the Mods page dropping the selected mod is not asserted.
+- `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_a_saved_mod_resolution_stays_chosen_while_its_mod_is_on`: the Home no longer shows the Python's summary (R77), so the "3840 × 1080 · 32:9 (mod)" label is asserted on the Performance resolution list instead.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game`: the first monitor (0) and a number value are not asserted.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_an_invalid_choice_sends_nothing`: only -1 is asserted among the invalid values.
 - `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice`: the probe's window system, the Portuguese label and the refresh after a window system change are not asserted.
