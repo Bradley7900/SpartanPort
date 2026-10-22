@@ -20,9 +20,7 @@ use iced::{
 use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::options::{
-    short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS,
-};
+use crate::core::options::{short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS};
 use crate::ui::app::{
     home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
 };
@@ -492,10 +490,11 @@ pub fn status_line(state: &State) -> String {
     }
 }
 
-/// The settings line: upscaler, preset, output, FPS limit, window mode and monitor.
-/// The settings line under PLAY in pieces (mockup `#quick`): each text and whether it stands out
-/// (`<b>`: the upscaler, the resolution and the FPS); the other three and the separators are
-/// muted. The options show their short names, and the monitor counts from 1.
+/// The settings line under PLAY in pieces (mockup `#quick`): output resolution, FPS limit, window
+/// mode and monitor, the keys the Graphics page offers (ruling R78: not the parked upscaler and
+/// preset). Each text comes with whether it stands out (`<b>`: the resolution and the FPS); the
+/// other two and the separators are muted. The options show their short names, and the monitor
+/// counts from 1.
 pub fn quick_segments(state: &State) -> Vec<(String, bool)> {
     let lang = state.lang.as_str();
     let short = |table: &[Choice], key: &str| {
@@ -512,8 +511,6 @@ pub fn quick_segments(state: &State) -> Vec<(String, bool)> {
         .parse::<u32>()
         .map_or(1, |index| index.saturating_add(1));
     let items = [
-        (short(UPSCALERS, "upscaler"), true),
-        (short(PRESETS, "preset"), false),
         (short(OUTPUTS, "output_res"), true),
         (fps, true),
         (

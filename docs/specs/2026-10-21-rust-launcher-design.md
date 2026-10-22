@@ -184,9 +184,10 @@ Canto superior direito: pílula "Version X is available · Update" quando há at
 seletor de idioma (nome do idioma atual e seta). Bloco inferior direito, alinhado à direita:
 logotipo SpartanPort (54 px), botão PLAY em Cinzel Black (vira RUNNING desabilitado com STOP ao
 lado), chips em uma linha sem quebra (saves, título e versão do jogo, placa de vídeo; a linha de
-ajustes substitui o antigo chip de requisitos), linha de ajustes (upscaler, preset, resolução, FPS,
-modo de janela, monitor), dica "Insert ou R3+L2", que dá lugar ao status do jogo enquanto ele
-prepara, roda ou copia os arquivos de sistema.
+ajustes substitui o antigo chip de requisitos), linha de ajustes (resolução de saída, FPS, modo de
+janela, monitor: só chaves que a página Graphics oferece; upscaler e preset voltam quando ela os
+oferecer), dica "Insert ou R3+L2", que dá lugar ao status do jogo enquanto ele prepara, roda ou
+copia os arquivos de sistema.
 
 ### 4.4 Barra e gaveta
 

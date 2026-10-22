@@ -65,7 +65,7 @@ fn home_shows_play_and_the_three_chips() {
     );
     assert_eq!(
         home::quick_line(&state),
-        "FSR 3.1 · Quality · 1920 × 1080 · Unlimited · Windowed · Monitor 1"
+        "1920 × 1080 · Unlimited · Windowed · Monitor 1"
     );
 
     let mut ui = simulator(app::view(&state));
@@ -111,30 +111,44 @@ fn the_settings_line_reads_like_the_mockup() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     mockup_settings(&mut state);
-    // The mockup shows "FSR 4", an option 2.6.0 does not have; FSR 3.1 is its short name here.
+    // The mockup's line without the upscaler and the preset, which the 2.6.0 Graphics page does
+    // not offer (rulings R35 and R78).
     assert_eq!(
         home::quick_line(&state),
-        "FSR 3.1 · Quality · 2560 × 1440 · 120 FPS · Fullscreen · Monitor 1"
+        "2560 × 1440 · 120 FPS · Fullscreen · Monitor 1"
     );
-    // `<b>` of the mockup: the upscaler, the resolution and the FPS stand out.
+    // `<b>` of the mockup: the resolution and the FPS stand out.
     let segments = home::quick_segments(&state);
     let bright: Vec<&str> = segments
         .iter()
         .filter(|(_, bright)| *bright)
         .map(|(text, _)| text.as_str())
         .collect();
-    assert_eq!(bright, ["FSR 3.1", "2560 × 1440", "120 FPS"]);
+    assert_eq!(bright, ["2560 × 1440", "120 FPS"]);
     let muted: String = segments
         .iter()
         .filter(|(_, bright)| !*bright)
         .map(|(text, _)| format!("[{text}]"))
         .collect();
-    assert_eq!(
-        muted,
-        "[ · ][Quality][ · ][ · ][ · ][Fullscreen][ · ][Monitor 1]"
-    );
+    assert_eq!(muted, "[ · ][ · ][Fullscreen][ · ][Monitor 1]");
     state.lang = "pt".into();
-    assert!(home::quick_line(&state).ends_with(" · Tela cheia · Monitor 1"));
+    assert_eq!(
+        home::quick_line(&state),
+        "2560 × 1440 · 120 FPS · Tela cheia · Monitor 1"
+    );
+}
+
+#[test]
+fn the_settings_line_leaves_out_the_parked_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    mockup_settings(&mut state);
+    let before = home::quick_line(&state);
+    // Keys the Graphics page does not show: the line does not follow them.
+    for (key, value) in [("upscaler", "off"), ("preset", "3")] {
+        state.ini.values.insert(key.to_string(), value.to_string());
+    }
+    assert_eq!(home::quick_line(&state), before);
 }
 
 #[test]
