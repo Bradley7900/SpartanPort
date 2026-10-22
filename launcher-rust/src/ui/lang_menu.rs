@@ -1,7 +1,5 @@
 //! The language selector of the Home page (spec 4.5).
 
-use std::time::Duration;
-
 use iced::time::Instant;
 use iced::widget::{button, column, container, mouse_area, row, text};
 use iced::{Element, Fill, Padding, Right, Top};
@@ -9,14 +7,12 @@ use serde_json::json;
 
 use crate::core::i18n::{native_name, region_of, tr, Region, LANGS};
 use crate::ui::app::{home_interactive_enabled, home_interactive_opacity, Message, State};
+use crate::ui::hover_menu::{self, HoverMenu, HoverMessage};
+pub use crate::ui::hover_menu::{HOVER_OPEN, LEAVE_CLOSE};
 use crate::ui::theme::{
     button_flat, container_card, faded_button, mirror_padding, mirror_x, palette, CINZEL_BOLD,
 };
 
-/// Hovering the button this long opens the list (spec 4.5).
-pub const HOVER_OPEN: Duration = Duration::from_millis(450);
-/// Leaving the button and the list this long closes it (spec 4.5).
-pub const LEAVE_CLOSE: Duration = Duration::from_millis(300);
 /// Distance of the button from the top and right edges (mockup `#topright`).
 const EDGE_TOP: f32 = 22.0;
 const EDGE_RIGHT: f32 = 24.0;
@@ -26,14 +22,7 @@ const MENU_DROP: f32 = 30.0;
 const MENU_WIDTH: f32 = 200.0;
 
 /// Open state and hover timers.
-#[derive(Debug, Clone, Default)]
-pub struct LangMenu {
-    pub open: bool,
-    /// When the pointer entered the button or the list; opens the list after `HOVER_OPEN`.
-    pub hover_since: Option<Instant>,
-    /// When the pointer left both; closes the list after `LEAVE_CLOSE`.
-    pub leave_since: Option<Instant>,
-}
+pub type LangMenu = HoverMenu;
 
 /// Selector events.
 #[derive(Debug, Clone)]
@@ -47,48 +36,28 @@ pub enum LangMessage {
 
 /// Applies a selector event; `Enter` and `Leave` are stamped with `state.now`.
 pub fn update(state: &mut State, message: LangMessage) {
-    let menu = &mut state.lang_menu;
-    match message {
-        LangMessage::Enter => {
-            menu.hover_since = Some(state.now);
-            menu.leave_since = None;
-        }
-        LangMessage::Leave => {
-            menu.leave_since = Some(state.now);
-            menu.hover_since = None;
-        }
-        LangMessage::Toggle => {
-            menu.open = !menu.open;
-            menu.hover_since = None;
-            menu.leave_since = None;
-        }
-        LangMessage::Tick(now) => {
-            if let Some(since) = menu.hover_since {
-                if now.saturating_duration_since(since) >= HOVER_OPEN {
-                    menu.open = true;
-                    menu.hover_since = None;
-                }
-            }
-            if let Some(since) = menu.leave_since {
-                if now.saturating_duration_since(since) >= LEAVE_CLOSE {
-                    menu.open = false;
-                    menu.leave_since = None;
-                }
-            }
-        }
+    let now = state.now;
+    let hover = match message {
+        LangMessage::Enter => HoverMessage::Enter,
+        LangMessage::Leave => HoverMessage::Leave,
+        LangMessage::Toggle => HoverMessage::Toggle,
+        LangMessage::Tick(at) => HoverMessage::Tick(at),
         // Stores the language; `app::update` then saves, which rebuilds the window in it.
         LangMessage::Pick(code) => {
+            let menu = &mut state.lang_menu;
             menu.open = false;
             menu.hover_since = None;
             menu.leave_since = None;
             state.settings.set("ui_language", json!(code));
+            return;
         }
-    }
+    };
+    hover_menu::apply(&mut state.lang_menu, hover, now);
 }
 
 /// Whether a timer is running, so the app keeps the clock ticking.
 pub fn timing(state: &State) -> bool {
-    state.lang_menu.hover_since.is_some() || state.lang_menu.leave_since.is_some()
+    hover_menu::timing(&state.lang_menu)
 }
 
 /// The button with the current language's own name.

@@ -3,6 +3,7 @@ pub mod app;
 pub mod drawer;
 pub mod fire;
 pub mod home;
+pub mod hover_menu;
 pub mod lang_menu;
 pub mod pages;
 pub mod persist;
