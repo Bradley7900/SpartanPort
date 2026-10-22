@@ -341,12 +341,12 @@ fn the_bar_names_the_version_and_the_system() {
     let dir = tempfile::tempdir().unwrap();
     let state = state_in(dir.path());
     let mut ui = simulator(app::view(&state));
-    let shown = if cfg!(windows) {
-        "v2.6.0 · Windows"
-    } else {
-        "v2.6.0 · Linux"
-    };
-    assert!(ui.find(shown).is_ok(), "{shown} missing from the bar");
+    let system = if cfg!(windows) { "Windows" } else { "Linux" };
+    let shown = format!("v{VERSION} · {system}");
+    assert!(
+        ui.find(shown.as_str()).is_ok(),
+        "{shown} missing from the bar"
+    );
 }
 
 #[test]

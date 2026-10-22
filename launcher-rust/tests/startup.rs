@@ -47,9 +47,10 @@ fn version_prints_the_name_and_the_version() {
         .output()
         .unwrap();
     assert!(out.status.success());
+    // The version itself is pinned to the Python launcher's in `core_boundary.rs`.
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim(),
-        "SpartanPort 2.6.0"
+        format!("SpartanPort {}", spartanport_launcher::VERSION)
     );
 }
 
