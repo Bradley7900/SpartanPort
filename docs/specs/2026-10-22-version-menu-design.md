@@ -1,6 +1,6 @@
 # Menu de versões do launcher (extensão do updater do sub-projeto 1)
 
-Data: 2026-10-22. Estado: design aprovado em conversa; aguarda revisão do texto.
+Data: 2026-10-22. Estado: implementado (branch rust-launcher, 2026-10-22).
 
 ## 1. Objetivo
 
@@ -252,3 +252,61 @@ Smoke tests dos dois sistemas conferindo `release.json` quando há tag (rodam no
 - `launcher-rust/src/ui/lang_menu.rs`, `launcher-rust/src/ui/update.rs`,
   `launcher-rust/src/core/update.rs`.
 - `.github/workflows/windows-zip.yml`, `.github/workflows/linux-appimage.yml`.
+
+## 10. Desvios
+
+O que o código faz de diferente do texto acima. As seções anteriores seguem como o design
+aprovado; esta é o registro.
+
+### 10.1 Previstos no plano
+
+- `Release.url` é uma `String`, não uma `Option`: `parse_releases` descarta toda release sem o
+  pacote deste sistema (§3.2).
+- `UpdateState::Ready(Vec<Release>)` guarda a lista; `newer` não é armazenado, e sim derivado por
+  `update::newer` a partir de `newer_stable(releases, &state.installed)`.
+- O botão manual "Check for updates" (Advanced), quando há estável mais nova, só muda o texto do
+  botão; nenhum diálogo abre.
+- `ReleaseId::label(lang)` e `ReleaseId::short()` substituem uma implementação de `Display`, porque
+  o rótulo depende do idioma.
+- `core/release.rs` (identidade da tag, leitura da lista, `stables`/`prereleases`/`newer_stable`,
+  `version_tuple`) foi separado de `core/update.rs`, que mantém a chamada HTTP, o leitor do stamp e
+  o código de instalação.
+
+### 10.2 Encontrados na implementação
+
+- Uma checagem que falha mantém a lista já exibida: `UpdateState::Failed` só é gravado a partir de
+  `None`, `Checking` ou `Failed`; sobre `Ready(list)` a lista permanece (o modal de erro ainda
+  aparece na checagem manual); `Downloading` nunca é alterado (a §4.1 dizia "Failed, exceto
+  Downloading"). Commit 46db24e.
+- `ModalKind` leva `#[allow(clippy::large_enum_variant)]`: `Message` cresceu com
+  `UpdateMessage::Install(Release)`, `UpdateMessage::Confirmed(Release)` e
+  `VersionMessage::Pick(Release)`, e `YesNo { yes, no }` guarda duas delas. Pôr as respostas em
+  `Box` em todo lugar custava mais do que os bytes economizados. Commit 59cc916.
+- `tests/ui_navigation.rs` (`keys_do_nothing_under_a_dialog`) foi adaptado para
+  `UpdateMessage::Confirmed(release)`; o plano não listava esse arquivo.
+- `State::new` ignora um `APPDIR` vazio: `APPDIR=""` cai em `port_dir/release.json`. Commit 46db24e.
+- `BUTTON_ID` fica num `container` em volta do botão de versão, porque o `Button` do iced 0.14 não
+  tem `id`. Os testes de layout medem os limites do `container`.
+- "Não clicável com a tela escurecida" é testado com uma gaveta larga (`Page::Log`): um modal não
+  desabilita a Home (`home_interactive_enabled` só olha para a gaveta larga), e "o clique não emite
+  nada" é verificado como "nenhum `VersionMenu(Toggle)`", porque o simulador ainda emite `Enter` e
+  `Leave` de hover.
+- O texto do botão em português é `Lançamento · 2.6.0 · 2.7.0 disponível ▾` (a palavra do canal vem
+  de `UI_EXTRA`, e "{} available" vira "{} disponível").
+- As constantes de posição do menu de idioma (`EDGE_TOP`, `MENU_DROP`, `EDGE_RIGHT`, `MENU_WIDTH`)
+  passaram a `pub(crate)` em `lang_menu.rs` e são usadas também por `version_menu::menu`: os dois
+  menus aparecem no mesmo ponto, alinhados à direita, e só um fica aberto por vez.
+- `ROW_HEIGHT = 29.0` é um teto: uma linha real mede cerca de 28,25 pt (texto de 12,5 pt, padding
+  `[5, 12]`, espaçamento 2), então o limite das pre-releases (8 × 29 = 232) passa a valer a partir
+  da 9ª linha e deixa ver uma faixa de uns 6 px dela. O teste fixa `height(9) == height(20)`,
+  `height(8) < cap` e `height(7) < height(8)`. Commits 46c1910 e 5126021.
+- As linhas apagadas (`Fetching…`, `Could not fetch the versions`, `No test builds` e
+  `No test builds for Linux`) são `text` simples com o padding da linha, não botões.
+- `packaging/release_stamp.py`: um valor inválido em `--prerelease` sai com código 2 (argparse); só
+  uma tag inválida sai com código 1.
+- Job de smoke do Linux: o `docker run` de `smoke-test.sh` repassa `-e SPARTAN_RELEASE_TAG`; um
+  `env:` no nível do step não chega ao contêiner. Commit 669d95e.
+- Workflow do Windows: o step `Stamp` roda em `shell: bash` (Git Bash), não no shell `msys2` do
+  job, porque o `gh` não está no PATH do msys2. Os dois workflows imprimem um `::warning::` quando
+  `gh release view` falha, antes de carimbar a build como pre-release (a §5 previa um fallback
+  silencioso). Commit 2e77113.
