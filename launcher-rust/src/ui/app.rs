@@ -21,7 +21,7 @@ use crate::core::paths::Paths;
 use crate::core::settings::{load_app_settings, Settings};
 use crate::core::update::can_self_update;
 use crate::ui::drawer::{self, DrawerState};
-use crate::ui::fire::{intensity_for, Fire};
+use crate::ui::fire::{intensity_for, probe_gpu, Fire};
 use crate::ui::home::{self, HomeFacts};
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::advanced;
@@ -721,8 +721,11 @@ fn window_settings() -> window::Settings {
 
 /// Opens the launcher window and runs until it closes.
 pub fn run(paths: Paths) -> iced::Result {
+    // Asked once, before the window: the shader fire needs iced to render with wgpu.
+    let shader_fire = probe_gpu();
     let boot = move || {
-        let state = State::new(paths.clone());
+        let mut state = State::new(paths.clone());
+        state.fire = Fire::new(shader_fire);
         let checks = splash::start_checks(&state);
         let monitors = start_monitor_listing(&state);
         (state, Task::batch([checks, monitors]))

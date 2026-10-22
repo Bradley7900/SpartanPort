@@ -21,7 +21,6 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS};
 use crate::core::patches::patch_status;
 use crate::ui::app::{home_interactive_enabled, home_interactive_opacity, Message, State};
-use crate::ui::fire::Fire;
 use crate::ui::lang_menu;
 use crate::ui::pages::performance;
 use crate::ui::play::GameState;
@@ -380,10 +379,7 @@ pub fn background(state: &State) -> Element<'_, Message> {
         .push(layer(Layer::Heat(elapsed)));
     // While the splash is live it draws the fire itself, above its own dark background.
     if splash::layers(state).home_draws_fire {
-        let fire = match &state.fire {
-            Fire::Canvas(fire) => canvas_widget(fire).width(Fill).height(Fill),
-        };
-        layers = layers.push(fire);
+        layers = layers.push(state.fire.view());
     }
     layers.into()
 }

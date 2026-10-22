@@ -1,36 +1,109 @@
-//! Embers, flames and heat behind the Home page (spec 4.3 item 5).
+//! Embers and flames behind the splash and the Home page (spec 4.3 item 5); the heat pulse under
+//! them is the Home's layer 5 (`home.rs`), the same for both fires.
 
+use iced::futures::executor::block_on;
 use iced::mouse;
+use iced::wgpu;
 use iced::widget::canvas::{self, Geometry, Path};
-use iced::{Color, Point, Rectangle, Renderer, Size, Theme, Vector};
+use iced::widget::{canvas as canvas_widget, shader as shader_widget};
+use iced::{Color, Element, Fill, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use crate::ui::app::Message;
 
-// Task 36 adds Shader
-/// The fire layer.
+mod shader;
+
+pub use shader::FireShader;
+
+/// The fire layer: drawn by a wgpu shader, or by a `canvas` when iced renders with tiny-skia.
 #[derive(Debug)]
 pub enum Fire {
     Canvas(FireCanvas),
+    Shader(FireShader),
 }
 
 impl Default for Fire {
     fn default() -> Self {
-        Fire::Canvas(FireCanvas::default())
+        Fire::new(false)
     }
 }
 
 impl Fire {
+    /// The shader fire when `use_shader` (see [`probe_gpu`]), the canvas fire otherwise.
+    pub fn new(use_shader: bool) -> Self {
+        if use_shader {
+            Fire::Shader(FireShader::default())
+        } else {
+            Fire::Canvas(FireCanvas::default())
+        }
+    }
+
     pub fn set_intensity(&mut self, intensity: f32) {
         match self {
             Fire::Canvas(fire) => fire.set_intensity(intensity),
+            Fire::Shader(fire) => fire.set_intensity(intensity),
         }
     }
 
     pub fn tick(&mut self, dt: f32, size: Size) {
         match self {
             Fire::Canvas(fire) => fire.tick(dt, size),
+            Fire::Shader(fire) => fire.tick(dt, size),
         }
     }
+
+    /// The fire filling its layer.
+    pub fn view(&self) -> Element<'_, Message> {
+        match self {
+            Fire::Canvas(fire) => canvas_widget(fire).width(Fill).height(Fill).into(),
+            Fire::Shader(fire) => shader_widget(fire).width(Fill).height(Fill).into(),
+        }
+    }
+}
+
+/// Whether the fire can be the wgpu shader. Asks the GPU, so call it once, at start-up.
+pub fn probe_gpu() -> bool {
+    let backend = std::env::var("ICED_BACKEND").ok();
+    use_shader(backend.as_deref(), adapter_found)
+}
+
+/// Whether iced will render with wgpu, the only renderer that draws a shader. `backend_env` is
+/// `ICED_BACKEND`, a comma-separated list iced tries in order, each entry with wgpu then with
+/// tiny-skia; `adapter_found` asks the GPU and is called only when wgpu gets its turn.
+pub fn use_shader(backend_env: Option<&str>, adapter_found: impl FnOnce() -> bool) -> bool {
+    let mut candidates = backend_env
+        .unwrap_or_default()
+        .split(',')
+        .filter(|candidate| !candidate.is_empty())
+        .peekable();
+    if candidates.peek().is_none() {
+        return adapter_found();
+    }
+    for candidate in candidates {
+        match candidate {
+            // Without an adapter wgpu fails here, and would again on any later "wgpu".
+            "wgpu" => return adapter_found(),
+            "tiny-skia" | "tiny_skia" => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether wgpu finds a graphics adapter, asked the way iced asks for its window
+/// (`WGPU_BACKEND`, `WGPU_POWER_PREF`) but without a surface.
+fn adapter_found() -> bool {
+    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::from_env().unwrap_or(wgpu::Backends::all()),
+        flags: wgpu::InstanceFlags::empty(),
+        ..Default::default()
+    });
+    let options = wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::from_env()
+            .unwrap_or(wgpu::PowerPreference::HighPerformance),
+        compatible_surface: None,
+        force_fallback_adapter: false,
+    };
+    block_on(instance.request_adapter(&options)).is_ok()
 }
 
 /// How much fire there is: 1.0 on the splash, 0.8 on a focused Home, 0.3 unfocused, none when
@@ -47,6 +120,8 @@ pub fn intensity_for(splash: bool, focused: bool, visible: bool, effects: bool) 
     }
 }
 
+/// Seed of the fire's random source.
+const SEED: u32 = 0x5eed_f1e5;
 /// Particles alive at full intensity.
 const FULL_COUNT: f32 = 120.0;
 /// Particles born per tick at most, so the fire fills in over a second instead of in one burst.
@@ -57,6 +132,8 @@ const FLAME_SHARE: f32 = 0.22;
 const RISE: f32 = 0.22;
 /// Extra life on the right edge.
 const EXTRA_LIFE: f32 = 0.7;
+/// A flame's rings, outside in: share of the radius and alpha at full life.
+const FLAME_RINGS: [(f32, f32); 3] = [(1.0, 0.05), (0.65, 0.07), (0.35, 0.10)];
 
 /// Small deterministic generator; the fire needs variety, not quality.
 #[derive(Debug, Clone)]
@@ -92,7 +169,7 @@ pub enum ParticleKind {
     Flame,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Particle {
     pos: Point,
     vel: Vector,
@@ -107,41 +184,40 @@ impl Particle {
     fn remaining(&self) -> f32 {
         (1.0 - self.life / self.max_life).clamp(0.0, 1.0)
     }
+
+    /// Colour at the centre, fading with age; a flame's alpha scales the alphas of its rings.
+    fn colour(&self) -> Color {
+        let left = self.remaining();
+        match self.kind {
+            ParticleKind::Ember => Color::from_rgba(1.0, 0.45 + 0.3 * left, 0.12, 0.9 * left),
+            ParticleKind::Flame => Color::from_rgba(0.95, 0.25 + 0.2 * left, 0.05, left),
+        }
+    }
 }
 
-/// The canvas fire: particles, a geometry cache and its own random source.
+/// The particles both fires draw: spawn rules, motion and their own random source.
 #[derive(Debug)]
-pub struct FireCanvas {
+struct FireSim {
     particles: Vec<Particle>,
-    cache: canvas::Cache,
     intensity: f32,
     rng: Xorshift32,
-    size: Size,
     /// Where every particle was born (x, y), for the tests.
     #[cfg(test)]
     spawn_log: Vec<(f32, f32)>,
 }
 
-impl Default for FireCanvas {
-    fn default() -> Self {
-        FireCanvas::seeded(0x5eed_f1e5)
-    }
-}
-
-impl FireCanvas {
-    pub fn seeded(seed: u32) -> Self {
-        FireCanvas {
+impl FireSim {
+    fn seeded(seed: u32) -> Self {
+        FireSim {
             particles: Vec::new(),
-            cache: canvas::Cache::new(),
             intensity: 0.0,
             rng: Xorshift32::new(seed),
-            size: Size::ZERO,
             #[cfg(test)]
             spawn_log: Vec::new(),
         }
     }
 
-    pub fn set_intensity(&mut self, intensity: f32) {
+    fn set_intensity(&mut self, intensity: f32) {
         self.intensity = intensity.clamp(0.0, 1.0);
     }
 
@@ -179,12 +255,10 @@ impl FireCanvas {
     }
 
     /// Advances the fire by `dt` seconds in a window of `size`.
-    pub fn tick(&mut self, dt: f32, size: Size) {
-        self.size = size;
+    fn tick(&mut self, dt: f32, size: Size) {
         if self.intensity <= 0.0 {
             // Nothing stays frozen on screen when the clock stops.
             self.particles.clear();
-            self.cache.clear();
             return;
         }
         for particle in &mut self.particles {
@@ -201,12 +275,43 @@ impl FireCanvas {
                 born += 1;
             }
         }
-        self.cache.clear();
     }
 
     #[cfg(test)]
-    pub fn take_spawned(&mut self) -> Vec<(f32, f32)> {
+    fn take_spawned(&mut self) -> Vec<(f32, f32)> {
         std::mem::take(&mut self.spawn_log)
+    }
+}
+
+/// The canvas fire: the shared simulation and a geometry cache.
+#[derive(Debug)]
+pub struct FireCanvas {
+    sim: FireSim,
+    cache: canvas::Cache,
+}
+
+impl Default for FireCanvas {
+    fn default() -> Self {
+        FireCanvas::seeded(SEED)
+    }
+}
+
+impl FireCanvas {
+    pub fn seeded(seed: u32) -> Self {
+        FireCanvas {
+            sim: FireSim::seeded(seed),
+            cache: canvas::Cache::new(),
+        }
+    }
+
+    pub fn set_intensity(&mut self, intensity: f32) {
+        self.sim.set_intensity(intensity);
+    }
+
+    /// Advances the fire by `dt` seconds in a window of `size`.
+    pub fn tick(&mut self, dt: f32, size: Size) {
+        self.sim.tick(dt, size);
+        self.cache.clear();
     }
 }
 
@@ -222,19 +327,20 @@ impl canvas::Program<Message> for FireCanvas {
         _cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let geometry = self.cache.draw(renderer, bounds.size(), |frame| {
-            for particle in &self.particles {
-                let left = particle.remaining();
+            for particle in &self.sim.particles {
+                let colour = particle.colour();
                 match particle.kind {
                     ParticleKind::Ember => {
-                        let color = Color::from_rgba(1.0, 0.45 + 0.3 * left, 0.12, 0.9 * left);
-                        frame.fill(&Path::circle(particle.pos, particle.radius), color);
+                        frame.fill(&Path::circle(particle.pos, particle.radius), colour);
                     }
                     ParticleKind::Flame => {
                         // The canvas has no radial gradient: stacked discs fake the falloff.
-                        for (scale, alpha) in [(1.0, 0.05), (0.65, 0.07), (0.35, 0.10)] {
-                            let color =
-                                Color::from_rgba(0.95, 0.25 + 0.2 * left, 0.05, alpha * left);
-                            frame.fill(&Path::circle(particle.pos, particle.radius * scale), color);
+                        for (scale, alpha) in FLAME_RINGS {
+                            let ring = Color {
+                                a: alpha * colour.a,
+                                ..colour
+                            };
+                            frame.fill(&Path::circle(particle.pos, particle.radius * scale), ring);
                         }
                     }
                 }
@@ -255,10 +361,10 @@ mod tests {
         let mut fire = FireCanvas::seeded(7);
         fire.set_intensity(1.0);
         fire.tick(0.033, size);
-        assert!(!fire.particles.is_empty());
+        assert!(!fire.sim.particles.is_empty());
         fire.set_intensity(0.0);
         fire.tick(0.033, size);
-        assert!(fire.particles.is_empty());
+        assert!(fire.sim.particles.is_empty());
     }
 
     #[test]
@@ -280,7 +386,7 @@ mod tests {
         let mut spawned = 0;
         for _ in 0..600 {
             fire.tick(0.033, size);
-            for y_x in fire.take_spawned() {
+            for y_x in fire.sim.take_spawned() {
                 spawned += 1;
                 if y_x.0 < 0.2 * size.width {
                     left.push(y_x.1);
@@ -295,5 +401,23 @@ mod tests {
         assert!(spawned >= 200);
         let avg = |v: &[f32]| v.iter().sum::<f32>() / v.len() as f32;
         assert!(avg(&right) < avg(&left));
+    }
+
+    #[test]
+    fn fire_falls_back_to_canvas_without_a_gpu() {
+        // iced renders with tiny-skia: no shader, and the GPU is not even asked.
+        for backend in ["tiny-skia", "tiny_skia", "tiny-skia,wgpu"] {
+            assert!(!use_shader(Some(backend), || unreachable!("{backend}")));
+        }
+        // wgpu comes first but finds no adapter, so iced falls back to tiny-skia.
+        assert!(!use_shader(None, || false));
+        assert!(!use_shader(Some("wgpu,tiny-skia"), || false));
+        // wgpu with an adapter.
+        for backend in [None, Some(""), Some("wgpu"), Some("wgpu,tiny-skia")] {
+            assert!(use_shader(backend, || true), "{backend:?}");
+        }
+        assert!(matches!(Fire::new(false), Fire::Canvas(_)));
+        assert!(matches!(Fire::new(true), Fire::Shader(_)));
+        assert!(matches!(Fire::default(), Fire::Canvas(_)));
     }
 }

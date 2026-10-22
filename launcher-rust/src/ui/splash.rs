@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use iced::animation::{Animation, Easing};
 use iced::time::Instant;
-use iced::widget::{canvas, container, image, mouse_area, space, stack, text};
+use iced::widget::{container, image, mouse_area, space, stack, text};
 use iced::{Background, Border, Bottom, Color, Element, Fill, Padding, Task};
 
 use crate::core::game::ready_to_play;
@@ -14,7 +14,6 @@ use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
 use crate::core::update::{can_self_update, latest_release, Release};
 use crate::ui::app::{Message, State, BAR_HEIGHT};
-use crate::ui::fire::Fire;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::palette;
 use crate::ui::update;
@@ -265,9 +264,7 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
             ..Padding::ZERO
         });
 
-    let fire = match &state.fire {
-        Fire::Canvas(fire) => canvas(fire).width(Fill).height(Fill),
-    };
+    let fire = state.fire.view();
 
     mouse_area(
         stack![background, fire, status, hint, monogram_layer]
