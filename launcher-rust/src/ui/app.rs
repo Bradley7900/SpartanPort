@@ -811,8 +811,7 @@ fn window_settings() -> window::Settings {
         min_size: Some(WINDOW_SIZE),
         position: window::Position::Centered,
         exit_on_close_request: false,
-        icon: window::icon::from_file_data(include_bytes!("../../assets/spartanport.png"), None)
-            .ok(),
+        icon: window::icon::from_file_data(home::MONOGRAM_PNG, None).ok(),
         #[cfg(target_os = "linux")]
         platform_specific: window::settings::PlatformSpecific {
             application_id: "spartanport".to_string(),
