@@ -47,8 +47,10 @@ pub enum SettingsFile {
 pub fn read_app_settings(paths: &Paths) -> (Settings, SettingsFile);
 ```
 
-`load_app_settings` continua devolvendo só `Settings`. `State::new` cria o setup quando o
-resultado é `Missing`; `Unreadable` segue o caminho do aviso único, sem setup. O ini não
+`load_app_settings` continua devolvendo só `Settings`. `State::new` guarda o resultado em
+`state.settings_file` e não abre o setup; `State::open` (o construtor que `app::run` usa) chama
+`new` e cria o setup quando o resultado é `Missing`. `Unreadable` segue o caminho do aviso único,
+sem setup. O ini não
 participa da decisão: um ini presente sem `settings.json` ainda abre o setup, e os valores do
 ini aparecem pré-selecionados no passo 3.
 
@@ -63,6 +65,8 @@ pub struct State {
 
 pub struct SetupState {
     pub step: Step,
+    /// Os defaults da abertura (`persist::gather` em `State::open`): o que Skip grava.
+    pub defaults: Persisted,
 }
 
 pub enum Step {
@@ -82,9 +86,9 @@ flag é gravado.
 
 ### 3.3 Testes existentes
 
-`tests/common::state` faz `state.setup = None` logo depois de `splash.done = true`, porque todo
-teste cria o estado numa pasta temporária sem `settings.json`. Os testes do setup criam o
-próprio estado sem essa linha. Os snapshots atuais não mudam.
+Os testes de hoje constroem o estado com `State::new` numa pasta temporária sem `settings.json`
+e continuam sem setup, porque só `State::open` o cria. Os testes do setup usam `State::open`. Os
+snapshots atuais não mudam.
 
 ## 4. Interface
 
@@ -225,9 +229,9 @@ estado preservado.
 
 ### 5.4 Skip
 
-Restaura `state.settings` e `state.ini.values` a partir de `state.saved` (o `Persisted` colhido
-em `State::new`, isto é, os defaults da abertura), roda `game::game_changed`, e segue igual ao
-Finish. O idioma escolhido no seletor durante o setup é preservado: `ui_language` é regravado
+Restaura `state.settings` e `state.ini.values` a partir de `setup.defaults` (o `Persisted`
+colhido em `State::open`, isto é, os defaults da abertura; `state.saved` não serve porque a troca
+de idioma o recolhe de novo), roda `game::game_changed`, e segue igual ao Finish. O idioma escolhido no seletor durante o setup é preservado: `ui_language` é regravado
 depois da restauração com o valor de `state.lang`.
 
 ### 5.5 Fechar a janela
@@ -238,8 +242,10 @@ depois da restauração com o valor de `state.lang`.
 
 ### 5.6 Idioma
 
-Trocar o idioma no seletor chama `persist::rebuild` como hoje; `setup` e `step` são mantidos no
-novo estado.
+Hoje escolher um idioma no seletor chama `persist::save`, que grava `settings.json`. Com o setup
+aberto isso criaria o arquivo antes do Finish, então a escolha chama só `persist::rebuild`
+(janela no novo idioma, nada gravado); `setup` e `step` são mantidos. O idioma é gravado no
+Finish ou no Skip; fechar a janela antes disso o perde, como qualquer outra escolha.
 
 ### 5.7 Checagens do splash
 
@@ -274,8 +280,9 @@ Em `core::settings`:
 
 ### 7.2 Interface (`iced_test`, `tests/ui_setup.rs`)
 
-- Sem `settings.json`, o estado nasce com `setup` no passo `Folders` e a view não tem barra nem
-  PLAY; com `settings.json` presente nasce sem `setup`.
+- Sem `settings.json`, `State::open` nasce com `setup` no passo `Folders` e a view não tem barra
+  nem PLAY; com `settings.json` presente (legível ou não) nasce sem `setup`; `State::new` nunca
+  o cria.
 - Passo 1: Next sem `on_press` com `game_dir` vazio; ativa com `dump_with_patches`; desativa
   com `update_dir` igual ao dump; a lista vermelha mostra o `describe_missing` do dump vazio.
 - `Browsed("game_dir", dump)` troca a pasta e os facts da Home (título do jogo) acompanham.
@@ -287,7 +294,7 @@ Em `core::settings`:
   `setup`.
 - `CloseRequested` com setup aberto não cria `settings.json`.
 - ← → e Enter com setup aberto não mudam `page` nem iniciam o jogo; Enter com Next ativo avança.
-- Troca de idioma mantém `setup` e `step`.
+- Troca de idioma mantém `setup` e `step`, muda `state.lang` e não cria `settings.json`.
 
 ### 7.3 Snapshots
 
