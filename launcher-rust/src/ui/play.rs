@@ -489,11 +489,22 @@ fn exited(state: &mut State, code: i32) -> Task<Message> {
         state.log.push_text(&(tr(&lang, hint.text_en()) + "\n"));
     }
     state.status.clear();
-    if exit {
+    if exit && hint.is_none() {
         return iced::exit();
     }
     home::refresh_facts(state);
-    Task::batch([log::scroll_to_end(), trophies::refresh(state)])
+    let mut tasks = vec![log::scroll_to_end(), trophies::refresh(state)];
+    if hint.is_some() {
+        // The advice is read on the Log page (the Python's `show_log`), and a window hidden for
+        // the game comes back to show it instead of closing.
+        tasks.push(show_page(state, Page::Log));
+        if exit {
+            state.visible = true;
+            tasks
+                .push(window::latest().and_then(|id| window::set_mode(id, window::Mode::Windowed)));
+        }
+    }
+    Task::batch(tasks)
 }
 
 /// The `close_on_play` timer: hides the window when the game it was set for still runs. An early

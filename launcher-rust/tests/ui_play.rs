@@ -316,7 +316,10 @@ fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
         )),
         "{text}"
     );
-    // PLAY is back, with the hint under the settings line.
+    // The advice opened the Log page (2.7.0); Esc brings the Home back, where PLAY is back with
+    // the hint under the settings line.
+    assert_eq!(state.page, Page::Log);
+    send(&mut state, Message::CloseDrawer);
     assert!(idle(&state));
     assert!(state.status.is_empty());
     assert_eq!(home::status_line(&state), HINT);
@@ -441,6 +444,53 @@ fn a_hidden_launcher_exits_after_the_game() {
         "{text}"
     );
     assert!(!play::exit_after_game(&state));
+}
+
+#[test]
+fn an_exit_hint_opens_the_log_and_unhides_the_launcher() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = ready(
+        dir.path(),
+        &["--lines", "1", "--delay-ms", "50", "--exit", "0"],
+    );
+    let line = "Runtime: cannot create 8128 MiB of guest memory (error 1450); is the page file large enough?\n";
+
+    // test_exit_hint_switches_to_advanced_page_and_scrolls_log: the Log page here.
+    send(&mut state, Message::Play);
+    assert_eq!(state.page, Page::Home);
+    send(
+        &mut state,
+        Message::Game(GameMessage::Output(vec![line.to_string()])),
+    );
+    send(&mut state, Message::Game(GameMessage::Exited(21)));
+    assert_eq!(state.page, Page::Log);
+    let text = state.log.text();
+    assert!(
+        text.contains("The game exited (code 21).\nWindows could not reserve"),
+        "{text}"
+    );
+    assert!(state.visible);
+
+    // test_exit_hint_unhides_launcher_when_hidden_for_game
+    send(&mut state, Message::Play);
+    let running = pid(&state);
+    send(&mut state, Message::Game(GameMessage::HideForGame(running)));
+    assert!(!state.visible);
+    send(
+        &mut state,
+        Message::Game(GameMessage::Output(vec![line.to_string()])),
+    );
+    send(&mut state, Message::Game(GameMessage::Exited(21)));
+    assert!(state.visible);
+    assert!(!play::exit_after_game(&state));
+    assert_eq!(state.page, Page::Log);
+
+    // test_clean_exit_destroys_root_when_hidden_for_game: nothing shows the window again.
+    send(&mut state, Message::Play);
+    let running = pid(&state);
+    send(&mut state, Message::Game(GameMessage::HideForGame(running)));
+    send(&mut state, Message::Game(GameMessage::Exited(0)));
+    assert!(!state.visible);
 }
 
 #[test]
