@@ -77,6 +77,63 @@ fn legacy_controls_settings_match_python() {
     assert_eq!(settings_bytes_for_case("legacy_controls"), expected);
 }
 
+/// The Save flow against `fixtures/collected/`: what the Python launcher's own `collect()` wrote for
+/// the `edited` input (`tools/launcher_fixtures.py`), not the `edited` case, which saves the ini edits
+/// and the app dict without the window. The launcher opens over the input's `settings.json` and
+/// `spartanport.ini`, lists no monitors (the generator's probe lists none), takes the edits through
+/// `Set` and collects.
+#[test]
+fn collect_matches_python_for_edited_case() {
+    use spartanport_launcher::ui::app::{self, Message, State};
+    use spartanport_launcher::ui::persist::collect;
+
+    let input = load_input("collected");
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().to_string_lossy().into_owned();
+    fs::write(
+        dir.path().join("settings.json"),
+        serde_json::to_string_pretty(&input["settings"]).unwrap(),
+    )
+    .unwrap();
+    let mut ini = String::new();
+    for line in input["ini_lines"].as_array().unwrap() {
+        ini.push_str(line.as_str().unwrap());
+        ini.push('\n');
+    }
+    fs::write(dir.path().join("spartanport.ini"), ini).unwrap();
+    // The input's settings name the game folder, so the SPARTAN_GAME_DIR default never shows.
+    let env = move |key: &str| match key {
+        "SPARTAN_DATA_DIR" | "APPDATA" | "USERPROFILE" | "HOME" | "XDG_CONFIG_HOME" => {
+            Some(data.clone())
+        }
+        _ => None,
+    };
+    let mut state = State::new(Paths::from_env(dir.path(), &env));
+    let _ = app::update(&mut state, Message::MonitorsListed(Vec::new()));
+    for (key, value) in input["edits"]["app"].as_object().unwrap() {
+        let _ = app::update(&mut state, Message::Set(key.clone(), value.clone()));
+    }
+    for (key, value) in input["edits"]["ini"].as_object().unwrap() {
+        let _ = app::update(&mut state, Message::Set(key.clone(), value.clone()));
+    }
+    collect(&mut state).unwrap();
+
+    let expected = fixture_dir("collected");
+    for name in ["settings.json", "spartanport.ini"] {
+        // Byte for byte; as text so a failure shows the differing lines.
+        let got = String::from_utf8(fs::read(dir.path().join(name)).unwrap()).unwrap();
+        let want = String::from_utf8(fs::read(expected.join(name)).unwrap()).unwrap();
+        assert_eq!(got, want, "{name}");
+    }
+    for name in ["mods.json", "patches.json"] {
+        assert_eq!(
+            dir.path().join(name).is_file(),
+            expected.join(name).is_file(),
+            "{name}"
+        );
+    }
+}
+
 fn environment_for_case(case: &str) -> (IndexMap<String, String>, String) {
     let input = load_input(case);
     let dir = tempfile::tempdir().unwrap();

@@ -7,7 +7,7 @@ use iced::widget::{button, column, container, mouse_area, row, text};
 use iced::{Element, Fill, Padding, Right, Top};
 use serde_json::json;
 
-use crate::core::i18n::{is_rtl, native_name, region_of, tr, Region, LANGS};
+use crate::core::i18n::{native_name, region_of, tr, Region, LANGS};
 use crate::ui::app::{home_interactive_enabled, Message, State};
 use crate::ui::theme::{button_flat, container_card, palette, CINZEL_BOLD};
 
@@ -74,14 +74,12 @@ pub fn update(state: &mut State, message: LangMessage) {
                 }
             }
         }
+        // Stores the language; `app::update` then saves, which rebuilds the window in it.
         LangMessage::Pick(code) => {
             menu.open = false;
             menu.hover_since = None;
             menu.leave_since = None;
             state.settings.set("ui_language", json!(code));
-            state.rtl = is_rtl(&code);
-            state.lang = code;
-            // Task 32: save-flow rebuild
         }
     }
 }

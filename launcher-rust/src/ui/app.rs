@@ -32,7 +32,7 @@ use crate::ui::pages::mods::{self, ModsMessage, ModsView};
 use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
-use crate::ui::persist::Persisted;
+use crate::ui::persist::{self, Persisted};
 use crate::ui::play::{GameMessage, GameState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
@@ -56,6 +56,8 @@ pub struct State {
     pub paths: Paths,
     pub settings: Settings,
     pub ini: Ini,
+    /// What the files held after the last save (or at the start): Save is active while the
+    /// window differs from it (`persist::dirty`).
     pub saved: Option<Persisted>,
     pub page: Page,
     pub drawer: DrawerState,
@@ -73,6 +75,9 @@ pub struct State {
     /// Sizes the enabled mods add to the render resolutions; see `performance::refresh_mod_resolutions`.
     pub mod_resolutions: Vec<String>,
     pub displays: Vec<Display>,
+    /// The window system the monitors were listed under; `persist::refresh_monitors` lists them
+    /// again when the pending one differs.
+    pub displays_backend: String,
     pub monitor_pairs: Vec<(String, String)>,
     pub trophies: TrophiesView,
     pub mods: ModsView,
@@ -130,6 +135,8 @@ impl State {
         .unwrap_or_else(|| "16:9".to_string());
         let controls = ControlsView::new(&settings);
         let effects = advanced::effects_enabled(&settings);
+        // `start_monitor_listing` lists them under this one.
+        let displays_backend = settings.get_str("video_backend");
         let mut state = State {
             paths,
             settings,
@@ -152,6 +159,7 @@ impl State {
             aspect,
             mod_resolutions: Vec::new(),
             displays: Vec::new(),
+            displays_backend,
             monitor_pairs: Vec::new(),
             trophies: Default::default(),
             mods: Default::default(),
@@ -181,9 +189,14 @@ impl State {
         };
         home::load_home_art(&mut state);
         home::refresh_facts(&mut state);
+        // The Mods page's lists now, as the Python launcher does, so the first visit does not count
+        // as a change.
+        state.mods = mods::load(&state.paths, &state.settings);
         performance::refresh_mod_resolutions(&mut state);
         game::refresh_game_patches(&mut state);
         game::refresh_backups(&mut state);
+        // Nothing to save after opening.
+        state.saved = Some(persist::gather(&state));
         state
     }
 }
@@ -283,9 +296,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         // Task 33
         Message::Play | Message::Stop => {}
-        // Task 32
-        Message::Save => {}
-        // Task 32 persists what `Set` stored.
+        Message::Save => return persist::save(state),
+        // Save persists what `Set` stored.
         Message::Set(key, value) => apply_set(state, &key, value),
         Message::Aspect(aspect) => performance::choose_aspect(state, &aspect),
         Message::MonitorsListed(displays) => {
@@ -295,6 +307,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 "monitor",
                 Value::String(monitor_selection(&displays, &saved)),
             );
+            // So nothing is dirty right after opening.
+            persist::follow_monitor_list(state, &displays);
             state.displays = displays;
         }
         // The result is ignored, as the Python launcher ignores a failed open.
@@ -319,7 +333,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::Splash(message) => splash::apply(state, message),
-        Message::Lang(message) => lang_menu::update(state, message),
+        Message::Lang(message) => {
+            let picked = matches!(message, LangMessage::Pick(_));
+            lang_menu::update(state, message);
+            // Picking a language stores it and rebuilds the window in it, as Save does.
+            if picked {
+                return persist::save(state);
+            }
+        }
         // Task 33
         Message::Game(message) => match message {},
         // Task 34

@@ -1,12 +1,13 @@
 //! The drawer: the panel that slides in from the left with the open page.
 
-use iced::widget::{column, container, opaque, pin, scrollable, text};
-use iced::{Element, Fill};
+use iced::widget::{button, column, container, opaque, pin, row, scrollable, space, text};
+use iced::{Center, Element, Fill};
 
 use crate::core::i18n::tr;
 use crate::ui::app::{Message, State};
 use crate::ui::pages::{self, Page};
-use crate::ui::theme::{container_panel, text_muted, CINZEL_BLACK};
+use crate::ui::persist::dirty;
+use crate::ui::theme::{button_play, container_panel, text_muted, CINZEL_BLACK, CINZEL_BOLD};
 
 /// Whether the drawer shows a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -39,7 +40,7 @@ pub fn slide_offset(progress: f32, width: f32) -> f32 {
 pub fn view(state: &State, page: Page) -> Element<'_, Message> {
     let width = drawer_width(state);
     let progress = state.drawer_progress.interpolate(0.0, 1.0, state.now);
-    let header = column![
+    let title = column![
         text(tr(&state.lang, page.label_en()))
             .font(CINZEL_BLACK)
             .size(30),
@@ -47,6 +48,7 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
         text("…").style(text_muted),
     ]
     .spacing(4);
+    let header = row![title, space::horizontal(), save_button(state)].align_y(Center);
     let body = scrollable(pages::view(state, page)).height(Fill);
     let panel = container(column![header, body].spacing(18))
         .padding(28)
@@ -54,4 +56,14 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
         .height(Fill)
         .style(container_panel);
     pin(opaque(panel)).x(slide_offset(progress, width)).into()
+}
+
+/// Save, at the right of the header: active only while the window differs from the files. The
+/// state is worked out on each draw (`persist::dirty` compares two small maps, without I/O).
+fn save_button(state: &State) -> Element<'_, Message> {
+    button(text(tr(&state.lang, "Save")).font(CINZEL_BOLD).size(14))
+        .padding([8, 22])
+        .style(button_play)
+        .on_press_maybe(dirty(state).then_some(Message::Save))
+        .into()
 }
