@@ -329,7 +329,13 @@ pub enum Message {
     AddToSteam,
     /// The Steam bridge finished: the dialog text.
     SteamDone(Result<String, String>),
+    /// Delete shader cache (Performance) and Clear shader cache (Advanced): the size is read first.
     ClearShaderCache,
+    /// The bytes the shader cache holds: none says so, any asks before deleting.
+    ShaderCacheSized(u64),
+    /// Yes to the question: the cache goes.
+    ClearShaderCacheConfirmed,
+    /// Done, or the cache folder that would not go.
     ShaderCacheCleared(Result<(), String>),
     Noop,
 }
@@ -495,6 +501,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         | Message::AddToSteam
         | Message::SteamDone(_)
         | Message::ClearShaderCache
+        | Message::ShaderCacheSized(_)
+        | Message::ClearShaderCacheConfirmed
         | Message::ShaderCacheCleared(_)) => return advanced::update(state, message),
         Message::OpenFolder(folder) => {
             // As the Python's `mkdir`: Explorer would open Documents instead, and `xdg-open`

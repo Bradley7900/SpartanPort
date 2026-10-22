@@ -1841,7 +1841,119 @@ fn clear_cache_is_blocked_while_running() {
     let _ = app::update(&mut state, Message::ShaderCacheCleared(Err("busy".into())));
     let shown = state.modal.take().unwrap();
     assert!(matches!(shown.kind, ModalKind::Error));
-    assert_eq!(shown.text, "busy");
+    assert_eq!(
+        shown.text,
+        "Could not delete all of the shader cache; another program may be using it: busy"
+    );
+}
+
+#[test]
+fn performance_page_has_the_shader_cache_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    open(&mut state, Page::Performance);
+    page_has(
+        &state,
+        &[
+            "Reuse compiled shaders from disk  ·  restart",
+            "Read the shader cache into memory at start  ·  restart",
+            "Show shader notes in the corner  ·  restart",
+            "Shader cache",
+            "Delete shader cache",
+        ],
+    );
+    assert!(state.settings.get_bool("disk_shaders"));
+    assert!(!state.settings.get_bool("shader_notes"));
+    // The rows sit below the first screen: a tall window reaches them.
+    let mut ui = settled(&mut state, Page::Performance, 1280.0, 4000.0);
+    for label in [
+        "Reuse compiled shaders from disk  ·  restart",
+        "Show shader notes in the corner  ·  restart",
+        "Delete shader cache",
+    ] {
+        ui.click(label)
+            .unwrap_or_else(|error| panic!("click {label:?}: {error:?}"));
+    }
+    let emitted: Vec<Message> = ui.into_messages().collect();
+    // The button asks the same question as the Advanced page's.
+    assert!(matches!(emitted.last(), Some(Message::ClearShaderCache)));
+    for message in emitted.into_iter().take(2) {
+        let _ = app::update(&mut state, message);
+    }
+    assert!(!state.settings.get_bool("disk_shaders"));
+    assert!(state.settings.get_bool("shader_notes"));
+    state.lang = "pt".into();
+    page_has(
+        &state,
+        &[
+            "Reutilizar shaders compilados do disco  ·  reiniciar",
+            "Apagar cache de shaders",
+        ],
+    );
+}
+
+#[test]
+fn deleting_the_shader_cache_asks_then_deletes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    let user = state.paths.user_dir("");
+    let cache = user.join("cache");
+    // An empty cache needs no question.
+    assert_eq!(advanced::cache_size(&user), 0);
+    let _ = app::update(&mut state, Message::ShaderCacheSized(0));
+    let shown = state.modal.take().unwrap();
+    assert!(matches!(shown.kind, ModalKind::Info));
+    assert_eq!(shown.text, "The shader cache is already empty.");
+    // 4 KiB deep inside: the question names the size in MB and the folder.
+    let deep = cache
+        .join("CUSA01623")
+        .join("pipeline-binaries")
+        .join("shared");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(deep.join("a.bin"), vec![b'x'; 4096]).unwrap();
+    assert_eq!(advanced::cache_size(&user), 4096);
+    let _ = app::update(&mut state, Message::ShaderCacheSized(4096));
+    let asked = state.modal.take().unwrap();
+    assert!(matches!(
+        &asked.kind,
+        ModalKind::YesNo {
+            yes: Message::ClearShaderCacheConfirmed,
+            no: Message::Modal(ModalMessage::Dismiss)
+        }
+    ));
+    assert_eq!(
+        asked.text,
+        format!(
+            "Delete the shader cache (0 MB in {})? The game compiles the shaders again, so the next start stutters for a few minutes.",
+            cache.display()
+        )
+    );
+    assert!(cache.exists());
+    // Yes removes it and says so; a folder that stays names itself.
+    assert_eq!(advanced::clear_cache(&user), Ok(()));
+    assert!(!cache.exists());
+    let _ = app::update(&mut state, Message::ShaderCacheCleared(Ok(())));
+    let shown = state.modal.take().unwrap();
+    assert!(shown.text.starts_with("Shader cache cleared."));
+    let _ = app::update(
+        &mut state,
+        Message::ShaderCacheCleared(Err(cache.display().to_string())),
+    );
+    let shown = state.modal.take().unwrap();
+    assert!(matches!(shown.kind, ModalKind::Error));
+    assert_eq!(
+        shown.text,
+        format!(
+            "Could not delete all of the shader cache; another program may be using it: {}",
+            cache.display()
+        )
+    );
+    // Whole megabytes, halves to even, as Python's round().
+    assert_eq!(advanced::megabytes(2_621_440), 2);
+    assert_eq!(advanced::megabytes(1_572_864), 2);
+    assert_eq!(advanced::megabytes(3_145_729), 3);
 }
 
 #[test]

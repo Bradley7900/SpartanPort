@@ -600,6 +600,12 @@ fn a_running_game_blocks_restore_reset_and_cache_clear() {
     send(&mut state, Message::Trophies(TrophiesMessage::Reset));
     let shown = state.modal.take().unwrap();
     assert_eq!(shown.text, "Close the game before resetting the trophies.");
+    send(&mut state, Message::ClearShaderCache);
+    let shown = state.modal.take().unwrap();
+    assert_eq!(
+        shown.text,
+        "Close the game before deleting the shader cache."
+    );
     send(
         &mut state,
         Message::Game(GameMessage::Output(vec![

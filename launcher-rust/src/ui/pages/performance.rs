@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use iced::widget::{column, pick_list};
+use iced::widget::{button, column, pick_list, text};
 use iced::Element;
 
 use crate::core::gpu::{no_msaa_decision, MsaaDecision};
@@ -17,6 +17,7 @@ use crate::core::options::{
 };
 use crate::core::patches::resolution_names;
 use crate::ui::app::{Message, State};
+use crate::ui::pages::advanced::clear_cache_blocked;
 use crate::ui::theme;
 use crate::ui::widgets::{
     checkbox, checkbox_ini, choice_pairs, min_width, row, section, select_pairs, SELECT_MIN,
@@ -241,6 +242,17 @@ pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
     ]
 }
 
+/// Delete shader cache: the Advanced page's Clear shader cache under the Python's other name,
+/// held while the game runs.
+fn delete_cache_button<'a>(state: &State, lang: &str) -> Element<'a, Message> {
+    let delete = button(text(tr(lang, "Delete shader cache"))).style(theme::button_flat);
+    if clear_cache_blocked(state) {
+        delete.into()
+    } else {
+        delete.on_press(Message::ClearShaderCache).into()
+    }
+}
+
 /// An ini flag is on when its value is `"1"`.
 fn ini_on(state: &State, key: &str) -> bool {
     state.ini.values.get(key).is_some_and(|value| value == "1")
@@ -343,6 +355,41 @@ pub fn view(state: &State) -> Element<'_, Message> {
             ini_on(state, "async_shaders"),
             Some(&hint(
                 "Fewer stutters in new areas: the game keeps running while new shaders compile. An object or effect may appear a moment later. Switch it off if something stays missing."
+            )),
+        ),
+        checkbox(
+            state.rtl,
+            "disk_shaders",
+            &restart("Reuse compiled shaders from disk"),
+            state.settings.get_bool("disk_shaders"),
+            Some(&hint(
+                "Shaders compiled in earlier sessions load from the shader cache instead of compiling again, so objects no longer appear a few frames late after starting or loading a save, and the cache is not rewritten every session (antivirus scans each written file). The first launch with it on rebuilds the cache once. Switch it off if an object, effect or color looks wrong only after a restart and is fine on the first run of a new cache."
+            )),
+        ),
+        checkbox(
+            state.rtl,
+            "shader_prefetch",
+            &restart("Read the shader cache into memory at start"),
+            state.settings.get_bool("shader_prefetch"),
+            Some(&hint(
+                "A background thread reads the saved shaders into memory while the game starts; a note in the lower right corner shows the progress. Loading a shader then does not hold up a frame. Needs the option above. Switch it off on a slow hard drive or with little free RAM if the first minute stutters more or the game starts slower."
+            )),
+        ),
+        checkbox(
+            state.rtl,
+            "shader_notes",
+            &restart("Show shader notes in the corner"),
+            state.settings.get_bool("shader_notes"),
+            Some(&hint(
+                "A note in the lower right corner shows the shader cache being read at start and the shaders being compiled, so a short stutter has a visible reason. Switch it off to keep the screen clean."
+            )),
+        ),
+        row(
+            state.rtl,
+            &tr(lang, "Shader cache"),
+            delete_cache_button(state, lang),
+            Some(&hint(
+                "Deletes the saved shaders and pipelines of this saves folder. Use it if graphics look wrong after an update or the cache grew too big; the next start compiles everything again."
             )),
         ),
         checkbox(

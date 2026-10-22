@@ -28,7 +28,7 @@ use crate::ui::update::UpdateMessage;
 use crate::ui::widgets::row::actions;
 use crate::ui::widgets::{
     checkbox, choice_pairs, row, section, select_pairs, select_pairs_small, toggle_row, Modal,
-    ModalKind,
+    ModalKind, ModalMessage,
 };
 use crate::{APP_NAME, VERSION};
 
@@ -407,12 +407,46 @@ fn modal(state: &mut State, kind: ModalKind, body: String) {
     });
 }
 
+/// The shader and pipeline caches of `user_dir`.
+fn cache_dir(user_dir: &Path) -> PathBuf {
+    user_dir.join("cache")
+}
+
+/// The bytes of every file under the shader cache; 0 without one.
+pub fn cache_size(user_dir: &Path) -> u64 {
+    fn walk(folder: &Path) -> u64 {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return 0;
+        };
+        entries
+            .flatten()
+            .map(|entry| {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path)
+                } else {
+                    entry.metadata().map(|meta| meta.len()).unwrap_or(0)
+                }
+            })
+            .sum()
+    }
+    walk(&cache_dir(user_dir))
+}
+
+/// Whole megabytes, halves rounded to even as the Python's `round(size / 2**20)`.
+pub fn megabytes(bytes: u64) -> u64 {
+    (bytes as f64 / 1_048_576.0).round_ties_even() as u64
+}
+
 /// Removes the shader and pipeline caches; they are rebuilt while playing. A missing folder is
-/// fine.
+/// fine; a folder that stays (a file open elsewhere) is the error, by its path.
 pub fn clear_cache(user_dir: &Path) -> Result<(), String> {
-    match std::fs::remove_dir_all(user_dir.join("cache")) {
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
-        _ => Ok(()),
+    let cache = cache_dir(user_dir);
+    let _ = std::fs::remove_dir_all(&cache);
+    if cache.exists() {
+        Err(cache.display().to_string())
+    } else {
+        Ok(())
     }
 }
 
@@ -583,8 +617,33 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
 
         Message::ClearShaderCache => {
             if clear_cache_blocked(state) {
+                let body = tr(&lang, "Close the game before deleting the shader cache.");
+                modal(state, ModalKind::Info, body);
                 return Task::none();
             }
+            let user = state.paths.user_dir(&state.settings.get_str("user_dir"));
+            return blocking(move || cache_size(&user)).map(Message::ShaderCacheSized);
+        }
+        Message::ShaderCacheSized(0) => modal(
+            state,
+            ModalKind::Info,
+            tr(&lang, "The shader cache is already empty."),
+        ),
+        Message::ShaderCacheSized(bytes) => {
+            let cache = cache_dir(&state.paths.user_dir(&state.settings.get_str("user_dir")));
+            let body = tr_fmt(
+                &lang,
+                "Delete the shader cache ({} MB in {})? The game compiles the shaders again, so the next start stutters for a few minutes.",
+                &[&megabytes(bytes).to_string(), &cache.display().to_string()],
+            );
+            let kind = ModalKind::YesNo {
+                yes: Message::ClearShaderCacheConfirmed,
+                no: Message::Modal(ModalMessage::Dismiss),
+            };
+            modal(state, kind, body);
+        }
+        Message::ClearShaderCacheConfirmed => {
+            state.modal = None;
             let user = state.paths.user_dir(&state.settings.get_str("user_dir"));
             return blocking(move || clear_cache(&user)).map(Message::ShaderCacheCleared);
         }
@@ -596,7 +655,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 "Shader cache cleared. The next start stutters for a few minutes while it is rebuilt.",
             ),
         ),
-        Message::ShaderCacheCleared(Err(error)) => modal(state, ModalKind::Error, error),
+        Message::ShaderCacheCleared(Err(cache)) => {
+            let body = tr_fmt(
+                &lang,
+                "Could not delete all of the shader cache; another program may be using it: {}",
+                &[&cache],
+            );
+            modal(state, ModalKind::Error, body);
+        }
         Message::DesktopShortcut => {
             let paths = state.paths.clone();
             return blocking(move || make_shortcut(&paths)).map(Message::ShortcutDone);
