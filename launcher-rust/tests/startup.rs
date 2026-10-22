@@ -66,6 +66,45 @@ fn the_launcher_is_a_windowed_program() {
     assert_eq!(word(pe + 24 + 68), 2, "IMAGE_SUBSYSTEM_WINDOWS_GUI");
 }
 
+/// Explorer, the taskbar and a shortcut to the exe show its icon: `build.rs` embeds
+/// `assets/spartanport.ico` as an `RT_GROUP_ICON` resource (R92, M14).
+#[cfg(windows)]
+#[test]
+fn the_launcher_carries_its_icon() {
+    let exe = std::fs::read(LAUNCHER).unwrap();
+    let u16_at = |at: usize| u16::from_le_bytes([exe[at], exe[at + 1]]) as usize;
+    let u32_at =
+        |at: usize| u32::from_le_bytes([exe[at], exe[at + 1], exe[at + 2], exe[at + 3]]) as usize;
+    let pe = u32_at(0x3c);
+    let sections = u16_at(pe + 6);
+    let optional = pe + 24;
+    assert_eq!(u16_at(optional), 0x20b, "PE32+");
+    // The resource table is the third data directory of the PE32+ optional header.
+    let resources = u32_at(optional + 112 + 2 * 8);
+    assert_ne!(resources, 0, "no resource table");
+    let table = optional + u16_at(pe + 20);
+    let offset = (0..sections)
+        .map(|index| table + index * 40)
+        .find_map(|section| {
+            let (size, address, raw) = (
+                u32_at(section + 8),
+                u32_at(section + 12),
+                u32_at(section + 20),
+            );
+            (address..address + size)
+                .contains(&resources)
+                .then(|| resources - address + raw)
+        })
+        .unwrap();
+    // The root directory's entries name the resource types: 14 is RT_GROUP_ICON.
+    let named = u16_at(offset + 12);
+    let ids = u16_at(offset + 14);
+    let types: Vec<usize> = (named..named + ids)
+        .map(|entry| u32_at(offset + 16 + entry * 8))
+        .collect();
+    assert!(types.contains(&14), "resource types {types:?}");
+}
+
 #[test]
 fn first_start_is_in_english_when_the_system_language_is_unknown() {
     // The translations are partial; 'System' stays a choice in Advanced.

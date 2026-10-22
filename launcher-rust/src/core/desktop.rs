@@ -303,14 +303,26 @@ fn no_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn no_window(_command: &mut Command) {}
 
+/// The shortcut's icon (R92): the port's `launcher/spartanport.ico` when it is there, as the
+/// Python run from source sets it, else the first icon of `exe`.
+fn shortcut_icon(port_dir: &Path, exe: &Path) -> String {
+    let ico = port_dir.join("launcher").join("spartanport.ico");
+    if ico.is_file() {
+        ico.display().to_string()
+    } else {
+        format!("{},0", exe.display())
+    }
+}
+
 /// The PowerShell that makes `SpartanPort.lnk` on the desktop.
 fn windows_shortcut_script(port_dir: &Path, exe: &Path) -> String {
     format!(
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath(\"Desktop\")\
          +\"\\SpartanPort.lnk\");$s.TargetPath=\"{exe}\";$s.WorkingDirectory=\"{port}\";\
-         $s.IconLocation=\"{exe},0\";$s.Save()",
+         $s.IconLocation=\"{icon}\";$s.Save()",
         exe = exe.display(),
-        port = port_dir.display()
+        port = port_dir.display(),
+        icon = shortcut_icon(port_dir, exe)
     )
 }
 
@@ -981,6 +993,29 @@ mod tests {
         fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
         assert!(on_path("mangohud", &path));
         assert!(!on_path("gamemoderun", &path));
+    }
+
+    #[test]
+    fn the_shortcut_takes_the_ports_icon_file_when_there_is_one() {
+        // The user's screenshot: the shortcut of a launcher without an embedded icon showed the
+        // generic window. The Python (from source) points it at `launcher/spartanport.ico` (R92).
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("SpartanPort.exe");
+        let ico = dir.path().join("launcher").join("spartanport.ico");
+        let icon_of = |script: &str| {
+            let start = script.find("$s.IconLocation=\"").unwrap() + "$s.IconLocation=\"".len();
+            script[start..start + script[start..].find('"').unwrap()].to_string()
+        };
+        assert_eq!(
+            icon_of(&windows_shortcut_script(dir.path(), &exe)),
+            format!("{},0", exe.display())
+        );
+        fs::create_dir_all(ico.parent().unwrap()).unwrap();
+        fs::write(&ico, b"ico").unwrap();
+        assert_eq!(
+            icon_of(&windows_shortcut_script(dir.path(), &exe)),
+            ico.display().to_string()
+        );
     }
 
     #[test]
