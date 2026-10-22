@@ -49,3 +49,24 @@ nix = { version = "0.30", features = ["fs", "signal"] }
 
 [dev-dependencies]
 iced_test = "0.14"
+
+# The snapshot tests draw 2× frames with tiny-skia and pass them through PNG files; unoptimized,
+# one 1920 × 1080 window takes about 20 s.
+[profile.dev.package.tiny-skia]
+opt-level = 3
+[profile.dev.package.tiny-skia-path]
+opt-level = 3
+[profile.dev.package.iced_tiny_skia]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3

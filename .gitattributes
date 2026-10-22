@@ -3,3 +3,5 @@
 # Parity fixtures and the embedded i18n table are compared byte for byte by the Rust tests: LF on every OS.
 launcher-rust/fixtures/** text eol=lf
 launcher-rust/assets/i18n.json text eol=lf
+# Snapshot references are images compared pixel by pixel: never touched as text.
+launcher-rust/snapshots/** binary

@@ -1,0 +1,2 @@
+# The snapshot references (tests/ui_snapshots.rs); the repository ignores *.png.
+!/snapshots/*.png
