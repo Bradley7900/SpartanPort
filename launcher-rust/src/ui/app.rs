@@ -617,6 +617,14 @@ fn dim_close_catcher<'a>() -> Element<'a, Message> {
     mouse_area(dim).on_press(Message::CloseDrawer).into()
 }
 
+/// The version and the system at the right of the bar (ruling R82): `v2.6.0 · Windows`, or
+/// `· Linux` elsewhere (nothing tells a Steam Deck apart yet). `windows` is a parameter so tests
+/// can cover both systems.
+pub fn version_label(windows: bool) -> String {
+    let system = if windows { "Windows" } else { "Linux" };
+    format!("v{VERSION} · {system}")
+}
+
 /// The bottom bar: the nine tabs and the version.
 fn bar(state: &State) -> Element<'_, Message> {
     let tabs = Page::ALL
@@ -624,7 +632,7 @@ fn bar(state: &State) -> Element<'_, Message> {
         .fold(row![].spacing(2).height(Fill), |tabs, page| {
             tabs.push(tab(state, page))
         });
-    let version = text(format!("v{VERSION}"))
+    let version = text(version_label(cfg!(windows)))
         .size(13)
         .style(theme::text_muted);
     // Right to left, the bar is mirrored: the tabs sit at the right, the version at the left.

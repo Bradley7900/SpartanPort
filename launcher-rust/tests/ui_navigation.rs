@@ -274,13 +274,29 @@ fn rtl_puts_the_drawer_on_the_right() {
     assert!(panel.x >= 640.0, "drawer at x = {}", panel.x);
     assert!((panel.x + panel.width - 1280.0).abs() < 1.0, "{panel:?}");
     // The bar is mirrored too: the version sits at the left, the tabs at the right.
-    let version = ui.find(format!("v{VERSION}")).unwrap().bounds();
+    let version = ui.find(app::version_label(cfg!(windows))).unwrap().bounds();
     assert!(version.x < 640.0, "version at x = {}", version.x);
     // Arabic needs advanced shaping: iced's default (`Auto`) gives it to every non-ASCII text.
     assert!(matches!(
         iced::widget::text::Shaping::default(),
         iced::widget::text::Shaping::Auto | iced::widget::text::Shaping::Advanced
     ));
+}
+
+#[test]
+fn the_bar_names_the_version_and_the_system() {
+    // Ruling R82; there is no Steam Deck detection to tell SteamOS apart.
+    assert_eq!(app::version_label(true), format!("v{VERSION} · Windows"));
+    assert_eq!(app::version_label(false), format!("v{VERSION} · Linux"));
+    let dir = tempfile::tempdir().unwrap();
+    let state = state_in(dir.path());
+    let mut ui = simulator(app::view(&state));
+    let shown = if cfg!(windows) {
+        "v2.6.0 · Windows"
+    } else {
+        "v2.6.0 · Linux"
+    };
+    assert!(ui.find(shown).is_ok(), "{shown} missing from the bar");
 }
 
 /// The drawer subtitles of the mockup (`launcher-mockup-v13.html`), without its sample counts.
