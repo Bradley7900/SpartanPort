@@ -3,6 +3,7 @@
   "PYTHONUNBUFFERED": "1",
   "SPARTAN_BACKGROUND_WARMUP": "1",
   "SPARTAN_DISCORD": "0",
+  "SPARTAN_DISK_SHADERS": "1",
   "SPARTAN_EXPERIMENTAL_UPSCALER": "0",
   "SPARTAN_GAME_DIR": "D:\\Games\\CUSA01623",
   "SPARTAN_KEY_MAP": "square=Mouse Left,triangle=Mouse Right,l1=Q,r1=E,r2=Mouse Forward,r3=X,options=Tab,touchpad_left=P,touchpad_right=Escape,up=1,down=3,left=4,right=2,grab=C,dodge=Mouse Back",
@@ -16,6 +17,8 @@
   "SPARTAN_PATCHES_DIR": "<DATA_DIR>\\patches",
   "SPARTAN_PERF_DIAG": "0",
   "SPARTAN_PIPELINE_BINARIES": "1",
+  "SPARTAN_SHADER_NOTES": "0",
+  "SPARTAN_SHADER_PREFETCH": "1",
   "SPARTAN_STICK_PROMPTS": "keyboard",
   "SPARTAN_STREAM_MEMORY": "cached",
   "SPARTAN_UI_LANGUAGE": "en"

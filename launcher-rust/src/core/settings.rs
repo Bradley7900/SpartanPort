@@ -72,6 +72,9 @@ pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> 
         "gpu_id": "",
         "monitor": "",
         "partial_height_views": true,
+        "disk_shaders": true,
+        "shader_prefetch": true,
+        "shader_notes": false,
         "background_warmup": true,
         "parallel_warmup": true,
         "pipeline_binary_cache": true,
@@ -173,9 +176,28 @@ mod tests {
     #[test]
     fn defaults_are_in_python_order() {
         let defaults = app_defaults(&no_env);
-        assert_eq!(defaults.len(), 40);
+        assert_eq!(defaults.len(), 43);
         assert_eq!(defaults.keys().next().unwrap(), "ui_language");
         assert_eq!(defaults.keys().next_back().unwrap(), "glyph_style");
+        // The 2.7.0 shader cache switches sit between the screen effects and the warm-up.
+        let keys: Vec<&str> = defaults.keys().map(String::as_str).collect();
+        let at = keys
+            .iter()
+            .position(|key| *key == "partial_height_views")
+            .unwrap();
+        assert_eq!(
+            &keys[at..at + 5],
+            [
+                "partial_height_views",
+                "disk_shaders",
+                "shader_prefetch",
+                "shader_notes",
+                "background_warmup"
+            ]
+        );
+        assert_eq!(defaults["disk_shaders"], json!(true));
+        assert_eq!(defaults["shader_prefetch"], json!(true));
+        assert_eq!(defaults["shader_notes"], json!(false));
         // Ruling R83: no folder is guessed, on any system.
         assert_eq!(defaults["game_dir"], json!(""));
         // Ruling R90: GUI Scale starts at 1x (the Python's "auto" followed the desktop).

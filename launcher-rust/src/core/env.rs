@@ -253,6 +253,18 @@ pub fn game_environment(
         "SPARTAN_PARTIAL_HEIGHT_VIEWS".into(),
         one_or_zero(flag(settings, "partial_height_views", true)),
     );
+    env.insert(
+        "SPARTAN_DISK_SHADERS".into(),
+        one_or_zero(flag(settings, "disk_shaders", true)),
+    );
+    env.insert(
+        "SPARTAN_SHADER_PREFETCH".into(),
+        one_or_zero(flag(settings, "shader_prefetch", true)),
+    );
+    env.insert(
+        "SPARTAN_SHADER_NOTES".into(),
+        one_or_zero(flag(settings, "shader_notes", false)),
+    );
     for (key, name) in [
         ("frame_stats", "SPARTAN_FRAME_STATS"),
         ("gpu_profile", "SPARTAN_GPU_PROFILE"),
@@ -400,6 +412,75 @@ mod tests {
         let (off, paths, _dir) = setup(json!({"discord_rpc": false}));
         let env = game_environment(&off, &paths, "en", &IndexMap::new(), true);
         assert_eq!(env["SPARTAN_DISCORD"], "0");
+    }
+
+    #[test]
+    fn shader_notes_are_off_without_a_saved_choice() {
+        let (settings, paths, _dir) = setup(json!({}));
+        assert_eq!(settings.get("shader_notes"), Some(&json!(false)));
+        let mut without = settings.clone();
+        without.0.shift_remove("shader_notes");
+        let env = game_environment(&without, &paths, "en", &IndexMap::new(), true);
+        assert_eq!(env["SPARTAN_SHADER_NOTES"], "0");
+    }
+
+    #[test]
+    fn saved_shader_notes_choice_is_preserved() {
+        for enabled in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let data = dir.path().to_string_lossy().into_owned();
+            let env = move |key: &str| (key == "SPARTAN_DATA_DIR").then(|| data.clone());
+            let paths = Paths::from_env(dir.path(), &env);
+            std::fs::write(
+                dir.path().join("settings.json"),
+                format!(r#"{{"shader_notes": {enabled}}}"#),
+            )
+            .unwrap();
+            let settings = crate::core::settings::load_app_settings(&paths);
+            assert_eq!(settings.get("shader_notes"), Some(&json!(enabled)));
+            let env = game_environment(&settings, &paths, "en", &IndexMap::new(), true);
+            assert_eq!(env["SPARTAN_SHADER_NOTES"], if enabled { "1" } else { "0" });
+        }
+    }
+
+    #[test]
+    fn shader_cache_switches_reach_the_game() {
+        let (settings, paths, _dir) = setup(json!({}));
+        let env = game_environment(&settings, &paths, "en", &IndexMap::new(), true);
+        assert_eq!(
+            (
+                env["SPARTAN_DISK_SHADERS"].as_str(),
+                env["SPARTAN_SHADER_PREFETCH"].as_str(),
+                env["SPARTAN_SHADER_NOTES"].as_str()
+            ),
+            ("1", "1", "0")
+        );
+        // In the Python's order: right after the screen effects switch.
+        let keys: Vec<&str> = env.keys().map(String::as_str).collect();
+        let at = keys
+            .iter()
+            .position(|key| *key == "SPARTAN_PARTIAL_HEIGHT_VIEWS")
+            .unwrap();
+        assert_eq!(
+            &keys[at + 1..at + 4],
+            [
+                "SPARTAN_DISK_SHADERS",
+                "SPARTAN_SHADER_PREFETCH",
+                "SPARTAN_SHADER_NOTES"
+            ]
+        );
+        let (off, paths, _dir) = setup(json!({
+            "disk_shaders": false, "shader_prefetch": false, "shader_notes": false
+        }));
+        let env = game_environment(&off, &paths, "en", &IndexMap::new(), true);
+        assert_eq!(
+            (
+                env["SPARTAN_DISK_SHADERS"].as_str(),
+                env["SPARTAN_SHADER_PREFETCH"].as_str(),
+                env["SPARTAN_SHADER_NOTES"].as_str()
+            ),
+            ("0", "0", "0")
+        );
     }
 
     #[test]

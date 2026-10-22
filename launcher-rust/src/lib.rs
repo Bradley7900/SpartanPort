@@ -1,3 +1,6 @@
+// `app_defaults` builds its 43 keys with `json!`, whose expansion exceeds the default limit.
+#![recursion_limit = "256"]
+
 pub mod core;
 pub mod startup;
 pub mod ui;
