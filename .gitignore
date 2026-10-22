@@ -31,6 +31,15 @@ patches.json
 !packaging/icon/monogram.png
 /.vscode
 
+# The launcher's data files when it runs from a checkout (data folder = this folder).
+/settings.json
+/mods.json
+/mods_presets.json
+/patches.json
+/game_icon.ico
+/legacy-migrated
+/shortcut-migrated
+/mods/
 # Rust launcher (docs/specs/2026-10-21-rust-launcher-design.md)
 launcher-rust/target/
 !launcher-rust/assets/*.png
