@@ -2,7 +2,7 @@
 
 use std::f32::consts::TAU;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
 
 use iced::mouse;
 use iced::widget::canvas::{self, gradient, Geometry, Path as Shape};
@@ -50,8 +50,9 @@ const GREY_GLOW: (f32, f32, f32) = (130.0 / 255.0, 130.0 / 255.0, 130.0 / 255.0)
 const GREY_GLOW_AT: (f32, f32) = (0.22, 0.78);
 const GREY_GLOW_PEAK: f32 = 0.14;
 const GREY_GLOW_RADII: (f32, f32) = (0.25, 0.32);
-/// Concentric discs that fake a radial falloff (the canvas has no radial gradient).
-const GLOW_STEPS: u32 = 10;
+/// Side of the glow sprite in pixels: the canvas has no radial gradient, so each glow is this
+/// soft round picture stretched over its ellipse (ruling R80).
+const SPRITE_SIZE: u32 = 256;
 /// Layer 2: the launcher's key art (`assets/background.png`, mockup `#photo`): its size in pixels,
 /// its opacity, and the point `cover` keeps in place (CSS `background-position: 70% 30%`).
 pub const ART_SIZE: (u32, u32) = (1920, 1080);
@@ -201,7 +202,50 @@ fn bg(alpha: f32) -> Color {
     }
 }
 
-/// An elliptical glow made of concentric discs whose alphas add up to `peak` at the centre.
+/// The glow's alpha at `distance` from its centre (1 at its edge): `(1 - d²)²`, which leaves the
+/// edge at 0 with no slope, so nothing marks where the glow ends.
+fn falloff(distance: f32) -> f32 {
+    let squared = distance * distance;
+    if squared >= 1.0 {
+        0.0
+    } else {
+        (1.0 - squared) * (1.0 - squared)
+    }
+}
+
+/// The RGBA pixels of a soft round glow of `colour`: the colour in every pixel, so a filtered edge
+/// does not darken, and the alpha falling off from the centre.
+fn glow_pixels(colour: [u8; 3]) -> Vec<u8> {
+    let half = SPRITE_SIZE as f32 / 2.0;
+    let mut pixels = Vec::with_capacity((4 * SPRITE_SIZE * SPRITE_SIZE) as usize);
+    for y in 0..SPRITE_SIZE {
+        for x in 0..SPRITE_SIZE {
+            let dx = (x as f32 + 0.5 - half) / half;
+            let dy = (y as f32 + 0.5 - half) / half;
+            let alpha = (falloff(dx.hypot(dy)) * 255.0).round() as u8;
+            pixels.extend_from_slice(&[colour[0], colour[1], colour[2], alpha]);
+        }
+    }
+    pixels
+}
+
+/// The glow sprite of `colour` (its alpha is ignored), made once per colour and process: a new
+/// handle is a new picture for the renderer to upload.
+pub fn glow_sprite(colour: Color) -> Handle {
+    static SPRITES: Mutex<Vec<([u8; 3], Handle)>> = Mutex::new(Vec::new());
+    let [r, g, b, _] = colour.into_rgba8();
+    let key = [r, g, b];
+    let mut sprites = SPRITES.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, handle)) = sprites.iter().find(|(made, _)| *made == key) {
+        return handle.clone();
+    }
+    let handle = Handle::from_rgba(SPRITE_SIZE, SPRITE_SIZE, glow_pixels(key));
+    sprites.push((key, handle.clone()));
+    handle
+}
+
+/// An elliptical glow of `colour` around `centre`: the sprite stretched over the ellipse, at
+/// `peak` in its middle.
 fn glow(
     frame: &mut canvas::Frame,
     centre: Point,
@@ -209,18 +253,14 @@ fn glow(
     colour: (f32, f32, f32),
     peak: f32,
 ) {
-    let step_alpha = 1.0 - (1.0 - peak.clamp(0.0, 0.99)).powf(1.0 / GLOW_STEPS as f32);
-    frame.with_save(|frame| {
-        frame.translate(Vector::new(centre.x, centre.y));
-        frame.scale_nonuniform(radii);
-        for step in 0..GLOW_STEPS {
-            let radius = 1.0 - step as f32 / GLOW_STEPS as f32;
-            frame.fill(
-                &Shape::circle(Point::ORIGIN, radius),
-                rgba(colour, step_alpha),
-            );
-        }
-    });
+    let bounds = Rectangle::new(
+        Point::new(centre.x - radii.x, centre.y - radii.y),
+        Size::new(2.0 * radii.x, 2.0 * radii.y),
+    );
+    frame.draw_image(
+        bounds,
+        canvas::Image::new(glow_sprite(rgba(colour, 1.0))).opacity(peak.clamp(0.0, 1.0)),
+    );
 }
 
 fn vertical(size: Size, stops: &[(f32, Color)]) -> gradient::Linear {

@@ -220,6 +220,48 @@ fn the_key_art_is_the_embedded_1920_by_1080_picture() {
 }
 
 #[test]
+fn the_glow_sprite_falls_off_smoothly_from_its_centre() {
+    let red = iced::Color::from_rgb8(200, 30, 37);
+    let sprite = home::glow_sprite(red);
+    assert_eq!(
+        sprite.id(),
+        home::glow_sprite(red).id(),
+        "one handle per colour"
+    );
+    assert_ne!(
+        sprite.id(),
+        home::glow_sprite(iced::Color::from_rgb8(130, 130, 130)).id()
+    );
+    let Handle::Rgba {
+        width,
+        height,
+        pixels,
+        ..
+    } = sprite
+    else {
+        panic!("the sprite is not raw pixels: {sprite:?}");
+    };
+    assert_eq!(width, height);
+    let pixel = |x: u32, y: u32| {
+        let at = 4 * (y * width + x) as usize;
+        [pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]]
+    };
+    let middle = width / 2;
+    // The colour everywhere, so the filtered edge does not darken.
+    assert_eq!(pixel(0, 0)[..3], [200, 30, 37]);
+    assert_eq!(pixel(middle, middle)[..3], [200, 30, 37]);
+    // From the centre to the edge the alpha only falls, a few levels at a time, down to 0.
+    let alphas: Vec<u8> = (middle..width).map(|x| pixel(x, middle)[3]).collect();
+    assert!(alphas[0] >= 250, "centre {}", alphas[0]);
+    assert_eq!(*alphas.last().unwrap(), 0);
+    for (inner, outer) in alphas.iter().zip(&alphas[1..]) {
+        assert!(outer <= inner && inner - outer <= 4, "{alphas:?}");
+    }
+    // Round: the same alpha along a column as along a row.
+    assert_eq!(pixel(middle, width - 20)[3], pixel(width - 20, middle)[3]);
+}
+
+#[test]
 fn the_home_draws_the_key_art_unless_a_test_sets_another_picture() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());

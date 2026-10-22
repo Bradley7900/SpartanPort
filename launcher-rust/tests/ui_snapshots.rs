@@ -348,6 +348,30 @@ fn log() {
 }
 
 #[test]
+fn the_home_glows_fall_off_without_bands() {
+    // Ruling R80: the glows are a soft sprite. Concentric discs showed as rings, a jump of several
+    // levels at each disc's edge; a smooth falloff moves a level or two between neighbours.
+    let (width, height) = (1280, 800);
+    let dir = tempfile::tempdir().unwrap();
+    let size = Size::new(width as f32, height as f32);
+    let state = fixture(dir.path(), Shot::Page(Page::Home), size, "en");
+    let image = render(&state, width, height);
+    // A row through the heat blobs along the floor, left of the Home block.
+    let y = 690;
+    let jumps: Vec<(u32, u8)> = (100..560)
+        .map(|x| {
+            let (a, b) = (image.get_pixel(x, y).0, image.get_pixel(x + 1, y).0);
+            (x, (0..3).map(|c| a[c].abs_diff(b[c])).max().unwrap())
+        })
+        .filter(|(_, step)| *step > 2)
+        .collect();
+    assert!(
+        jumps.is_empty(),
+        "steps of more than 2 levels (x, step): {jumps:?}"
+    );
+}
+
+#[test]
 fn the_home_block_behind_a_wide_drawer_has_no_shade_box() {
     // Ruling R79: the block fades through its own colours. A shade over its bounds, darker than
     // the dim layer around it, showed as a black box.
