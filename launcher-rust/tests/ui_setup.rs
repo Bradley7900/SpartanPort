@@ -441,6 +441,21 @@ fn skip_writes_the_defaults_but_keeps_the_language() {
 }
 
 #[test]
+fn skip_puts_the_aspect_back_with_the_resolution() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = at_step(dir.path(), Step::Video);
+    let resolution = |state: &State| state.ini.values.get("render_resolution").cloned();
+    assert_eq!(state.aspect, "16:9");
+    assert!(performance::aspect_options(&state).contains(&"21:9".to_string()));
+    let _ = app::update(&mut state, Message::Aspect("21:9".into()));
+    assert_ne!(resolution(&state).as_deref(), Some("native"));
+    setup(&mut state, SetupMessage::Skip);
+    assert_eq!(resolution(&state).as_deref(), Some("native"));
+    // The aspect of the restored resolution.
+    assert_eq!(state.aspect, "16:9");
+}
+
+#[test]
 fn closing_the_window_writes_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = opened(dir.path());

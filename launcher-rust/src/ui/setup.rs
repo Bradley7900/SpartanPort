@@ -16,7 +16,7 @@ use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
 use crate::ui::home;
 use crate::ui::pages::game::{self, folder_row};
-use crate::ui::pages::performance::{aspect_options, select_row};
+use crate::ui::pages::performance::{self, aspect_options, select_row};
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::describe_missing;
 use crate::ui::splash::SPLASH_BG;
@@ -200,6 +200,8 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
             let defaults = setup.defaults.clone();
             state.settings = Settings(defaults.app);
             state.ini.values = defaults.ini;
+            // The Aspect ratio box follows the restored resolution.
+            performance::resolution_chosen(state);
             state.settings.set("ui_language", json!(state.lang));
             // A failed save leaves the setup open over the restored folders.
             refresh_folders(state);
