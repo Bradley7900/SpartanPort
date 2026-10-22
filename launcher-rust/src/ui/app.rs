@@ -11,7 +11,7 @@ use iced::widget::{button, column, container, mouse_area, row, space, stack, tex
 use iced::{window, Background, Center, Color, Element, Fill, Size, Subscription, Task};
 use serde_json::Value;
 
-use crate::core::desktop::open_path;
+use crate::core::desktop::{linux_tools, open_path, LinuxTools};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
 use crate::core::i18n::{is_rtl, system_language, tr};
 use crate::core::ini::{load_ini, Ini, INI_DEFAULTS, INI_FLAGS};
@@ -19,10 +19,12 @@ use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
 use crate::core::settings::{load_app_settings, Settings};
+use crate::core::update::can_self_update;
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, Fire};
 use crate::ui::home::{self, HomeFacts};
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
+use crate::ui::pages::advanced;
 use crate::ui::pages::controls::{self, ControlsMessage, ControlsView};
 use crate::ui::pages::game::{self, BackupMessage, PatchesView};
 use crate::ui::pages::mods::{self, ModsMessage, ModsView};
@@ -86,7 +88,14 @@ pub struct State {
     /// What the Home chips read from the disk.
     pub home: HomeFacts,
     pub modal: Option<Modal>,
+    /// Whether the Home fire burns (the `launcher_effects` setting).
     pub effects: bool,
+    /// Whether the Diagnostics block of the Advanced page is unfolded; it starts folded.
+    pub diagnostics_open: bool,
+    /// What the Linux options of the Advanced page can use, probed once at the start.
+    pub linux_tools: LinuxTools,
+    /// Whether this install can replace itself (Windows, or an AppImage).
+    pub self_update: bool,
     pub fire: Fire,
     /// Whether the window is shown (Task 33 clears it while hidden to the tray).
     pub visible: bool,
@@ -119,6 +128,7 @@ impl State {
         )
         .unwrap_or_else(|| "16:9".to_string());
         let controls = ControlsView::new(&settings);
+        let effects = advanced::effects_enabled(&settings);
         let mut state = State {
             paths,
             settings,
@@ -153,7 +163,14 @@ impl State {
             home_art: None,
             home: Default::default(),
             modal: None,
-            effects: true,
+            effects,
+            diagnostics_open: false,
+            linux_tools: if cfg!(windows) {
+                LinuxTools::default()
+            } else {
+                linux_tools()
+            },
+            self_update: can_self_update(&|key| std::env::var(key).ok(), cfg!(windows)),
             fire: Default::default(),
             visible: true,
             focused: true,
@@ -205,6 +222,15 @@ pub enum Message {
     Trophies(TrophiesMessage),
     Mods(ModsMessage),
     Controls(ControlsMessage),
+    ToggleDiagnostics,
+    DesktopShortcut,
+    /// The shortcut was made (the files it wrote; none on Windows) or why not.
+    ShortcutDone(Result<Vec<String>, String>),
+    AddToSteam,
+    /// The Steam bridge finished: the dialog text.
+    SteamDone(Result<String, String>),
+    ClearShaderCache,
+    ShaderCacheCleared(Result<(), String>),
     Noop,
 }
 
@@ -289,10 +315,17 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 33
         Message::Game(message) => match message {},
         // Task 34
-        Message::Update(UpdateMessage::Install) => {}
+        Message::Update(UpdateMessage::Install | UpdateMessage::Check { .. }) => {}
         Message::Trophies(message) => return trophies::update(state, message),
         Message::Mods(message) => return mods::update(state, message),
         Message::Controls(message) => return controls::update(state, message),
+        message @ (Message::ToggleDiagnostics
+        | Message::DesktopShortcut
+        | Message::ShortcutDone(_)
+        | Message::AddToSteam
+        | Message::SteamDone(_)
+        | Message::ClearShaderCache
+        | Message::ShaderCacheCleared(_)) => return advanced::update(state, message),
         Message::Noop => {}
     }
     Task::none()
@@ -304,6 +337,9 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
     if !in_ini {
         state.settings.set(key, value);
         // "Load mods" decides whether the sizes of the mods are offered.
+        if key == "launcher_effects" {
+            state.effects = advanced::effects_enabled(&state.settings);
+        }
         if key == "mods_enabled" {
             performance::refresh_mod_resolutions(state);
         }

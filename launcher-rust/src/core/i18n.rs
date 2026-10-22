@@ -107,6 +107,27 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         "Primary",
         &[("pt", "Principal"), ("es", "Principal"), ("ru", "Основной")],
     ),
+    (
+        "Effects",
+        &[("pt", "Efeitos"), ("es", "Efectos"), ("ru", "Эффекты")],
+    ),
+    (
+        "Embers and flames on the Home screen. Off saves GPU time.",
+        &[
+            (
+                "pt",
+                "Brasas e chamas na tela inicial. Desligado economiza GPU.",
+            ),
+            (
+                "es",
+                "Brasas y llamas en la pantalla inicial. Apagado ahorra GPU.",
+            ),
+            (
+                "ru",
+                "Угли и пламя на главном экране. Выключено — экономия GPU.",
+            ),
+        ],
+    ),
 ];
 
 fn ui_extra(lang: &str, en: &str) -> Option<&'static str> {

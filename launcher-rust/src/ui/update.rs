@@ -16,4 +16,6 @@ pub enum UpdateState {
 pub enum UpdateMessage {
     /// The Home pill was pressed.
     Install,
+    /// The Check for updates button of the Advanced page (`manual`), Task 34 checks.
+    Check { manual: bool },
 }

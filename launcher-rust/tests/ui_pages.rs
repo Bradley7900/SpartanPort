@@ -1403,3 +1403,156 @@ fn the_list_follows_the_mods() {
     );
     assert_eq!(performance::resolution_options(&state).len(), builtin);
 }
+
+// --- Advanced page (Task 30) ---
+
+use spartanport_launcher::core::options::{UI_LANGUAGES, UI_SCALES};
+use spartanport_launcher::ui::pages::advanced;
+use spartanport_launcher::ui::play::GameState;
+
+fn pick_row(state: &app::State, key: &str, value: &str) -> Message {
+    let rows = advanced::rows(state, "en");
+    let row = rows.iter().find(|row| row.key == key).unwrap();
+    let label = &row.pairs.iter().find(|(v, _)| v == value).unwrap().1;
+    let choices = match key {
+        "ui_language" => UI_LANGUAGES,
+        _ => UI_SCALES,
+    };
+    select_message(key, choices, "en", label).unwrap()
+}
+
+#[test]
+fn language_and_scale_rows_change_settings() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    let pick = pick_row(&state, "ui_language", "pt");
+    let _ = app::update(&mut state, pick);
+    assert_eq!(state.settings.get_str("ui_language"), "pt");
+    // The interface changes language when the launcher opens again (Save is Task 32).
+    assert_eq!(state.lang, "en");
+    let pick = pick_row(&state, "ui_scale", "2");
+    let _ = app::update(&mut state, pick);
+    assert_eq!(state.settings.get_str("ui_scale"), "2");
+}
+
+#[test]
+fn clear_cache_is_blocked_while_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    // Task 33: GameState has only Idle until then; every running state must make this true.
+    assert!(!advanced::clear_cache_blocked(&state));
+    state.game = GameState::Idle;
+    let cache = dir.path().join("user").join("cache");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("a.bin"), b"x").unwrap();
+    assert_eq!(advanced::clear_cache(&dir.path().join("user")), Ok(()));
+    assert!(!cache.exists());
+    // Nothing to remove is not an error.
+    assert_eq!(advanced::clear_cache(&dir.path().join("user")), Ok(()));
+    let _ = app::update(&mut state, Message::ShaderCacheCleared(Ok(())));
+    let shown = state.modal.take().unwrap();
+    assert!(matches!(shown.kind, ModalKind::Info));
+    assert!(shown.text.starts_with("Shader cache cleared."));
+    let _ = app::update(&mut state, Message::ShaderCacheCleared(Err("busy".into())));
+    let shown = state.modal.take().unwrap();
+    assert!(matches!(shown.kind, ModalKind::Error));
+    assert_eq!(shown.text, "busy");
+}
+
+#[test]
+fn effects_row_toggles_the_fire() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    assert!(state.effects);
+    open(&mut state, Page::Advanced);
+    click(&mut state, "Effects");
+    assert_eq!(state.settings.get("launcher_effects"), Some(&false.into()));
+    assert!(!state.effects);
+    click(&mut state, "Effects");
+    assert!(state.effects);
+    // Saved off: the next start begins with the fire off.
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"launcher_effects": false}"#,
+    )
+    .unwrap();
+    let again = common::state(dir.path());
+    assert!(!again.effects);
+}
+
+#[test]
+fn check_updates_row_hidden_without_self_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.self_update = false;
+    assert!(!advanced::check_keys(&state).contains(&"check_updates"));
+    assert!(advanced::check_keys(&state).contains(&"close_on_play"));
+    state.self_update = true;
+    assert!(advanced::check_keys(&state).contains(&"check_updates"));
+}
+
+#[test]
+fn diagnostics_start_collapsed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    assert!(!advanced::check_keys(&state).contains(&"frame_stats"));
+    let _ = app::update(&mut state, Message::ToggleDiagnostics);
+    assert!(advanced::check_keys(&state).contains(&"vk_validation"));
+}
+
+#[test]
+fn steam_bridge_command_matches_the_spec() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.settings.set("game_dir", "D:/CUSA01623".into());
+    let exe = std::path::Path::new("C:/SP/spartanport-launcher.exe");
+    let command = advanced::steam_bridge_command(&state.paths, &state.settings, exe);
+    let port = state.paths.port_dir.display();
+    assert_eq!(command[0], "-c");
+    assert_eq!(
+        command[1],
+        format!(
+            "import sys; sys.path.insert(0, r'{port}/scripts'); import steam_shortcut as s; \
+             print(s.add_to_steam(r'D:/CUSA01623', (r'C:/SP/spartanport-launcher.exe', '--play', r'{port}'), r'{port}/launcher/spartanport.png'))"
+        )
+        .replace(
+            "/launcher/spartanport.png",
+            &format!("{}launcher{}spartanport.png", std::path::MAIN_SEPARATOR, std::path::MAIN_SEPARATOR)
+        )
+    );
+    assert_eq!(command.len(), 2);
+}
+
+#[test]
+fn steam_answers_become_the_python_texts() {
+    let added = advanced::steam_outcome(
+        "en",
+        true,
+        "{'accounts': 2, 'updated': False, 'app_id': 1}",
+        "",
+    );
+    assert!(added
+        .unwrap()
+        .starts_with("The shortcut \"SpartanPort\" was added to Steam (accounts: 2)"));
+    let updated = advanced::steam_outcome("en", true, "{'accounts': 1, 'updated': True}", "");
+    assert!(updated
+        .unwrap()
+        .contains("was updated in Steam (accounts: 1)"));
+    let running = advanced::steam_outcome(
+        "en",
+        false,
+        "",
+        "Traceback\nsteam_shortcut.SteamError: running\n",
+    );
+    assert!(running.unwrap_err().starts_with("Steam is open."));
+    let none = advanced::steam_outcome("en", false, "", "steam_shortcut.SteamError: no_steam");
+    assert_eq!(none.unwrap_err(), "Steam was not found for this user.");
+    let art = advanced::steam_outcome("en", false, "", "steam_shortcut.SteamError: no_art: x");
+    assert!(art
+        .unwrap_err()
+        .starts_with("The game folder has no sce_sys/pic1.png"));
+    let other = advanced::steam_outcome("en", false, "", "Traceback\nImportError: nope\n");
+    assert_eq!(other.unwrap_err(), "ImportError: nope");
+}
