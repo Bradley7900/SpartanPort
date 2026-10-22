@@ -65,6 +65,16 @@ fn the_window_fits_in_90_percent_of_the_monitor() {
         fitted_window(Some(Size::new(1366.0, 768.0))),
         Size::new(1229.0, 691.0)
     );
+    // A monitor without a size (Wayland: an output with no current mode) counts as unknown.
+    for unknown in [
+        Size::ZERO,
+        Size::new(-1920.0, 1080.0),
+        Size::new(1920.0, 0.0),
+        Size::new(f32::NAN, 1080.0),
+        Size::new(f32::INFINITY, 1080.0),
+    ] {
+        assert_eq!(fitted_window(Some(unknown)), WINDOW_SIZE, "{unknown:?}");
+    }
     // Centred, in the desktop's units: at zoom 2 a logical pixel is two of them.
     let monitor = Size::new(1920.0, 1080.0);
     assert_eq!(
@@ -100,7 +110,47 @@ fn window_events_become_messages() {
         window_message((id, window::Event::Resized(Size::new(1300.0, 820.0)))),
         Some(Message::Resized(_))
     ));
+    assert!(matches!(
+        window_message((id, window::Event::Rescaled(1.25))),
+        Some(Message::DesktopRescaled(factor)) if factor == 1.25
+    ));
     assert!(window_message((id, window::Event::CloseRequested)).is_none());
+}
+
+/// A state over `dir` only, with `settings` as its `settings.json`.
+fn state_with(dir: &Path, settings: &str) -> State {
+    std::fs::write(dir.join("settings.json"), settings).unwrap();
+    let root = dir.display().to_string();
+    let env = move |key: &str| match key {
+        "APPDATA" | "USERPROFILE" | "HOME" | "XDG_CONFIG_HOME" => Some(root.clone()),
+        _ => None,
+    };
+    State::new(Paths::from_env(dir, &env))
+}
+
+#[test]
+fn a_new_desktop_scale_keeps_the_chosen_zoom() {
+    let dir = tempfile::tempdir().unwrap();
+    // GUI Scale 1 on a 150 % laptop, then the window is dragged to a 100 % monitor.
+    let mut state = state_with(dir.path(), r#"{"ui_scale": "1"}"#);
+    let id = window::Id::unique();
+    let _ = app::update(&mut state, Message::WindowOpened(id, WINDOW_SIZE));
+    let _ = app::update(&mut state, Message::DesktopScale(1.5));
+    assert!((window_zoom(state.scale, state.desktop_scale) - 1.0 / 1.5).abs() < 1e-6);
+    let _ = app::update(&mut state, Message::DesktopRescaled(1.0));
+    assert_eq!((state.desktop_scale, state.scale), (1.0, 1.0));
+    assert_eq!(window_zoom(state.scale, state.desktop_scale), 1.0);
+    // The window keeps its place and size: only a new zoom, no refit.
+    assert_eq!(state.window_size, WINDOW_SIZE);
+
+    // Auto follows the desktop it is on.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with(dir.path(), r#"{"ui_scale": "auto"}"#);
+    let _ = app::update(&mut state, Message::WindowOpened(id, WINDOW_SIZE));
+    let _ = app::update(&mut state, Message::DesktopScale(1.5));
+    let _ = app::update(&mut state, Message::DesktopRescaled(2.0));
+    assert_eq!((state.desktop_scale, state.scale), (2.0, 2.0));
+    assert_eq!(window_zoom(state.scale, state.desktop_scale), 1.0);
 }
 
 #[test]
@@ -127,4 +177,7 @@ fn the_desktop_scale_sets_the_automatic_zoom() {
         Message::MonitorSize(Some(Size::new(1366.0, 768.0))),
     );
     assert_eq!(state.window_size, Size::new(1229.0, 691.0));
+    // A monitor that reports no size leaves the window at its usual size, minimum included.
+    let _ = app::update(&mut state, Message::MonitorSize(Some(Size::ZERO)));
+    assert_eq!(state.window_size, WINDOW_SIZE);
 }

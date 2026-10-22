@@ -50,7 +50,13 @@ pub fn route<S: AsRef<OsStr>>(args: &[S]) -> Route {
 /// Runs the Python launcher of `port_dir` with `args`, from `port_dir`, and returns its exit code;
 /// 1 when it cannot start.
 pub fn forward_to_python<S: AsRef<OsStr>>(port_dir: &Path, args: &[S]) -> i32 {
-    let python = python_command(&|key| std::env::var(key).ok()).unwrap_or_default();
+    let python = match python_command(&|key| std::env::var(key).ok()) {
+        Ok(python) => python,
+        Err(error) => {
+            eprintln!("{APP_NAME}: {error}");
+            return 1;
+        }
+    };
     let Some((program, interpreter_args)) = python.split_first() else {
         return 1;
     };
@@ -92,8 +98,11 @@ pub fn forward_environment() {
 /// files, the settings, the Linux menu entry and what a finished update left behind. The
 /// language is the window's (`State::new`).
 pub fn prepare(paths: &Paths) {
+    // Python `WINDOWS and FROZEN and UPDATE_DIR not in PORT_DIR.parents`: the installed Windows
+    // launcher, not the copy that runs from a downloaded update.
+    let installed = cfg!(windows) && is_packaged() && !runs_from_update_dir(&paths.port_dir);
     // Before the settings are loaded: their copy must not mask the old data folder's.
-    move_from_legacy_name(paths);
+    move_from_legacy_name(paths, installed);
     let settings = load_app_settings(paths);
     if !cfg!(windows) {
         let env = |key: &str| std::env::var(key).ok();
@@ -108,19 +117,20 @@ pub fn prepare(paths: &Paths) {
             &env,
         );
     }
-    if cfg!(windows) && is_packaged() && !runs_from_update_dir(&paths.port_dir) {
+    if installed {
         // In use or already gone: tried again at the next start.
         let _ = std::fs::remove_dir_all(update_dir());
     }
 }
 
-/// Python `move_from_legacy_name`: settings, saves and shortcuts from before the rename. A failed
+/// Python `move_from_legacy_name`: settings, saves and shortcuts from before the rename; the
+/// installed Windows launcher (`installed`) also cleans its folder and desktop shortcut. A failed
 /// copy is tried again at the next start.
-fn move_from_legacy_name(paths: &Paths) {
+fn move_from_legacy_name(paths: &Paths, installed: bool) {
     for line in legacy::migrate(&paths.data_dir, None, cfg!(windows)) {
         println!("Rename: {line}");
     }
-    if cfg!(windows) && is_packaged() && !runs_from_update_dir(&paths.port_dir) {
+    if installed {
         legacy::remove_leftovers(&paths.port_dir);
         legacy::retarget_desktop_shortcut(&paths.port_dir, None, Some(&paths.data_dir));
     }

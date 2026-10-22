@@ -247,6 +247,8 @@ pub enum Message {
     WindowOpened(window::Id, Size),
     /// The desktop's scale factor where the window opened.
     DesktopScale(f32),
+    /// The desktop's scale factor changed under the window (another monitor, or the setting).
+    DesktopRescaled(f32),
     /// The logical size of the monitor that shows the window, when the system tells it.
     MonitorSize(Option<Size>),
     Splash(SplashMessage),
@@ -320,6 +322,15 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             state.desktop_scale = factor;
             state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"), factor);
             return fit_window(state);
+        }
+        // GUI Scale 1 or 2 keeps its size on the new desktop and Auto follows it; the window is
+        // neither refitted nor moved. Its logical size changes with the zoom, so it is read again.
+        Message::DesktopRescaled(factor) => {
+            state.desktop_scale = factor;
+            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"), factor);
+            if let Some(id) = state.window {
+                return window::size(id).map(Message::Resized);
+            }
         }
         Message::MonitorSize(monitor) => return size_window(state, monitor),
         Message::Tick(at) => {
@@ -641,20 +652,31 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     ])
 }
 
-/// What a window event means here: the window opened, changed size, or gained or lost the focus.
+/// What a window event means here: the window opened, changed size or desktop scale, or gained
+/// or lost the focus.
 pub fn window_message((id, event): (window::Id, window::Event)) -> Option<Message> {
     match event {
         window::Event::Opened { size, .. } => Some(Message::WindowOpened(id, size)),
         window::Event::Resized(size) => Some(Message::Resized(size)),
+        window::Event::Rescaled(factor) => Some(Message::DesktopRescaled(factor)),
         window::Event::Focused => Some(Message::WindowFocused(true)),
         window::Event::Unfocused => Some(Message::WindowFocused(false)),
         _ => None,
     }
 }
 
-/// Python `size_window`: `WINDOW_SIZE`, at most 90 % of the monitor (in logical pixels).
+/// The monitor's size when it is a real one: Wayland reports 0 × 0 for an output without a current
+/// mode (the Python checks `if width:`).
+fn known_monitor(monitor: Option<Size>) -> Option<Size> {
+    monitor.filter(|size| {
+        size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0
+    })
+}
+
+/// Python `size_window`: `WINDOW_SIZE`, at most 90 % of the monitor (in logical pixels) when its
+/// size is known.
 pub fn fitted_window(monitor: Option<Size>) -> Size {
-    monitor.map_or(WINDOW_SIZE, |monitor| {
+    known_monitor(monitor).map_or(WINDOW_SIZE, |monitor| {
         Size::new(
             WINDOW_SIZE.width.min((monitor.width * 0.9).floor()),
             WINDOW_SIZE.height.min((monitor.height * 0.9).floor()),
@@ -684,20 +706,21 @@ pub fn centred_position(monitor: Size, size: Size, zoom: f32) -> Point {
 /// Sizes the window for the current zoom, its minimum included, and centres it: the zoom changes
 /// what a logical pixel measures, and the window was opened before the desktop's scale was known.
 fn size_window(state: &mut State, monitor: Option<Size>) -> Task<Message> {
+    let monitor = known_monitor(monitor);
     let size = fitted_window(monitor);
     state.window_size = size;
     let Some(id) = state.window else {
         return Task::none();
     };
-    let mut steps = vec![
-        window::set_min_size(id, Some(size)),
-        window::resize(id, size),
-    ];
-    if let Some(monitor) = monitor {
-        let zoom = window_zoom(state.scale, state.desktop_scale);
-        steps.push(window::move_to(id, centred_position(monitor, size, zoom)));
+    // The new minimum first: the old one would stop the window from shrinking to a lower zoom.
+    let sized = window::set_min_size(id, Some(size)).chain(window::resize(id, size));
+    match monitor {
+        Some(monitor) => {
+            let zoom = window_zoom(state.scale, state.desktop_scale);
+            sized.chain(window::move_to(id, centred_position(monitor, size, zoom)))
+        }
+        None => sized,
     }
-    Task::batch(steps)
 }
 
 /// The window as it opens: icon, starting and minimum size and place (`size_window` adjusts them
