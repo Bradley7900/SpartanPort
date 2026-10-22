@@ -8,11 +8,13 @@ use std::path::Path;
 use common::{browsed, dump_with_patches, gpu_rows, messages, ARC_LAPTOP};
 use iced_test::simulator::simulator;
 use spartanport_launcher::core::i18n::tr;
+use spartanport_launcher::core::options::DISPLAY_MODES;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::pages::performance;
 use spartanport_launcher::ui::setup::{can_advance, folder_problems, SetupMessage, Step};
 use spartanport_launcher::ui::splash::{Check, SplashMessage};
+use spartanport_launcher::ui::widgets::choice_pairs;
 
 /// A state over `dir` only, as the program opens it, with the splash already gone.
 fn opened(dir: &Path) -> State {
@@ -253,4 +255,88 @@ fn the_card_step_lists_automatic_and_the_cards() {
     assert!(ui
         .find("Graphics card not checked: the game picks one.")
         .is_err());
+}
+
+/// The label the Display mode drop-down shows for the current ini value.
+fn display_mode_label(state: &State) -> Option<String> {
+    let current = state
+        .ini
+        .values
+        .get("display_mode")
+        .cloned()
+        .unwrap_or_default();
+    choice_pairs(DISPLAY_MODES, "en")
+        .into_iter()
+        .find(|(value, _)| *value == current)
+        .map(|(_, label)| label)
+}
+
+/// The `(current, its label)` of the `performance::rows` drop-down `key`.
+fn row_shown(state: &State, key: &str) -> (String, Option<String>) {
+    let row = performance::rows(state, "en")
+        .into_iter()
+        .find(|row| row.key == key)
+        .unwrap();
+    let label = row
+        .pairs
+        .iter()
+        .find(|(value, _)| *value == row.current)
+        .map(|(_, label)| label.clone());
+    (row.current, label)
+}
+
+#[test]
+fn the_video_step_edits_the_ini_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = at_step(dir.path(), Step::Video);
+    {
+        let mut ui = simulator(app::view(&state));
+        for label in [
+            "Display mode",
+            "Aspect ratio",
+            "Frame rate limit",
+            "Engine frame rate",
+        ] {
+            assert!(ui.find(label).is_ok(), "{label}");
+        }
+    }
+    assert_eq!(
+        state.ini.values.get("display_mode").map(String::as_str),
+        Some("windowed")
+    );
+    assert_eq!(display_mode_label(&state).as_deref(), Some("Windowed"));
+    assert_eq!(
+        row_shown(&state, "fps_limit"),
+        ("0".into(), Some("Unlimited".into()))
+    );
+    assert_eq!(row_shown(&state, "engine_fps").0, "120");
+    for (key, value) in [
+        ("fps_limit", "60"),
+        ("display_mode", "fullscreen"),
+        ("engine_fps", "144"),
+    ] {
+        let _ = app::update(&mut state, Message::Set(key.into(), value.into()));
+        assert_eq!(state.ini.values.get(key).map(String::as_str), Some(value));
+    }
+    assert_eq!(display_mode_label(&state).as_deref(), Some("Fullscreen"));
+    assert_eq!(row_shown(&state, "fps_limit").0, "60");
+    assert_eq!(row_shown(&state, "engine_fps").0, "144");
+}
+
+#[test]
+fn an_ini_without_settings_is_shown_and_kept() {
+    // The ini survived, settings.json did not.
+    let dir = tempfile::tempdir().unwrap();
+    let probe = opened(dir.path());
+    let ini = probe.paths.ini_path();
+    std::fs::write(&ini, "# mine\nfps_limit=60\nextra=kept\n").unwrap();
+    let state = at_step(dir.path(), Step::Video);
+    assert!(state.setup.is_some());
+    assert_eq!(
+        state.ini.values.get("fps_limit").map(String::as_str),
+        Some("60")
+    );
+    assert_eq!(row_shown(&state, "fps_limit").0, "60");
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Frame rate limit").is_ok());
 }

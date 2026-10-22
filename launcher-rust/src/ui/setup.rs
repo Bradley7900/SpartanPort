@@ -1,22 +1,23 @@
 //! The first-run setup (setup spec): three steps between the splash and the Home, shown while
 //! `State::setup` is `Some`.
 
-use iced::widget::{button, column, container, row, space, stack, text};
+use iced::widget::{button, column, container, pick_list, row, space, stack, text};
 use iced::{Background, Center, Element, Fill, Left, Task};
 
 use crate::core::game::{
     missing_game_files, same_folder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{tr, tr_fmt};
+use crate::core::options::DISPLAY_MODES;
 use crate::ui::app::{Message, State};
 use crate::ui::home;
 use crate::ui::pages::game::folder_row;
-use crate::ui::pages::performance::select_row;
+use crate::ui::pages::performance::{aspect_options, select_row};
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::describe_missing;
 use crate::ui::splash::SPLASH_BG;
 use crate::ui::theme::{self, mirror_x, palette, CINZEL_BOLD};
-use crate::ui::widgets::row as labeled_row;
+use crate::ui::widgets::{min_width, row as labeled_row, select, SELECT_MIN, SELECT_TEXT};
 
 /// One step of the setup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -279,6 +280,75 @@ fn gpu_body(state: &State) -> Element<'_, Message> {
     body.into()
 }
 
+/// The display mode, the aspect ratio and resolution, and the two frame rate limits.
+fn video_body(state: &State) -> Element<'_, Message> {
+    let lang = state.lang.as_str();
+    let hint = |english: &str| tr(lang, english);
+    let display_mode = state
+        .ini
+        .values
+        .get("display_mode")
+        .cloned()
+        .unwrap_or_default();
+    let aspect = min_width(
+        SELECT_MIN,
+        pick_list(
+            aspect_options(state),
+            Some(state.aspect.clone()),
+            Message::Aspect,
+        )
+        .text_size(SELECT_TEXT)
+        .style(theme::pick_list_dark),
+    );
+    let resolution = format!(
+        "{}  ·  {}",
+        tr(lang, "Render resolution"),
+        tr(lang, "restart")
+    );
+    column![
+        labeled_row(
+            state.rtl,
+            &tr(lang, "Display mode"),
+            select("display_mode", DISPLAY_MODES, &display_mode, lang),
+            Some(&hint(
+                "Borderless covers the screen without changing the display mode."
+            )),
+        ),
+        labeled_row(
+            state.rtl,
+            &tr(lang, "Aspect ratio"),
+            aspect.into(),
+            Some(&hint("Shows the render resolutions of this shape only.")),
+        ),
+        labeled_row(
+            state.rtl,
+            &resolution,
+            select_row(state, lang, "render_resolution"),
+            Some(&hint(
+                "The size the game draws at; higher is sharper and slower. A resolution patch replaces the texture fix and reserves the memory it needs."
+            )),
+        ),
+        labeled_row(
+            state.rtl,
+            &tr(lang, "Frame rate limit"),
+            select_row(state, lang, "fps_limit"),
+            Some(&hint("The engine frame rate (below) is the highest it can go.")),
+        ),
+        labeled_row(
+            state.rtl,
+            &tr(lang, "Engine frame rate"),
+            select_row(state, lang, "engine_fps"),
+            Some(&hint(
+                "The highest frame rate the game itself runs at (a game patch)."
+            )),
+        ),
+    ]
+    .spacing(8)
+    .width(Fill)
+    .align_x(mirror_x(Left, state.rtl))
+    .into()
+}
+
 /// The card of the step on screen: title, step line, intro, body and footer.
 fn card(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
@@ -295,7 +365,7 @@ fn card(state: &State) -> Element<'_, Message> {
     let body: Element<'_, Message> = match step {
         Step::Folders => folders_body(state),
         Step::Gpu => gpu_body(state),
-        Step::Video => column![].into(),
+        Step::Video => video_body(state),
     };
     // Left to right: Skip at the start, then Back and Next or Finish; right to left the row is
     // reversed, so Skip is at the right.
