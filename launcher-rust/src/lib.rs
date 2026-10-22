@@ -2,6 +2,7 @@
 #![recursion_limit = "256"]
 
 pub mod core;
+pub mod runner;
 pub mod startup;
 pub mod ui;
 

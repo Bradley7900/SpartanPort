@@ -5,8 +5,10 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use spartanport_launcher::core::env::environment_of;
 use spartanport_launcher::core::paths::{default_port_dir, Paths};
 use spartanport_launcher::core::platform;
+use spartanport_launcher::runner::{self, RunContext};
 use spartanport_launcher::startup::{self, Route};
 use spartanport_launcher::{ui, APP_NAME, VERSION};
 
@@ -22,6 +24,17 @@ fn main() {
     let port_dir = default_port_dir(&exe_dir);
     match startup::route(&args) {
         Route::Version => println!("{APP_NAME} {VERSION}"),
+        // `Route::Play` routes like `Run` until the play role exists.
+        Route::Run | Route::Play => {
+            let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
+            let context = RunContext {
+                port_dir: &paths.port_dir,
+                env: environment_of(std::env::vars_os()),
+                args: args.iter().skip(1).cloned().collect(),
+                out: &mut std::io::stdout(),
+            };
+            std::process::exit(runner::run(context))
+        }
         Route::Python => {
             // The Python launcher of the port folder (`SPARTAN_PORT_DIR` included).
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());

@@ -18,9 +18,7 @@ fn arguments_route_to_python() {
     let none: [&str; 0] = [];
     assert_eq!(route(&none), Route::Launcher);
     assert_eq!(route(&["--version"]), Route::Version);
-    // The Python roles: what follows `--run`, `--script` and `--install-update` is theirs.
-    assert_eq!(route(&["--run"]), Route::Python);
-    assert_eq!(route(&["--run", "--fps", "60"]), Route::Python);
+    // The Python roles: what follows `--script` and `--install-update` is theirs.
     assert_eq!(
         route(&["--script", "prepare.py", "--version"]),
         Route::Python
@@ -29,12 +27,37 @@ fn arguments_route_to_python() {
         route(&["--install-update", "a.zip", "C:\\Port"]),
         Route::Python
     );
-    // `--play` counts anywhere, as in the Python `main`.
-    assert_eq!(route(&["--play"]), Route::Python);
-    assert_eq!(route(&["--fullscreen", "--play"]), Route::Python);
     // Anything else opens the window; the Python ignores unknown arguments too.
     assert_eq!(route(&["--fullscreen"]), Route::Launcher);
     assert_eq!(route(&["play"]), Route::Launcher);
+}
+
+#[test]
+fn run_and_play_are_their_own_routes() {
+    assert_eq!(route(&["--run"]), Route::Run);
+    assert_eq!(route(&["--run", "--timeout", "5"]), Route::Run);
+    // `--play` counts anywhere, as in the Python `main`.
+    assert_eq!(route(&["--play"]), Route::Play);
+    assert_eq!(route(&["--fullscreen", "--play"]), Route::Play);
+    assert_eq!(route(&["--script", "x.py"]), Route::Python);
+    assert_eq!(route(&["--install-update", "--run"]), Route::Python);
+}
+
+#[test]
+fn run_without_a_probe_fails_with_the_python_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = std::process::Command::new(LAUNCHER)
+        .arg("--run")
+        .env("SPARTAN_PORT_DIR", dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("spartanport-probe"), "{stdout}");
+    assert!(
+        stdout.contains("not found: build it with build.sh"),
+        "{stdout}"
+    );
 }
 
 /// The launcher program cargo built for these tests.

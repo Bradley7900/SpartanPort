@@ -16,11 +16,15 @@ fn walk(root: impl AsRef<Path>) -> Vec<PathBuf> {
 }
 
 #[test]
-fn core_never_mentions_iced() {
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src/core");
-    for entry in walk(root) {
-        let text = std::fs::read_to_string(&entry).unwrap();
-        assert!(!text.contains("iced"), "{entry:?} imports iced");
+fn core_and_runner_never_mention_iced() {
+    for root in [
+        concat!(env!("CARGO_MANIFEST_DIR"), "/src/core"),
+        concat!(env!("CARGO_MANIFEST_DIR"), "/src/runner"),
+    ] {
+        for entry in walk(root) {
+            let text = std::fs::read_to_string(&entry).unwrap();
+            assert!(!text.contains("iced"), "{entry:?} imports iced");
+        }
     }
 }
 

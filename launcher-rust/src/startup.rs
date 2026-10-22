@@ -21,8 +21,11 @@ use crate::APP_NAME;
 pub enum Route {
     /// `--version`: the name and the version.
     Version,
-    /// `--run`, `--script`, `--install-update` or `--play`: the Python launcher does these until
-    /// the Rust runner exists.
+    /// `--run`: the Rust runner.
+    Run,
+    /// `--play`: the Rust runner's play role.
+    Play,
+    /// `--script` or `--install-update`: the Python launcher does these.
     Python,
     /// Anything else: the window.
     Launcher,
@@ -32,18 +35,18 @@ pub enum Route {
 /// counts anywhere, as in the Python `main`.
 pub fn route<S: AsRef<OsStr>>(args: &[S]) -> Route {
     let is = |arg: &S, flag: &str| arg.as_ref() == OsStr::new(flag);
-    let leading = ["--run", "--script", "--install-update"];
-    if args
-        .first()
-        .is_some_and(|first| leading.iter().any(|flag| is(first, flag)))
-    {
-        return Route::Python;
+    match args.first() {
+        Some(first) if is(first, "--run") => return Route::Run,
+        Some(first) if is(first, "--script") || is(first, "--install-update") => {
+            return Route::Python;
+        }
+        _ => {}
     }
     if args.iter().any(|arg| is(arg, "--version")) {
         return Route::Version;
     }
     if args.iter().any(|arg| is(arg, "--play")) {
-        return Route::Python;
+        return Route::Play;
     }
     Route::Launcher
 }
