@@ -517,7 +517,11 @@ fn play_offers_the_system_files_of_a_pkg_extraction() {
     };
     assert!(source.ends_with("Sc0"), "{source:?}");
     assert_eq!(target, &folder);
-    assert!(matches!(no, Message::Modal(ModalMessage::Dismiss)));
+    assert!(
+        matches!(no, Message::Game(GameMessage::AdoptAnswer(false, declined, from))
+            if declined == source && from == &folder),
+        "{no:?}"
+    );
     assert_eq!(
         asked.text,
         format!(
@@ -528,6 +532,27 @@ fn play_offers_the_system_files_of_a_pkg_extraction() {
         )
     );
     assert!(idle(&state));
+
+    // No: PLAY goes on with its checks, as in Python, and the dump lacks its param.sfo.
+    send(&mut state, no.clone());
+    assert_eq!(
+        error_text(&state),
+        "The game dump is incomplete. Missing or empty files:\n\nsce_sys/param.sfo\n\nDump the \
+         game again, or copy these files from a complete dump."
+    );
+    assert_eq!(state.page, Page::Game);
+    assert!(idle(&state));
+    // Nothing was copied.
+    assert!(!image.join("sce_sys").exists());
+
+    // PLAY again offers the copy again.
+    send(&mut state, Message::Modal(ModalMessage::Dismiss));
+    send(&mut state, Message::ShowPage(Page::Home));
+    send(&mut state, Message::Play);
+    assert_eq!(
+        state.modal.clone().expect("the offer again").text,
+        asked.text
+    );
 
     // Yes: the copy runs in the background; PLAY waits for it.
     send(&mut state, yes.clone());
@@ -603,4 +628,156 @@ fn a_running_game_blocks_restore_reset_and_cache_clear() {
     pump(&mut state, BOUND, idle);
     assert!(!game::restore_blocked(&state));
     assert!(!advanced::clear_cache_blocked(&state));
+}
+
+#[test]
+fn declining_the_game_offer_offers_the_update_files_next() {
+    // Python `offer_system_files` goes on to the update folder after a No.
+    let dir = tempfile::tempdir().unwrap();
+    let image = dir.path().join("pkg").join("Image0");
+    full_dump(&image);
+    fs::remove_dir_all(image.join("sce_sys")).unwrap();
+    fs::create_dir_all(dir.path().join("pkg").join("Sc0")).unwrap();
+    fs::write(
+        dir.path().join("pkg").join("Sc0").join("param.sfo"),
+        game_sfo(),
+    )
+    .unwrap();
+    let update = dir.path().join("upd").join("Image0");
+    fs::create_dir_all(&update).unwrap();
+    fs::write(update.join("eboot.bin"), b"elf").unwrap();
+    let update_sc0 = dir.path().join("upd").join("Sc0");
+    fs::create_dir_all(&update_sc0).unwrap();
+    fs::write(update_sc0.join("param.sfo"), game_sfo()).unwrap();
+    let mut state = state_in(dir.path());
+    set(&mut state, "game_dir", json!(text_of(&image)));
+    set(&mut state, "update_dir", json!(text_of(&update)));
+    fake_game(&mut state, &["--lines", "1", "--exit", "0"]);
+
+    send(&mut state, Message::Play);
+    let game_offer = state.modal.clone().expect("the game folder's offer");
+    let ModalKind::YesNo { no, .. } = &game_offer.kind else {
+        panic!("{game_offer:?}")
+    };
+    assert!(game_offer
+        .text
+        .starts_with(&format!("The files in {} ", text_of(&image))));
+    send(&mut state, no.clone());
+
+    let update_offer = state.modal.clone().expect("the update folder's offer");
+    let ModalKind::YesNo { yes, no } = &update_offer.kind else {
+        panic!("{update_offer:?}")
+    };
+    assert!(
+        update_offer
+            .text
+            .starts_with(&format!("The files in {} ", text_of(&update))),
+        "{}",
+        update_offer.text
+    );
+    let Message::Game(GameMessage::AdoptAnswer(true, source, target)) = yes else {
+        panic!("{yes:?}")
+    };
+    assert_eq!(source, &update_sc0);
+    assert_eq!(target, &text_of(&update));
+    assert!(idle(&state));
+
+    // No again: the checks name what the game folder lacks.
+    send(&mut state, no.clone());
+    assert!(
+        error_text(&state).starts_with(
+            "The game dump is incomplete. Missing or empty files:\n\nsce_sys/param.sfo\n\n"
+        ),
+        "{}",
+        error_text(&state)
+    );
+    assert_eq!(state.page, Page::Game);
+    assert!(idle(&state));
+}
+
+#[test]
+fn a_restart_keeps_the_running_game() {
+    // run.py's in-game restart: the probe says it restarts, then the new one enters the game again.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = ready(
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    send(&mut state, Message::Play);
+    let running = pid(&state);
+    send(&mut state, Message::Game(GameMessage::HideForGame(running)));
+    let line = |text: &str| Message::Game(GameMessage::Output(vec![text.to_string()]));
+    send(&mut state, line("Entering original x86-64 code\n"));
+    send(&mut state, line("Runtime: restarting through run.py\n"));
+    assert_eq!(state.status, "Restarting with the new settings…");
+    send(&mut state, line("Entering original x86-64 code\n"));
+    assert!(
+        matches!(state.game, GameState::Running { hidden: true, .. }),
+        "{:?}",
+        state.game
+    );
+    assert_eq!(pid(&state), running);
+    assert_eq!(state.status, "The game is running.");
+    assert!(play::game_live(&state));
+    assert!(play::exit_after_game(&state));
+    assert!(game::restore_blocked(&state));
+    // PLAY stays RUNNING, STOP stays.
+    assert!(click(&state, "RUNNING").is_empty());
+    assert!(click(&state, "STOP")
+        .iter()
+        .any(|message| matches!(message, Message::Stop)));
+    // Both lines in one batch too.
+    send(
+        &mut state,
+        Message::Game(GameMessage::Output(vec![
+            "Runtime: restarting through run.py\n".to_string(),
+            "Entering original x86-64 code\n".to_string(),
+        ])),
+    );
+    assert_eq!(pid(&state), running);
+
+    // The game's own output and its exit still arrive.
+    send(&mut state, Message::Stop);
+    pump(&mut state, BOUND, idle);
+    let text = state.log.text();
+    assert!(text.contains("line 1"), "{text}");
+    assert!(text.contains("\n\nThe game exited (code "), "{text}");
+}
+
+#[test]
+fn a_tick_drains_at_most_500_events() {
+    // Python's drain_output takes at most 500 items per pass; the rest waits for the next one.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = ready(dir.path(), &["--lines", "1200", "--exit", "0"]);
+    send(&mut state, Message::Play);
+    let log = state.paths.run_log_path("");
+    let started = Instant::now();
+    while !fs::read_to_string(&log)
+        .unwrap_or_default()
+        .contains("line 1200")
+    {
+        assert!(
+            started.elapsed() < BOUND,
+            "the fake game did not print in time"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let first = play::drain_events(&state);
+    assert_eq!(first.len(), 1, "one Output, and no Exited yet");
+    let GameMessage::Output(lines) = &first[0] else {
+        panic!("not an Output")
+    };
+    assert_eq!(lines.len(), 500);
+    assert_eq!(lines[0].trim_end(), "line 1");
+    for message in first {
+        send(&mut state, Message::Game(message));
+    }
+    assert!(!idle(&state));
+    pump(&mut state, BOUND, idle);
+    let shown: Vec<&str> = state.log.lines().collect();
+    assert!(shown.contains(&"line 1200"));
+    assert_eq!(
+        shown.iter().filter(|l| l.starts_with("line ")).count(),
+        1200
+    );
 }

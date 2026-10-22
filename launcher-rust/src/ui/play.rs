@@ -27,11 +27,13 @@ use crate::ui::pages::game::game_changed;
 use crate::ui::pages::{log, trophies, Page};
 use crate::ui::persist;
 use crate::ui::tasks::blocking;
-use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
+use crate::ui::widgets::{Modal, ModalKind};
 use crate::APP_NAME;
 
 /// How long after the start `close_on_play` hides the window.
 pub const HIDE_DELAY: Duration = Duration::from_secs(5);
+/// The most game events one clock tick takes, as Python's `drain_output`; the rest waits.
+pub const DRAIN_LIMIT: usize = 500;
 
 /// The game process as the launcher sees it.
 #[derive(Default)]
@@ -158,8 +160,13 @@ fn folder_or_here(folder: &str) -> &str {
 }
 
 /// The first folder (the game, then an update with an `eboot.bin`) whose system files sit in an
-/// Sc0 folder beside it, with that folder (Python `offer_system_files`).
-fn system_files_offer(game_dir: &str, update_dir: &str) -> Option<(String, PathBuf)> {
+/// Sc0 folder beside it, with that folder (Python `offer_system_files`). The folders up to
+/// `declined`, whose offer was just answered No, are passed over, as Python's loop goes on.
+fn system_files_offer(
+    game_dir: &str,
+    update_dir: &str,
+    declined: Option<&str>,
+) -> Option<(String, PathBuf)> {
     let game = folder_or_here(game_dir);
     let mut folders = vec![(game, false)];
     if !update_dir.is_empty()
@@ -168,15 +175,21 @@ fn system_files_offer(game_dir: &str, update_dir: &str) -> Option<(String, PathB
     {
         folders.push((update_dir, true));
     }
-    folders.into_iter().find_map(|(folder, is_update)| {
-        // The update's candidate must be the base game's title.
-        let reference = is_update
-            .then(|| game_sfo(game))
-            .filter(|values| !values.is_empty());
-        let base = is_update.then(|| Path::new(game));
-        system_files_beside(folder, reference.as_ref(), base)
-            .map(|source| (folder.to_string(), source))
-    })
+    let after = declined
+        .and_then(|declined| folders.iter().position(|(folder, _)| *folder == declined))
+        .map_or(0, |at| at + 1);
+    folders
+        .into_iter()
+        .skip(after)
+        .find_map(|(folder, is_update)| {
+            // The update's candidate must be the base game's title.
+            let reference = is_update
+                .then(|| game_sfo(game))
+                .filter(|values| !values.is_empty());
+            let base = is_update.then(|| Path::new(game));
+            system_files_beside(folder, reference.as_ref(), base)
+                .map(|source| (folder.to_string(), source))
+        })
 }
 
 /// PLAY (Python `play`): saves the settings, checks the folders in the 2.6.0 order and starts
@@ -189,14 +202,23 @@ pub fn play(state: &mut State) -> Task<Message> {
         persist::show_save_failed(state);
         return Task::none();
     }
+    if game_info(&state.settings.get_str("game_dir")).is_none() {
+        let text = tr(
+            &state.lang,
+            "Choose the game folder with eboot.bin (CUSA01623).",
+        );
+        return refuse(state, text);
+    }
+    checks(state, None)
+}
+
+/// PLAY from the copy offers on: the offers, the files of the game and of the update, then the
+/// start. `declined` is the folder whose offer was just answered No.
+fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
     let lang = state.lang.clone();
     let game_dir = state.settings.get_str("game_dir");
     let update_dir = state.settings.get_str("update_dir");
-    if game_info(&game_dir).is_none() {
-        let text = tr(&lang, "Choose the game folder with eboot.bin (CUSA01623).");
-        return refuse(state, text);
-    }
-    if let Some((folder, source)) = system_files_offer(&game_dir, &update_dir) {
+    if let Some((folder, source)) = system_files_offer(&game_dir, &update_dir, declined) {
         let text = tr_fmt(
             &lang,
             "The files in {} look like a PKG extraction: the system files (param.sfo, icon0.png, \
@@ -206,8 +228,12 @@ pub fn play(state: &mut State) -> Task<Message> {
         );
         state.modal = Some(Modal {
             kind: ModalKind::YesNo {
-                yes: Message::Game(GameMessage::AdoptAnswer(true, source, folder)),
-                no: Message::Modal(ModalMessage::Dismiss),
+                yes: Message::Game(GameMessage::AdoptAnswer(
+                    true,
+                    source.clone(),
+                    folder.clone(),
+                )),
+                no: Message::Game(GameMessage::AdoptAnswer(false, source, folder)),
             },
             title: APP_NAME.to_string(),
             text,
@@ -309,23 +335,27 @@ pub fn stop(state: &mut State) {
     }
 }
 
-/// Everything the running game reported since the last call, without waiting: consecutive
-/// output in one `Output`, then `Exited` when the game ended. A reader that vanished without
-/// reporting the exit counts as an exit with code -1, so PLAY comes back.
+/// What the running game reported since the last call, at most `DRAIN_LIMIT` events and without
+/// waiting: consecutive output in one `Output`, then `Exited` when the game ended. A reader that
+/// vanished without reporting the exit counts as an exit with code -1, so PLAY comes back.
 pub fn drain_events(state: &State) -> Vec<GameMessage> {
     let Some(handle) = live(&state.game) else {
         return Vec::new();
     };
     let mut messages = Vec::new();
     let mut lines = Vec::new();
-    let exited = loop {
+    let mut exited = None;
+    for _ in 0..DRAIN_LIMIT {
         match handle.events.try_recv() {
             Ok(GameEvent::Output(text)) => lines.push(text),
-            Ok(GameEvent::Exited(code)) => break Some(code),
-            Err(TryRecvError::Empty) => break None,
-            Err(TryRecvError::Disconnected) => break Some(-1),
+            Ok(GameEvent::Exited(code)) => exited = Some(code),
+            Err(TryRecvError::Empty) => break,
+            Err(TryRecvError::Disconnected) => exited = Some(-1),
         }
-    };
+        if exited.is_some() {
+            break;
+        }
+    }
     if !lines.is_empty() {
         messages.push(GameMessage::Output(lines));
     }
@@ -352,8 +382,12 @@ pub fn update(state: &mut State, message: GameMessage) -> Task<Message> {
         GameMessage::HideForGame(pid) => hide_for_game(state, pid),
         GameMessage::AdoptAnswer(yes, source, folder) => {
             state.modal = None;
-            if !yes || !matches!(state.game, GameState::Idle) {
+            if !matches!(state.game, GameState::Idle) {
                 return Task::none();
+            }
+            // No: PLAY goes on with the next offer and the checks, as Python's loop does.
+            if !yes {
+                return checks(state, Some(&folder));
             }
             state.game = GameState::Copying;
             state.status = tr(&state.lang, "Copying the system files…");
@@ -391,18 +425,19 @@ fn output(state: &mut State, lines: Vec<String>) -> Task<Message> {
         let found = exit_hint(line);
         match line_status(line) {
             Some(LineStatus::Running) => {
-                if let GameState::Preparing {
-                    handle,
-                    hint,
-                    hidden,
-                } = std::mem::take(&mut state.game)
-                {
-                    state.game = GameState::Running {
+                // Already Running after an in-game restart: the game stays as it is.
+                state.game = match std::mem::take(&mut state.game) {
+                    GameState::Preparing {
                         handle,
                         hint,
                         hidden,
-                    };
-                }
+                    } => GameState::Running {
+                        handle,
+                        hint,
+                        hidden,
+                    },
+                    other => other,
+                };
                 state.status = tr(&state.lang, "The game is running.");
             }
             Some(LineStatus::Restarting) => {
