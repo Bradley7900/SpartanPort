@@ -20,7 +20,7 @@ use crate::core::update::{
 };
 use crate::ui::app::{Message, State};
 use crate::ui::pages::game::restore_blocked;
-use crate::ui::play::GameState;
+use crate::ui::play::{self, GameState};
 use crate::ui::tasks::blocking;
 use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
 use crate::{APP_NAME, VERSION};
@@ -285,6 +285,15 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
         }
         UpdateMessage::Confirmed => {
             state.modal = None;
+            // The question may have been asked before the game started.
+            if play::game_live(state) {
+                show(
+                    state,
+                    ModalKind::Info,
+                    tr(&lang, "Close the game before updating."),
+                );
+                return Task::none();
+            }
             let UpdateState::Available(release) = state.update.clone() else {
                 return Task::none();
             };

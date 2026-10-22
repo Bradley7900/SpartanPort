@@ -15,11 +15,13 @@ use iced_test::simulator::simulator;
 use serde_json::json;
 use spartanport_launcher::core::log::ExitHint;
 use spartanport_launcher::core::paths::Paths;
+use spartanport_launcher::core::update::Release;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::pages::trophies::TrophiesMessage;
 use spartanport_launcher::ui::pages::{advanced, game, Page};
 use spartanport_launcher::ui::play::{self, GameMessage, GameState};
+use spartanport_launcher::ui::update::{UpdateMessage, UpdateState};
 use spartanport_launcher::ui::widgets::modal::{ModalKind, ModalMessage};
 
 /// The longest any test waits for the fake game.
@@ -604,6 +606,31 @@ fn a_running_game_blocks_restore_reset_and_cache_clear() {
     pump(&mut state, BOUND, idle);
     assert!(!game::restore_blocked(&state));
     assert!(!advanced::clear_cache_blocked(&state));
+}
+
+#[test]
+fn a_confirmed_update_waits_for_the_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = ready(
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    state.update = UpdateState::Available(Release {
+        version: "9.9.9".into(),
+        url: Some("https://example.invalid/SpartanPort.zip".into()),
+        page: "https://example.invalid/releases".into(),
+    });
+    // The install question was open when the game started: its Yes must not install over it.
+    send(&mut state, Message::Play);
+    assert!(play::game_live(&state));
+    let task = app::update(&mut state, Message::Update(UpdateMessage::Confirmed));
+    assert_eq!(task.units(), 0);
+    assert!(matches!(state.update, UpdateState::Available(_)));
+    assert!(state.update_progress.is_none());
+    let shown = state.modal.take().expect("a dialog");
+    assert_eq!(shown.text, "Close the game before updating.");
+    send(&mut state, Message::Stop);
+    pump(&mut state, BOUND, idle);
 }
 
 #[test]

@@ -41,7 +41,7 @@ use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, window_zoom, CINZEL_BOLD};
 use crate::ui::update::{self, UpdateMessage, UpdateState};
 use crate::ui::widgets;
-use crate::ui::widgets::modal::{Modal, ModalMessage};
+use crate::ui::widgets::modal::{Modal, ModalKind, ModalMessage};
 use crate::VERSION;
 
 /// Starting and minimum window size, in logical pixels.
@@ -302,6 +302,15 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::NextPage => return show_page(state, state.page.next()),
         Message::PreviousPage => return show_page(state, state.page.previous()),
         Message::Key(key, _modifiers, location) => {
+            // A dialog takes no keys, so none reaches what lies under it: Esc only closes a
+            // dialog that asks nothing (ruling R66).
+            if let Some(open) = &state.modal {
+                let dismissible = matches!(open.kind, ModalKind::Info | ModalKind::Error);
+                if dismissible && key == Key::Named(Named::Escape) {
+                    state.modal = None;
+                }
+                return Task::none();
+            }
             // While the splash shows, any key only skips it.
             if !state.splash.done {
                 splash::apply(state, SplashMessage::Skip);

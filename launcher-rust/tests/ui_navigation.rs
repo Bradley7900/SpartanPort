@@ -24,6 +24,8 @@ use spartanport_launcher::ui::app::{
 use spartanport_launcher::ui::drawer::{self, drawer_width, DrawerState};
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::theme::CINZEL_BOLD;
+use spartanport_launcher::ui::update::UpdateMessage;
+use spartanport_launcher::ui::widgets::modal::{Modal, ModalKind, ModalMessage};
 use spartanport_launcher::VERSION;
 
 /// The page order of the Global Constraints.
@@ -118,6 +120,53 @@ fn escape_closes() {
     press(&mut state, Named::Escape);
     assert_eq!(state.drawer, DrawerState::Closed);
     assert_eq!(state.page, Page::Home);
+}
+
+fn dialog(kind: ModalKind) -> Option<Modal> {
+    Some(Modal {
+        kind,
+        title: "SpartanPort".into(),
+        text: "Install version 9.9.9 now?".into(),
+    })
+}
+
+#[test]
+fn keys_do_nothing_under_a_dialog() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.modal = dialog(ModalKind::YesNo {
+        yes: Message::Update(UpdateMessage::Confirmed),
+        no: Message::Modal(ModalMessage::Dismiss),
+    });
+    // On Home, Enter presses PLAY; behind the update question it would start the game.
+    let task = app::update(
+        &mut state,
+        Message::Key(
+            Key::Named(Named::Enter),
+            Modifiers::default(),
+            Location::Standard,
+        ),
+    );
+    assert_eq!(task.units(), 0);
+    press(&mut state, Named::ArrowRight);
+    assert_eq!(state.page, Page::Home);
+    assert_eq!(state.drawer, DrawerState::Closed);
+    // A question needs its answer: Esc does not close it.
+    press(&mut state, Named::Escape);
+    assert!(state.modal.is_some());
+}
+
+#[test]
+fn escape_closes_an_info_dialog_and_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    click(&mut state, "Graphics");
+    for kind in [ModalKind::Info, ModalKind::Error] {
+        state.modal = dialog(kind);
+        press(&mut state, Named::Escape);
+        assert!(state.modal.is_none());
+        assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
+    }
 }
 
 #[test]
