@@ -206,6 +206,204 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
             ),
         ],
     ),
+    (
+        "Release",
+        &[
+            ("ar", "الإصدار"),
+            ("es", "Lanzamiento"),
+            ("pt", "Lançamento"),
+            ("fr", "Version"),
+            ("de", "Veröffentlichung"),
+            ("it", "Versione"),
+            ("pl", "Wydanie"),
+            ("tr", "Sürüm"),
+            ("zh", "正式版"),
+            ("ja", "リリース"),
+            ("ko", "릴리스"),
+            ("id", "Rilis"),
+            ("ru", "Релиз"),
+        ],
+    ),
+    (
+        "Pre-release",
+        &[
+            ("ar", "إصدار تجريبي"),
+            ("es", "Prelanzamiento"),
+            ("pt", "Pré-lançamento"),
+            ("fr", "Préversion"),
+            ("de", "Vorabversion"),
+            ("it", "Versione preliminare"),
+            ("pl", "Wersja przedpremierowa"),
+            ("tr", "Ön sürüm"),
+            ("zh", "预发布版"),
+            ("ja", "プレリリース"),
+            ("ko", "사전 릴리스"),
+            ("id", "Pra-rilis"),
+            ("ru", "Предрелиз"),
+        ],
+    ),
+    (
+        "Releases",
+        &[
+            ("ar", "الإصدارات"),
+            ("es", "Lanzamientos"),
+            ("pt", "Lançamentos"),
+            ("fr", "Versions"),
+            ("de", "Veröffentlichungen"),
+            ("it", "Versioni"),
+            ("pl", "Wydania"),
+            ("tr", "Sürümler"),
+            ("zh", "正式版"),
+            ("ja", "リリース"),
+            ("ko", "릴리스"),
+            ("id", "Rilis"),
+            ("ru", "Релизы"),
+        ],
+    ),
+    (
+        "Pre-releases",
+        &[
+            ("ar", "إصدارات تجريبية"),
+            ("es", "Prelanzamientos"),
+            ("pt", "Pré-lançamentos"),
+            ("fr", "Préversions"),
+            ("de", "Vorabversionen"),
+            ("it", "Versioni preliminari"),
+            ("pl", "Wersje przedpremierowe"),
+            ("tr", "Ön sürümler"),
+            ("zh", "预发布版"),
+            ("ja", "プレリリース"),
+            ("ko", "사전 릴리스"),
+            ("id", "Pra-rilis"),
+            ("ru", "Предрелизы"),
+        ],
+    ),
+    (
+        "new",
+        &[
+            ("ar", "جديد"),
+            ("es", "nuevo"),
+            ("pt", "novo"),
+            ("fr", "nouveau"),
+            ("de", "neu"),
+            ("it", "nuovo"),
+            ("pl", "nowe"),
+            ("tr", "yeni"),
+            ("zh", "新"),
+            ("ja", "新着"),
+            ("ko", "신규"),
+            ("id", "baru"),
+            ("ru", "новое"),
+        ],
+    ),
+    (
+        "{} available",
+        &[
+            ("ar", "{} متاح"),
+            ("es", "{} disponible"),
+            ("pt", "{} disponível"),
+            ("fr", "{} disponible"),
+            ("de", "{} verfügbar"),
+            ("it", "{} disponibile"),
+            ("pl", "{} dostępne"),
+            ("tr", "{} mevcut"),
+            ("zh", "{} 可用"),
+            ("ja", "{} が利用可能"),
+            ("ko", "{} 사용 가능"),
+            ("id", "{} tersedia"),
+            ("ru", "{} доступно"),
+        ],
+    ),
+    (
+        "Fetching…",
+        &[
+            ("ar", "جارٍ الجلب…"),
+            ("es", "Obteniendo…"),
+            ("pt", "Buscando…"),
+            ("fr", "Récupération…"),
+            ("de", "Wird abgerufen…"),
+            ("it", "Recupero…"),
+            ("pl", "Pobieranie…"),
+            ("tr", "Alınıyor…"),
+            ("zh", "正在获取…"),
+            ("ja", "取得中…"),
+            ("ko", "가져오는 중…"),
+            ("id", "Mengambil…"),
+            ("ru", "Загрузка…"),
+        ],
+    ),
+    (
+        "Could not fetch the versions",
+        &[
+            ("ar", "تعذّر جلب الإصدارات"),
+            ("es", "No se pudieron obtener las versiones"),
+            ("pt", "Não foi possível buscar as versões"),
+            ("fr", "Impossible de récupérer les versions"),
+            ("de", "Die Versionen konnten nicht abgerufen werden"),
+            ("it", "Impossibile recuperare le versioni"),
+            ("pl", "Nie udało się pobrać wersji"),
+            ("tr", "Sürümler alınamadı"),
+            ("zh", "无法获取版本"),
+            ("ja", "バージョンを取得できませんでした"),
+            ("ko", "버전을 가져올 수 없습니다"),
+            ("id", "Gagal mengambil versi"),
+            ("ru", "Не удалось получить версии"),
+        ],
+    ),
+    (
+        "No test builds",
+        &[
+            ("ar", "لا توجد إصدارات اختبارية"),
+            ("es", "No hay compilaciones de prueba"),
+            ("pt", "Sem builds de teste"),
+            ("fr", "Aucune build de test"),
+            ("de", "Keine Test-Builds"),
+            ("it", "Nessuna build di test"),
+            ("pl", "Brak wersji testowych"),
+            ("tr", "Test sürümü yok"),
+            ("zh", "没有测试版本"),
+            ("ja", "テストビルドはありません"),
+            ("ko", "테스트 빌드 없음"),
+            ("id", "Tidak ada build uji"),
+            ("ru", "Нет тестовых сборок"),
+        ],
+    ),
+    (
+        "No test builds for Linux",
+        &[
+            ("ar", "لا توجد إصدارات اختبارية لنظام Linux"),
+            ("es", "No hay compilaciones de prueba para Linux"),
+            ("pt", "Sem builds de teste para Linux"),
+            ("fr", "Aucune build de test pour Linux"),
+            ("de", "Keine Test-Builds für Linux"),
+            ("it", "Nessuna build di test per Linux"),
+            ("pl", "Brak wersji testowych dla Linuksa"),
+            ("tr", "Linux için test sürümü yok"),
+            ("zh", "没有适用于 Linux 的测试版本"),
+            ("ja", "Linux 向けのテストビルドはありません"),
+            ("ko", "Linux용 테스트 빌드 없음"),
+            ("id", "Tidak ada build uji untuk Linux"),
+            ("ru", "Нет тестовых сборок для Linux"),
+        ],
+    ),
+    (
+        "This version is older than the installed one.",
+        &[
+            ("ar", "هذا الإصدار أقدم من الإصدار المثبّت."),
+            ("es", "Esta versión es anterior a la instalada."),
+            ("pt", "Esta versão é mais antiga que a instalada."),
+            ("fr", "Cette version est plus ancienne que celle installée."),
+            ("de", "Diese Version ist älter als die installierte."),
+            ("it", "Questa versione è più vecchia di quella installata."),
+            ("pl", "Ta wersja jest starsza od zainstalowanej."),
+            ("tr", "Bu sürüm, yüklü olandan eskidir."),
+            ("zh", "此版本比已安装的版本旧。"),
+            ("ja", "このバージョンはインストール済みのものより古いです。"),
+            ("ko", "이 버전은 설치된 버전보다 오래되었습니다."),
+            ("id", "Versi ini lebih lama dari yang terpasang."),
+            ("ru", "Эта версия старше установленной."),
+        ],
+    ),
 ];
 
 fn ui_extra(lang: &str, en: &str) -> Option<&'static str> {
@@ -482,5 +680,32 @@ mod tests {
         assert_eq!(region_of("id"), Region::Asia);
         assert!(is_rtl("ar") && !is_rtl("en"));
         assert_eq!(native_name("pt"), "Português (Brasil)");
+    }
+
+    #[test]
+    fn every_version_menu_string_has_every_language() {
+        const KEYS: [&str; 11] = [
+            "Release",
+            "Pre-release",
+            "Releases",
+            "Pre-releases",
+            "new",
+            "{} available",
+            "Fetching…",
+            "Could not fetch the versions",
+            "No test builds",
+            "No test builds for Linux",
+            "This version is older than the installed one.",
+        ];
+        for en in KEYS {
+            for lang in [
+                "ar", "es", "pt", "fr", "de", "it", "pl", "tr", "zh", "ja", "ko", "id", "ru",
+            ] {
+                let text = tr(lang, en);
+                assert!(!text.is_empty() && text != en, "no {lang} for {en:?}");
+            }
+        }
+        assert_eq!(tr_fmt("pt", "{} available", &["2.7.0"]), "2.7.0 disponível");
+        assert_eq!(tr("pt", "Pre-release"), "Pré-lançamento");
     }
 }
