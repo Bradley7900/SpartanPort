@@ -26,6 +26,23 @@ const fn cr(value: &'static str, en: &'static str, ru: &'static str) -> Choice {
     }
 }
 
+/// A choice label without its trailing parenthetical, for the Home settings line
+/// (`"Quality (×1.5)"` → `"Quality"`); Chinese and Japanese write the parenthesis full width. A
+/// label that does not end with one, or has nothing before it, stays whole.
+pub fn short_label(label: &str) -> &str {
+    let open = if label.ends_with(')') {
+        label.rfind('(')
+    } else if label.ends_with('）') {
+        label.rfind('（')
+    } else {
+        None
+    };
+    match open.map(|at| label[..at].trim_end()) {
+        Some(head) if !head.is_empty() => head,
+        _ => label,
+    }
+}
+
 pub static DISPLAY_MODES: &[Choice] = &[
     c("windowed", "Windowed"),
     c("borderless", "Borderless"),
@@ -367,6 +384,23 @@ pub fn closest_resolution(aspect: &str, current: &str, names: &[String]) -> Opti
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn a_short_label_drops_the_trailing_parenthetical() {
+        assert_eq!(short_label("FSR 3.1 (every GPU)"), "FSR 3.1");
+        assert_eq!(short_label("Quality (×1.5)"), "Quality");
+        assert_eq!(short_label("3840 × 2160 (4K)"), "3840 × 2160");
+        // Chinese and Japanese write the parenthesis full width.
+        assert_eq!(short_label("FSR 3.1（任何显卡）"), "FSR 3.1");
+        // Nothing to drop, or nothing left without it: the label as it is.
+        assert_eq!(short_label("2560 × 1440"), "2560 × 1440");
+        assert_eq!(short_label("Fullscreen"), "Fullscreen");
+        assert_eq!(short_label("(4K)"), "(4K)");
+        assert_eq!(
+            short_label("Off (fixes black lines) now"),
+            "Off (fixes black lines) now"
+        );
+    }
 
     fn strings(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()

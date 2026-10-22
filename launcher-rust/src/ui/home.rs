@@ -7,18 +7,22 @@ use std::sync::OnceLock;
 use iced::mouse;
 use iced::widget::canvas::{self, gradient, Geometry, Path as Shape};
 use iced::widget::image::Handle;
+use iced::widget::text::Span;
 use iced::widget::{
-    button, canvas as canvas_widget, column, container, image, row, space, stack, text,
+    button, canvas as canvas_widget, column, container, image, rich_text, row, space, span, stack,
+    text,
 };
 use iced::{
-    Background, Bottom, Center, Color, ContentFit, Element, Fill, Left, Padding, Point, Radians,
-    Rectangle, Renderer, Right, Size, Theme, Top, Vector,
+    Background, Bottom, Center, Color, ContentFit, Element, Fill, Font, Left, Padding, Point,
+    Radians, Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
 use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::options::{Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS};
+use crate::core::options::{
+    short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS,
+};
 use crate::core::patches::patch_status;
 use crate::ui::app::{
     home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
@@ -60,6 +64,12 @@ const ART_OPACITY: f32 = 0.7;
 const ART_ANCHOR: (f32, f32) = (0.70, 0.30);
 /// The id of the container that holds the key art.
 pub const ART_ID: &str = "home-art";
+/// Mockup `#quick` and `#status`: their font sizes, and the gap above each.
+const QUICK_SIZE: f32 = 13.0;
+const HINT_SIZE: f32 = 12.0;
+const QUICK_GAP: f32 = 10.0;
+/// The id of the container that holds the settings line.
+pub const QUICK_ID: &str = "home-quick";
 /// Layer 3: uniform dark veil, left-hand darkening and its reach, red rising from the floor.
 const VEIL_ALPHA: f32 = 0.32;
 const LEFT_VEIL_REACH: f32 = 0.58;
@@ -507,25 +517,51 @@ pub fn status_text(state: &State) -> String {
 }
 
 /// The settings line: upscaler, preset, output, FPS limit, window mode and monitor.
-pub fn quick_line(state: &State) -> String {
+/// The settings line under PLAY in pieces (mockup `#quick`): each text and whether it stands out
+/// (`<b>`: the upscaler, the resolution and the FPS); the other three and the separators are
+/// muted. The options show their short names, and the monitor counts from 1.
+pub fn quick_segments(state: &State) -> Vec<(String, bool)> {
     let lang = state.lang.as_str();
+    let short = |table: &[Choice], key: &str| {
+        short_label(&choice_label(table, ini_value(state, key), lang)).to_string()
+    };
     let fps = match ini_value(state, "fps_limit") {
         "0" => choice_label(FPS_LIMITS, "0", lang),
         limit => format!("{limit} FPS"),
     };
-    let monitor = match state.settings.get_str("monitor") {
-        monitor if monitor.is_empty() => tr(lang, "Primary"),
-        monitor => monitor,
-    };
-    [
-        choice_label(UPSCALERS, ini_value(state, "upscaler"), lang),
-        choice_label(PRESETS, ini_value(state, "preset"), lang),
-        choice_label(OUTPUTS, ini_value(state, "output_res"), lang),
-        fps,
-        choice_label(DISPLAY_MODES, ini_value(state, "display_mode"), lang),
-        format!("{} {monitor}", tr(lang, "Monitor")),
-    ]
-    .join(" · ")
+    // The saved index of the probe's list, or empty for the primary monitor.
+    let monitor = state
+        .settings
+        .get_str("monitor")
+        .parse::<u32>()
+        .map_or(1, |index| index.saturating_add(1));
+    let items = [
+        (short(UPSCALERS, "upscaler"), true),
+        (short(PRESETS, "preset"), false),
+        (short(OUTPUTS, "output_res"), true),
+        (fps, true),
+        (
+            choice_label(DISPLAY_MODES, ini_value(state, "display_mode"), lang),
+            false,
+        ),
+        (format!("{} {monitor}", tr(lang, "Monitor")), false),
+    ];
+    let mut segments = Vec::with_capacity(2 * items.len());
+    for (index, item) in items.into_iter().enumerate() {
+        if index > 0 {
+            segments.push((" · ".to_string(), false));
+        }
+        segments.push(item);
+    }
+    segments
+}
+
+/// The settings line under PLAY as one text.
+pub fn quick_line(state: &State) -> String {
+    quick_segments(state)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect()
 }
 
 /// The chip colour follows the mark the text starts with.
@@ -621,12 +657,24 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
         line.push(chip(label, chip_kind(label)))
     });
     let hint = tr(lang, "In the game: Insert or R3+L2\nopens the port's menu.").replace('\n', " ");
+    let quick: Vec<Span<'_, (), Font>> = quick_segments(state)
+        .into_iter()
+        .map(|(piece, bright)| {
+            span(piece).color(if bright {
+                palette::TEXT
+            } else {
+                palette::MUTED
+            })
+        })
+        .collect();
+    let quick = container(rich_text(quick).size(QUICK_SIZE)).id(QUICK_ID);
+    let lines = column![chips, quick, text(hint).size(HINT_SIZE).style(text_muted)]
+        .spacing(QUICK_GAP)
+        .align_x(mirror_x(Right, state.rtl));
     let content = column![
         image(logo()).height(LOGO_HEIGHT),
         play_row(state, enabled),
-        chips,
-        text(quick_line(state)).size(13).style(text_muted),
-        text(hint).size(12).style(text_muted),
+        lines,
     ]
     .spacing(14)
     .align_x(mirror_x(Right, state.rtl));

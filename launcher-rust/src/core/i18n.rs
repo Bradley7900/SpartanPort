@@ -120,10 +120,6 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
-        "Primary",
-        &[("pt", "Principal"), ("es", "Principal"), ("ru", "Основной")],
-    ),
-    (
         "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read, and saving (Save or PLAY) writes what it shows.",
         &[(
             "pt",
@@ -364,7 +360,6 @@ mod tests {
         assert_eq!(tr("pt", "Americas"), "Américas");
         assert_eq!(tr("pt", "Asia & Middle East"), "Ásia e Oriente Médio");
         assert_eq!(tr("ru", "Europe"), "Европа");
-        assert_eq!(tr("es", "Primary"), "Principal");
         assert_eq!(tr("de", "Americas"), "Americas");
         // A key of the JSON table still comes from it.
         assert_eq!(tr("pt", "Graphics"), "Gráficos");

@@ -60,7 +60,7 @@ fn home_shows_play_and_the_four_chips() {
     assert_eq!(chips[3], "• Choose the game folder first.");
     assert_eq!(
         home::quick_line(&state),
-        "FSR 3.1 (every GPU) · Quality (×1.5) · 1920 × 1080 · Unlimited · Windowed · Monitor Primary"
+        "FSR 3.1 · Quality · 1920 × 1080 · Unlimited · Windowed · Monitor 1"
     );
 
     let mut ui = simulator(app::view(&state));
@@ -68,7 +68,90 @@ fn home_shows_play_and_the_four_chips() {
     for chip in &chips {
         assert!(ui.find(chip.as_str()).is_ok(), "chip {chip:?} missing");
     }
-    assert!(ui.find(home::quick_line(&state)).is_ok());
+    assert!(ui.find(iced_test::selector::id(home::QUICK_ID)).is_ok());
+}
+
+/// The ini and settings of the mockup's settings line (`launcher-mockup-v13.html`, `#quick`).
+fn mockup_settings(state: &mut State) {
+    for (key, value) in [
+        ("upscaler", "fsr3"),
+        ("preset", "1"),
+        ("output_res", "2560x1440"),
+        ("fps_limit", "120"),
+        ("display_mode", "fullscreen"),
+    ] {
+        state.ini.values.insert(key.to_string(), value.to_string());
+    }
+    state.settings.set("monitor", json!("0"));
+}
+
+#[test]
+fn the_settings_line_reads_like_the_mockup() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    mockup_settings(&mut state);
+    // The mockup shows "FSR 4", an option 2.6.0 does not have; FSR 3.1 is its short name here.
+    assert_eq!(
+        home::quick_line(&state),
+        "FSR 3.1 · Quality · 2560 × 1440 · 120 FPS · Fullscreen · Monitor 1"
+    );
+    // `<b>` of the mockup: the upscaler, the resolution and the FPS stand out.
+    let segments = home::quick_segments(&state);
+    let bright: Vec<&str> = segments
+        .iter()
+        .filter(|(_, bright)| *bright)
+        .map(|(text, _)| text.as_str())
+        .collect();
+    assert_eq!(bright, ["FSR 3.1", "2560 × 1440", "120 FPS"]);
+    let muted: String = segments
+        .iter()
+        .filter(|(_, bright)| !*bright)
+        .map(|(text, _)| format!("[{text}]"))
+        .collect();
+    assert_eq!(
+        muted,
+        "[ · ][Quality][ · ][ · ][ · ][Fullscreen][ · ][Monitor 1]"
+    );
+    state.lang = "pt".into();
+    assert!(home::quick_line(&state).ends_with(" · Tela cheia · Monitor 1"));
+}
+
+#[test]
+fn the_monitor_counts_from_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    mockup_settings(&mut state);
+    for (saved, shown) in [("", "Monitor 1"), ("0", "Monitor 1"), ("1", "Monitor 2")] {
+        state.settings.set("monitor", json!(saved));
+        assert!(
+            home::quick_line(&state).ends_with(&format!(" · {shown}")),
+            "{saved:?}: {}",
+            home::quick_line(&state)
+        );
+    }
+}
+
+#[test]
+fn the_hint_sits_under_the_settings_line_in_the_mockup_words() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    for (lang, hint) in [
+        ("en", "In the game: Insert or R3+L2 opens the port's menu."),
+        ("pt", "No jogo: Insert ou R3+L2 abre o menu do port."),
+    ] {
+        state.lang = lang.into();
+        let mut ui = simulator(app::view(&state));
+        let line = ui
+            .find(iced_test::selector::id(home::QUICK_ID))
+            .unwrap()
+            .bounds();
+        let below = ui.find(hint).unwrap().bounds();
+        // Mockup `#status`: 10 px under `#quick`.
+        assert!(
+            (below.y - (line.y + line.height) - 10.0).abs() < 0.5,
+            "{lang}: line {line:?}, hint {below:?}"
+        );
+    }
 }
 
 #[test]
