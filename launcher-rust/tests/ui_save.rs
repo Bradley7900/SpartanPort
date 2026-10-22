@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use iced::time::Instant;
-use iced_test::simulator::simulator;
+use iced_test::simulator::{simulator, Simulator};
 use serde_json::{json, Value};
 use spartanport_launcher::core::gpu::parse_display_list;
 use spartanport_launcher::core::i18n::tr;
@@ -592,8 +592,13 @@ fn opening_the_ini_saves_first() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     open(&mut state, Page::Advanced);
+    // A window tall enough for the whole page: the button sits lower with Linux's fonts.
     let sent: Vec<Message> = {
-        let mut ui = simulator(app::view(&state));
+        let mut ui = Simulator::with_size(
+            iced::Settings::default(),
+            iced::Size::new(1280.0, 4000.0),
+            app::view(&state),
+        );
         ui.click("spartanport.ini").unwrap();
         ui.into_messages().collect()
     };
