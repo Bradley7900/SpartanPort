@@ -27,7 +27,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 
 | File | Rows | Ported | Replaced | Dropped (Tk/Python-only) | Dropped (spec) | Gaps |
 |---|---|---|---|---|---|---|
-| `tests/test_launcher_artwork.py` | 7 | 0 | 2 | 0 | 0 | 5 |
+| `tests/test_launcher_artwork.py` | 7 | 0 | 3 | 0 | 0 | 4 |
 | `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 |
 | `tests/test_launcher_controls.py` | 49 | 18 | 18 | 0 | 0 | 13 |
@@ -55,14 +55,14 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **320** | **115** | **83** | **20** | **1** | **101** |
+| **Total** | **320** | **115** | **84** | **20** | **1** | **100** |
 
 ## Map
 
 | Python test | Rust test (file::name) | Status |
 |---|---|---|
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` | — | dropped: no Rust counterpart — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's |
-| `tests/test_launcher_artwork.py::LauncherArtworkTest::test_window_icon_is_the_ports_own_whatever_the_dump` | — | dropped: no Rust counterpart — the window icon is the port's own spartanport icon, never the dump's icon0.png |
+| `tests/test_launcher_artwork.py::LauncherArtworkTest::test_window_icon_is_the_ports_own_whatever_the_dump` | `src/ui/app.rs::tests::the_window_icon_is_the_monogram_artwork` | replaced by `src/ui/app.rs::tests::the_window_icon_is_the_monogram_artwork` |
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_update_artwork_overrides_base_when_present` | — | dropped: no Rust counterpart — the update's pic1.png is the cover when it has one |
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_when_only_the_icon_was_updated` | — | dropped: no Rust counterpart — an update with only icon0.png keeps the base game's pic1.png as the cover |
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_without_an_update_the_base_cover_is_used` | — | dropped: no Rust counterpart — without an update folder the base game's pic1.png is the cover |
@@ -456,10 +456,9 @@ the Python test:
 
 ## Gaps
 
-The 101 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 100 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
-- `tests/test_launcher_artwork.py::LauncherArtworkTest::test_window_icon_is_the_ports_own_whatever_the_dump` — the window icon is the port's own spartanport icon, never the dump's icon0.png
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_update_artwork_overrides_base_when_present` — the update's pic1.png is the cover when it has one
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_when_only_the_icon_was_updated` — an update with only icon0.png keeps the base game's pic1.png as the cover
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_without_an_update_the_base_cover_is_used` — without an update folder the base game's pic1.png is the cover
