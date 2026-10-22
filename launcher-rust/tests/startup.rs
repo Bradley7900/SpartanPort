@@ -69,7 +69,7 @@ fn the_launcher_is_a_windowed_program() {
 #[test]
 fn first_start_is_in_english_when_the_system_language_is_unknown() {
     // The translations are partial; 'System' stays a choice in Advanced.
-    let defaults = app_defaults(Path::new("port"), cfg!(windows), &|_| None);
+    let defaults = app_defaults(&|_| None);
     let ui_language = defaults["ui_language"].as_str().unwrap();
     assert_eq!(ui_language, "en");
     assert_eq!(launcher_language(ui_language, || "xx".to_string()), "en");

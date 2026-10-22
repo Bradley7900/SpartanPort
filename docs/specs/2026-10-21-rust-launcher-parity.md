@@ -396,6 +396,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 10. `--version` prints only when started from a terminal: the launcher is a windowed program on Windows and attaches to the parent console when there is one (R65).
 11. An unreadable `settings.json` or `spartanport.ini` gives one warning at start (spec §6, R69; the Python said nothing, and stopped on an ini that is not UTF-8), and until a Save or PLAY closing the window, opening the ini and Add to Steam leave both files as they are (R75; the Python wrote them); a corrupt `mods_presets.json` lists no preset and is not replaced by Save or Delete preset (the Python replaced it).
 12. The Home background is the launcher's key art (`launcher-rust/assets/background.png`), not the dump's `sce_sys/pic1.png` (R72).
+13. `game_dir` starts empty on Windows too (the Python guesses `<port parent>/CUSA01623`); the player browses to the folder (R83).
 
 ## Partly covered
 

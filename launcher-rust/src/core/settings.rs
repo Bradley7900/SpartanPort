@@ -44,24 +44,11 @@ impl Settings {
     }
 }
 
-/// Every setting with its default, in the order the Python launcher writes them.
-pub fn app_defaults(
-    port_dir: &Path,
-    windows: bool,
-    env: &dyn Fn(&str) -> Option<String>,
-) -> Map<String, Value> {
-    let game_dir = env("SPARTAN_GAME_DIR").unwrap_or_else(|| {
-        if windows {
-            port_dir
-                .parent()
-                .unwrap_or(port_dir)
-                .join("CUSA01623")
-                .to_string_lossy()
-                .into_owned()
-        } else {
-            String::new()
-        }
-    });
+/// Every setting with its default, in the order the Python launcher writes them. The game folder
+/// starts empty on every system unless `SPARTAN_GAME_DIR` names one (ruling R83: the Python
+/// guesses `<port parent>/CUSA01623` on Windows).
+pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> {
+    let game_dir = env("SPARTAN_GAME_DIR").unwrap_or_default();
     let defaults = json!({
         "ui_language": "en",
         "ui_scale": "auto",
@@ -151,7 +138,7 @@ pub fn read_app_settings(paths: &Paths) -> (Settings, bool) {
         Ok(None) => (Map::new(), false),
         Ok(Some(_)) | Err(_) => (Map::new(), true),
     };
-    let mut merged = app_defaults(&paths.port_dir, cfg!(windows), &|k| std::env::var(k).ok());
+    let mut merged = app_defaults(&|k| std::env::var(k).ok());
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
     }
@@ -177,18 +164,14 @@ mod tests {
 
     #[test]
     fn defaults_are_in_python_order() {
-        let defaults = app_defaults(Path::new("/port"), true, &no_env);
+        let defaults = app_defaults(&no_env);
         assert_eq!(defaults.len(), 40);
         assert_eq!(defaults.keys().next().unwrap(), "ui_language");
         assert_eq!(defaults.keys().next_back().unwrap(), "glyph_style");
-        assert_eq!(defaults["game_dir"], json!("/CUSA01623"));
-        let linux = app_defaults(Path::new("/port"), false, &no_env);
-        assert_eq!(linux["game_dir"], json!(""));
+        // Ruling R83: no folder is guessed, on any system.
+        assert_eq!(defaults["game_dir"], json!(""));
         let env = |k: &str| (k == "SPARTAN_GAME_DIR").then(|| "/games".to_string());
-        assert_eq!(
-            app_defaults(Path::new("/port"), false, &env)["game_dir"],
-            json!("/games")
-        );
+        assert_eq!(app_defaults(&env)["game_dir"], json!("/games"));
     }
 
     #[test]
@@ -226,7 +209,7 @@ mod tests {
                 _ => None,
             });
             let settings = load_app_settings(&paths);
-            let defaults = app_defaults(&paths.port_dir, cfg!(windows), &|k| std::env::var(k).ok());
+            let defaults = app_defaults(&|k| std::env::var(k).ok());
             assert_eq!(settings.0, defaults);
             assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
         }

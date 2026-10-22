@@ -498,7 +498,7 @@ fn every_setting_lights_save_persists_and_comes_back() {
         change_and_save(&mut state, key, Message::Set(key.to_string(), json!(value)));
         expected_ini.push((*key, value));
     }
-    let defaults = app_defaults(Path::new("."), cfg!(windows), &|_| None);
+    let defaults = app_defaults(&|_| None);
     let mut expected_app = Vec::new();
     for (key, default) in &defaults {
         // The controller type is the Controls page's own (below); objects and numbers have no box.

@@ -356,7 +356,7 @@ mod tests {
         let data = dir.path().to_string_lossy().into_owned();
         let env = move |key: &str| (key == "SPARTAN_DATA_DIR").then(|| data.clone());
         let paths = Paths::from_env(dir.path(), &env);
-        let mut settings = Settings(app_defaults(dir.path(), true, &|_| None));
+        let mut settings = Settings(app_defaults(&|_| None));
         if let Value::Object(map) = edits {
             for (key, value) in map {
                 settings.set(&key, value);

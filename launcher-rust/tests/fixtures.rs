@@ -2,7 +2,7 @@
 //! Parity tests: the Rust core must reproduce what the Python launcher wrote into `fixtures/`.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use indexmap::IndexMap;
 use spartanport_launcher::core::controls::migrate_controls;
@@ -44,7 +44,7 @@ fn ini_matches_python_for_case_edited() {
 fn settings_bytes_for_case(case: &str) -> Vec<u8> {
     let input = load_input(case);
     let env = |key: &str| input["env"][key].as_str().map(str::to_string);
-    let mut merged = app_defaults(Path::new("<port>"), true, &env);
+    let mut merged = app_defaults(&env);
     let saved = input["settings"].as_object().unwrap().clone();
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
@@ -142,7 +142,7 @@ fn environment_for_case(case: &str) -> (IndexMap<String, String>, String) {
     let path_env = move |key: &str| (key == "SPARTAN_DATA_DIR").then(|| data_for_paths.clone());
     let paths = Paths::from_env(dir.path(), &path_env);
     let env = |key: &str| input["env"][key].as_str().map(str::to_string);
-    let mut merged = app_defaults(Path::new("<port>"), true, &env);
+    let mut merged = app_defaults(&env);
     let saved = input["settings"].as_object().unwrap().clone();
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
