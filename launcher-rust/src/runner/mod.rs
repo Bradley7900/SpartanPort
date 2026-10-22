@@ -1,5 +1,6 @@
 //! The runner (Python `run.py`): starts the game under the probe and reports what it saw.
 
+pub mod content_profile;
 pub mod guest_memory;
 pub mod isa_rewrite;
 pub mod link_libc;

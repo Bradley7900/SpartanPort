@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
+use spartanport_launcher::runner::content_profile::{self, Sku};
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::prepare::prepare;
@@ -133,4 +134,31 @@ fn isa_table_matches_python() {
     let entries = sites.iter().map(site_entry).collect();
     let expected: Value = serde_json::from_slice(&expected("isa", "sites.json")).unwrap();
     assert_eq!(Value::Array(entries), expected);
+}
+
+#[test]
+fn content_matches_python() {
+    for (name, sku) in [("full", Sku::Full), ("trial", Sku::Trial)] {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        fs::create_dir_all(game.join("sce_sys")).unwrap();
+        fs::copy(
+            fixture_dir("content").join("input").join("param.sfo"),
+            game.join("sce_sys").join("param.sfo"),
+        )
+        .unwrap();
+        let out = dir.path().join("out");
+        content_profile::prepare(&game, &out, sku).unwrap();
+        for file in ["content.bin", "content-profile.json"] {
+            let actual = fs::read(out.join(file)).unwrap();
+            let expected = fs::read(
+                fixture_dir("content")
+                    .join("expected")
+                    .join(name)
+                    .join(file),
+            )
+            .unwrap();
+            assert_same_bytes(&actual, &expected, &format!("{name}/{file}"));
+        }
+    }
 }
