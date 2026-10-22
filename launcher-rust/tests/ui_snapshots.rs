@@ -43,6 +43,7 @@ use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::persist;
+use spartanport_launcher::ui::setup::{SetupState, Step};
 use spartanport_launcher::ui::theme;
 
 const SIZES: [(u32, u32); 2] = [(1280, 800), (1920, 1080)];
@@ -74,6 +75,7 @@ const EXTERNAL_PATCH: &str = "<Patch><TitleID><ID>CUSA01623</ID></TitleID>\
 enum Shot {
     Splash,
     Page(Page),
+    Setup(Step),
 }
 
 impl Shot {
@@ -81,6 +83,7 @@ impl Shot {
         match self {
             Shot::Splash => "splash".to_string(),
             Shot::Page(page) => page.label_en().to_lowercase(),
+            Shot::Setup(step) => format!("setup{}", step.number()),
         }
     }
 }
@@ -123,9 +126,16 @@ fn fixture(dir: &Path, shot: Shot, size: Size, lang: &str) -> State {
             open(&mut state, page);
             finish_reads(&mut state);
         }
+        Shot::Setup(_) => {}
     }
     state.now = state.splash.started + CLOCK;
     show_fixed_paths(&mut state);
+    if let Shot::Setup(step) = shot {
+        state.setup = Some(SetupState {
+            step,
+            defaults: persist::gather(&state),
+        });
+    }
     state.art_override = Some(placeholder_art());
     state
 }
@@ -340,6 +350,21 @@ fn mods() {
 #[test]
 fn advanced() {
     check(Shot::Page(Page::Advanced));
+}
+
+#[test]
+fn setup_folders() {
+    check(Shot::Setup(Step::Folders));
+}
+
+#[test]
+fn setup_gpu() {
+    check(Shot::Setup(Step::Gpu));
+}
+
+#[test]
+fn setup_video() {
+    check(Shot::Setup(Step::Video));
 }
 
 #[test]
