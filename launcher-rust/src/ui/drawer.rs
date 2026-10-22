@@ -10,6 +10,7 @@ use crate::ui::app::{Message, State, DRAWER_SLIDE};
 use crate::ui::pages::{self, Page};
 use crate::ui::persist::dirty;
 use crate::ui::theme::{button_play, container_panel, text_muted, CINZEL_BLACK, CINZEL_BOLD};
+use crate::ui::widgets::{hairline, HAIRLINE};
 
 /// Space between the drawer's page and its scrollbar.
 const SCROLLBAR_GAP: f32 = 8.0;
@@ -53,6 +54,9 @@ pub fn slide_offset(progress: f32, width: f32) -> f32 {
     (progress - 1.0) * width
 }
 
+/// The id of the red line along the drawer's inner edge.
+pub const EDGE_ID: &str = "drawer-edge";
+
 /// The drawer panel's widget id.
 pub fn panel_id() -> Id {
     Id::new("drawer")
@@ -86,9 +90,19 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
     let body = scrollable(pages::view(state, page))
         .spacing(SCROLLBAR_GAP)
         .height(Fill);
-    let panel = container(column![header, body].spacing(18))
-        .id(panel_id())
+    let page = container(column![header, body].spacing(18))
         .padding(28)
+        .width(Fill)
+        .height(Fill);
+    // The red line on the side that faces the Home (mockup `#drawer` border-right).
+    let edge = hairline(EDGE_ID).width(HAIRLINE).height(Fill);
+    let inside = if state.rtl {
+        row![edge, page]
+    } else {
+        row![page, edge]
+    };
+    let panel = container(inside)
+        .id(panel_id())
         .width(width)
         .height(Fill)
         .style(container_panel);

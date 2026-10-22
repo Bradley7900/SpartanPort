@@ -1627,6 +1627,42 @@ line two"
 }
 
 #[test]
+fn a_red_hairline_separates_the_log_header_from_the_log() {
+    // Mockup `#logbox` border-top (ruling R88): between the button row and the text, across it.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    state.log.push_text(
+        "line one
+",
+    );
+    open(&mut state, Page::Log);
+    let _ = app::update(
+        &mut state,
+        Message::Tick(iced::time::Instant::now() + std::time::Duration::from_secs(1)),
+    );
+    let mut ui = iced_test::simulator::simulator(app::view(&state));
+    let line = ui
+        .find(iced_test::selector::id(log::SEPARATOR_ID))
+        .unwrap()
+        .bounds();
+    let copy = ui.find("Copy").unwrap().bounds();
+    let kept = ui.find("6 000 lines kept").unwrap().bounds();
+    let text = ui.find("line one").unwrap().bounds();
+    assert_eq!(line.height, 1.0);
+    assert!(
+        line.y >= copy.y + copy.height && line.y + line.height <= text.y,
+        "header {copy:?}, line {line:?}, log {text:?}"
+    );
+    // From the first button (which pads its label by 10) to past the line count.
+    assert!((line.x - (copy.x - 10.0)).abs() < 0.5, "{line:?}, {copy:?}");
+    assert!(
+        line.x + line.width >= kept.x + kept.width,
+        "{line:?}, {kept:?}"
+    );
+}
+
+#[test]
 fn log_header_translates() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());

@@ -636,7 +636,10 @@ pub fn version_label(windows: bool) -> String {
     format!("v{VERSION} · {system}")
 }
 
-/// The bottom bar: the nine tabs and the version.
+/// The id of the red line along the bar's top edge.
+pub const BAR_EDGE_ID: &str = "bar-edge";
+
+/// The bottom bar: the red line on top (mockup `#bar` border-top), the nine tabs and the version.
 fn bar(state: &State) -> Element<'_, Message> {
     let tabs = Page::ALL
         .into_iter()
@@ -652,7 +655,8 @@ fn bar(state: &State) -> Element<'_, Message> {
     } else {
         row![tabs, space::horizontal(), version]
     };
-    container(line.align_y(Center).padding([0, 16]))
+    let line = line.align_y(Center).padding([0, 16]).height(Fill);
+    container(column![widgets::hairline(BAR_EDGE_ID), line])
         .width(Fill)
         .height(BAR_HEIGHT)
         .style(theme::container_panel)

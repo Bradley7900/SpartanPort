@@ -10,6 +10,7 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::core::log::MAX_LOG_LINES;
 use crate::ui::app::{Message, State};
 use crate::ui::theme::{self, MONO_FONT};
+use crate::ui::widgets::hairline;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogMessage {
@@ -17,6 +18,9 @@ pub enum LogMessage {
     Clear,
     OpenLastRun,
 }
+
+/// The id of the red line between the buttons and the log (mockup `#logbox` border-top).
+pub const SEPARATOR_ID: &str = "log-separator";
 
 /// The id the log body is scrolled by.
 pub fn scroll_id() -> Id {
@@ -86,7 +90,10 @@ pub fn view(state: &State) -> Element<'_, Message> {
         })
         .width(iced::Fill)
         .height(iced::Fill);
-    column![header, body].spacing(8).into()
+    // Mockup: 12 px from the buttons to the line and from the line to the text.
+    column![header, hairline(SEPARATOR_ID), body]
+        .spacing(12)
+        .into()
 }
 
 /// Applies the page's events.

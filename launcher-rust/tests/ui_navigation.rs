@@ -14,7 +14,7 @@ use common::natural_size;
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Location, Modifiers};
 use iced::time::Instant;
-use iced::{Point, Size};
+use iced::{Background, Point, Rectangle, Size};
 use iced_test::core::Settings;
 use iced_test::simulator::{self, simulator, Simulator};
 use spartanport_launcher::core::i18n::tr;
@@ -24,8 +24,9 @@ use spartanport_launcher::ui::app::{
 };
 use spartanport_launcher::ui::drawer::{self, drawer_width, DrawerState};
 use spartanport_launcher::ui::pages::Page;
-use spartanport_launcher::ui::theme::CINZEL_BOLD;
+use spartanport_launcher::ui::theme::{self, palette, CINZEL_BOLD};
 use spartanport_launcher::ui::update::UpdateMessage;
+use spartanport_launcher::ui::widgets;
 use spartanport_launcher::ui::widgets::modal::{Modal, ModalKind, ModalMessage};
 use spartanport_launcher::VERSION;
 
@@ -330,6 +331,52 @@ fn the_bar_names_the_version_and_the_system() {
         "v2.6.0 · Linux"
     };
     assert!(ui.find(shown).is_ok(), "{shown} missing from the bar");
+}
+
+#[test]
+fn a_red_hairline_tops_the_bar_and_edges_the_drawer() {
+    // Ruling R88: one 1 px line in `palette::RED`, shared by the bar, the drawer and the Log page.
+    assert_eq!(
+        widgets::hairline_style(&theme::theme()).background,
+        Some(Background::Color(palette::RED))
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.lang = "en".into();
+    let _ = app::update(&mut state, Message::ShowPage(Page::Graphics));
+    let mut ui = settled_ui(&mut state);
+    let line = |ui: &mut Simulator<'_, Message>, id: &'static str| {
+        ui.find(iced_test::selector::id(id)).unwrap().bounds()
+    };
+    // Mockup `#bar` border-top: across the window, the bar's first pixel row.
+    let bar = line(&mut ui, app::BAR_EDGE_ID);
+    assert_eq!(
+        bar,
+        Rectangle::new(Point::new(0.0, 748.0), Size::new(1280.0, 1.0))
+    );
+    // Mockup `#drawer` border-right: the drawer's inner edge, top to bottom.
+    let panel = ui.find(drawer::panel_id()).unwrap().bounds();
+    let edge = line(&mut ui, drawer::EDGE_ID);
+    assert_eq!(
+        edge,
+        Rectangle::new(
+            Point::new(panel.x + panel.width - 1.0, panel.y),
+            Size::new(1.0, panel.height)
+        )
+    );
+    drop(ui);
+    // Right to left the drawer stands against the right edge: its inner edge is its left one.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("settings.json"), r#"{"ui_language": "ar"}"#).unwrap();
+    let mut state = state_in(dir.path());
+    let _ = app::update(&mut state, Message::ShowPage(Page::Graphics));
+    let mut ui = settled_ui(&mut state);
+    let panel = ui.find(drawer::panel_id()).unwrap().bounds();
+    let edge = line(&mut ui, drawer::EDGE_ID);
+    assert_eq!(
+        edge,
+        Rectangle::new(Point::new(panel.x, panel.y), Size::new(1.0, panel.height))
+    );
 }
 
 /// The drawer subtitles of the mockup (`launcher-mockup-v13.html`), without its sample counts.
