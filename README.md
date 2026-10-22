@@ -442,6 +442,23 @@ can require a newer glibc; public release builds use Ubuntu 24.04. From the repo
 `out/venv/bin/python launcher/spartanport_launcher_win.py --play` for saved launcher settings, or
 `SPARTAN_GAME_DIR=/path/to/CUSA01623 out/venv/bin/python run.py` for a direct launch.
 
+### Rust launcher
+
+The launcher is being rewritten in Rust (`launcher-rust/`, iced); the Python launcher stays until
+the packages ship the new one. It builds with [rustup](https://rustup.rs) (stable). On Windows,
+install the Visual Studio Build Tools with the "Desktop development with C++" workload; on Ubuntu,
+`sudo apt-get install build-essential pkg-config libwayland-dev libxkbcommon-dev`.
+
+```bash
+cd launcher-rust
+cargo run --release
+```
+
+Started from a checkout, it finds the repository's `run.py` and the tools in `out/` on its own;
+`SPARTAN_PORT_DIR` points it at a packaged port instead (its `run.py` and `bin/`).
+`SPARTANPORT_PYTHON` names the Python that starts `run.py` (default `py -3` on Windows, `python3`
+elsewhere).
+
 ## Tests
 
 Run these from the repository root after the build. The first C++ checks below do not need a game dump.
@@ -453,6 +470,17 @@ On Windows, use PowerShell. On Linux, replace `python` with `out/venv/bin/python
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
+
+### Rust launcher
+
+```bash
+cd launcher-rust
+cargo test
+```
+
+The page snapshots under `launcher-rust/snapshots/` are compared pixel by pixel on Windows only.
+`python -m unittest discover -s tests -p "test_launcher_parity_doc.py"` checks that every Python
+launcher test has its row in `docs/specs/2026-10-21-rust-launcher-parity.md`.
 
 ### Windows C++ tests (MSYS2 CLANG64)
 

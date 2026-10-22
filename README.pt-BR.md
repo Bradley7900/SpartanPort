@@ -421,6 +421,23 @@ repositório, use `out/venv/bin/python launcher/spartanport_launcher_win.py --pl
 salvas do launcher, ou `SPARTAN_GAME_DIR=/caminho/para/CUSA01623 out/venv/bin/python run.py` para
 iniciar diretamente.
 
+### Launcher em Rust
+
+O launcher está sendo reescrito em Rust (`launcher-rust/`, iced); o launcher Python continua até
+os pacotes trazerem o novo. Compila com o [rustup](https://rustup.rs) (stable). No Windows, instale
+o Visual Studio Build Tools com a carga "Desenvolvimento para desktop com C++"; no Ubuntu,
+`sudo apt-get install build-essential pkg-config libwayland-dev libxkbcommon-dev`.
+
+```bash
+cd launcher-rust
+cargo run --release
+```
+
+Aberto a partir de um checkout, ele acha sozinho o `run.py` do repositório e as ferramentas de
+`out/`; `SPARTAN_PORT_DIR` aponta para um port empacotado (com `run.py` e `bin/`).
+`SPARTANPORT_PYTHON` nomeia o Python que inicia o `run.py` (padrão `py -3` no Windows, `python3`
+nos demais).
+
 ## Testes
 
 Execute na raiz do repositório depois de compilar. Os primeiros testes C++ abaixo não precisam de um dump do jogo.
@@ -432,6 +449,17 @@ No Windows, use PowerShell. No Linux, substitua `python` por `out/venv/bin/pytho
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
+
+### Launcher em Rust
+
+```bash
+cd launcher-rust
+cargo test
+```
+
+Os snapshots das páginas em `launcher-rust/snapshots/` são comparados pixel a pixel só no Windows.
+`python -m unittest discover -s tests -p "test_launcher_parity_doc.py"` confere que cada teste do
+launcher Python tem sua linha em `docs/specs/2026-10-21-rust-launcher-parity.md`.
 
 ### Testes C++ no Windows (MSYS2 CLANG64)
 
