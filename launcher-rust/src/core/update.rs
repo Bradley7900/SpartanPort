@@ -12,8 +12,12 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+pub use crate::core::release::version_tuple;
+use crate::core::release::{self, digit_runs, Channel, ReleaseId};
+
 pub const RELEASES_API: &str =
-    "https://api.github.com/repos/FelipePrado0/SpartanPort/releases/latest";
+    "https://api.github.com/repos/FelipePrado0/SpartanPort/releases?per_page=100";
+const LATEST_API: &str = "https://api.github.com/repos/FelipePrado0/SpartanPort/releases/latest";
 pub const RELEASES_PAGE: &str = "https://github.com/FelipePrado0/SpartanPort/releases/latest";
 const USER_AGENT: &str = "spartanport-launcher";
 const CHUNK: usize = 1 << 20;
@@ -38,9 +42,6 @@ pub struct Release {
     pub url: Option<String>,
     pub page: String,
 }
-
-use crate::core::release::digit_runs;
-pub use crate::core::release::version_tuple;
 
 /// The release in GitHub's JSON: the zip on Windows, the AppImage elsewhere.
 pub fn parse_release(json: &Value, windows: bool) -> Result<Release, UpdateError> {
@@ -108,7 +109,7 @@ fn get(
 /// The newest GitHub release for this system.
 pub fn latest_release(windows: bool) -> Result<Release, UpdateError> {
     let (mut reader, _) = get(
-        RELEASES_API,
+        LATEST_API,
         Some("application/vnd.github+json"),
         Some(Duration::from_secs(15)),
     )?;
@@ -116,6 +117,53 @@ pub fn latest_release(windows: bool) -> Result<Release, UpdateError> {
     reader.read_to_string(&mut text)?;
     let json = serde_json::from_str(&text).map_err(|e| UpdateError::Json(e.to_string()))?;
     parse_release(&json, windows)
+}
+
+/// One GET of the list (Accept `application/vnd.github+json`, global timeout 15 s), then `parse_releases`.
+pub fn list_releases(windows: bool) -> Result<Vec<release::Release>, UpdateError> {
+    let (mut reader, _) = get(
+        RELEASES_API,
+        Some("application/vnd.github+json"),
+        Some(Duration::from_secs(15)),
+    )?;
+    let mut text = String::new();
+    reader.read_to_string(&mut text)?;
+    let json = serde_json::from_str(&text).map_err(|e| UpdateError::Json(e.to_string()))?;
+    release::parse_releases(&json, windows)
+}
+
+/// `port_dir/release.json` on Windows; `appdir/release.json` (or `port_dir` without an APPDIR) elsewhere.
+pub fn stamp_path(port_dir: &Path, appdir: Option<&Path>, windows: bool) -> PathBuf {
+    let dir = if windows {
+        port_dir
+    } else {
+        appdir.unwrap_or(port_dir)
+    };
+    dir.join(release::STAMP_ASSET)
+}
+
+/// The stamp, or `ReleaseId::fallback()` when the file is missing or invalid.
+pub fn installed_release(stamp: &Path) -> ReleaseId {
+    read_stamp(stamp).unwrap_or_else(ReleaseId::fallback)
+}
+
+fn read_stamp(stamp: &Path) -> Option<ReleaseId> {
+    let json: Value = serde_json::from_str(&fs::read_to_string(stamp).ok()?).ok()?;
+    let channel = match json.get("channel")?.as_str()? {
+        "release" => Channel::Release,
+        "pre-release" => Channel::PreRelease,
+        _ => return None,
+    };
+    let version = json.get("version")?.as_str().filter(|v| !v.is_empty())?;
+    let build = json
+        .get("build")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    Some(ReleaseId {
+        channel,
+        version: version.to_string(),
+        build,
+    })
 }
 
 /// The SHA-256 in a `<package>.sha256` file (`sha256sum` format).
@@ -545,5 +593,58 @@ mod tests {
     fn a_library_path_is_kept_without_an_appdir() {
         let env = map(&[("LD_LIBRARY_PATH", "/opt/lib")]);
         assert_eq!(relaunch_environment(&env)["LD_LIBRARY_PATH"], "/opt/lib");
+    }
+
+    #[test]
+    fn the_stamp_names_the_installed_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let stamp = dir.path().join("release.json");
+        std::fs::write(
+            &stamp,
+            r#"{"channel":"pre-release","version":"2.6.0","build":"issue209-test1"}"#,
+        )
+        .unwrap();
+        let id = installed_release(&stamp);
+        assert_eq!(id.channel, Channel::PreRelease);
+        assert_eq!(id.version, "2.6.0");
+        assert_eq!(id.build.as_deref(), Some("issue209-test1"));
+        std::fs::write(&stamp, r#"{"channel":"release","version":"2.7.0"}"#).unwrap();
+        let id = installed_release(&stamp);
+        assert_eq!(id.channel, Channel::Release);
+        assert_eq!(id.version, "2.7.0");
+        assert_eq!(id.build, None);
+    }
+
+    #[test]
+    fn a_missing_or_broken_stamp_is_this_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let stamp = dir.path().join("release.json");
+        assert_eq!(installed_release(&stamp), ReleaseId::fallback());
+        for text in [
+            "not json",
+            r#"{"channel":"beta","version":"2.6.0"}"#,
+            r#"{"channel":"release"}"#,
+            r#"{"channel":"release","version":""}"#,
+        ] {
+            std::fs::write(&stamp, text).unwrap();
+            assert_eq!(installed_release(&stamp), ReleaseId::fallback(), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_stamp_sits_beside_the_launcher() {
+        let port = Path::new("port");
+        let appdir = Path::new("appdir");
+        assert_eq!(stamp_path(port, None, true), port.join("release.json"));
+        assert_eq!(
+            stamp_path(port, Some(appdir), false),
+            appdir.join("release.json")
+        );
+        assert_eq!(stamp_path(port, None, false), port.join("release.json"));
+    }
+
+    #[test]
+    fn the_api_lists_one_page_of_releases() {
+        assert!(RELEASES_API.ends_with("/releases?per_page=100"));
     }
 }
