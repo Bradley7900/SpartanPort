@@ -13,6 +13,7 @@ Status:
   names the same tests.
 - `dropped: <reason>`: Tk-only or Python-only mechanics with no Rust equivalent (font registration,
   the X11/Tk scale queries, the frozen-Python stdio, the Tk grid of the Diagnostics section).
+- `dropped: spec §<section> <reason>`: behaviour the spec replaced on purpose (any file).
 - `dropped: no Rust counterpart — <what it tested>`: behaviour no Rust test covers. Each is listed
   again under [Gaps](#gaps).
 
@@ -24,37 +25,37 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 
 ## Counts
 
-| File | Rows | Ported | Replaced | Dropped (Tk/Python-only) | Gaps |
-|---|---|---|---|---|---|
-| `tests/test_launcher_artwork.py` | 7 | 0 | 2 | 0 | 5 |
-| `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 |
-| `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 |
-| `tests/test_launcher_controls.py` | 49 | 18 | 18 | 0 | 13 |
-| `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 1 |
-| `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 |
-| `tests/test_launcher_exit_hint.py` | 6 | 0 | 4 | 0 | 2 |
-| `tests/test_launcher_font.py` | 19 | 0 | 7 | 6 | 6 |
-| `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 |
-| `tests/test_launcher_game_language.py` | 5 | 5 | 0 | 0 | 0 |
-| `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 |
-| `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 3 |
-| `tests/test_launcher_mod_resolutions.py` | 3 | 2 | 1 | 0 | 0 |
-| `tests/test_launcher_monitor.py` | 73 | 17 | 12 | 0 | 44 |
-| `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 1 |
-| `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 2 |
-| `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 4 |
-| `tests/test_launcher_portable_settings.py` | 7 | 0 | 3 | 0 | 4 |
-| `tests/test_launcher_run_log.py` | 7 | 4 | 3 | 0 | 0 |
-| `tests/test_launcher_save.py` | 17 | 13 | 2 | 0 | 2 |
-| `tests/test_launcher_scaling.py` | 17 | 0 | 5 | 9 | 3 |
-| `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 |
-| `tests/test_launcher_stream_memory.py` | 4 | 0 | 3 | 0 | 1 |
-| `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 8 |
-| `tests/test_launcher_update.py` | 15 | 11 | 1 | 0 | 3 |
-| `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 1 |
-| `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 2 |
-| `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 |
-| **Total** | **320** | **115** | **80** | **20** | **105** |
+| File | Rows | Ported | Replaced | Dropped (Tk/Python-only) | Dropped (spec) | Gaps |
+|---|---|---|---|---|---|---|
+| `tests/test_launcher_artwork.py` | 7 | 0 | 2 | 0 | 0 | 5 |
+| `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 |
+| `tests/test_launcher_controls.py` | 49 | 18 | 18 | 0 | 0 | 13 |
+| `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 |
+| `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 |
+| `tests/test_launcher_exit_hint.py` | 6 | 0 | 4 | 0 | 0 | 2 |
+| `tests/test_launcher_font.py` | 19 | 0 | 6 | 6 | 0 | 7 |
+| `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 | 0 |
+| `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 |
+| `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 | 0 |
+| `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 0 | 3 |
+| `tests/test_launcher_mod_resolutions.py` | 3 | 2 | 1 | 0 | 0 | 0 |
+| `tests/test_launcher_monitor.py` | 73 | 17 | 11 | 0 | 7 | 38 |
+| `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 |
+| `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 |
+| `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 0 | 4 |
+| `tests/test_launcher_portable_settings.py` | 7 | 0 | 3 | 0 | 0 | 4 |
+| `tests/test_launcher_run_log.py` | 7 | 4 | 3 | 0 | 0 | 0 |
+| `tests/test_launcher_save.py` | 17 | 12 | 2 | 0 | 0 | 3 |
+| `tests/test_launcher_scaling.py` | 17 | 0 | 5 | 9 | 0 | 3 |
+| `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 | 0 |
+| `tests/test_launcher_stream_memory.py` | 4 | 0 | 3 | 0 | 0 | 1 |
+| `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 0 | 8 |
+| `tests/test_launcher_update.py` | 15 | 11 | 1 | 0 | 0 | 3 |
+| `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
+| `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
+| `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
+| **Total** | **320** | **113** | **78** | **20** | **7** | **102** |
 
 ## Map
 
@@ -181,12 +182,12 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_font.py::HeadingFontTest::test_unloaded_font_keeps_the_fallback` | — | dropped: Tk-only: headings fall back when registering the face failed; the Rust face is embedded and always loaded |
 | `tests/test_launcher_font.py::HeadingFontTest::test_game_name_uses_the_font_in_every_language` | `tests/ui_snapshots.rs::home` | replaced by `tests/ui_snapshots.rs::home` |
 | `tests/test_launcher_font.py::LatinHeadingsTest::test_latin_script_languages_use_the_loaded_font` | `tests/ui_snapshots.rs::graphics` | replaced by `tests/ui_snapshots.rs::graphics` |
-| `tests/test_launcher_font.py::LatinHeadingsTest::test_other_scripts_keep_the_fallback` | `tests/ui_snapshots.rs::graphics` | replaced by `tests/ui_snapshots.rs::graphics` |
+| `tests/test_launcher_font.py::LatinHeadingsTest::test_other_scripts_keep_the_fallback` | — | dropped: no Rust counterpart — Russian and Arabic headings use the fallback face instead of Cinzel (the Rust asks for Cinzel in every language and falls back per glyph) |
 | `tests/test_launcher_font.py::LatinHeadingsTest::test_the_face_has_every_latin_ui_letter` | — | dropped: no Rust counterpart — every letter of the Latin-script translations is in the Cinzel face |
 | `tests/test_launcher_game_files.py::LauncherGameFilesTests::test_cancel_then_copy_keeps_existing_files_and_reports_missing_module` | `tests/ui_play.rs::play_offers_the_system_files_of_a_pkg_extraction`, `src/core/game.rs::tests::adoption_copies_missing_files_keeps_usable_ones_and_writes_param_sfo_last` | replaced by `tests/ui_play.rs::play_offers_the_system_files_of_a_pkg_extraction`, `src/core/game.rs::tests::adoption_copies_missing_files_keeps_usable_ones_and_writes_param_sfo_last` |
 | `tests/test_launcher_game_files.py::LauncherGameFilesTests::test_slow_copy_blocks_reentry_and_failure_allows_retry` | `tests/ui_play.rs::play_offers_the_system_files_of_a_pkg_extraction` | replaced by `tests/ui_play.rs::play_offers_the_system_files_of_a_pkg_extraction` |
 | `tests/test_launcher_game_language.py::GameLanguageTest::test_brazilian_portuguese_is_offered_with_its_system_id` | `tests/ui_pages.rs::brazilian_portuguese_is_offered_with_its_system_id` | ported |
-| `tests/test_launcher_game_language.py::GameLanguageTest::test_choosing_brazilian_portuguese_starts_the_game_with_id_17` | `tests/ui_pages.rs::choosing_brazilian_portuguese_starts_the_game_with_id_17` | ported |
+| `tests/test_launcher_game_language.py::GameLanguageTest::test_choosing_brazilian_portuguese_starts_the_game_with_id_17` | — | dropped: no Rust counterpart — choosing Brazilian Portuguese starts the game with SPARTAN_LANGUAGE=17 (the Rust test stops at the stored setting 17) |
 | `tests/test_launcher_game_language.py::GameLanguageTest::test_brazilian_portuguese_label_is_translated_in_portuguese_and_spanish` | `tests/ui_pages.rs::brazilian_portuguese_label_is_translated_in_portuguese_and_spanish` | ported |
 | `tests/test_launcher_game_language.py::GameLanguageNoteTest::test_the_note_names_the_game_menus` | `tests/ui_pages.rs::the_note_names_the_game_menus` | ported |
 | `tests/test_launcher_game_language.py::GameLanguageNoteTest::test_the_note_uses_the_game_menu_names_of_each_language` | `tests/ui_pages.rs::the_note_uses_the_game_menu_names_of_each_language` | ported |
@@ -260,18 +261,18 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_close_collects_then_destroys_the_window` | — | dropped: no Rust counterpart — closing the window saves the settings first (the Rust launcher does not save on close) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_close_keeps_the_window_when_the_save_fails` | — | dropped: no Rust counterpart — a failed save on close keeps the window open |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_collects_before_opening_a_settings_file` | — | dropped: no Rust counterpart — opening spartanport.ini saves first and opens nothing when the save fails (the Rust Advanced page opens it without saving) |
-| `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | replaced by `tests/ui_pages.rs::graphics_page_offers_the_choice` |
+| `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` | — | dropped: no Rust counterpart — opening a folder starts the system opener without saving first (the Rust test only sees the screenshots button emit OpenPath) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_add_to_steam_collects_first` | — | dropped: no Rust counterpart — Add to Steam saves first and stops when the save fails (the Rust Advanced page does not save first) |
 | `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | ported |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` | — | dropped: no Rust counterpart — the Home's Quick settings Monitor row lists the probe's monitors from the one enumeration the Graphics row uses (the Rust Home has a read-only settings line, no Quick settings rows) |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` | — | dropped: no Rust counterpart — the Quick settings Monitor row carries the probe's indices, gaps kept |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` | — | dropped: no Rust counterpart — a monitor picked in Quick settings shows on the Graphics row |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` | — | dropped: no Rust counterpart — a monitor picked on the Graphics row shows in Quick settings |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | — | dropped: no Rust counterpart — the Quick settings monitor is saved and both rows show it after reopening |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_a_new_window_system_drops_an_index_the_new_list_lost` | — | dropped: no Rust counterpart — both monitor rows drop an index the new window system's list lost |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_both_rows_follow_a_reordered_list_that_still_holds_the_index` | — | dropped: no Rust counterpart — both monitor rows follow an index that moved in the new list |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_of_quick_settings_reaches_the_game` | — | dropped: no Rust counterpart — the Quick settings monitor reaches SPARTAN_MONITOR |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds` | — | dropped: no Rust counterpart — Quick settings builds with no monitor listed |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_of_quick_settings_reaches_the_game` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
 | `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_auto_leaves_the_game_default_and_keeps_an_inherited_value` | `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | replaced by `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` |
 | `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_off_and_on_set_the_variable` | — | dropped: no Rust counterpart — no_msaa Off (1) and On (0) reach SPARTAN_NO_MSAA |
 | `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_choices_and_legacy_settings` | `tests/ui_pages.rs::no_msaa_auto_label_names_the_card_and_the_decision`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` | replaced by `tests/ui_pages.rs::no_msaa_auto_label_names_the_card_and_the_decision`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` |
@@ -311,7 +312,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_save.py::SaveButtonTest::test_a_changed_setting_enables_saving_until_it_is_reverted` | `tests/ui_save.rs::a_changed_setting_enables_saving_until_it_is_reverted` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_saving_writes_the_files_and_disables_the_button` | `tests/ui_save.rs::saving_writes_the_files_and_disables_the_button` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_saving_a_new_launcher_language_rebuilds_the_window_in_it` | `tests/ui_save.rs::saving_a_new_launcher_language_rebuilds_the_window_in_it` | ported |
-| `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` | `tests/ui_save.rs::rebuilding_keeps_the_status_of_a_running_game` | ported |
+| `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` | — | dropped: no Rust counterpart — a language rebuild keeps the status line of a running game (the Rust test keeps the log and the update offer of an idle game) |
 | `tests/test_launcher_save.py::SaveButtonTest::test_saving_without_language_or_scale_change_does_not_rebuild` | `tests/ui_save.rs::saving_without_language_or_scale_change_does_not_rebuild` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_repeated_language_switching_preserves_page_and_cleans_traces` | `tests/ui_save.rs::repeated_language_switching_preserves_the_page` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_save_button_event_generates_clean_language_rebuild` | `tests/ui_save.rs::repeated_language_switching_preserves_the_page` | replaced by `tests/ui_save.rs::repeated_language_switching_preserves_the_page` |
@@ -368,7 +369,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_update.py::CanSelfUpdateTest::test_windows_always_updates` | `src/core/update.rs::tests::windows_always_updates` | ported |
 | `tests/test_launcher_upscale.py::UpscalerSettingsTest::test_remaining_choices_have_no_spatial_upscaler` | — | dropped: no Rust counterpart — the upscaler choices are fsr3, taa and off, with no spatial upscaler |
 | `tests/test_launcher_upscale.py::UpscalerSettingsTest::test_removed_controls_do_not_supply_defaults_to_save` | `tests/ui_save.rs::hidden_settings_are_preserved_without_migration` | replaced by `tests/ui_save.rs::hidden_settings_are_preserved_without_migration` |
-| `tests/test_trophies.py::TrophyTexts::test_every_language_lists_all_trophies` | — | dropped: no Rust counterpart — every language has 35 non-empty trophy texts without the separator bar, within the runtime's 63- and 159-byte buffers |
+| `tests/test_trophies.py::TrophyTexts::test_every_language_lists_all_trophies` | — | dropped: no Rust counterpart — every language has 35 non-empty trophy texts without the separator bar, within the runtime's 63- and 159-byte buffers (src/core/env.rs::tests::trophy_texts_file_has_35_rows_and_the_labels checks the 35 rows in Portuguese only) |
 | `tests/test_trophies.py::TrophyTexts::test_text_falls_back_to_english` | `src/core/i18n.rs::tests::trophies_fall_back_to_english` | ported |
 | `tests/test_trophies.py::PageTexts::test_every_language_has_the_same_texts` | — | dropped: no Rust counterpart — every language has the same trophy page texts, non-empty and with the same {} fields |
 | `tests/test_trophies.py::PageTexts::test_launcher_tables_carry_them` | `src/core/i18n.rs::tests::trophies_fall_back_to_english` | replaced by `src/core/i18n.rs::tests::trophies_fall_back_to_english` |
@@ -419,9 +420,7 @@ the Python test:
 - `tests/test_launcher_font.py::HeadingFontTest::test_english_titles_use_the_loaded_font`: only the snapshots show it (pixels compared on Windows only).
 - `tests/test_launcher_font.py::HeadingFontTest::test_game_name_uses_the_font_in_every_language`: the Rust name is the logotype image, the same in every language (snapshots).
 - `tests/test_launcher_font.py::LatinHeadingsTest::test_latin_script_languages_use_the_loaded_font`: only Portuguese is in the snapshots.
-- `tests/test_launcher_font.py::LatinHeadingsTest::test_other_scripts_keep_the_fallback`: only Arabic is in the snapshots; Russian is not.
 - `tests/test_launcher_game_files.py::LauncherGameFilesTests::test_cancel_then_copy_keeps_existing_files_and_reports_missing_module`: the missing module named after the copy is not asserted.
-- `tests/test_launcher_game_language.py::GameLanguageTest::test_choosing_brazilian_portuguese_starts_the_game_with_id_17`: the Rust test stops at the stored setting 17; SPARTAN_LANGUAGE is checked only for the default 1 (fixtures).
 - `tests/test_launcher_generators.py::LauncherGeneratorOutput::test_fixture_cases_exist_with_every_file`: the spartanport.ini of the defaults and legacy_controls cases is read by no Rust test.
 - `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_region_mods_follow_the_game_selected_in_the_launcher`: the Mods page dropping the selected mod is not asserted.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game`: the first monitor (0) and a number value are not asserted.
@@ -432,7 +431,6 @@ the Python test:
 - `tests/test_launcher_polish_language.py::PolishLanguageTest::test_russian_and_english_fallbacks`: the Russian label of Polish itself is not asserted.
 - `tests/test_launcher_run_log.py::RunLogTest::test_read_output_keeps_draining_when_the_log_fails`: the Rust log fails at opening (an empty path), not at a later write, while the game's lines are drained.
 - `tests/test_launcher_save.py::SaveButtonTest::test_failed_replace_keeps_files_and_changes_pending`: the Rust test runs on Unix only (a read-only folder).
-- `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game`: the Rust test keeps the log and the update offer of an idle game; no game runs.
 - `tests/test_launcher_save.py::SaveButtonTest::test_repeated_language_switching_preserves_page_and_cleans_traces`: the Tk variable traces have no Rust counterpart.
 - `tests/test_launcher_save.py::EverySettingSavesTest::test_all_settings_save_without_detected_gpus`: the graphics card list holding only Automatic is not asserted.
 - `tests/test_launcher_scaling.py::ScaleSelectionTest::test_auto_uses_the_desktop_scale_once`: covered as the zoom leaving the desktop scale out.
@@ -447,7 +445,7 @@ the Python test:
 
 ## Gaps
 
-The 105 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_window_icon_is_the_ports_own_whatever_the_dump` — the window icon is the port's own spartanport icon, never the dump's icon0.png
@@ -475,7 +473,9 @@ The 105 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_can_use_noto_on_linux` — Chinese uses Noto Sans CJK SC on Linux for the body and serif text
 - `tests/test_launcher_font.py::ChineseFontTest::test_english_font_preferences_are_unchanged` — English keeps Segoe UI for the body and Georgia for serif text
 - `tests/test_launcher_font.py::HeadingFontTest::test_other_languages_keep_the_fallback` — Russian headings use the fallback face instead of Cinzel, and an explicit fallback is kept
+- `tests/test_launcher_font.py::LatinHeadingsTest::test_other_scripts_keep_the_fallback` — Russian and Arabic headings use the fallback face instead of Cinzel (the Rust asks for Cinzel in every language and falls back per glyph)
 - `tests/test_launcher_font.py::LatinHeadingsTest::test_the_face_has_every_latin_ui_letter` — every letter of the Latin-script translations is in the Cinzel face
+- `tests/test_launcher_game_language.py::GameLanguageTest::test_choosing_brazilian_portuguese_starts_the_game_with_id_17` — choosing Brazilian Portuguese starts the game with SPARTAN_LANGUAGE=17 (the Rust test stops at the stored setting 17)
 - `tests/test_launcher_icon.py::WindowIconTest::test_own_ico_is_the_window_icon` — the window carries the port's icon in its big and small sizes
 - `tests/test_launcher_icon.py::WindowIconTest::test_own_png_when_the_ico_is_missing` — the PNG stands in as the window icon when the .ico is missing
 - `tests/test_launcher_icon.py::WindowIconTest::test_icon_has_every_windows_size` — spartanport.ico holds the 16, 24, 32, 48, 64, 128 and 256 px sizes
@@ -513,16 +513,10 @@ The 105 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_close_collects_then_destroys_the_window` — closing the window saves the settings first (the Rust launcher does not save on close)
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_close_keeps_the_window_when_the_save_fails` — a failed save on close keeps the window open
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_collects_before_opening_a_settings_file` — opening spartanport.ini saves first and opens nothing when the save fails (the Rust Advanced page opens it without saving)
+- `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` — opening a folder starts the system opener without saving first (the Rust test only sees the screenshots button emit OpenPath)
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_add_to_steam_collects_first` — Add to Steam saves first and stops when the save fails (the Rust Advanced page does not save first)
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` — the Home's Quick settings Monitor row lists the probe's monitors from the one enumeration the Graphics row uses (the Rust Home has a read-only settings line, no Quick settings rows)
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` — the Quick settings Monitor row carries the probe's indices, gaps kept
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` — a monitor picked in Quick settings shows on the Graphics row
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` — a monitor picked on the Graphics row shows in Quick settings
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` — the Quick settings monitor is saved and both rows show it after reopening
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_a_new_window_system_drops_an_index_the_new_list_lost` — both monitor rows drop an index the new window system's list lost
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_both_rows_follow_a_reordered_list_that_still_holds_the_index` — both monitor rows follow an index that moved in the new list
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_of_quick_settings_reaches_the_game` — the Quick settings monitor reaches SPARTAN_MONITOR
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds` — Quick settings builds with no monitor listed
 - `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_off_and_on_set_the_variable` — no_msaa Off (1) and On (0) reach SPARTAN_NO_MSAA
 - `tests/test_launcher_pages.py::PagesTest::test_showing_a_page_refreshes_what_it_holds` — showing Home refreshes the status, Game the patch list and Mods the mod list (only the Trophies load on opening is asserted)
 - `tests/test_launcher_pages.py::PagesTest::test_every_refreshed_page_is_a_sidebar_page` — every page with a refresh is a sidebar page (in the Rust the refresh matches on the Page enum)
@@ -536,6 +530,7 @@ The 105 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_packaging_scripts_preserve_portable_files` — the Windows package and its smoke test keep settings.json and game_icon.ico (packaging is a later sub-project)
 - `tests/test_launcher_save.py::SaveButtonTest::test_failed_save_does_not_close_the_launcher` — a failed save on close keeps the launcher open (the Rust launcher does not save on close)
 - `tests/test_launcher_save.py::SaveButtonTest::test_failed_save_does_not_start_the_game` — a failed save stops PLAY before the game starts
+- `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` — a language rebuild keeps the status line of a running game (the Rust test keeps the log and the update offer of an idle game)
 - `tests/test_launcher_scaling.py::ScaleSelectionTest::test_ui_scale_does_not_change_the_game_environment` — the GUI scale does not change the game environment
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_save_scales_the_whole_interface_and_preserves_game_settings` — Save with GUI Scale 2 doubles the interface, keeps the page, the ini and the game environment, and back to 1 restores the sizes
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_failed_save_keeps_the_current_scale` — a failed save keeps the current GUI scale
@@ -552,5 +547,5 @@ The 105 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_update.py::ReplaceAppImageTest::test_a_release_without_a_checksum_is_not_installed` — a release that publishes no .sha256 is not installed
 - `tests/test_launcher_update.py::ReplaceAppImageTest::test_a_missing_download_leaves_the_appimage_alone` — a download that fails leaves the AppImage as it was, with no partial file
 - `tests/test_launcher_upscale.py::UpscalerSettingsTest::test_remaining_choices_have_no_spatial_upscaler` — the upscaler choices are fsr3, taa and off, with no spatial upscaler
-- `tests/test_trophies.py::TrophyTexts::test_every_language_lists_all_trophies` — every language has 35 non-empty trophy texts without the separator bar, within the runtime's 63- and 159-byte buffers
+- `tests/test_trophies.py::TrophyTexts::test_every_language_lists_all_trophies` — every language has 35 non-empty trophy texts without the separator bar, within the runtime's 63- and 159-byte buffers (src/core/env.rs::tests::trophy_texts_file_has_35_rows_and_the_labels checks the 35 rows in Portuguese only)
 - `tests/test_trophies.py::PageTexts::test_every_language_has_the_same_texts` — every language has the same trophy page texts, non-empty and with the same {} fields

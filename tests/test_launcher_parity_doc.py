@@ -18,6 +18,9 @@ ALLOWED_DROP_FILES = {
     'tests/test_launcher_diagnostics_layout.py',
 }
 GAP = 'dropped: no Rust counterpart — '
+# Behaviour the spec replaced on purpose, allowed in any file: `dropped: spec §<section> <reason>`.
+SPEC = 'dropped: spec §'
+SPEC_DROP = re.compile(r'^dropped: spec §\S+ .*\S')
 
 RUST_ID = re.compile(r'`([^`]+\.rs(?:::\w+)+)`')
 STATUS = re.compile(r'^(ported|replaced by (?P<by>.+)|dropped: (?P<why>\S.*))$')
@@ -125,8 +128,11 @@ class ParityDocTest(unittest.TestCase):
                 continue
             if rust != '—':
                 bad.append(f'{name}: dropped but names {rust}')
-            if name.split('::')[0] not in ALLOWED_DROP_FILES and not status.startswith(GAP):
-                bad.append(f'{name}: drop outside the Tk-only files must start {GAP!r}')
+            if status.startswith(SPEC):
+                if not SPEC_DROP.match(status):
+                    bad.append(f'{name}: a spec drop names the section and the reason: {status!r}')
+            elif name.split('::')[0] not in ALLOWED_DROP_FILES and not status.startswith(GAP):
+                bad.append(f'{name}: drop outside the Tk-only files must start {GAP!r} or {SPEC!r}')
             if status.startswith(GAP) and len(status) == len(GAP):
                 bad.append(f'{name}: gap without what it tested')
         self.assertEqual(bad, [])
