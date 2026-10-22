@@ -20,8 +20,9 @@ use crate::core::update::{
 };
 use crate::ui::app::{Message, State};
 use crate::ui::pages::game::restore_blocked;
+use crate::ui::play::WORKER_LOST;
 use crate::ui::play::{self, GameState};
-use crate::ui::tasks::blocking;
+use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
 use crate::{APP_NAME, VERSION};
 
@@ -304,8 +305,12 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             let (sender, receiver) = mpsc::channel();
             state.update_progress = Some(receiver);
             let port_dir = state.paths.port_dir.clone();
-            blocking(move || install(&url, &port_dir, &sender))
-                .map(|result| Message::Update(UpdateMessage::Done(result)))
+            // A download that dies still ends `Downloading`, so the pill comes back.
+            blocking_or(
+                move || install(&url, &port_dir, &sender),
+                Err(WORKER_LOST.to_string()),
+            )
+            .map(|result| Message::Update(UpdateMessage::Done(result)))
         }
         UpdateMessage::Progress(percent) => {
             if let UpdateState::Downloading(_, shown) = &mut state.update {

@@ -26,10 +26,12 @@ use crate::ui::home;
 use crate::ui::pages::game::game_changed;
 use crate::ui::pages::{log, trophies, Page};
 use crate::ui::persist;
-use crate::ui::tasks::blocking;
+use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::{Modal, ModalKind};
 use crate::APP_NAME;
 
+/// Why a copy or a download ended when its thread stopped without an answer.
+pub const WORKER_LOST: &str = "the work stopped unexpectedly";
 /// How long after the start `close_on_play` hides the window.
 pub const HIDE_DELAY: Duration = Duration::from_secs(5);
 /// The most game events one clock tick takes, as Python's `drain_output`; the rest waits.
@@ -396,11 +398,15 @@ pub fn update(state: &mut State, message: GameMessage) -> Task<Message> {
             }
             state.game = GameState::Copying;
             state.status = tr(&state.lang, "Copying the system files…");
-            blocking(move || {
-                adopt_system_files(&source, Path::new(&folder))
-                    .map(drop)
-                    .map_err(|error| error.to_string())
-            })
+            // A copy that dies still ends `Copying`, so PLAY comes back.
+            blocking_or(
+                move || {
+                    adopt_system_files(&source, Path::new(&folder))
+                        .map(drop)
+                        .map_err(|error| error.to_string())
+                },
+                Err(WORKER_LOST.to_string()),
+            )
             .map(|result| Message::Game(GameMessage::AdoptDone(result)))
         }
         GameMessage::AdoptDone(result) => {
