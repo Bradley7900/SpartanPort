@@ -43,8 +43,14 @@ const ORDER: [Page; 9] = [
     Page::Log,
 ];
 
-/// The pages whose drawer takes 72 % of the window.
-const WIDE: [Page; 4] = [Page::Trophies, Page::Controls, Page::Mods, Page::Log];
+/// The pages whose drawer takes 72 % of the window (R95 adds Performance).
+const WIDE: [Page; 5] = [
+    Page::Performance,
+    Page::Trophies,
+    Page::Controls,
+    Page::Mods,
+    Page::Log,
+];
 
 /// A state over `dir` only: data, ini and the legacy config folder all live there.
 fn state_in(dir: &Path) -> State {

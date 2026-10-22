@@ -78,11 +78,11 @@ impl Page {
         }
     }
 
-    /// Pages whose drawer takes 72 % of the window instead of 46 %.
+    /// Pages whose drawer takes 72 % of the window instead of 46 % (W1, R95).
     pub fn wide(self) -> bool {
         matches!(
             self,
-            Page::Trophies | Page::Controls | Page::Mods | Page::Log
+            Page::Performance | Page::Trophies | Page::Controls | Page::Mods | Page::Log
         )
     }
 

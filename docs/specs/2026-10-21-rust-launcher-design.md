@@ -31,7 +31,7 @@ Cada sub-projeto tem spec, plano e implementação próprios. Nada é empacotado
 | Desenho | GPU por padrão. Com o jogo rodando: log em lotes, janela escondida com `close_on_play`, intensidade do fogo zero sem janela visível. |
 | Estrutura | Um crate (`spartanport-launcher`) em `launcher-rust/`, com `src/core/` proibido de importar iced. |
 | Layout | Opção A2: arte em tela cheia, barra inferior com as abas à esquerda, PLAY à direita, gaveta deslizante pela esquerda. |
-| Páginas largas | W1: gaveta de 72 % para Trophies, Controls, Mods e Log; 46 % para as demais. |
+| Páginas largas | W1: gaveta de 72 % para Performance, Trophies, Controls, Mods e Log (Performance desde R95); 46 % para as demais. |
 | Log | L2: página comum na gaveta larga, sem fundo preto. |
 | Splash | S2: monograma SP sobre brasas, só os textos das checagens (sem barra), monograma voa para o canto superior esquerdo e substitui o logotipo. |
 | Idioma | Seletor no canto superior direito, abre por hover (0,45 s) ou clique, agrupado por Américas, Europa, Ásia e Oriente Médio, sem ícone de globo. |
