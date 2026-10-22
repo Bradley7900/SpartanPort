@@ -772,7 +772,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
         .cloned()
         .unwrap_or_default();
     column![
-        section(&tr(lang, "Keyboard & Mouse Mapping")),
+        section(state.rtl, &tr(lang, "Keyboard & Mouse Mapping")),
         note(tr(
             lang,
             "Which key or mouse input presses each button of the game."
@@ -781,6 +781,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
         note(tr_fmt(lang, KEY_NOTE, &[&CAPTURE_SECONDS.to_string()])),
         reset_button(tr(lang, "Reset keyboard & mouse to defaults"), Kind::Key),
         row(
+            state.rtl,
             &tr(lang, "Joystick prompts"),
             select(
                 "stick_prompts",
@@ -791,6 +792,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
             Some(&hint(STICK_HINT)),
         ),
         row(
+            state.rtl,
             &tr(lang, "Mouse prompt distance"),
             slider(
                 "mouse_prompt_distance",
@@ -802,11 +804,13 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
             Some(&hint(DISTANCE_HINT)),
         ),
         row(
+            state.rtl,
             &tr(lang, "Right stick style"),
             select("mouse_aim_style", AIM_STYLES, &aim_style, lang),
             Some(&hint(AIM_STYLE_HINT)),
         ),
         row(
+            state.rtl,
             &tr(lang, "Right stick sensitivity"),
             slider(
                 "mouse_aim_sensitivity",
@@ -844,13 +848,14 @@ fn gamepad_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
             lines.push(pad_line(pad_row, &state.controls.pad_style))
         });
     column![
-        section(&tr(lang, "Gamepad Mapping")),
+        section(state.rtl, &tr(lang, "Gamepad Mapping")),
         note(tr(
             lang,
             "Which gamepad button presses each button of the game."
         )),
-        row(&tr(lang, "Controller type"), styles.into(), None),
+        row(state.rtl, &tr(lang, "Controller type"), styles.into(), None),
         row(
+            state.rtl,
             &tr(lang, "Vibration"),
             slider("vibration", 0.0, 100.0, "%", ini_number(state, "vibration")),
             Some(&tr(lang, VIBRATION_HINT)),
@@ -881,6 +886,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     };
     column![
         row(
+            state.rtl,
             &tr(lang, "In-game button icons"),
             select(
                 "glyph_style",
@@ -890,7 +896,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             ),
             Some(&tr(lang, GLYPH_HINT)),
         ),
-        row(&tr(lang, "Device"), devices.into(), None),
+        row(state.rtl, &tr(lang, "Device"), devices.into(), None),
         device_section,
     ]
     .spacing(2)

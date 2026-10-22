@@ -331,6 +331,53 @@ fn every_drawer_has_its_subtitle() {
     }
 }
 
+#[test]
+fn rtl_mirrors_the_drawer_rows_and_header() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("settings.json"), r#"{"ui_language": "ar"}"#).unwrap();
+    let mut state = state_in(dir.path());
+    let _ = app::update(&mut state, Message::ShowPage(Page::Graphics));
+    let mut ui = settled_ui(&mut state);
+    // A row: its control (the screenshots button) sits to the left of its name.
+    let name = ui.find(tr("ar", "F12 in the game")).unwrap().bounds();
+    let control = ui
+        .find(tr("ar", "Open the screenshots folder"))
+        .unwrap()
+        .bounds();
+    assert!(
+        control.x < name.x,
+        "control at {}, name at {}",
+        control.x,
+        name.x
+    );
+    // The header: Save at the left, the title and its subtitle at the right.
+    let save = ui.find(tr("ar", "Save")).unwrap().bounds();
+    let subtitle = ui
+        .find(tr("ar", Page::Graphics.subtitle_en()))
+        .unwrap()
+        .bounds();
+    assert!(
+        save.x < subtitle.x,
+        "Save at {}, subtitle at {}",
+        save.x,
+        subtitle.x
+    );
+    drop(ui);
+
+    // Left to right nothing moves: the name first, Save at the right.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.lang = "en".into();
+    let _ = app::update(&mut state, Message::ShowPage(Page::Graphics));
+    let mut ui = settled_ui(&mut state);
+    let name = ui.find("F12 in the game").unwrap().bounds();
+    let control = ui.find("Open the screenshots folder").unwrap().bounds();
+    assert!(name.x < control.x);
+    let save = ui.find("Save").unwrap().bounds();
+    let subtitle = ui.find(Page::Graphics.subtitle_en()).unwrap().bounds();
+    assert!(subtitle.x < save.x);
+}
+
 /// The window of `state` at 1280 × 800, once the drawer has finished sliding.
 fn settled_ui(state: &mut State) -> Simulator<'_, Message> {
     let _ = app::update(

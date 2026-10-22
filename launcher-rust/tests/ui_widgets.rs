@@ -62,7 +62,7 @@ fn checkbox_ini_emits_one_and_zero() {
 
 #[test]
 fn folder_browse_emits_browse_with_the_key() {
-    let view = widgets::folder("game_dir", "Game folder", "", "Not set", "en");
+    let view = widgets::folder(false, "game_dir", "Game folder", "", "Not set", "en");
     let messages = click(view, "Browse…");
     assert!(
         matches!(&messages[0], Message::Browse(key) if key == "game_dir"),

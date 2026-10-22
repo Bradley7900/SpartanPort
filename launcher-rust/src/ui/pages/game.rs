@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use iced::widget::{button, checkbox as check_box, column, pick_list, row as layout, text};
-use iced::{Center, Element, Task};
+use iced::{Center, Element, Left, Right, Task};
 use serde_json::{Map, Value};
 
 use crate::core::game::{game_profile_of, meta_folder};
@@ -280,10 +280,11 @@ fn ini_on(state: &State, key: &str) -> bool {
 fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Element<'a, Message> {
     let value = state.settings.get_str(key);
     column![
-        folder(key, label, &value, "", &state.lang),
+        folder(state.rtl, key, label, &value, "", &state.lang),
         text(note.to_string()).size(13).style(theme::text_muted)
     ]
     .spacing(2)
+    .align_x(if state.rtl { Right } else { Left })
     .into()
 }
 
@@ -302,6 +303,7 @@ fn backups_row(state: &State) -> Element<'_, Message> {
         .style(theme::button_flat)
         .on_press(Message::Backup(BackupMessage::Refresh));
     row(
+        state.rtl,
         &tr(lang, "Save backups"),
         layout![choose, restore, refresh]
             .spacing(6)
@@ -317,7 +319,7 @@ fn backups_row(state: &State) -> Element<'_, Message> {
 
 fn patches_section(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
-    let mut body = column![section(&tr(lang, "Game patches"))].spacing(2);
+    let mut body = column![section(state.rtl, &tr(lang, "Game patches"))].spacing(2);
     let patches = &state.patches;
     let Some(title_id) = patches.title_id.as_deref() else {
         return body
@@ -358,7 +360,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let default_saves = state.paths.data_dir.join("user").display().to_string();
 
     column![
-        section(&tr(lang, "Cheats")),
+        section(state.rtl, &tr(lang, "Cheats")),
         checkbox_ini(
             "cheat_double_jumps",
             &tr(lang, "Infinite Double Jumps"),
@@ -375,7 +377,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 "Select Very Hard without completing the game. Does not change existing save difficulty. In-game: enable before opening New Game."
             )),
         ),
-        section(&tr(lang, "Folders")),
+        section(state.rtl, &tr(lang, "Folders")),
         folder_row(
             state,
             "game_dir",
@@ -402,10 +404,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 &[&default_saves],
             ),
         ),
-        section(&tr(lang, "Saves")),
+        section(state.rtl, &tr(lang, "Saves")),
         backups_row(state),
-        section(&tr(lang, "Language")),
+        section(state.rtl, &tr(lang, "Language")),
         row(
+            state.rtl,
             &tr(lang, "Game language"),
             select("language", LANGUAGES, &language, lang),
             Some(&hint(LANGUAGE_NOTE)),

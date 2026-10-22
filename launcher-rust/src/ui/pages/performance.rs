@@ -247,13 +247,15 @@ pub fn view(state: &State) -> Element<'_, Message> {
     };
 
     column![
-        section(&tr(lang, "Frame rate")),
+        section(state.rtl, &tr(lang, "Frame rate")),
         row(
+            state.rtl,
             &tr(lang, "Frame rate limit"),
             pick("fps_limit"),
             Some(&hint("The engine frame rate (below) is the highest it can go.")),
         ),
         row(
+            state.rtl,
             &tr(lang, "Frames queued"),
             pick("frames_queued"),
             Some(&hint(
@@ -261,6 +263,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         row(
+            state.rtl,
             &tr(lang, "Engine frame rate"),
             pick("engine_fps"),
             Some(&hint(
@@ -268,18 +271,20 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         row(
+            state.rtl,
             &tr(lang, "Aspect ratio"),
             aspect.into(),
             Some(&hint("Shows the render resolutions of this shape only.")),
         ),
         row(
+            state.rtl,
             &restart("Render resolution"),
             pick("render_resolution"),
             Some(&hint(
                 "The size the game draws at; higher is sharper and slower. A resolution patch replaces the texture fix and reserves the memory it needs."
             )),
         ),
-        section(&tr(lang, "Shaders")),
+        section(state.rtl, &tr(lang, "Shaders")),
         checkbox(
             "pipeline_binary_cache",
             &tr(lang, "Use pipeline binary cache (A/B test)"),
@@ -312,8 +317,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 "Loading screen only: builds the cached pipelines on several CPU threads."
             )),
         ),
-        section(&tr(lang, "GPU data")),
+        section(state.rtl, &tr(lang, "GPU data")),
         row(
+            state.rtl,
             &restart("Graphics card"),
             pick("gpu_id"),
             Some(&hint(
@@ -321,6 +327,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         row(
+            state.rtl,
             &restart("Stream buffer memory"),
             pick("stream_memory"),
             Some(&hint(
@@ -352,11 +359,13 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         row(
+            state.rtl,
             &tr(lang, "Two-stage GPU pipeline"),
             pick("draw_pipe"),
             Some(&hint("20–30% faster; switch it off if the game is unstable.")),
         ),
         row(
+            state.rtl,
             &tr(lang, "GPU readbacks"),
             pick("readbacks"),
             Some(&hint(
@@ -364,6 +373,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         row(
+            state.rtl,
             &restart("Game multisampling"),
             pick("no_msaa"),
             Some(&hint(NO_MSAA_HINT)),

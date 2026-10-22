@@ -713,7 +713,7 @@ fn presets_section<'a>(state: &State) -> Element<'a, Message> {
     ]
     .spacing(6)
     .align_y(Center);
-    let mut body = column![section(&tr(lang, "Presets")), controls].spacing(6);
+    let mut body = column![section(state.rtl, &tr(lang, "Presets")), controls].spacing(6);
     if state.mods.presets_unreadable {
         body = body.push(
             text(tr(lang, PRESETS_UNREADABLE))
@@ -741,7 +741,7 @@ fn presets_section<'a>(state: &State) -> Element<'a, Message> {
 
 fn patches_section<'a>(state: &State) -> Element<'a, Message> {
     let lang = state.lang.as_str();
-    let mut body = column![section(&tr(lang, "Third-party patches"))].spacing(2);
+    let mut body = column![section(state.rtl, &tr(lang, "Third-party patches"))].spacing(2);
     if state.mods.external.is_empty() {
         return body
             .push(muted(tr(lang, "No patch files for this game version yet.")))
@@ -790,7 +790,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     .spacing(18)
     .align_y(Center);
     let head = row![
-        container(section(&tr(lang, "Load order"))).width(Fill),
+        container(section(state.rtl, &tr(lang, "Load order"))).width(Fill),
         muted(tr(lang, "Lower in the list wins")),
         flat(tr(lang, "Refresh"), ModsMessage::Refresh),
     ]
@@ -805,6 +805,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     }
     let folder_row = |key: &str, label: &str, default: &Path| {
         folder(
+            state.rtl,
             key,
             &tr(lang, label),
             &state.settings.get_str(key),
@@ -818,7 +819,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         body,
         presets_section(state),
         patches_section(state),
-        section(&tr(lang, "Folders")),
+        section(state.rtl, &tr(lang, "Folders")),
         folder_row("mods_dir", "Mods folder", &state.paths.mods_dir("")),
         folder_row(
             "patches_dir",

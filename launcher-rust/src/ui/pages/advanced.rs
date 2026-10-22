@@ -292,13 +292,15 @@ pub fn view(state: &State) -> Element<'_, Message> {
         None => select_pairs(key, &[], ""),
     };
     let mut page = column![
-        section(&tr(lang, "Launcher")),
+        section(state.rtl, &tr(lang, "Launcher")),
         row(
+            state.rtl,
             &tr(lang, "Launcher language"),
             pick("ui_language"),
             Some(&hint("Applies when the launcher opens again.")),
         ),
         row(
+            state.rtl,
             &tr(lang, "GUI Scale"),
             pick("ui_scale"),
             Some(&hint("For launcher only. Applies after Save.")),
@@ -324,7 +326,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     page = page.push(column![buttons.wrap().vertical_spacing(6)].padding([10, 0]));
 
     if !cfg!(windows) {
-        page = page.push(section(&tr(lang, "Linux")));
+        page = page.push(section(state.rtl, &tr(lang, "Linux")));
         let linux = linux_checks(state, lang);
         if let Some(first) = linux.first() {
             page = page.push(check_view(first));
@@ -335,6 +337,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             format!("  {}", tr(lang, "No Wayland session detected."))
         };
         page = page.push(row(
+            state.rtl,
             &restart(lang, "Window system"),
             pick("video_backend"),
             Some(
@@ -362,17 +365,20 @@ pub fn view(state: &State) -> Element<'_, Message> {
     } else {
         clear.on_press(Message::ClearShaderCache)
     };
-    page = page.push(section(&tr(lang, "Files"))).push(files).push(
-        layout![
-            clear,
-            text(hint(
-                "If the game only shows a black screen, this usually helps."
-            ))
-            .style(theme::text_muted)
-        ]
-        .spacing(10)
-        .align_y(Center),
-    );
+    page = page
+        .push(section(state.rtl, &tr(lang, "Files")))
+        .push(files)
+        .push(
+            layout![
+                clear,
+                text(hint(
+                    "If the game only shows a black screen, this usually helps."
+                ))
+                .style(theme::text_muted)
+            ]
+            .spacing(10)
+            .align_y(Center),
+        );
 
     let arrow = if state.diagnostics_open {
         "▾ "

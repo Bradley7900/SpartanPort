@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use iced::widget::text::Wrapping;
-use iced::widget::{button, row as layout, text};
-use iced::{Center, Element, Fill};
+use iced::widget::{button, container, row as layout, text};
+use iced::{Center, Element, Fill, Right};
 
 use crate::core::i18n::tr;
 use crate::ui::app::Message;
@@ -12,6 +12,7 @@ use crate::ui::theme;
 use crate::ui::widgets::row::row;
 
 pub fn folder<'a>(
+    rtl: bool,
     key: &str,
     label: &str,
     value: &str,
@@ -34,8 +35,14 @@ pub fn folder<'a>(
     } else {
         open.on_press(Message::OpenPath(PathBuf::from(value)))
     };
-    let control = layout![shown.width(Fill), browse, open]
-        .spacing(6)
-        .align_y(Center);
-    row(label, control.into(), None)
+    // Right to left the path sits next to the name, the buttons before it.
+    let control = if rtl {
+        let path = container(shown).width(Fill).align_x(Right);
+        layout![open, browse, path]
+    } else {
+        layout![shown.width(Fill), browse, open]
+    }
+    .spacing(6)
+    .align_y(Center);
+    row(rtl, label, control.into(), None)
 }

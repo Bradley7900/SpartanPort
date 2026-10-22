@@ -2,7 +2,7 @@
 //! language) with the open page.
 
 use iced::widget::{button, column, container, opaque, pin, row, scrollable, space, text, Id};
-use iced::{Center, Element, Fill};
+use iced::{Center, Element, Fill, Right};
 
 use crate::core::i18n::tr;
 use crate::ui::app::{Message, State};
@@ -59,7 +59,17 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
             .style(text_muted),
     ]
     .spacing(4);
-    let header = row![title, space::horizontal(), save_button(state)].align_y(Center);
+    // Right to left the header is mirrored: Save at the left, the title against the right edge.
+    let header = if state.rtl {
+        row![
+            save_button(state),
+            space::horizontal(),
+            title.align_x(Right)
+        ]
+    } else {
+        row![title, space::horizontal(), save_button(state)]
+    }
+    .align_y(Center);
     // The scrollbar takes its own lane beside the page instead of covering its right edge.
     let body = scrollable(pages::view(state, page))
         .spacing(SCROLLBAR_GAP)

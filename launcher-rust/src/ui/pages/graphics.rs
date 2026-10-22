@@ -58,8 +58,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
         ));
 
     column![
-        section(&tr(lang, "Window")),
+        section(state.rtl, &tr(lang, "Window")),
         row(
+            state.rtl,
             &tr(lang, "Display mode"),
             select("display_mode", DISPLAY_MODES, &ini("display_mode"), lang),
             Some(&hint(
@@ -67,6 +68,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         row(
+            state.rtl,
             &tr(lang, "Monitor"),
             select_pairs("monitor", &pairs, &monitor),
             Some(&hint(
@@ -85,15 +87,16 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.settings.get_bool("hdr"),
             Some(&hint("When HDR is on in Windows and the display supports it.")),
         ),
-        section(&tr(lang, "Textures")),
+        section(state.rtl, &tr(lang, "Textures")),
         row(
+            state.rtl,
             &anisotropy_label,
             select("anisotropy", ANISOTROPY, &ini("anisotropy"), lang),
             Some(&hint(
                 "Sharper floors and walls seen at an angle, at little cost on most graphics cards."
             )),
         ),
-        section(&tr(lang, "Overlay")),
+        section(state.rtl, &tr(lang, "Overlay")),
         checkbox_ini(
             "show_fps",
             &tr(lang, "Show performance overlay"),
@@ -102,8 +105,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 "Items, size and corner: in-game menu (Insert / R3+L2) > Overlay."
             )),
         ),
-        section(&tr(lang, "Screenshots")),
+        section(state.rtl, &tr(lang, "Screenshots")),
         row(
+            state.rtl,
             &tr(lang, "F12 in the game"),
             shots.into(),
             Some(&hint(
