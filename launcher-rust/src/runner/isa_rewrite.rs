@@ -435,10 +435,10 @@ pub fn summary(sites: &[Site]) -> String {
     )
 }
 
-/// Scans the executable segments of `boot_linked` and writes `<out>/isa-rewrite.bin`: `true` when
-/// it wrote the table, `false` when there is no site (nothing to mount; the Python writes a table
-/// of no site).
-pub fn rewrite(boot_linked: &Path, out: &Path) -> Result<bool, IsaError> {
+/// Scans the executable segments of `boot_linked` and writes `<out>/isa-rewrite.bin` (the Python's
+/// `main`), even when no site was found: a table of none. Returns the sites, in scan order, for
+/// the caller to print `summary`; an error means there is no table to mount.
+pub fn rewrite(boot_linked: &Path, out: &Path) -> Result<Vec<Site>, IsaError> {
     let data = fs::read(boot_linked).map_err(|source| IsaError::Io {
         path: boot_linked.to_path_buf(),
         source,
@@ -449,13 +449,10 @@ pub fn rewrite(boot_linked: &Path, out: &Path) -> Result<bool, IsaError> {
         let code = span(&image, segment.vaddr, segment.memsz)?;
         sites.extend(scan_segment(code, segment.vaddr));
     }
-    if sites.is_empty() {
-        return Ok(false);
-    }
     let path = out.join(FILE_NAME);
     atomic_write(&path, &encode_table(&image, &sites))
         .map_err(|source| IsaError::Io { path, source })?;
-    Ok(true)
+    Ok(sites)
 }
 
 #[cfg(test)]
@@ -783,8 +780,8 @@ mod tests {
             boot_linked(&[(&blsr_ret, 0x1000, 5), (b"", 0x1000, 5), (&blsr, 0x1000, 6)]),
         )
         .unwrap();
-        assert!(rewrite(&boot, dir.path()).unwrap());
-        let sites = scan_segment(&blsr_ret, 0);
+        let sites = rewrite(&boot, dir.path()).unwrap();
+        assert_eq!(sites, scan_segment(&blsr_ret, 0));
         assert_eq!(
             summary(&sites),
             "ISA: 1 sites (MOVBE 0, BMI1 1, LZCNT 0, F16C 0); 0 relocated, 0 int3, 0 unsupported"
@@ -812,14 +809,20 @@ mod tests {
         assert!(!dir.path().join("isa-rewrite.bin").exists());
     }
 
-    // Not in the Python, which writes a table of no site: there is nothing to mount.
-
+    // Not a test of the Python, which behaves the same: an image without sites gets a table of
+    // none, and the run mounts it.
     #[test]
-    fn rewrite_without_sites_writes_nothing() {
+    fn rewrite_without_sites_writes_an_empty_table() {
         let dir = tempfile::tempdir().unwrap();
         let boot = dir.path().join("boot-linked.bin");
         fs::write(&boot, boot_linked(&[(&code(&[MOV_FS, RET]), 0x1000, 5)])).unwrap();
-        assert!(!rewrite(&boot, dir.path()).unwrap());
-        assert!(!dir.path().join("isa-rewrite.bin").exists());
+        assert_eq!(rewrite(&boot, dir.path()).unwrap(), Vec::<Site>::new());
+        let table = fs::read(dir.path().join("isa-rewrite.bin")).unwrap();
+        let image = read_boot_linked(&fs::read(&boot).unwrap()).unwrap().1;
+        assert_eq!(table.len(), 64);
+        assert_eq!(&table[..8], b"G3ISA1\0\0");
+        assert_eq!(&table[8..16], (image.len() as u64).to_le_bytes());
+        assert_eq!(&table[16..48], Sha256::digest(&image).as_slice());
+        assert_eq!(&table[48..64], [0; 16]); // no site, none unsupported, padding
     }
 }

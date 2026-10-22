@@ -121,24 +121,16 @@ fn site_entry(site: &Site) -> Value {
 fn isa_table_matches_python() {
     let dir = tempfile::tempdir().unwrap();
     let boot = fixture_dir("isa").join("input").join("boot-linked.bin");
-    assert!(isa_rewrite::rewrite(&boot, dir.path()).unwrap());
+    let sites = isa_rewrite::rewrite(&boot, dir.path()).unwrap();
     let actual = fs::read(dir.path().join("isa-rewrite.bin")).unwrap();
     assert_same_bytes(
         &actual,
         &expected("isa", "isa-rewrite.bin"),
         "isa-rewrite.bin",
     );
-    let (segments, image) = isa_rewrite::read_boot_linked(&fs::read(&boot).unwrap()).unwrap();
-    let mut sites = Vec::new();
-    // PF_X: the executable segments, as `rewrite` scans them.
-    for segment in segments.iter().filter(|s| s.flags & 1 != 0) {
-        let code = &image[segment.vaddr as usize..(segment.vaddr + segment.memsz) as usize];
-        sites.extend(
-            isa_rewrite::scan_segment(code, segment.vaddr)
-                .iter()
-                .map(site_entry),
-        );
-    }
+    // The sites `rewrite` wrote, which the generator took from `scan_segment` over the one
+    // executable segment.
+    let entries = sites.iter().map(site_entry).collect();
     let expected: Value = serde_json::from_slice(&expected("isa", "sites.json")).unwrap();
-    assert_eq!(Value::Array(sites), expected);
+    assert_eq!(Value::Array(entries), expected);
 }
