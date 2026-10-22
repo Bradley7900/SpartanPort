@@ -12,14 +12,15 @@ inicia o próprio executável com `--run`.
 
 Sub-projetos (spec do launcher, §1): 1 launcher (feito), **2 runner (esta spec)**, 3 integrações
 (Steam, atualização do jogo, auto-instalação da atualização), 4 cutover do empacotamento e remoção
-do Python, 5 workspace Cargo. A presença no Discord, listada no 3, entra aqui (§2).
+do Python, 5 workspace Cargo. A presença no Discord e a vista do update (`game_update`), listadas
+no 3, entram aqui (§2): `run.py` chama as duas a cada PLAY.
 
 ## 2. Decisões já tomadas
 
 | Tema | Decisão |
 |---|---|
 | Processo | `src/runner/` no mesmo crate. PLAY lança `<exe atual> --run` como processo filho, no lugar de `python run.py`: leitor de saída, job object, STOP e a detecção da linha `restarting through run.py` do launcher não mudam. Alternativas descartadas: runner em thread do launcher (muda log, STOP e reinício; um pânico derruba a janela) e crate separado (dois exe no pacote antes do sub-projeto 5). |
-| Cobertura | Os 13 módulos, `link_libc` incluído: `out/boot-libc.bin` e `out/libc-link.json` continuam gerados embora nada os leia. |
+| Cobertura | Os 13 módulos mais `game_update` (a vista jogo + update que `run.py` monta quando há `SPARTAN_PATCH_DIR`), `link_libc` incluído: `out/boot-libc.bin` e `out/libc-link.json` continuam gerados embora nada os leia. Só `steam_shortcut` fica para o 3. |
 | Byte a byte | Onde o probe ou o jogo leem: `boot.bin`, `boot-libc.bin`, `boot-linked.bin`, `isa-rewrite.bin`, `content.bin`, `patches.bin`, `patches-merged.xml`, `patch_status.json`, `graphics_state.json`, o `R_UI.WAD` de `out/pause_menu/` e, nos WADs de `out/glyphs/`, tudo menos os blocos DXT pintados (linha "Desenho dos glyphs"). `window_icon.bmp` só precisa do mesmo tamanho e cabeçalho (§3.2). |
 | DXT | Compressão idêntica ao Pillow 12.3.0: port em Rust do encoder BC1/BC3 de `src/libImaging/BcnEncode.c` dessa release (licença HPND, atribuída em `launcher-rust/assets/`), chamado por faixa de 4 linhas como `glyphs.encode_region` chama `Image.save(..., 'DDS', pixel_format=…)`. Um encoder de crate daria blocos diferentes. |
 | Desenho dos glyphs | Os pixels pintados (texto em `Cinzel-Black.ttf` e `BodoniModa.ttf`, elipses, retângulos, redução Lanczos de 6×) saem de `ab_glyph` e `image` em Rust, não de FreeType e `ImageDraw`: comparados ao desenho do Pillow por PSNR ≥ 40 dB por textura, mais a conferência visual no dump real. Invisível para o jogador; os bytes diferem só nos blocos pintados. Igualdade total exigiria FreeType compilada e o port de `ImageDraw` e `Resample.c`: descartada. |
@@ -56,6 +57,7 @@ runner depende de `core/` (`paths`, `ini`, `sfo`, `env`, `legacy`, `patches`, `m
 | `runner/pause_menu.rs` | `pause_menu.py` | `Script` (bytecode `SMI_R_UI`: cabeçalho little-endian, valores big-endian, opcodes `16`/`01`/`09`/`13`/`43`/`49`/`4a`/`47`), `resolve_label`, `patch` (Exit to Desktop no lugar de `WadChoose`, linha Options após HLDisplay com realocação de gotos, pais, tamanhos de subárvore, cabeçalho e entrada do WAD; FailSafe chama builtin `0xfff`), `display_health_bar` (`0xffd`/`0xffe`), `native_cheats` (`0xf00`–`0xf60`, entradas `gosliderbar4`–`9`), `build` com stamp (VERSION = 14, caminho, tamanho, mtime, idioma). |
 | `runner/graphics_options.rs` | `graphics_options.py` | `prepare` (ini, `graphics_state.json`, resoluções extras; reversão com a mensagem `Graphics: the last restart never reached the game…` e reescrita do ini), `environment`, `patch_names`, `restrict_to_available`, `applied_engine_fps`. |
 | `runner/guest_memory.rs` | `guest_memory.py` | `pool_mb`, `physical_memory_mb` (`GlobalMemoryStatusEx`; `/proc/meminfo` no Linux), `memory_warning`; constantes 5056 MiB, teto 16384, flex 1024 como `src/runtime_memory.c`. |
+| `runner/game_update.rs` | `game_update.py` | `overlay`, `remove`, `create_view(base, update, out)` (pasta temporária `game-update-XXXX` em `out/`, links do jogo base com o update por cima, nomes sem distinção de caixa, mesmas três mensagens de erro do Python), `remove_view`; sobre `make_link`/`is_link`/`remove_link` de `core/mods.rs`. |
 | `core/save_backup.rs` | `save_backup.py` | Já existe (`backup`, `restore`); o runner chama `backup`. |
 | `core/legacy.rs` | `legacy.py` | Já existe (`forward_environment`, `copy_game_settings`); o runner chama os dois. |
 | `runner/discord.rs` | `discord_presence.py` | §3.5. |
@@ -137,8 +139,9 @@ Nenhuma janela nova. O que muda para quem vê:
    no `PATH`.
 7. `probe --cpu-features`: código 20 → repassa a saída e sai com 20; senão lê `CPU: missing …` e
    decide `isa_rewrite_wanted` (`SPARTAN_ISA_REWRITE` e a política de `probe.c:927`).
-8. `<jogo>/eboot.bin` existe, senão `No eboot.bin in …`. `SPARTAN_PATCH_DIR` → vista do update
-   (`core/game.rs`, já existe).
+8. `<jogo>/eboot.bin` existe, senão `No eboot.bin in …`. Com `SPARTAN_PATCH_DIR`,
+   `game_update::create_view` monta a vista em `out/game-update-XXXX` e imprime
+   `Game and update combined from <pasta>`; a vista passa a ser o jogo e é removida no fim.
 9. Em processo, o que eram subprocessos Python: `mods::build_overlay` (caminho do jogo ou do
    overlay), `prepare`, `link_libc`, `link_modules`, `isa_rewrite` (só se pedido; falha não fatal),
    `content_profile` com `SPARTAN_CONTENT_SKU`.
@@ -207,7 +210,8 @@ mapa honesto. Arquivos cobertos e seus casos: `test_prepare.py` (13), `test_link
 (30), `test_mods.py` (43), `test_mod_conflicts.py` (5), `test_glyphs.py` (37), `test_content.py`
 (5), `test_guest_memory.py` (8), `test_graphics_options.py` (28), `test_save_backup.py` (10),
 `test_pause_menu.py` (19), `test_native_cheats.py` (9), `test_legacy.py` (34),
-`test_discord_presence.py`. `test_runtime.py` testa o runtime C, não o runner: fica fora.
+`test_discord_presence.py` (26), `test_game_update.py` (6). `test_runtime.py` testa o runtime C,
+não o runner: fica fora.
 
 ### 7.1 Unitários (`cargo test`, sem jogo)
 
@@ -256,7 +260,7 @@ fmt, clippy, `cargo test`, build release nos dois sistemas.
 
 ## 8. Escopo
 
-**Entra:** `src/runner/` com os 13 módulos e o Discord; `--run`, `--after`, `--play` nativos;
+**Entra:** `src/runner/` com os 13 módulos, a vista do update e o Discord; `--run`, `--after`, `--play` nativos;
 PLAY pelo exe; remoção do `game_icon.ico` do Rust; `tools/runner_fixtures.py` e fixtures;
 `-parity.md` do runner com checador; `fake-probe`; port do encoder DXT; junction em
 `core/platform/windows.rs`.
