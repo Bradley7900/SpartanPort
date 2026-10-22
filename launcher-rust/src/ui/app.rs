@@ -115,8 +115,7 @@ pub struct State {
     pub settings_unreadable: bool,
     /// Whether the Home fire burns (the `launcher_effects` setting).
     pub effects: bool,
-    /// Whether the Diagnostics block of the Advanced page is unfolded; it starts folded.
-    pub diagnostics_open: bool,
+
     /// What the Linux options of the Advanced page can use, probed once at the start.
     pub linux_tools: LinuxTools,
     /// Whether this install can replace itself (Windows, or an AppImage).
@@ -206,7 +205,7 @@ impl State {
             modal: None,
             settings_unreadable: !unreadable.is_empty(),
             effects,
-            diagnostics_open: false,
+
             linux_tools: if cfg!(windows) {
                 LinuxTools::default()
             } else {
@@ -286,7 +285,6 @@ pub enum Message {
     Mods(ModsMessage),
     Log(LogMessage),
     Controls(ControlsMessage),
-    ToggleDiagnostics,
     DesktopShortcut,
     /// The shortcut was made (the files it wrote; none on Windows) or why not.
     ShortcutDone(Result<Vec<String>, String>),
@@ -429,8 +427,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Mods(message) => return mods::update(state, message),
         Message::Log(message) => return log::update(state, message),
         Message::Controls(message) => return controls::update(state, message),
-        message @ (Message::ToggleDiagnostics
-        | Message::DesktopShortcut
+        message @ (Message::DesktopShortcut
         | Message::ShortcutDone(_)
         | Message::AddToSteam
         | Message::SteamDone(_)

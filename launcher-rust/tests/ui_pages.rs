@@ -1678,12 +1678,43 @@ fn the_launcher_buttons_wrap_instead_of_squeezing() {
 }
 
 #[test]
-fn diagnostics_start_collapsed() {
+fn diagnostics_is_a_plain_section_after_the_others() {
+    // R93: no fold; the Diagnostics heading and its rows are always shown, last on the page.
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
-    assert!(!advanced::check_keys(&state).contains(&"frame_stats"));
-    let _ = app::update(&mut state, Message::ToggleDiagnostics);
-    assert!(advanced::check_keys(&state).contains(&"vk_validation"));
+    state.lang = "en".into();
+    for key in [
+        "frame_stats",
+        "gpu_profile",
+        "perf_diag",
+        "frame_capture_key",
+        "vk_validation",
+    ] {
+        assert!(advanced::check_keys(&state).contains(&key), "{key}");
+    }
+    open(&mut state, Page::Advanced);
+    let _ = app::update(
+        &mut state,
+        Message::Tick(iced::time::Instant::now() + std::time::Duration::from_secs(1)),
+    );
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 4000.0),
+        app::view(&state),
+    );
+    let heading = ui.find("DIAGNOSTICS (FOR DEVELOPMENT)").unwrap().bounds();
+    let files = ui.find("FILES").unwrap().bounds();
+    assert!(heading.y > files.y, "{heading:?} before {files:?}");
+    for label in [
+        "Frame statistics in the log (every 5 s)",
+        "Vulkan validation layers (needs the Vulkan SDK; much slower)",
+    ] {
+        let shown = ui.find(label).unwrap().bounds();
+        assert!(shown.y > heading.y, "{label}: {shown:?}");
+    }
+    drop(ui);
+    click_tall(&mut state, "Frame statistics in the log (every 5 s)");
+    assert!(state.settings.get_bool("frame_stats"));
 }
 
 #[test]

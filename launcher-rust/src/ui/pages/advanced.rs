@@ -23,7 +23,7 @@ use crate::ui::pages::performance::SelectRow;
 use crate::ui::persist;
 use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
-use crate::ui::theme::{self, CINZEL_BOLD};
+use crate::ui::theme;
 use crate::ui::update::UpdateMessage;
 use crate::ui::widgets::{
     checkbox, choice_pairs, row, section, select_pairs, select_pairs_small, toggle_row, Modal,
@@ -251,14 +251,12 @@ pub fn diagnostic_checks(state: &State, lang: &str) -> Vec<CheckRow> {
     ]
 }
 
-/// The setting keys of every check box that is shown (Diagnostics only while it is open).
+/// The setting keys of every check box that is shown.
 pub fn check_keys(state: &State) -> Vec<&'static str> {
     let lang = state.lang.as_str();
     let mut all = launcher_checks(state, lang);
     all.extend(linux_checks(state, lang));
-    if state.diagnostics_open {
-        all.extend(diagnostic_checks(state, lang));
-    }
+    all.extend(diagnostic_checks(state, lang));
     all.into_iter().map(|check| check.key).collect()
 }
 
@@ -385,24 +383,13 @@ pub fn view(state: &State) -> Element<'_, Message> {
             .align_y(Center),
         );
 
-    let arrow = if state.diagnostics_open {
-        "▾ "
-    } else {
-        "▸ "
-    };
-    let title = format!(
-        "{arrow}{}",
-        tr(lang, "Diagnostics (for development)").to_uppercase()
-    );
-    page = page.push(
-        button(text(title).font(CINZEL_BOLD).size(16))
-            .style(theme::button_flat)
-            .on_press(Message::ToggleDiagnostics),
-    );
-    if state.diagnostics_open {
-        for check in diagnostic_checks(state, lang) {
-            page = page.push(check_view(state.rtl, &check));
-        }
+    // A plain section, last on the page (R93; the Python folded it away).
+    page = page.push(section(
+        state.rtl,
+        &tr(lang, "Diagnostics (for development)"),
+    ));
+    for check in diagnostic_checks(state, lang) {
+        page = page.push(check_view(state.rtl, &check));
     }
     page.into()
 }
@@ -590,7 +577,7 @@ fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String
 pub fn update(state: &mut State, message: Message) -> Task<Message> {
     let lang = state.lang.clone();
     match message {
-        Message::ToggleDiagnostics => state.diagnostics_open = !state.diagnostics_open,
+
         Message::ClearShaderCache => {
             if clear_cache_blocked(state) {
                 return Task::none();
