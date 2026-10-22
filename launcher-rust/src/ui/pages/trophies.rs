@@ -60,6 +60,16 @@ pub struct TrophiesView {
     pub filter: Filter,
     /// Whether a load is under way.
     pub loading: bool,
+    /// The folders the read was made for (`FOLDERS`, in order).
+    pub folders: Vec<String>,
+}
+
+/// The settings a read of the page depends on.
+const FOLDERS: [&str; 3] = ["game_dir", "update_dir", "user_dir"];
+
+/// The values of `FOLDERS` in `settings`.
+fn folders(settings: &Settings) -> Vec<String> {
+    FOLDERS.iter().map(|key| settings.get_str(key)).collect()
 }
 
 /// Trophies page events.
@@ -90,7 +100,10 @@ fn locked_icon(png: &[u8]) -> Option<Handle> {
 
 /// Reads the package, the tiers and the unlocked flags; runs on a thread.
 pub fn load(paths: &Paths, settings: &Settings) -> TrophiesView {
-    let mut view = TrophiesView::default();
+    let mut view = TrophiesView {
+        folders: folders(settings),
+        ..TrophiesView::default()
+    };
     let package = trophy_package(
         &settings.get_str("game_dir"),
         &settings.get_str("update_dir"),
@@ -148,6 +161,9 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
     match message {
         TrophiesMessage::Refresh => return refresh(state),
         TrophiesMessage::Filter(filter) => state.trophies.filter = filter,
+        // A read for folders typed over since is dropped: each keystroke starts one, and they
+        // finish in any order (the read of the current folders is on its way or already in).
+        TrophiesMessage::Loaded(view) if view.folders != folders(&state.settings) => {}
         TrophiesMessage::Loaded(view) => {
             let filter = state.trophies.filter;
             state.trophies = *view;

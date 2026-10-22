@@ -593,6 +593,45 @@ fn typing_a_folder_sets_it_like_browse() {
     );
 }
 
+#[test]
+fn a_read_for_a_folder_typed_over_is_dropped() {
+    // N2: each keystroke in a folder field starts a read of the Trophies and Mods lists, and the
+    // reads finish in any order: one made for a path since typed over must not replace the list.
+    use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
+    use spartanport_launcher::ui::pages::trophies::{self, TrophiesMessage};
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with_trophies(dir.path());
+    make_mod(&state, "Ultrawide", "a.bin");
+    let game = state.settings.get_str("game_dir");
+    let mods_dir = state.paths.mods_dir("").display().to_string();
+    // The reads started while the fields held one character less.
+    state
+        .settings
+        .set("game_dir", game[..game.len() - 1].to_string().into());
+    state.settings.set(
+        "mods_dir",
+        mods_dir[..mods_dir.len() - 1].to_string().into(),
+    );
+    let stale_trophies = trophies::load(&state.paths, &state.settings);
+    let stale_mods = mods::load(&state.paths, &state.settings);
+    assert!(stale_trophies.icons.is_empty() && stale_mods.order.is_empty());
+    state.settings.set("game_dir", game.into());
+    state.settings.set("mods_dir", mods_dir.into());
+    // The reads for the whole paths finish first, the older ones after them.
+    load_trophies(&mut state);
+    load_mods(&mut state);
+    let _ = app::update(
+        &mut state,
+        Message::Trophies(TrophiesMessage::Loaded(Box::new(stale_trophies))),
+    );
+    let _ = app::update(
+        &mut state,
+        Message::Mods(ModsMessage::Loaded(Box::new(stale_mods))),
+    );
+    assert_eq!(state.trophies.icons.len(), 35);
+    assert_eq!(state.mods.order, ["Ultrawide"]);
+}
+
 /// Like `click`, in a window tall enough to show the whole page (the drawer scrolls).
 fn click_tall(state: &mut app::State, label: &str) {
     let mut ui = iced_test::simulator::Simulator::with_size(

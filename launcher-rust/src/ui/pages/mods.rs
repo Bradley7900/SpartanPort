@@ -61,6 +61,16 @@ pub struct ModsView {
     pub picture: Option<Handle>,
     /// Per mod: how many files it changes and whether it has game patch files.
     pub facts: BTreeMap<String, (usize, bool)>,
+    /// The folders the read was made for (`FOLDERS`, in order).
+    pub folders: Vec<String>,
+}
+
+/// The settings a read of the page depends on.
+const FOLDERS: [&str; 4] = ["mods_dir", "game_dir", "update_dir", "patches_dir"];
+
+/// The values of `FOLDERS` in `settings`.
+fn folders(settings: &Settings) -> Vec<String> {
+    FOLDERS.iter().map(|key| settings.get_str(key)).collect()
 }
 
 /// Mods page events.
@@ -162,6 +172,7 @@ pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
         order,
         presets,
         presets_unreadable,
+        folders: folders(settings),
         ..ModsView::default()
     };
     for name in &view.order {
@@ -356,6 +367,9 @@ fn delete_preset(state: &mut State) {
 pub fn update(state: &mut State, message: ModsMessage) -> Task<Message> {
     match message {
         ModsMessage::Refresh => return refresh(state),
+        // A read for folders typed over since is dropped: each keystroke starts one, and they
+        // finish in any order (the read of the current folders is on its way or already in).
+        ModsMessage::Loaded(view) if view.folders != folders(&state.settings) => {}
         ModsMessage::Loaded(view) => return loaded(state, *view),
         // A result for an older order or set of switches is dropped: threads finish out of order.
         ModsMessage::Conflicts(names, found) => {
