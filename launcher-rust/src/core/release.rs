@@ -398,7 +398,16 @@ mod tests {
 
     #[test]
     fn linux_has_no_package_while_the_release_has_no_appimage() {
-        let body = json!([entry("windows-v2.7.0", false, "2026-05-01T00:00:00Z", &WIN)]);
+        let body = json!([entry(
+            "windows-v2.7.0",
+            false,
+            "2026-05-01T00:00:00Z",
+            &[
+                "spartanport-windows.zip",
+                "release-windows.json",
+                "release-linux.json"
+            ]
+        )]);
         assert!(parse_releases(&body, false).unwrap().is_empty());
         assert_eq!(parse_releases(&body, true).unwrap().len(), 1);
     }

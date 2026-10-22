@@ -799,6 +799,7 @@ fn open_menu(state: &mut State) {
 fn the_open_menu_lists_three_stables_and_every_prerelease() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
+    state.installed = stable_2_6_0();
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
     let mut ui = simulator(app::view(&state));
