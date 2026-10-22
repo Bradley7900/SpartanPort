@@ -82,7 +82,7 @@ pub fn stamp_path(port_dir: &Path, appdir: Option<&Path>, windows: bool) -> Path
     } else {
         appdir.unwrap_or(port_dir)
     };
-    dir.join(release::STAMP_ASSET)
+    dir.join(release::STAMP_FILE)
 }
 
 /// The stamp, or `ReleaseId::fallback()` when the file is missing or invalid.

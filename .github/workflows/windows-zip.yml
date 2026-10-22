@@ -65,7 +65,7 @@ jobs:
         run: |
           pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease) || { echo "::warning::gh release view failed for $TAG; stamping it as a pre-release"; pre=true; }
           python packaging/release_stamp.py "$TAG" --prerelease "$pre" > release.json
-          mkdir -p dist && cp release.json dist/
+          mkdir -p dist && cp release.json dist/release-windows.json
           cat release.json
       - name: Package
         env:
@@ -78,7 +78,7 @@ jobs:
           name: spartanport-windows.zip
           path: |
             dist/spartanport-windows.zip*
-            dist/release.json
+            dist/release-windows.json
           if-no-files-found: error
 
   smoke:
@@ -115,4 +115,4 @@ jobs:
             gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Windows test build $TAG" \
               --notes "Windows test build from \`${GITHUB_SHA::7}\`. Download \`spartanport-windows.zip\`, extract it and run \`SpartanPort.exe\`. Not a final release: please report in the linked issue whether it opens and runs."
           fi
-          gh release upload "$TAG" dist/spartanport-windows.zip dist/spartanport-windows.zip.sha256 dist/release.json --clobber
+          gh release upload "$TAG" dist/spartanport-windows.zip dist/spartanport-windows.zip.sha256 dist/release-windows.json --clobber

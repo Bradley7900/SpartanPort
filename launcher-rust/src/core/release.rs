@@ -5,8 +5,18 @@ use serde_json::Value;
 use crate::core::i18n::tr;
 use crate::core::update::{UpdateError, RELEASES_PAGE};
 
-/// The asset every release carries to say which release it is.
-pub const STAMP_ASSET: &str = "release.json";
+/// The stamp's file name inside the package: `port_dir/release.json`, `$APPDIR/release.json`.
+pub const STAMP_FILE: &str = "release.json";
+
+/// The asset a release carries once this system's package in it is stamped. One per system: a
+/// release often holds both packages, and each workflow stamps only its own.
+pub fn stamp_asset(windows: bool) -> &'static str {
+    if windows {
+        "release-windows.json"
+    } else {
+        "release-linux.json"
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Channel {
@@ -117,7 +127,7 @@ fn parse_entry(entry: &Value, windows: bool) -> Option<Release> {
     let id = ReleaseId::parse(entry.get("tag_name")?.as_str()?, prerelease)?;
     let published = entry.get("published_at")?.as_str()?.to_string();
     let assets = entry.get("assets")?.as_array()?;
-    asset_url(assets, |name| name == STAMP_ASSET)?;
+    asset_url(assets, |name| name == stamp_asset(windows))?;
     let suffix = if windows { ".zip" } else { ".appimage" };
     let url = asset_url(assets, |name| name.to_lowercase().ends_with(suffix))?;
     let page = entry
@@ -198,7 +208,7 @@ mod tests {
                "html_url": format!("https://x.test/{tag}"),
                "assets": assets.iter().map(|a| asset(a)).collect::<Vec<_>>()})
     }
-    const WIN: [&str; 2] = ["spartanport-windows.zip", "release.json"];
+    const WIN: [&str; 2] = ["spartanport-windows.zip", "release-windows.json"];
 
     fn id(channel: Channel, version: &str, build: Option<&str>) -> ReleaseId {
         ReleaseId {
@@ -303,7 +313,8 @@ mod tests {
         let mut stable = vec![
             "spartanport-windows.zip",
             "spartanport-x86_64.AppImage",
-            "release.json",
+            "release-windows.json",
+            "release-linux.json",
         ];
         if extra_linux_asset {
             stable.push("spartanport-x86_64.AppImage.sha256");
@@ -332,16 +343,34 @@ mod tests {
                 "linux-v2.7.1-test1",
                 true,
                 "2026-03-01T00:00:00Z",
-                &["spartanport-x86_64.AppImage", "release.json"]
+                &["spartanport-x86_64.AppImage", "release-linux.json"]
             ),
             entry("nonsense", false, "2026-03-02T00:00:00Z", &WIN),
             no_date,
         ])
     }
 
+    /// `mixed` plus the newest release, whose only stamp is the other system's.
+    fn with_the_other_stamp(mut body: Value, package: &str, stamp: &str) -> Value {
+        let newest = entry(
+            "windows-v2.8.0",
+            false,
+            "2026-06-01T00:00:00Z",
+            &[package, stamp],
+        );
+        body.as_array_mut().unwrap().push(newest);
+        body
+    }
+
     #[test]
     fn windows_takes_the_zip() {
-        let list = parse_releases(&mixed(false), true).unwrap();
+        // The zip next to the Linux stamp only is not a stamped Windows package.
+        let body = with_the_other_stamp(
+            mixed(false),
+            "spartanport-windows.zip",
+            "release-linux.json",
+        );
+        let list = parse_releases(&body, true).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].id.version, "2.7.0");
         assert_eq!(list[0].url, "https://x.test/spartanport-windows.zip");
@@ -354,7 +383,13 @@ mod tests {
 
     #[test]
     fn linux_takes_the_appimage_not_its_checksum() {
-        let list = parse_releases(&mixed(true), false).unwrap();
+        // The AppImage next to the Windows stamp only is not a stamped Linux package.
+        let body = with_the_other_stamp(
+            mixed(true),
+            "spartanport-x86_64.AppImage",
+            "release-windows.json",
+        );
+        let list = parse_releases(&body, false).unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].id.version, "2.7.0");
         assert_eq!(list[0].url, "https://x.test/spartanport-x86_64.AppImage");
