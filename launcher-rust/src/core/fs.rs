@@ -28,6 +28,19 @@ pub fn load_json<T: DeserializeOwned>(path: &Path, default: T) -> T {
         .unwrap_or(default)
 }
 
+/// The JSON in `path`: `None` when the file is missing, an error when it cannot be read or is not
+/// valid for `T`. For the files whose loss the player must hear about (spec §6).
+pub fn read_json<T: DeserializeOwned>(path: &Path) -> io::Result<Option<T>> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(io::Error::other)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -61,6 +74,18 @@ mod tests {
             assert_eq!(std::fs::read(&target).unwrap(), b"old");
             assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
         }
+    }
+
+    #[test]
+    fn read_json_tells_a_missing_file_from_a_broken_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.json");
+        assert!(matches!(read_json::<Vec<u8>>(&path), Ok(None)));
+        std::fs::write(&path, b"{not json").unwrap();
+        assert!(read_json::<Vec<u8>>(&path).is_err());
+        std::fs::write(&path, b"[4, 5]").unwrap();
+        assert_eq!(read_json::<Vec<u8>>(&path).unwrap(), Some(vec![4, 5]));
+        assert!(read_json::<Vec<u8>>(dir.path()).is_err());
     }
 
     #[test]

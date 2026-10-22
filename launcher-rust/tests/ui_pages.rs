@@ -1186,6 +1186,28 @@ fn conflict_summary_names_the_winner() {
 }
 
 #[test]
+fn a_corrupt_presets_file_is_listed_empty_with_a_warning() {
+    const WARNING: &str = "mods_presets.json could not be read, so no preset is listed and the file is left as it is. Fix or delete it to save presets again.";
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    make_mod(&state, "a", "a.bin");
+    std::fs::write(state.paths.mod_presets(), "{oops").unwrap();
+    load_mods(&mut state);
+    open(&mut state, Page::Mods);
+    assert!(state.mods.presets.is_empty());
+    assert!(tall_has(&state, WARNING));
+    // Saving or deleting a preset would replace it: the file is kept and the warning shows.
+    mods_update(&mut state, ModsMessage::PresetName("x".into()));
+    for message in [ModsMessage::SavePreset, ModsMessage::DeletePreset] {
+        mods_update(&mut state, message);
+        let shown = state.modal.take().expect("a warning");
+        assert!(matches!(shown.kind, ModalKind::Error), "{shown:?}");
+        assert_eq!(shown.text, WARNING);
+        assert_eq!(std::fs::read(state.paths.mod_presets()).unwrap(), b"{oops");
+    }
+}
+
+#[test]
 fn preset_round_trip() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = mods_state(dir.path());

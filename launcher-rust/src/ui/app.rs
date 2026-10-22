@@ -16,11 +16,11 @@ use serde_json::Value;
 use crate::core::desktop::{linux_tools, open_path, LinuxTools};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
-use crate::core::ini::{load_ini, Ini, INI_DEFAULTS, INI_FLAGS};
+use crate::core::ini::{read_ini, Ini, INI_DEFAULTS, INI_FLAGS};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
-use crate::core::settings::{load_app_settings, Settings};
+use crate::core::settings::{read_app_settings, Settings};
 use crate::core::update::can_self_update;
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
@@ -130,10 +130,18 @@ pub struct State {
 }
 
 impl State {
-    /// Reads `settings.json` and the ini; everything else starts empty.
+    /// Reads `settings.json` and the ini (one warning when either is there but unreadable);
+    /// everything else starts empty.
     pub fn new(paths: Paths) -> State {
-        let settings = load_app_settings(&paths);
-        let ini = load_ini(&paths.ini_path());
+        let (settings, settings_unreadable) = read_app_settings(&paths);
+        let (ini, ini_unreadable) = read_ini(&paths.ini_path());
+        let unreadable: Vec<PathBuf> = [
+            (settings_unreadable, paths.config_file()),
+            (ini_unreadable, paths.ini_path()),
+        ]
+        .into_iter()
+        .filter_map(|(failed, file)| failed.then_some(file))
+        .collect();
         let lang = launcher_language(&settings.get_str("ui_language"), system_language);
         // The desktop's scale is known once the window opens (`DesktopScale`).
         let scale = theme::ui_scale(&settings.get_str("ui_scale"), 1.0);
@@ -214,6 +222,7 @@ impl State {
         game::refresh_backups(&mut state);
         // Nothing to save after opening.
         state.saved = Some(persist::gather(&state));
+        state.modal = persist::unreadable_warning(&state.lang, &unreadable);
         state
     }
 }

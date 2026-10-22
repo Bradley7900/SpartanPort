@@ -4,6 +4,7 @@
 
 use std::collections::BTreeSet;
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 use iced::Task;
 use indexmap::IndexMap;
@@ -14,7 +15,7 @@ use serde_json::{Map, Value};
 use crate::core::controls::{control_changes, Kind};
 use crate::core::fs::{atomic_write, load_json};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display};
-use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
+use crate::core::i18n::{is_rtl, launcher_language, system_language, tr, tr_fmt};
 use crate::core::ini::{load_ini, save_ini, INI_FLAGS};
 use crate::core::settings::{save_settings, Settings};
 use crate::ui::app::{self, Message, State};
@@ -54,6 +55,26 @@ pub const SHOWN_INI_KEYS: &[&str] = &[
 /// The error dialog of a failed save.
 const SAVE_FAILED: &str =
     "Could not save all settings. Check write permissions and free disk space, then try again.";
+
+/// The start-up warning about settings files that are there but could not be read (spec §6).
+const UNREADABLE: &str = "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read, and saving (Save or PLAY) writes what it shows.";
+
+/// The one dialog naming every settings file that could not be read at start; none when all
+/// were read (or are missing). The files stay as they are until a save.
+pub fn unreadable_warning(lang: &str, files: &[PathBuf]) -> Option<Modal> {
+    if files.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = files
+        .iter()
+        .map(|file| file.display().to_string())
+        .collect();
+    Some(Modal {
+        kind: ModalKind::Error,
+        title: APP_NAME.to_string(),
+        text: tr_fmt(lang, UNREADABLE, &[&names.join("\n")]),
+    })
+}
 
 /// What `collect` writes, as data: `settings.json`, the ini values, and `mods.json` and
 /// `patches.json` when the window lists mods and third-party patches.

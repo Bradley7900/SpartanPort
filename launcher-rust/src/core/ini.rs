@@ -56,22 +56,34 @@ fn is_assignment(line: &str) -> bool {
     line.contains('=') && !line.trim_start().starts_with('#')
 }
 
+/// The defaults overlaid with the file's keys; see `read_ini`.
 pub fn load_ini(path: &Path) -> Ini {
+    read_ini(path).0
+}
+
+/// The defaults overlaid with the file's keys, and whether the file is there but could not be read
+/// as UTF-8 text (spec §6 warns once). Text that is not UTF-8 is read lossily, so its comments and
+/// other keys are still the lines a save rewrites around the edited ones.
+pub fn read_ini(path: &Path) -> (Ini, bool) {
     let mut values: IndexMap<String, String> = INI_DEFAULTS
         .iter()
         .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
         .collect();
-    let lines: Vec<String> = std::fs::read(path)
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .map(|text| text.lines().map(str::to_string).collect())
-        .unwrap_or_default();
+    let (text, unreadable) = match std::fs::read(path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => (text, false),
+            Err(error) => (String::from_utf8_lossy(error.as_bytes()).into_owned(), true),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), false),
+        Err(_) => (String::new(), true),
+    };
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
     for line in lines.iter().filter(|line| is_assignment(line)) {
         if let Some((key, value)) = line.split_once('=') {
             values.insert(key.trim().to_string(), value.trim().to_string());
         }
     }
-    Ini { values, lines }
+    (Ini { values, lines }, unreadable)
 }
 
 pub fn save_ini(
@@ -149,6 +161,45 @@ mod tests {
             fs::read_to_string(&path).unwrap(),
             "# note\nfps_limit=120\nkeep=1\nvsync=0\n"
         );
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_keeps_its_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("spartanport.ini");
+        fs::write(
+            &path,
+            b"# caf\xe9 au lait\nupscaler=fsr4\nvsync=0\nmy_key=1\n".as_slice(),
+        )
+        .unwrap();
+        let (ini, unreadable) = read_ini(&path);
+        assert!(unreadable);
+        assert_eq!(ini.values["vsync"], "0");
+        assert_eq!(ini.values["upscaler"], "fsr4");
+        assert_eq!(ini.lines.len(), 4);
+        // A save rewrites only the edited key: the comment, the parked key and the player's own
+        // key stay.
+        let mut edited = IndexMap::new();
+        edited.insert("vsync".to_string(), "1".to_string());
+        save_ini(&path, &edited, &ini.lines).unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "# caf\u{fffd} au lait\nupscaler=fsr4\nvsync=1\nmy_key=1\n"
+        );
+    }
+
+    #[test]
+    fn only_a_file_that_is_there_can_be_unreadable() {
+        let dir = tempfile::tempdir().unwrap();
+        let (ini, unreadable) = read_ini(&dir.path().join("spartanport.ini"));
+        assert!(!unreadable);
+        assert!(ini.lines.is_empty());
+        // A folder in its place cannot be read.
+        let (ini, unreadable) = read_ini(dir.path());
+        assert!(unreadable);
+        assert_eq!(ini.values["vsync"], "1");
+        let (_dir, path) = ini_file("vsync=0\n");
+        assert!(!read_ini(&path).1);
     }
 
     #[test]

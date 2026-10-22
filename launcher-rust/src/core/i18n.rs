@@ -124,6 +124,20 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         &[("pt", "Principal"), ("es", "Principal"), ("ru", "Основной")],
     ),
     (
+        "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read, and saving (Save or PLAY) writes what it shows.",
+        &[(
+            "pt",
+            "Não foi possível ler estes arquivos:\n\n{}\n\nO launcher mostra valores padrão no lugar do que não conseguiu ler, e salvar (Salvar ou JOGAR) grava o que ele mostra.",
+        )],
+    ),
+    (
+        "mods_presets.json could not be read, so no preset is listed and the file is left as it is. Fix or delete it to save presets again.",
+        &[(
+            "pt",
+            "Não foi possível ler mods_presets.json; nenhum preset é listado e o arquivo fica como está. Corrija ou apague o arquivo para voltar a salvar presets.",
+        )],
+    ),
+    (
         "Effects",
         &[("pt", "Efeitos"), ("es", "Efectos"), ("ru", "Эффекты")],
     ),
@@ -297,6 +311,15 @@ mod tests {
         assert_eq!(tr("de", "Americas"), "Americas");
         // A key of the JSON table still comes from it.
         assert_eq!(tr("pt", "Graphics"), "Gráficos");
+    }
+
+    #[test]
+    fn every_rust_only_string_has_portuguese() {
+        // Ruling R33: each string of the Rust launcher alone comes in English and Portuguese.
+        for (en, _) in UI_EXTRA {
+            let pt = tr("pt", en);
+            assert!(!pt.is_empty() && pt != *en, "no pt for {en:?}");
+        }
     }
 
     #[test]

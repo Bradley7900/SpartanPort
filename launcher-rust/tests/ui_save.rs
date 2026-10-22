@@ -639,3 +639,54 @@ fn add_to_steam_saves_first() {
     assert_eq!(task.units(), 0, "no bridge after a failed save");
     assert!(save_failed_shown(&state), "{:?}", state.modal);
 }
+
+/// An ini that is not UTF-8: a Latin-1 comment, a parked key and a key of the player's own.
+const LATIN1_INI: &[u8] = b"# caf\xe9 au lait\nupscaler=fsr4\nmy_key=1\nvsync=1\n";
+
+#[test]
+fn unreadable_settings_files_warn_once_at_start() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("settings.json"), "{not json").unwrap();
+    fs::write(dir.path().join("spartanport.ini"), LATIN1_INI).unwrap();
+    let state = state_in(dir.path());
+    // One dialog names both files.
+    let shown = state.modal.clone().expect("a warning");
+    assert!(matches!(shown.kind, ModalKind::Error), "{shown:?}");
+    for file in [state.paths.config_file(), state.paths.ini_path()] {
+        assert!(
+            shown.text.contains(&file.display().to_string()),
+            "{}",
+            shown.text
+        );
+    }
+    // The defaults are shown and nothing is written before a save.
+    assert_eq!(state.settings.get_str("ui_language"), "en");
+    assert_eq!(fs::read(state.paths.config_file()).unwrap(), b"{not json");
+    assert_eq!(fs::read(state.paths.ini_path()).unwrap(), LATIN1_INI);
+    assert!(!dirty(&state));
+
+    let dir = tempfile::tempdir().unwrap();
+    assert!(
+        state_in(dir.path()).modal.is_none(),
+        "missing files are fine"
+    );
+}
+
+#[test]
+fn a_save_keeps_the_lines_of_an_ini_that_is_not_utf8() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("spartanport.ini"), LATIN1_INI).unwrap();
+    let mut state = state_in(dir.path());
+    state.modal = None;
+    set(&mut state, "vsync", json!(false));
+    save(&mut state);
+    assert!(state.modal.is_none());
+    // Its lines stay in place (the byte that is not UTF-8 becomes U+FFFD); the shown keys it
+    // lacks are appended, as for any file.
+    let text = fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(
+        text.starts_with("# caf\u{fffd} au lait\nupscaler=fsr4\nmy_key=1\nvsync=0\n"),
+        "{text}"
+    );
+    assert!(text.lines().any(|line| line == "fps_limit=0"), "{text}");
+}

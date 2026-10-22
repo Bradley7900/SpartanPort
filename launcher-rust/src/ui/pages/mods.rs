@@ -17,7 +17,7 @@ use indexmap::IndexMap;
 use serde_json::{json, Map, Value};
 
 use crate::core::desktop::{open_path, open_url};
-use crate::core::fs::{atomic_write, load_json};
+use crate::core::fs::{atomic_write, load_json, read_json};
 use crate::core::game::{game_profile_of, meta_folder};
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::mods::{
@@ -52,6 +52,9 @@ pub struct ModsView {
     pub conflicts: Vec<(String, Vec<String>)>,
     pub conflicts_open: bool,
     pub presets: Vec<String>,
+    /// `mods_presets.json` is there but could not be read: no preset is listed, and saving or
+    /// deleting one does not replace the file (spec §6).
+    pub presets_unreadable: bool,
     pub preset_name: String,
     pub external: Vec<(String, PathBuf, PatchMeta)>,
     pub external_enabled: BTreeSet<String>,
@@ -110,13 +113,27 @@ fn active(view: &ModsView) -> Vec<String> {
         .collect()
 }
 
-fn preset_names(paths: &Paths) -> Vec<String> {
-    let mut names: Vec<String> = load_json(&paths.mod_presets(), Map::new())
-        .keys()
-        .cloned()
-        .collect();
+/// What a broken `mods_presets.json` shows, under Presets and when a preset is saved or deleted.
+const PRESETS_UNREADABLE: &str = "mods_presets.json could not be read, so no preset is listed and the file is left as it is. Fix or delete it to save presets again.";
+
+/// The saved presets (none when the file is missing); `None` when `mods_presets.json` is there
+/// but is not a readable JSON object.
+fn read_presets(paths: &Paths) -> Option<Map<String, Value>> {
+    match read_json::<Value>(&paths.mod_presets()) {
+        Ok(None) => Some(Map::new()),
+        Ok(Some(Value::Object(presets))) => Some(presets),
+        Ok(Some(_)) | Err(_) => None,
+    }
+}
+
+/// The preset names, sorted, and whether the file could not be read.
+fn preset_names(paths: &Paths) -> (Vec<String>, bool) {
+    let Some(presets) = read_presets(paths) else {
+        return (Vec::new(), true);
+    };
+    let mut names: Vec<String> = presets.keys().cloned().collect();
     names.sort();
-    names
+    (names, false)
 }
 
 /// Reads the mods folder, the saved order and switches, the conflicts, the presets and the
@@ -136,13 +153,15 @@ pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
         }
     }
     let disabled = names_in(&profile, "disabled");
+    let (presets, presets_unreadable) = preset_names(paths);
     let mut view = ModsView {
         enabled: order
             .iter()
             .map(|name| (name.clone(), !disabled.contains(name)))
             .collect(),
         order,
-        presets: preset_names(paths),
+        presets,
+        presets_unreadable,
         ..ModsView::default()
     };
     for name in &view.order {
@@ -281,7 +300,11 @@ fn save_preset(state: &mut State) {
         dialog(state, ModalKind::Info, body);
         return;
     }
-    let mut presets = load_json(&state.paths.mod_presets(), Map::new());
+    let Some(mut presets) = read_presets(&state.paths) else {
+        let body = tr(&state.lang, PRESETS_UNREADABLE);
+        dialog(state, ModalKind::Error, body);
+        return;
+    };
     let disabled: Vec<&String> = state
         .mods
         .order
@@ -293,11 +316,11 @@ fn save_preset(state: &mut State) {
         json!({"order": state.mods.order, "disabled": disabled}),
     );
     write_presets(state, &presets);
-    state.mods.presets = preset_names(&state.paths);
+    (state.mods.presets, state.mods.presets_unreadable) = preset_names(&state.paths);
 }
 
 fn load_preset(state: &mut State) -> Task<Message> {
-    let presets = load_json(&state.paths.mod_presets(), Map::new());
+    let presets = read_presets(&state.paths).unwrap_or_default();
     let Some(preset) = presets
         .get(state.mods.preset_name.trim())
         .filter(|preset| preset.is_object())
@@ -314,14 +337,18 @@ fn load_preset(state: &mut State) -> Task<Message> {
 }
 
 fn delete_preset(state: &mut State) {
-    let mut presets = load_json(&state.paths.mod_presets(), Map::new());
+    let Some(mut presets) = read_presets(&state.paths) else {
+        let body = tr(&state.lang, PRESETS_UNREADABLE);
+        dialog(state, ModalKind::Error, body);
+        return;
+    };
     if presets
         .shift_remove(state.mods.preset_name.trim())
         .is_some()
     {
         write_presets(state, &presets);
     }
-    state.mods.presets = preset_names(&state.paths);
+    (state.mods.presets, state.mods.presets_unreadable) = preset_names(&state.paths);
     state.mods.preset_name.clear();
 }
 
@@ -687,6 +714,13 @@ fn presets_section<'a>(state: &State) -> Element<'a, Message> {
     .spacing(6)
     .align_y(Center);
     let mut body = column![section(&tr(lang, "Presets")), controls].spacing(6);
+    if state.mods.presets_unreadable {
+        body = body.push(
+            text(tr(lang, PRESETS_UNREADABLE))
+                .size(13)
+                .style(theme::text_muted),
+        );
+    }
     if !state.mods.presets.is_empty() {
         let saved = state
             .mods

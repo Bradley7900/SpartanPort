@@ -7,7 +7,7 @@ use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use crate::core::controls::migrate_controls;
-use crate::core::fs::{atomic_write, load_json};
+use crate::core::fs::{atomic_write, read_json};
 use crate::core::paths::Paths;
 
 /// The saved settings, in file order; keys this version does not know are kept.
@@ -135,20 +135,27 @@ fn copy_if_missing(from: &Path, to: &Path) {
     let _ = fs::copy(from, to);
 }
 
-/// Defaults overlaid with the saved file. A file that is missing, invalid or not a JSON object
-/// gives the defaults and is left untouched until the next save.
+/// Defaults overlaid with the saved file; see `read_app_settings`.
 pub fn load_app_settings(paths: &Paths) -> Settings {
+    read_app_settings(paths).0
+}
+
+/// Defaults overlaid with the saved file, and whether the file is there but unreadable (an I/O
+/// error, invalid JSON or not a JSON object): spec §6 warns once. Such a file gives the defaults
+/// and is left untouched until the next save; a missing one is no problem.
+pub fn read_app_settings(paths: &Paths) -> (Settings, bool) {
     let config = paths.config_file();
     migrate_portable_settings(&config, &paths.legacy_config_file());
-    let saved = match load_json::<Value>(&config, Value::Null) {
-        Value::Object(map) => map,
-        _ => Map::new(),
+    let (saved, unreadable) = match read_json::<Value>(&config) {
+        Ok(Some(Value::Object(map))) => (map, false),
+        Ok(None) => (Map::new(), false),
+        Ok(Some(_)) | Err(_) => (Map::new(), true),
     };
     let mut merged = app_defaults(&paths.port_dir, cfg!(windows), &|k| std::env::var(k).ok());
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
     }
-    Settings(merged)
+    (Settings(merged), unreadable)
 }
 
 /// Writes the settings as 2-space JSON without a trailing newline.
@@ -223,6 +230,30 @@ mod tests {
             assert_eq!(settings.0, defaults);
             assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
         }
+    }
+
+    #[test]
+    fn an_unreadable_settings_file_is_reported_and_left_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().to_string_lossy().into_owned();
+        let paths = Paths::from_env(dir.path(), &|k| {
+            (k == "SPARTAN_DATA_DIR").then(|| data.clone())
+        });
+        // Missing: the defaults, nothing to report.
+        let (settings, unreadable) = read_app_settings(&paths);
+        assert!(!unreadable);
+        assert_eq!(settings.get_str("ui_language"), "en");
+        for broken in ["{not json", "[1, 2]", ""] {
+            fs::write(paths.config_file(), broken).unwrap();
+            let (settings, unreadable) = read_app_settings(&paths);
+            assert!(unreadable, "{broken:?}");
+            assert_eq!(settings.get_str("ui_language"), "en", "{broken:?}");
+            assert_eq!(fs::read_to_string(paths.config_file()).unwrap(), broken);
+        }
+        fs::write(paths.config_file(), r#"{"ui_language": "pt"}"#).unwrap();
+        let (settings, unreadable) = read_app_settings(&paths);
+        assert!(!unreadable);
+        assert_eq!(settings.get_str("ui_language"), "pt");
     }
 
     #[test]
