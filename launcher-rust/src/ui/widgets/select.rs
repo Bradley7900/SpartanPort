@@ -17,6 +17,14 @@ fn label(choice: &Choice, lang: &str) -> String {
     }
 }
 
+/// The `(value, label)` pairs of a choice table in `lang`.
+pub fn choice_pairs(choices: &[Choice], lang: &str) -> Vec<(String, String)> {
+    choices
+        .iter()
+        .map(|choice| (choice.value.to_string(), label(choice, lang)))
+        .collect()
+}
+
 /// The `Set` message of the choice shown as `chosen`, if any choice has that label.
 pub fn select_message(key: &str, choices: &[Choice], lang: &str, chosen: &str) -> Option<Message> {
     choices

@@ -18,13 +18,12 @@ use iced::{
 use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::options::{
-    resolution_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS,
-};
+use crate::core::options::{Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS};
 use crate::core::patches::patch_status;
 use crate::ui::app::{home_interactive_enabled, home_interactive_opacity, Message, State};
 use crate::ui::fire::Fire;
 use crate::ui::lang_menu;
+use crate::ui::pages::performance;
 use crate::ui::play::GameState;
 use crate::ui::splash;
 use crate::ui::theme::{button_flat, button_play, palette, text_muted, CINZEL_BLACK};
@@ -401,9 +400,14 @@ fn ini_value<'a>(state: &'a State, key: &str) -> &'a str {
 }
 
 /// The patches line (`summary()` of the 2.6.0 launcher).
-fn summary(state: &State) -> String {
+pub fn summary(state: &State) -> String {
     let lang = state.lang.as_str();
-    let resolution = resolution_label(ini_value(state, "render_resolution"), false);
+    // The label of the render resolution list (with its ratio and the `(mod)` mark), as the Python.
+    let current = ini_value(state, "render_resolution");
+    let resolution = performance::resolution_options(state)
+        .into_iter()
+        .find(|(value, _)| value == current)
+        .map_or_else(|| "?".to_string(), |(_, label)| label);
     if !state.home.patchable {
         return tr_fmt(
             lang,

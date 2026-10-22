@@ -16,5 +16,5 @@ pub use folder::folder;
 pub use modal::{modal, Modal, ModalKind, ModalMessage};
 pub use row::row;
 pub use section::section;
-pub use select::{select, select_message, select_pairs};
+pub use select::{choice_pairs, select, select_message, select_pairs};
 pub use slider::slider;

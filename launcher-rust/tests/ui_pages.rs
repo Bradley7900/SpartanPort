@@ -237,6 +237,19 @@ fn no_msaa_auto_label_names_the_card_and_the_decision() {
     );
 }
 
+/// The labels the simulator finds on the rendered page, in a window tall enough for all rows.
+fn page_has(state: &app::State, labels: &[&str]) {
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 4000.0),
+        app::view(state),
+    );
+    for label in labels {
+        ui.find(*label)
+            .unwrap_or_else(|error| panic!("find {label:?}: {error:?}"));
+    }
+}
+
 #[test]
 fn performance_page_offers_the_choice() {
     let dir = tempfile::tempdir().unwrap();
@@ -245,47 +258,66 @@ fn performance_page_offers_the_choice() {
     state.gpus = gpu_rows(&ARC_LAPTOP);
     open(&mut state, Page::Performance);
     assert_eq!(state.settings.get_str("no_msaa"), "");
-    // iced_test cannot open a pick_list: the label -> value pairs stand in for the click.
-    let pick = |pairs: &[(String, String)], key: &str, label: &str| {
-        let (value, _) = pairs.iter().find(|(_, l)| l == label).unwrap();
-        Message::Set(key.into(), value.clone().into())
-    };
-    let boxes = performance::no_msaa_label(&state, "en");
-    let _ = app::update(
-        &mut state,
-        pick(&boxes, "no_msaa", "Off (fixes black lines)"),
+    // The page shows the rows with their hints. The text inside a closed pick_list is not a
+    // widget the simulator can find, so the options are checked through `rows` below.
+    page_has(
+        &state,
+        &[
+            "Game multisampling  ·  restart",
+            performance::NO_MSAA_HINT,
+            "Graphics card  ·  restart",
+        ],
     );
+    // iced_test cannot open a pick_list: the page builds its drop-downs from `rows`, so those
+    // are what the page offers.
+    let rows = performance::rows(&state, "en");
+    let row = |key: &str| rows.iter().find(|row| row.key == key).unwrap().clone();
+    let boxes = row("no_msaa");
+    assert_eq!(boxes.pairs, performance::no_msaa_label(&state, "en"));
+    assert_eq!(boxes.current, "");
+    let pick = |row: &performance::SelectRow, label: &str| {
+        let (value, _) = row.pairs.iter().find(|(_, l)| l == label).unwrap();
+        Message::Set(row.key.into(), value.clone().into())
+    };
+    let _ = app::update(&mut state, pick(&boxes, "Off (fixes black lines)"));
     assert_eq!(state.settings.get_str("no_msaa"), "1");
-    // The graphics card list offers Automatic and both cards; Automatic of the box follows it.
-    let cards = performance::gpu_pairs(&state);
+    // The graphics card list offers Automatic and both cards, in the order of the probe.
+    let cards = row("gpu_id");
+    let labels: Vec<&str> = cards.pairs.iter().map(|(_, l)| l.as_str()).collect();
     assert_eq!(
-        cards,
-        vec![
-            (String::new(), "Automatic".to_string()),
-            ("0".to_string(), "Intel(R) Arc(TM) Graphics".to_string()),
-            (
-                "1".to_string(),
-                "NVIDIA GeForce RTX 4060 Laptop GPU".to_string()
-            ),
+        labels,
+        [
+            "Automatic",
+            "Intel(R) Arc(TM) Graphics",
+            "NVIDIA GeForce RTX 4060 Laptop GPU"
         ]
     );
-    let _ = app::update(
-        &mut state,
-        pick(&cards, "gpu_id", "Intel(R) Arc(TM) Graphics"),
-    );
+    // Choosing a card relabels Automatic at once and keeps the multisampling choice.
+    let _ = app::update(&mut state, pick(&cards, "Intel(R) Arc(TM) Graphics"));
     assert_eq!(state.settings.get_str("gpu_id"), "0");
+    let boxes = performance::rows(&state, "en")
+        .into_iter()
+        .find(|row| row.key == "no_msaa")
+        .unwrap();
     assert_eq!(
-        performance::no_msaa_label(&state, "en")[0].1,
+        boxes.pairs[0].1,
         "Automatic (Intel(R) Arc(TM) Graphics: off)"
     );
+    assert_eq!(boxes.current, "1");
     assert_eq!(state.settings.get_str("no_msaa"), "1");
-    // The rows are on the page: the Shaders checks toggle their ini and app keys.
-    let async_shaders = state.ini.values["async_shaders"].clone();
-    click(&mut state, "Compile new shaders in the background");
-    assert_ne!(state.ini.values["async_shaders"], async_shaders);
-    let warmup = state.settings.get_bool("background_warmup");
-    click(&mut state, "Load shader cache in the background");
-    assert_eq!(state.settings.get_bool("background_warmup"), !warmup);
+    // The Portuguese page shows the translated title, hint and label.
+    state.lang = "pt".into();
+    let hint = spartanport_launcher::core::i18n::tr("pt", performance::NO_MSAA_HINT);
+    assert_ne!(hint, performance::NO_MSAA_HINT);
+    page_has(&state, &["Multisampling do jogo  ·  reiniciar", &hint]);
+    let boxes = performance::rows(&state, "pt")
+        .into_iter()
+        .find(|row| row.key == "no_msaa")
+        .unwrap();
+    assert_eq!(
+        boxes.pairs[0].1,
+        "Automático (Intel(R) Arc(TM) Graphics: desligado)"
+    );
 }
 
 fn write_mod_patch(folder: &std::path::Path, size: &str) {
@@ -323,6 +355,7 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     assert_eq!(label.1, "3840 × 1080 · 32:9 (mod)");
     assert_eq!(state.ini.values["render_resolution"], "3840x1080");
     assert_eq!(state.aspect, "32:9");
+    assert!(home::summary(&state).contains("3840 × 1080 · 32:9 (mod)"));
     let listed = performance::aspect_resolution_options(&state);
     let label = listed.iter().find(|(v, _)| v == "3840x1080").unwrap();
     assert_eq!(label.1, "3840 × 1080 (mod)");

@@ -18,12 +18,12 @@ use crate::core::options::{
 use crate::core::patches::resolution_names;
 use crate::ui::app::{Message, State};
 use crate::ui::theme;
-use crate::ui::widgets::{checkbox, checkbox_ini, row, section, select, select_pairs};
+use crate::ui::widgets::{checkbox, checkbox_ini, choice_pairs, row, section, select_pairs};
 
 /// Suffix of the labels of the sizes a mod adds.
 const MOD_SUFFIX: &str = " (mod)";
 
-const NO_MSAA_HINT: &str = "The game's 2-sample depth buffer, read as a texture by its lighting. AMD's and Intel's Windows drivers read it wrong and the lighting shows black lines, so Automatic turns multisampling off on those cards (Radeon, Arc) and keeps it on elsewhere (NVIDIA). Off and On force the choice on any card.";
+pub const NO_MSAA_HINT: &str = "The game's 2-sample depth buffer, read as a texture by its lighting. AMD's and Intel's Windows drivers read it wrong and the lighting shows black lines, so Automatic turns multisampling off on those cards (Radeon, Arc) and keeps it on elsewhere (NVIDIA). Off and On force the choice on any card.";
 
 /// Reads the sizes the enabled mods add (the "Resolution Patch - <size>" entries of their patch
 /// files) into `state.mod_resolutions`. Task 29 calls it again when a mod is toggled.
@@ -152,27 +152,19 @@ pub fn gpu_pairs(state: &State) -> Vec<(String, String)> {
         .collect()
 }
 
-/// An ini flag is on when its value is `"1"`.
-fn ini_on(state: &State, key: &str) -> bool {
-    state.ini.values.get(key).is_some_and(|value| value == "1")
+/// One drop-down of the page: the key it stores, its (value, label) choices and the current value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectRow {
+    pub key: &'static str,
+    pub pairs: Vec<(String, String)>,
+    pub current: String,
 }
 
-pub fn view(state: &State) -> Element<'_, Message> {
-    let lang = state.lang.as_str();
-    let hint = |english: &str| tr(lang, english);
+/// The drop-downs of the page; `view` builds them from this list.
+pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
     let ini = |key: &str| state.ini.values.get(key).cloned().unwrap_or_default();
     let app = |key: &str| state.settings.get_str(key);
-    // A row that needs a new start of the game carries a small `restart` note.
-    let restart = |english: &str| format!("{}  ·  {}", tr(lang, english), tr(lang, "restart"));
-
-    let aspect = pick_list(
-        aspect_options(state),
-        Some(state.aspect.clone()),
-        Message::Aspect,
-    )
-    .style(theme::pick_list_dark);
-    let resolutions = aspect_resolution_options(state);
-    let cards: Vec<(String, String)> = gpu_pairs(state)
+    let cards = gpu_pairs(state)
         .into_iter()
         .map(|(value, label)| {
             let label = if value.is_empty() {
@@ -183,25 +175,84 @@ pub fn view(state: &State) -> Element<'_, Message> {
             (value, label)
         })
         .collect();
-    let multisampling = no_msaa_label(state, lang);
+    let row = |key, pairs, current| SelectRow {
+        key,
+        pairs,
+        current,
+    };
+    vec![
+        row(
+            "fps_limit",
+            choice_pairs(FPS_LIMITS, lang),
+            ini("fps_limit"),
+        ),
+        row(
+            "frames_queued",
+            choice_pairs(FRAMES_QUEUED, lang),
+            ini("frames_queued"),
+        ),
+        row(
+            "engine_fps",
+            choice_pairs(ENGINE_FPS_CHOICES, lang),
+            ini("engine_fps"),
+        ),
+        row(
+            "render_resolution",
+            aspect_resolution_options(state),
+            ini("render_resolution"),
+        ),
+        row("gpu_id", cards, app("gpu_id")),
+        row(
+            "stream_memory",
+            choice_pairs(STREAM_MEMORY, lang),
+            app("stream_memory"),
+        ),
+        row("draw_pipe", choice_pairs(DRAW_PIPE, lang), app("draw_pipe")),
+        row("readbacks", choice_pairs(READBACKS, lang), app("readbacks")),
+        row("no_msaa", no_msaa_label(state, lang), app("no_msaa")),
+    ]
+}
+
+/// An ini flag is on when its value is `"1"`.
+fn ini_on(state: &State, key: &str) -> bool {
+    state.ini.values.get(key).is_some_and(|value| value == "1")
+}
+
+pub fn view(state: &State) -> Element<'_, Message> {
+    let lang = state.lang.as_str();
+    let hint = |english: &str| tr(lang, english);
+    // A row that needs a new start of the game carries a small `restart` note.
+    let restart = |english: &str| format!("{}  ·  {}", tr(lang, english), tr(lang, "restart"));
+
+    let aspect = pick_list(
+        aspect_options(state),
+        Some(state.aspect.clone()),
+        Message::Aspect,
+    )
+    .style(theme::pick_list_dark);
+    let rows = rows(state, lang);
+    let pick = |key: &str| match rows.iter().find(|row| row.key == key) {
+        Some(row) => select_pairs(key, &row.pairs, &row.current),
+        None => select_pairs(key, &[], ""),
+    };
 
     column![
         section(&tr(lang, "Frame rate")),
         row(
             &tr(lang, "Frame rate limit"),
-            select("fps_limit", FPS_LIMITS, &ini("fps_limit"), lang),
+            pick("fps_limit"),
             Some(&hint("The engine frame rate (below) is the highest it can go.")),
         ),
         row(
             &tr(lang, "Frames queued"),
-            select("frames_queued", FRAMES_QUEUED, &ini("frames_queued"), lang),
+            pick("frames_queued"),
             Some(&hint(
                 "1 is the lowest input latency; more can raise FPS when the graphics card is the limit."
             )),
         ),
         row(
             &tr(lang, "Engine frame rate"),
-            select("engine_fps", ENGINE_FPS_CHOICES, &ini("engine_fps"), lang),
+            pick("engine_fps"),
             Some(&hint(
                 "The highest frame rate the game itself runs at (a game patch)."
             )),
@@ -213,7 +264,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         ),
         row(
             &restart("Render resolution"),
-            select_pairs("render_resolution", &resolutions, &ini("render_resolution")),
+            pick("render_resolution"),
             Some(&hint(
                 "The size the game draws at; higher is sharper and slower. A resolution patch replaces the texture fix and reserves the memory it needs."
             )),
@@ -254,14 +305,14 @@ pub fn view(state: &State) -> Element<'_, Message> {
         section(&tr(lang, "GPU data")),
         row(
             &restart("Graphics card"),
-            select_pairs("gpu_id", &cards, &app("gpu_id")),
+            pick("gpu_id"),
             Some(&hint(
                 "The GPU the game runs on. Choose your dedicated card if the game uses the integrated one."
             )),
         ),
         row(
             &restart("Stream buffer memory"),
-            select("stream_memory", STREAM_MEMORY, &app("stream_memory"), lang),
+            pick("stream_memory"),
             Some(&hint(
                 "System RAM can improve FPS on NVIDIA laptops. Choose GPU memory to restore the previous behavior. Applies on the next game launch."
             )),
@@ -292,19 +343,19 @@ pub fn view(state: &State) -> Element<'_, Message> {
         ),
         row(
             &tr(lang, "Two-stage GPU pipeline"),
-            select("draw_pipe", DRAW_PIPE, &app("draw_pipe"), lang),
+            pick("draw_pipe"),
             Some(&hint("20–30% faster; switch it off if the game is unstable.")),
         ),
         row(
             &tr(lang, "GPU readbacks"),
-            select("readbacks", READBACKS, &app("readbacks"), lang),
+            pick("readbacks"),
             Some(&hint(
                 "How exactly data the GPU writes is copied back for the game."
             )),
         ),
         row(
             &restart("Game multisampling"),
-            select_pairs("no_msaa", &multisampling, &app("no_msaa")),
+            pick("no_msaa"),
             Some(&hint(NO_MSAA_HINT)),
         ),
     ]
