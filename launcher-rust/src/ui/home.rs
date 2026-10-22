@@ -15,14 +15,14 @@ use iced::{
     Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
-use crate::core::game::{
-    artwork_file, game_info, game_patchable, game_profile_of, meta_folder, GameInfo,
-};
+use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS};
 use crate::core::patches::patch_status;
-use crate::ui::app::{home_interactive_enabled, home_interactive_opacity, Message, State};
+use crate::ui::app::{
+    home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
+};
 use crate::ui::lang_menu;
 use crate::ui::pages::performance;
 use crate::ui::play::GameState;
@@ -53,8 +53,13 @@ const GREY_GLOW_PEAK: f32 = 0.14;
 const GREY_GLOW_RADII: (f32, f32) = (0.25, 0.32);
 /// Concentric discs that fake a radial falloff (the canvas has no radial gradient).
 const GLOW_STEPS: u32 = 10;
-/// Layer 2: opacity of the game art.
+/// Layer 2: the launcher's key art (`assets/background.png`, mockup `#photo`): its size in pixels,
+/// its opacity, and the point `cover` keeps in place (CSS `background-position: 70% 30%`).
+const ART_SIZE: (u32, u32) = (1920, 1080);
 const ART_OPACITY: f32 = 0.7;
+const ART_ANCHOR: (f32, f32) = (0.70, 0.30);
+/// The id of the container that holds the key art.
+pub const ART_ID: &str = "home-art";
 /// Layer 3: uniform dark veil, left-hand darkening and its reach, red rising from the floor.
 const VEIL_ALPHA: f32 = 0.32;
 const LEFT_VEIL_REACH: f32 = 0.58;
@@ -128,17 +133,6 @@ pub struct HomeFacts {
     pub saves: bool,
     /// Patches the last start left out (`patch_status.json`).
     pub skipped: usize,
-}
-
-/// The `state.home_art` handle of `sce_sys/pic1.png` of the update, or of the game folder when
-/// the update has none.
-pub fn load_home_art(state: &mut State) {
-    let file = artwork_file(
-        &state.settings.get_str("game_dir"),
-        &state.settings.get_str("update_dir"),
-        "pic1.png",
-    );
-    state.home_art = std::fs::read(file).ok().map(Handle::from_bytes);
 }
 
 /// Re-reads the game folder, the saves folder and the patch report for the chips.
@@ -360,26 +354,59 @@ fn layer<'a>(which: Layer) -> Element<'a, Message> {
         .into()
 }
 
+/// The launcher's key art, one handle per process.
+pub fn art() -> Handle {
+    static ART: OnceLock<Handle> = OnceLock::new();
+    ART.get_or_init(|| Handle::from_bytes(&include_bytes!("../../assets/background.png")[..]))
+        .clone()
+}
+
+/// The part of the key art that a `cover` fit shows in `scene`: the picture scaled to cover the
+/// scene, cut to its shape around `ART_ANCHOR`. An empty scene shows the whole picture.
+pub fn art_crop(scene: Size) -> Rectangle<u32> {
+    let full = Size::new(ART_SIZE.0 as f32, ART_SIZE.1 as f32);
+    let scale = (scene.width / full.width).max(scene.height / full.height);
+    if !scale.is_finite() || scale <= 0.0 {
+        return Rectangle {
+            x: 0,
+            y: 0,
+            width: ART_SIZE.0,
+            height: ART_SIZE.1,
+        };
+    }
+    let shown = Size::new(
+        (scene.width / scale).min(full.width),
+        (scene.height / scale).min(full.height),
+    );
+    Rectangle {
+        x: ((full.width - shown.width) * ART_ANCHOR.0).round() as u32,
+        y: ((full.height - shown.height) * ART_ANCHOR.1).round() as u32,
+        width: shown.width.round() as u32,
+        height: shown.height.round() as u32,
+    }
+}
+
 /// The five layers of spec 4.3, bottom to top, with the fire drawn over them.
 pub fn background(state: &State) -> Element<'_, Message> {
     let elapsed = state
         .now
         .saturating_duration_since(state.splash.started)
         .as_secs_f32();
-    let mut layers = stack![layer(Layer::Base)].width(Fill).height(Fill);
-    if let Some(art) = &state.home_art {
-        layers = layers.push(
-            image(art.clone())
-                .width(Fill)
-                .height(Fill)
-                .content_fit(ContentFit::Cover)
-                .opacity(ART_OPACITY),
-        );
-    }
-    layers = layers
-        .push(layer(Layer::Veil))
-        .push(layer(Layer::Fog))
-        .push(layer(Layer::Heat(elapsed)));
+    let art = image(art())
+        .width(Fill)
+        .height(Fill)
+        .content_fit(ContentFit::Cover)
+        .crop(art_crop(scene_size(state)))
+        .opacity(ART_OPACITY);
+    let mut layers = stack![
+        layer(Layer::Base),
+        container(art).width(Fill).height(Fill).id(ART_ID)
+    ]
+    .width(Fill)
+    .height(Fill)
+    .push(layer(Layer::Veil))
+    .push(layer(Layer::Fog))
+    .push(layer(Layer::Heat(elapsed)));
     // While the splash is live it draws the fire itself, above its own dark background.
     if splash::layers(state).home_draws_fire {
         layers = layers.push(state.fire.view());

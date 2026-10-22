@@ -56,6 +56,7 @@ launcher-rust/
 ├── Cargo.toml
 ├── build.rs                 # ícone e manifesto no Windows (winresource)
 ├── assets/                  # embutidos com include_bytes!
+│   ├── background.png
 │   ├── monogram.png
 │   ├── spartanport-logo.png
 │   ├── spartanport.ico
@@ -169,8 +170,8 @@ Fundo em cinco camadas, de baixo para cima:
 
 1. Base: gradiente `#1b1414` → `#0d0b0b` com brilho radial vermelho em (68 %, 38 %) e cinza em
    (22 %, 78 %).
-2. Arte a 70 % de opacidade, `cover`, posicionada em (70 %, 30 %): `sce_sys/pic1.png` do dump.
-   Uma arte própria do launcher só entra depois de decisão sobre direitos.
+2. Arte a 70 % de opacidade, `cover`, posicionada em (70 %, 30 %): a arte própria do launcher,
+   `launcher-rust/assets/background.png`, decidida pelo usuário em 2026-10-22.
 3. Véu escuro uniforme de 32 %, escurecimento pela esquerda (88 % → 0 % até 58 % da largura),
    vermelho `#8c1014` subindo do rodapé.
 4. Névoa vermelha e preta do rodapé girada −7 ° (encosta no chão à esquerda, sobe à direita).
@@ -360,7 +361,7 @@ do 2.6.0 (alternar entre o launcher Python e o Rust não perde nada); testes da 
 de CI; `.gitignore`; fixtures; mockup v13 em `docs/specs/assets/rust-launcher/`.
 
 **Fica fora:** runner, preparação, integrações nativas, packaging, remoção do Python
-(sub-projetos 2 a 4); leitura direta de gamepad; macOS; arte de fundo própria; a opção "renderer
+(sub-projetos 2 a 4); leitura direta de gamepad; macOS; a opção "renderer
 nativo" da branch `native-renderer` (entra quando essa branch receber o merge do `main`).
 
 ## 9. Riscos

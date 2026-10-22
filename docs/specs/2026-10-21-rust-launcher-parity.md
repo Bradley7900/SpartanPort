@@ -395,14 +395,15 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 9. No `build.rs`: the exe has no Explorer icon or manifest until packaging (M14).
 10. `--version` prints only when started from a terminal: the launcher is a windowed program on Windows and attaches to the parent console when there is one (R65).
 11. An unreadable `settings.json` or `spartanport.ini` gives one warning at start (spec §6, R69; the Python said nothing, and stopped on an ini that is not UTF-8); a corrupt `mods_presets.json` lists no preset and is not replaced by Save or Delete preset (the Python replaced it).
+12. The Home background is the launcher's key art (`launcher-rust/assets/background.png`), not the dump's `sce_sys/pic1.png` (R72).
 
 ## Partly covered
 
 Rows marked `ported` or `replaced by` whose Rust tests cover the behaviour but not every assertion of
 the Python test:
 
-- `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_still_uses_the_existing_placeholder`: only the Home snapshot covers it (its fixture has no pic1.png; the pixels are compared on Windows only); the Rust draws the logotype instead of a text placeholder.
-- `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_shows_the_ports_logo`: only the Home snapshot covers it (its fixture has no pic1.png; the pixels are compared on Windows only).
+- `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_still_uses_the_existing_placeholder`: only the Home snapshot covers it (its fixture has no pic1.png, and the Home shows the launcher's key art whatever the dump has, R72; the pixels are compared on Windows only); the Rust draws the logotype instead of a text placeholder.
+- `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_shows_the_ports_logo`: only the Home snapshot covers it (its fixture has no pic1.png, and the Home shows the launcher's key art whatever the dump has, R72; the pixels are compared on Windows only).
 - `tests/test_launcher_close_on_play.py::CloseOnPlayTest::test_real_child_keeps_writing_after_window_is_hidden`: no Rust test writes more than a pipe buffer while the window is hidden.
 - `tests/test_launcher_controls.py::ControlMapTest::test_new_cheats_default_to_disabled`: the cheats being ini flags is not asserted.
 - `tests/test_launcher_controls.py::ControlMapTest::test_more_keys_can_be_bound`: Pause, Scroll Lock and Keypad 0 are not pressed.

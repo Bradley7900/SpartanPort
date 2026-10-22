@@ -89,10 +89,9 @@ pub fn folder_chosen(state: &mut State, key: &str, path: &Path) -> Task<Message>
     Task::none()
 }
 
-/// The game or update folder changed: the title, the art, the patches and the lists follow.
+/// The game or update folder changed: the title, the patches and the lists follow.
 pub fn game_changed(state: &mut State) -> Task<Message> {
     home::refresh_facts(state);
-    home::load_home_art(state);
     performance::refresh_mod_resolutions(state);
     refresh_game_patches(state);
     refresh_backups(state);

@@ -5,6 +5,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use iced::time::Instant;
+use iced::widget::image::Handle;
+use iced::{Rectangle, Size};
 use iced_test::simulator::simulator;
 use serde_json::json;
 use spartanport_launcher::core::gpu::GpuRow;
@@ -70,23 +72,62 @@ fn home_shows_play_and_the_four_chips() {
 }
 
 #[test]
-fn the_home_art_falls_back_to_the_base_game() {
+fn the_home_shows_the_launcher_key_art_without_a_game_folder() {
     let dir = tempfile::tempdir().unwrap();
-    let (game, update) = (dir.path().join("game"), dir.path().join("update"));
-    for folder in [&game, &update] {
-        std::fs::create_dir_all(folder.join("sce_sys")).unwrap();
-        std::fs::write(folder.join("eboot.bin"), b"elf").unwrap();
-    }
-    std::fs::write(game.join("sce_sys/pic1.png"), b"png").unwrap();
     let mut state = state_in(dir.path());
-    state
-        .settings
-        .set("game_dir", game.display().to_string().into());
-    state
-        .settings
-        .set("update_dir", update.display().to_string().into());
-    home::load_home_art(&mut state);
-    assert!(state.home_art.is_some(), "the update has no pic1.png");
+    state.settings.set("game_dir", "".into());
+    home::refresh_facts(&mut state);
+    let mut ui = simulator(app::view(&state));
+    assert!(
+        ui.find(iced_test::selector::id(home::ART_ID)).is_ok(),
+        "no key art layer on the Home"
+    );
+}
+
+#[test]
+fn the_key_art_is_the_embedded_1920_by_1080_picture() {
+    let art = home::art();
+    assert_eq!(art.id(), home::art().id(), "one handle per process");
+    let Handle::Bytes(_, bytes) = art else {
+        panic!("the key art is not embedded: {art:?}");
+    };
+    let picture = image::load_from_memory(&bytes).unwrap();
+    assert_eq!((picture.width(), picture.height()), (1920, 1080));
+    // A scene of the picture's own size shows all of it.
+    assert_eq!(
+        home::art_crop(Size::new(1920.0, 1080.0)),
+        crop(0, 0, 1920, 1080)
+    );
+}
+
+fn crop(x: u32, y: u32, width: u32, height: u32) -> Rectangle<u32> {
+    Rectangle {
+        x,
+        y,
+        width,
+        height,
+    }
+}
+
+#[test]
+fn the_key_art_covers_the_scene_anchored_at_70_and_30_percent() {
+    // A narrow scene shows a slice 70 % of the way across the picture.
+    assert_eq!(
+        home::art_crop(Size::new(960.0, 1080.0)),
+        crop(672, 0, 960, 1080)
+    );
+    // A wide scene shows a band 30 % of the way down.
+    assert_eq!(
+        home::art_crop(Size::new(1920.0, 540.0)),
+        crop(0, 162, 1920, 540)
+    );
+    // A larger scene of the same shape scales the whole picture up.
+    assert_eq!(
+        home::art_crop(Size::new(3840.0, 2160.0)),
+        crop(0, 0, 1920, 1080)
+    );
+    // A minimised window has no scene: the whole picture, no division by zero.
+    assert_eq!(home::art_crop(Size::ZERO), crop(0, 0, 1920, 1080));
 }
 
 #[test]

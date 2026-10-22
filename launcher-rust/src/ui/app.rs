@@ -101,8 +101,6 @@ pub struct State {
     /// The percentages the update worker sends; `update::drain` empties it on each clock tick.
     pub update_progress: Option<std::sync::mpsc::Receiver<u8>>,
     pub lang_menu: LangMenu,
-    /// The art of the Home background, `sce_sys/pic1.png` of the game folder.
-    pub home_art: Option<iced::widget::image::Handle>,
     /// What the Home chips read from the disk.
     pub home: HomeFacts,
     pub modal: Option<Modal>,
@@ -193,7 +191,6 @@ impl State {
             update: Default::default(),
             update_progress: None,
             lang_menu: Default::default(),
-            home_art: None,
             home: Default::default(),
             modal: None,
             effects,
@@ -212,7 +209,6 @@ impl State {
             window: None,
             now,
         };
-        home::load_home_art(&mut state);
         home::refresh_facts(&mut state);
         // The Mods page's lists now, as the Python launcher does, so the first visit does not count
         // as a change.
@@ -509,13 +505,16 @@ fn tick(state: &mut State, at: Instant) {
         state.visible,
         state.effects,
     ));
-    // The scene is the window minus the tab bar.
-    let scene = Size::new(
+    state.fire.tick(dt, scene_size(state));
+    state.splash.advance(at);
+}
+
+/// The scene: the window minus the tab bar.
+pub fn scene_size(state: &State) -> Size {
+    Size::new(
         state.window_size.width,
         (state.window_size.height - BAR_HEIGHT).max(0.0),
-    );
-    state.fire.tick(dt, scene);
-    state.splash.advance(at);
+    )
 }
 
 /// Home closes the drawer; any other page opens it, sliding in when it was closed. The Trophies
