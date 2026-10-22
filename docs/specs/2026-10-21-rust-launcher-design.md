@@ -159,8 +159,10 @@ une o relógio do fogo, a leitura do pipe e os eventos de teclado.
 
 Fundo `#070606`, brasas, monograma SP (200 px) com brilho vermelho, texto da checagem corrente
 abaixo. Três `Task`s em paralelo: lista de GPUs, checagem da pasta do jogo, checagem de atualização
-(só com `check_updates` ligado). O splash termina quando as três respondem, com mínimo de 0,8 s e
-máximo de 3 s; qualquer tecla ou clique pula. Transição de 0,7 s: o monograma voa para o canto
+(só com `check_updates` ligado). Os textos das três se revezam nessa ordem, cada um por pelo menos
+um terço do mínimo mesmo com as respostas já dadas, e nenhum sai antes da sua checagem responder
+(R86). O splash termina quando os três textos tiveram a vez, com mínimo de 0,8 s e máximo de 3 s;
+qualquer tecla ou clique pula. Transição de 0,7 s: o monograma voa para o canto
 superior esquerdo (60 px) com `Animation` e easing `EaseOut`, o fundo escuro e os textos somem, a
 Home aparece. O monograma fica no canto e é a única identificação do launcher na janela.
 
