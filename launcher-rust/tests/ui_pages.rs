@@ -343,7 +343,7 @@ fn a_folder_too_long_for_its_field_wraps_inside_it() {
         app::view(&state),
     );
     let field = ui.find(folder).unwrap().bounds();
-    let alone = common::natural_size(folder, iced::Font::DEFAULT, 16.0);
+    let alone = common::natural_size(folder, None, 16.0);
     assert!(
         alone.width > field.width,
         "the field is {} wide",
@@ -1351,8 +1351,10 @@ fn check_updates_row_hidden_without_self_update() {
 fn the_launcher_buttons_wrap_instead_of_squeezing() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
-    // Portuguese has the longest labels of the row; 1280 × 800 gives the narrowest drawer.
+    // Portuguese has the longest labels of the row; 1280 × 800 gives the narrowest drawer. The row
+    // of Windows (with Check for updates) on every system.
     state.lang = "pt".into();
+    state.self_update = true;
     open(&mut state, Page::Advanced);
     let _ = app::update(
         &mut state,
@@ -1365,7 +1367,8 @@ fn the_launcher_buttons_wrap_instead_of_squeezing() {
     );
     for label in [tr("pt", "Desktop shortcut"), tr("pt", "Add to Steam")] {
         let shown = ui.find(label.as_str()).unwrap().bounds().width;
-        let alone = common::natural_size(&label, iced::Font::DEFAULT, 16.0).width;
+        // The buttons' labels set no font: the default one.
+        let alone = common::natural_size(&label, None, 16.0).width;
         assert!(shown >= alone - 0.5, "{label}: {shown} wide, needs {alone}");
     }
 }

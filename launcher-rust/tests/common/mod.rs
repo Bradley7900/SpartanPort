@@ -45,9 +45,15 @@ pub fn click(state: &mut State, label: &str) {
     }
 }
 
-/// The size `label` takes on its own, on one line, in `font` at `size`.
-pub fn natural_size(label: &str, font: Font, size: f32) -> Size {
-    let alone: Element<'_, Message> = text(label).font(font).size(size).into();
+/// The size `label` takes on its own, on one line, at `size`: in `font`, or with `None` in the
+/// renderer's default font, as a text without `.font(..)` gets it. (An explicit `Font::DEFAULT` is
+/// the system's sans-serif instead, whose width differs from one system to another.)
+pub fn natural_size(label: &str, font: Option<Font>, size: f32) -> Size {
+    let alone = text(label).size(size);
+    let alone: Element<'_, Message> = match font {
+        Some(font) => alone.font(font).into(),
+        None => alone.into(),
+    };
     simulator(alone).find(label).unwrap().bounds().size()
 }
 

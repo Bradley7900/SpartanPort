@@ -256,7 +256,7 @@ fn tab_labels_keep_their_width() {
     for page in Page::ALL {
         let label = page.label_en();
         let shown = ui.find(label).unwrap().bounds().width;
-        let alone = natural_size(label, CINZEL_BOLD, 14.0).width;
+        let alone = natural_size(label, Some(CINZEL_BOLD), 14.0).width;
         assert!(shown >= alone - 0.5, "{label}: {shown} wide, needs {alone}");
     }
 }
