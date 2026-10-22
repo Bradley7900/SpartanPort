@@ -845,3 +845,392 @@ fn opening_the_page_and_the_buttons_start_a_load() {
         .iter()
         .any(|m| matches!(m, Message::Trophies(TrophiesMessage::Reset))));
 }
+
+// --- Controls page (Task 28) ---
+
+use iced::keyboard::key::Named;
+use iced::keyboard::{Key, Location, Modifiers};
+use iced::mouse;
+use spartanport_launcher::core::controls::{Kind, PAD_STYLES};
+use spartanport_launcher::ui::pages::controls::{
+    self, ControlsMessage, ControlsView, Device, PadChoice, CAPTURE_SECONDS,
+};
+
+fn controls_update(state: &mut app::State, message: ControlsMessage) {
+    let _ = app::update(state, Message::Controls(message));
+}
+
+/// Clicks the key box of `button`: the page now waits for an input for it.
+fn capture(state: &mut app::State, button: &str) {
+    controls_update(state, ControlsMessage::Capture(button.into()));
+}
+
+/// A key press as the keyboard subscription delivers it.
+fn press_key(state: &mut app::State, key: Key, location: Location) {
+    let _ = app::update(state, Message::Key(key, Modifiers::default(), location));
+}
+
+fn char_key(text: &str) -> Key {
+    Key::Character(text.into())
+}
+
+/// Like `messages`, in a window tall enough to show the whole page (the drawer scrolls).
+fn tall_messages(state: &app::State, label: &str) -> Vec<Message> {
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 4000.0),
+        app::view(state),
+    );
+    ui.click(label)
+        .unwrap_or_else(|error| panic!("click {label:?}: {error:?}"));
+    ui.into_messages().collect()
+}
+
+fn controls_state(dir: &std::path::Path) -> app::State {
+    let mut state = state(dir);
+    state.lang = "en".into();
+    open(&mut state, Page::Controls);
+    state
+}
+
+#[test]
+fn pressed_keys_become_sdl_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    // The Tk keysyms of the Python test (q, Q, 7, F12, space, Shift_L, Control_L, KP_5,
+    // BackSpace) as iced reports those keys, then a few more of the mapping.
+    let presses = [
+        (char_key("q"), Location::Standard, "Q"),
+        (char_key("Q"), Location::Standard, "Q"),
+        (char_key("7"), Location::Standard, "7"),
+        (Key::Named(Named::F12), Location::Standard, "F12"),
+        (Key::Named(Named::Space), Location::Standard, "Space"),
+        (Key::Named(Named::Shift), Location::Left, "Left Shift"),
+        (Key::Named(Named::Control), Location::Left, "Left Ctrl"),
+        (char_key("5"), Location::Numpad, "Keypad 5"),
+        (
+            Key::Named(Named::Backspace),
+            Location::Standard,
+            "Backspace",
+        ),
+        (Key::Named(Named::Enter), Location::Standard, "Return"),
+        (Key::Named(Named::Enter), Location::Numpad, "Keypad Enter"),
+        (Key::Named(Named::Alt), Location::Right, "Right Alt"),
+        (Key::Named(Named::Escape), Location::Standard, "Escape"),
+        (Key::Named(Named::ArrowLeft), Location::Standard, "Left"),
+        (
+            Key::Named(Named::ContextMenu),
+            Location::Standard,
+            "Application",
+        ),
+        (Key::Named(Named::NumLock), Location::Numpad, "Numlock"),
+        // The numpad with Num Lock off reports its other names; SDL sees the same keys.
+        (Key::Named(Named::Home), Location::Numpad, "Keypad 7"),
+        (Key::Named(Named::Delete), Location::Numpad, "Keypad ."),
+        (char_key("="), Location::Standard, "Equals"),
+        (char_key(","), Location::Standard, "Comma"),
+        (char_key("-"), Location::Standard, "-"),
+        (Key::Named(Named::F24), Location::Standard, "F24"),
+    ];
+    for (key, location, name) in presses {
+        capture(&mut state, "cross");
+        assert_eq!(state.controls.capturing.as_deref(), Some("cross"));
+        press_key(&mut state, key.clone(), location);
+        assert_eq!(state.controls.key["cross"], name, "{key:?} {location:?}");
+        assert!(state.controls.capturing.is_none(), "{key:?}");
+    }
+    // While no box waits, the keys navigate as before.
+    press_key(&mut state, Key::Named(Named::ArrowLeft), Location::Standard);
+    assert_eq!(state.page, Page::Trophies);
+}
+
+#[test]
+fn keys_that_cannot_be_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    let before = state.controls.key.clone();
+    // Insert, Win_L, Win_R, Print, F25 and eacute of the Python test.
+    let presses = [
+        (Key::Named(Named::Insert), Location::Standard),
+        (Key::Named(Named::Super), Location::Left),
+        (Key::Named(Named::Super), Location::Right),
+        (Key::Named(Named::PrintScreen), Location::Standard),
+        (Key::Named(Named::F25), Location::Standard),
+        (char_key("é"), Location::Standard),
+    ];
+    capture(&mut state, "cross");
+    for (key, location) in presses {
+        press_key(&mut state, key.clone(), location);
+        // The box keeps waiting and nothing changed.
+        assert_eq!(
+            state.controls.capturing.as_deref(),
+            Some("cross"),
+            "{key:?}"
+        );
+        assert_eq!(state.controls.key, before, "{key:?}");
+    }
+    assert_eq!(state.page, Page::Controls);
+}
+
+#[test]
+fn binding_a_used_key_swaps_the_buttons_in_the_view() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    // Nobody has F by default: Square takes it.
+    capture(&mut state, "square");
+    press_key(&mut state, char_key("f"), Location::Standard);
+    assert_eq!(state.controls.key["square"], "F");
+    // Cross's box shows Space; clicking it waits for an input for Cross.
+    click_tall(&mut state, "Space");
+    assert_eq!(state.controls.capturing.as_deref(), Some("cross"));
+    assert!(tall_has(&state, "Press a key or mouse (5)"));
+    press_key(&mut state, char_key("f"), Location::Standard);
+    assert_eq!(state.controls.key["cross"], "F");
+    assert_eq!(state.controls.key["square"], "Space");
+    // The rendered boxes swapped too: F is Cross's box, Space is Square's.
+    assert!(matches!(
+        tall_messages(&state, "F").as_slice(),
+        [Message::Controls(ControlsMessage::Capture(button))] if button == "cross"
+    ));
+    assert!(matches!(
+        tall_messages(&state, "Space").as_slice(),
+        [Message::Controls(ControlsMessage::Capture(button))] if button == "square"
+    ));
+    let rows = controls::key_rows(&state, "en");
+    let input = |button: &str| {
+        rows.iter()
+            .find(|row| row.button == button)
+            .unwrap()
+            .input
+            .clone()
+    };
+    assert_eq!(
+        (input("cross"), input("square")),
+        ("F".into(), "Space".into())
+    );
+}
+
+#[test]
+fn device_is_its_own_choice() {
+    assert_eq!(Device::ALL.map(Device::value), ["keyboard", "gamepad"]);
+    let styles: Vec<&str> = PAD_STYLES.iter().map(|(style, _)| *style).collect();
+    assert_eq!(styles, ["playstation", "xbox", "nintendo"]);
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    // The first open looks for a gamepad once.
+    assert!(state.controls.gamepad_probe_started);
+    assert_eq!(state.controls.device, Device::Keyboard);
+    assert!(!state.controls.device_chosen);
+    // A gamepad found shows its table, but an untouched first choice stays automatic.
+    controls_update(&mut state, ControlsMessage::GamepadDetected(true));
+    assert_eq!(state.controls.device, Device::Gamepad);
+    assert!(!state.controls.device_chosen);
+    assert!(state.settings.get("controls_device").is_none());
+    assert!(tall_has(&state, "GAMEPAD MAPPING"));
+    assert!(!tall_has(&state, "KEYBOARD & MOUSE MAPPING"));
+
+    // The device radio only chooses the table shown; the tables keep their inputs.
+    capture(&mut state, "cross");
+    press_key(&mut state, char_key("g"), Location::Standard);
+    let (key, pad) = (state.controls.key.clone(), state.controls.pad.clone());
+    click(&mut state, "Keyboard & mouse");
+    assert_eq!(state.controls.device, Device::Keyboard);
+    assert!(state.controls.device_chosen);
+    assert_eq!(state.settings.get_str("controls_device"), "keyboard");
+    assert!(tall_has(&state, "KEYBOARD & MOUSE MAPPING"));
+    assert!(!tall_has(&state, "GAMEPAD MAPPING"));
+    assert_eq!((&state.controls.key, &state.controls.pad), (&key, &pad));
+    // Once chosen, a gamepad found later does not switch the page.
+    controls_update(&mut state, ControlsMessage::GamepadDetected(true));
+    assert_eq!(state.controls.device, Device::Keyboard);
+    click(&mut state, "Gamepad");
+    assert_eq!(state.controls.device, Device::Gamepad);
+    assert_eq!(state.settings.get_str("controls_device"), "gamepad");
+    assert_eq!((&state.controls.key, &state.controls.pad), (&key, &pad));
+    // The saved choice comes back and the probe does not run.
+    let again = ControlsView::new(&state.settings);
+    assert_eq!(again.device, Device::Gamepad);
+    assert!(again.device_chosen);
+    let mut reopened = state;
+    reopened.controls = again;
+    open(&mut reopened, Page::Controls);
+    assert!(!reopened.controls.gamepad_probe_started);
+}
+
+#[test]
+fn nintendo_names_follow_the_button_positions() {
+    let names = controls::pad_labels("nintendo", "en");
+    let label = |sdl: &str| {
+        names
+            .iter()
+            .find(|(name, _)| name == sdl)
+            .unwrap()
+            .1
+            .clone()
+    };
+    assert_eq!(
+        (label("a"), label("b"), label("x"), label("y")),
+        ("B".into(), "A".into(), "Y".into(), "X".into())
+    );
+    // A label maps back to one button.
+    let unique: std::collections::BTreeSet<&String> = names.iter().map(|(_, l)| l).collect();
+    assert_eq!(unique.len(), names.len());
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    click(&mut state, "Gamepad");
+    assert_eq!(state.controls.pad_style, "playstation");
+    click_tall(&mut state, "Nintendo");
+    assert_eq!(state.controls.pad_style, "nintendo");
+    assert_eq!(state.settings.get_str("pad_style"), "nintendo");
+    // The table relabels its boxes; L2, R2 and Touchpad left keep their fixed text.
+    let rows = controls::pad_rows(&state, "en");
+    let row = |button: &str| {
+        rows.iter()
+            .find(|row| row.button == button)
+            .unwrap()
+            .clone()
+    };
+    let PadChoice::Pick { pairs, current } = row("cross").choice else {
+        panic!("cross has a box");
+    };
+    assert_eq!(current, "B");
+    assert_eq!(pairs, controls::pad_labels("nintendo", "en"));
+    assert!(matches!(row("circle").choice, PadChoice::Pick { current, .. } if current == "A"));
+    assert!(matches!(row("l2").choice, PadChoice::Fixed(text) if text == "L2 trigger"));
+    assert!(
+        matches!(row("touchpad_left").choice, PadChoice::Fixed(text) if text == "L1 + Touchpad right")
+    );
+    page_has(&state, &["L2 trigger", "R2 trigger", "L1 + Touchpad right"]);
+    // Choosing a label stores its SDL name: Nintendo's A is the east button.
+    let pick = controls::pad_pick("cross", &pairs, "A");
+    assert!(matches!(
+        &pick,
+        Message::Controls(ControlsMessage::PadPick(button, name)) if button == "cross" && name == "b"
+    ));
+    let _ = app::update(&mut state, pick);
+    assert_eq!(state.controls.pad["cross"], "b");
+    assert_eq!(state.controls.pad["circle"], "b");
+}
+
+#[test]
+fn capture_takes_the_mouse_and_gives_up_in_time() {
+    let pressed = |button| iced::Event::Mouse(mouse::Event::ButtonPressed(button));
+    let wheel = |delta| iced::Event::Mouse(mouse::Event::WheelScrolled { delta });
+    let inputs = [
+        (pressed(mouse::Button::Left), Some("Mouse Left")),
+        (pressed(mouse::Button::Middle), Some("Mouse Middle")),
+        (pressed(mouse::Button::Right), Some("Mouse Right")),
+        (pressed(mouse::Button::Back), Some("Mouse Back")),
+        (pressed(mouse::Button::Forward), Some("Mouse Forward")),
+        (pressed(mouse::Button::Other(8)), None),
+        (
+            wheel(mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 }),
+            Some("Wheel Up"),
+        ),
+        (
+            wheel(mouse::ScrollDelta::Pixels { x: 0.0, y: -40.0 }),
+            Some("Wheel Down"),
+        ),
+        (
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            None,
+        ),
+    ];
+    for (event, name) in inputs {
+        assert_eq!(controls::mouse_input(&event), name, "{event:?}");
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    capture(&mut state, "cross");
+    controls_update(
+        &mut state,
+        ControlsMessage::Captured("cross".into(), "Wheel Up".into()),
+    );
+    assert_eq!(state.controls.key["cross"], "Wheel Up");
+    assert!(state.controls.capturing.is_none());
+    // An input that arrives when no box waits binds nothing.
+    controls_update(
+        &mut state,
+        ControlsMessage::Captured("cross".into(), "Mouse Left".into()),
+    );
+    assert_eq!(state.controls.key["cross"], "Wheel Up");
+
+    // The box counts down and gives up after CAPTURE_SECONDS.
+    assert_eq!(CAPTURE_SECONDS, 5);
+    capture(&mut state, "circle");
+    let started = state.controls.capture_started.unwrap();
+    let _ = app::update(
+        &mut state,
+        Message::Tick(started + std::time::Duration::from_millis(4900)),
+    );
+    assert_eq!(state.controls.capturing.as_deref(), Some("circle"));
+    assert!(tall_has(&state, "Press a key or mouse (1)"));
+    // While it waits, a click anywhere is only its input (the mouse subscription delivers it):
+    // the button, the box or the tab under the cursor does not react.
+    for label in ["Reset keyboard & mouse to defaults", "Wheel Up", "Graphics"] {
+        let sent = tall_messages(&state, label);
+        assert!(
+            sent.iter().all(|message| matches!(message, Message::Noop)),
+            "{label}: {sent:?}"
+        );
+    }
+    let _ = app::update(
+        &mut state,
+        Message::Tick(started + std::time::Duration::from_secs(CAPTURE_SECONDS)),
+    );
+    assert!(state.controls.capturing.is_none());
+    assert_eq!(state.controls.key["circle"], "Left Shift");
+    assert!(tall_has(&state, "Left Shift"));
+}
+
+#[test]
+fn reset_buttons_and_the_rage_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    let defaults = state.controls.key.clone();
+    assert_eq!(defaults["square"], "Mouse Left");
+    assert_eq!(defaults["rage"], "Mouse Middle");
+    // The arrow puts one button back on its default, swapping with the button that had it.
+    capture(&mut state, "cross");
+    press_key(&mut state, char_key("h"), Location::Standard);
+    assert_eq!(state.controls.key["cross"], "H");
+    controls_update(&mut state, ControlsMessage::ResetKey("cross".into()));
+    assert_eq!(state.controls.key["cross"], "Space");
+    // L1 leaves Q, R1 takes it: L1's arrow gives L1 its Q back and R1 the old H.
+    capture(&mut state, "l1");
+    press_key(&mut state, char_key("h"), Location::Standard);
+    capture(&mut state, "r1");
+    press_key(&mut state, char_key("q"), Location::Standard);
+    controls_update(&mut state, ControlsMessage::ResetKey("l1".into()));
+    assert_eq!(state.controls.key["l1"], "Q");
+    assert_eq!(state.controls.key["r1"], "H");
+    click_tall(&mut state, "Reset keyboard & mouse to defaults");
+    assert_eq!(state.controls.key, defaults);
+
+    // Rage of Sparta on one input greys L3 and R3; off, it greys the Rage row.
+    let enabled = |state: &app::State, button: &str| {
+        controls::key_rows(state, "en")
+            .into_iter()
+            .find(|row| row.button == button)
+            .unwrap()
+            .enabled
+    };
+    assert!(state.settings.get_bool("rage_one_input"));
+    assert!(!enabled(&state, "l3") && !enabled(&state, "r3") && enabled(&state, "rage"));
+    click_tall(&mut state, "Rage of Sparta on one input (L3 + R3 together)");
+    assert!(!state.settings.get_bool("rage_one_input"));
+    assert!(enabled(&state, "l3") && enabled(&state, "r3") && !enabled(&state, "rage"));
+    assert!(enabled(&state, "cross"));
+
+    // The gamepad table goes back to the controller's own buttons.
+    controls_update(
+        &mut state,
+        ControlsMessage::PadPick("cross".into(), "y".into()),
+    );
+    controls_update(&mut state, ControlsMessage::ResetTable(Kind::Pad));
+    assert_eq!(state.controls.pad["cross"], "a");
+    assert_eq!(state.controls.pad["l2"], "");
+}

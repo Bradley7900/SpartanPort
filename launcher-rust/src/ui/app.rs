@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use iced::animation::{Animation, Easing};
 use iced::keyboard::key::Named;
-use iced::keyboard::{self, Key, Modifiers};
+use iced::keyboard::{self, Key, Location, Modifiers};
 use iced::time::Instant;
 use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
 use iced::{window, Background, Center, Color, Element, Fill, Size, Subscription, Task};
@@ -23,7 +23,7 @@ use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, Fire};
 use crate::ui::home::{self, HomeFacts};
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
-use crate::ui::pages::controls::ControlsMessage;
+use crate::ui::pages::controls::{self, ControlsMessage, ControlsView};
 use crate::ui::pages::game::{self, BackupMessage, PatchesView};
 use crate::ui::pages::mods::{ModsMessage, ModsView};
 use crate::ui::pages::performance;
@@ -73,6 +73,7 @@ pub struct State {
     pub monitor_pairs: Vec<(String, String)>,
     pub trophies: TrophiesView,
     pub mods: ModsView,
+    pub controls: ControlsView,
     pub patches: PatchesView,
     /// The names of the save backups, newest first.
     pub backups: Vec<String>,
@@ -117,6 +118,7 @@ impl State {
                 .map_or("", String::as_str),
         )
         .unwrap_or_else(|| "16:9".to_string());
+        let controls = ControlsView::new(&settings);
         let mut state = State {
             paths,
             settings,
@@ -142,6 +144,7 @@ impl State {
             monitor_pairs: Vec::new(),
             trophies: Default::default(),
             mods: Default::default(),
+            controls,
             patches: Default::default(),
             backups: Vec::new(),
             backup_choice: String::new(),
@@ -190,7 +193,8 @@ pub enum Message {
     Stop,
     Save,
     Tick(Instant),
-    Key(Key, Modifiers),
+    /// A key press no widget took, with where the key sits (left, right or numpad).
+    Key(Key, Modifiers, Location),
     WindowFocused(bool),
     Resized(Size),
     Splash(SplashMessage),
@@ -227,11 +231,15 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::CloseDrawer => return show_page(state, Page::Home),
         Message::NextPage => return show_page(state, state.page.next()),
         Message::PreviousPage => return show_page(state, state.page.previous()),
-        Message::Key(key, _modifiers) => {
+        Message::Key(key, _modifiers, location) => {
             // While the splash shows, any key only skips it.
             if !state.splash.done {
                 splash::apply(state, SplashMessage::Skip);
                 return Task::none();
+            }
+            // While a key box of the Controls page waits, the key is its input.
+            if state.controls.capturing.is_some() {
+                return controls::key_pressed(state, &key, location);
             }
             return match key_message(state, &key) {
                 Some(Message::Play) => Task::done(Message::Play),
@@ -243,6 +251,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Tick(at) => {
             tick(state, at);
             lang_menu::update(state, LangMessage::Tick(at));
+            controls::tick(state, at);
         }
         // Task 33
         Message::Play | Message::Stop => {}
@@ -284,8 +293,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Trophies(message) => return trophies::update(state, message),
         // Task 29
         Message::Mods(message) => match message {},
-        // Task 28
-        Message::Controls(message) => match message {},
+        Message::Controls(message) => return controls::update(state, message),
         Message::Noop => {}
     }
     Task::none()
@@ -354,7 +362,7 @@ fn tick(state: &mut State, at: Instant) {
 }
 
 /// Home closes the drawer; any other page opens it, sliding in when it was closed. The Trophies
-/// page reloads its list each time it opens.
+/// page reloads its list each time it opens; the first open of Controls looks for a gamepad.
 fn show_page(state: &mut State, page: Page) -> Task<Message> {
     let now = Instant::now();
     state.now = now;
@@ -366,10 +374,10 @@ fn show_page(state: &mut State, page: Page) -> Task<Message> {
         DrawerState::Closed
     };
     state.drawer_progress.go_mut(open, now);
-    if page == Page::Trophies {
-        trophies::refresh(state)
-    } else {
-        Task::none()
+    match page {
+        Page::Trophies => trophies::refresh(state),
+        Page::Controls => controls::opened(state),
+        _ => Task::none(),
     }
 }
 
@@ -406,14 +414,26 @@ pub fn view(state: &State) -> Element<'_, Message> {
         scene = scene.push(drawer::view(state, page));
     }
     let page = column![scene, bar(state)];
-    match &state.modal {
-        Some(open) => stack![
-            page,
-            widgets::modal(open.kind.clone(), &open.title, &open.text, &state.lang)
-        ]
-        .into(),
-        None => page.into(),
+    let mut layers = Vec::new();
+    // While a key box of the Controls page waits, a click anywhere is its input.
+    if state.controls.capturing.is_some() {
+        layers.push(controls::input_catcher());
     }
+    if let Some(open) = &state.modal {
+        layers.push(widgets::modal(
+            open.kind.clone(),
+            &open.title,
+            &open.text,
+            &state.lang,
+        ));
+    }
+    if layers.is_empty() {
+        return page.into();
+    }
+    layers
+        .into_iter()
+        .fold(stack![page], |layered, layer| layered.push(layer))
+        .into()
 }
 
 /// Darkens the Home view behind an open drawer; a press on it closes the drawer. The spec also
@@ -476,10 +496,16 @@ fn tab(state: &State, page: Page) -> Element<'_, Message> {
     column![tab_button, underline].into()
 }
 
-/// Keys, window size and, while the drawer slides, animation frames.
+/// Keys and window size; animation frames while the drawer slides; the mouse while a key box of
+/// the Controls page waits.
 pub fn subscription(state: &State) -> Subscription<Message> {
     let keys = keyboard::listen().filter_map(|event| match event {
-        keyboard::Event::KeyPressed { key, modifiers, .. } => Some(Message::Key(key, modifiers)),
+        keyboard::Event::KeyPressed {
+            key,
+            modifiers,
+            location,
+            ..
+        } => Some(Message::Key(key, modifiers, location)),
         _ => None,
     });
     let resized = window::resize_events().map(|(_window, size)| Message::Resized(size));
@@ -499,7 +525,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         } else {
             Subscription::none()
         };
-    Subscription::batch([keys, resized, frames, clock])
+    Subscription::batch([keys, resized, frames, clock, controls::subscription(state)])
 }
 
 /// Opens the launcher window and runs until it closes.

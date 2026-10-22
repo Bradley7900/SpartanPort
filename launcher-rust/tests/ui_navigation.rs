@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use iced::keyboard::key::Named;
-use iced::keyboard::{Key, Modifiers};
+use iced::keyboard::{Key, Location, Modifiers};
 use iced::time::Instant;
 use iced::{Point, Size};
 use iced_test::core::Settings;
@@ -74,7 +74,10 @@ fn click_at(state: &mut State, x: f32, y: f32) {
 }
 
 fn press(state: &mut State, key: Named) {
-    let _ = app::update(state, Message::Key(Key::Named(key), Modifiers::default()));
+    let _ = app::update(
+        state,
+        Message::Key(Key::Named(key), Modifiers::default(), Location::Standard),
+    );
 }
 
 #[test]
@@ -162,13 +165,16 @@ fn enter_on_home_sends_play() {
     assert!(matches!(key_message(&state, &enter), Some(Message::Play)));
     let task = app::update(
         &mut state,
-        Message::Key(enter.clone(), Modifiers::default()),
+        Message::Key(enter.clone(), Modifiers::default(), Location::Standard),
     );
     assert_eq!(task.units(), 1);
 
     click(&mut state, "Graphics");
     assert!(key_message(&state, &enter).is_none());
-    let task = app::update(&mut state, Message::Key(enter, Modifiers::default()));
+    let task = app::update(
+        &mut state,
+        Message::Key(enter, Modifiers::default(), Location::Standard),
+    );
     assert_eq!(task.units(), 0);
     assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
 }

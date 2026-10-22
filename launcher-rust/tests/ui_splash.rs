@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use iced::keyboard::key::Named;
-use iced::keyboard::{Key, Modifiers};
+use iced::keyboard::{Key, Location, Modifiers};
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
 
@@ -26,7 +26,11 @@ fn a_key_skips_then_the_monogram_flies_and_the_splash_ends() {
 
     let _ = app::update(
         &mut state,
-        Message::Key(Key::Named(Named::Space), Modifiers::default()),
+        Message::Key(
+            Key::Named(Named::Space),
+            Modifiers::default(),
+            Location::Standard,
+        ),
     );
     assert!(state.splash.skipped);
 
