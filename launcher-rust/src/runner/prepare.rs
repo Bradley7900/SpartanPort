@@ -21,43 +21,43 @@ const ELF_MAGIC: &[u8] = b"\x7fELF";
 const ELF_IDENT: &[u8] = b"\x7fELF\x02\x01\x01";
 const EM_X86_64: u16 = 62;
 /// Neither the unpacked ELF nor the memory image may be larger.
-const IMAGE_LIMIT: u64 = 512 * 1024 * 1024;
+pub(super) const IMAGE_LIMIT: u64 = 512 * 1024 * 1024;
 
 /// SELF segment flags: the entry carries a program header's bytes (its index in bits 20..32)…
 const SELF_HOLDS_SEGMENT: u64 = 0x800;
 /// …which are encrypted (2) or compressed (8).
 const SELF_ENCRYPTED_OR_COMPRESSED: u64 = 0x2 | 0x8;
 
-const PT_LOAD: u32 = 1;
-const PT_DYNAMIC: u32 = 2;
-const PT_SCE_DYNLIBDATA: u32 = 0x6100_0000;
+pub(super) const PT_LOAD: u32 = 1;
+pub(super) const PT_DYNAMIC: u32 = 2;
+pub(super) const PT_SCE_DYNLIBDATA: u32 = 0x6100_0000;
 const PT_SCE_RELRO: u32 = 0x6100_0010;
-const PF_X: u32 = 1;
+pub(super) const PF_X: u32 = 1;
 
-const DT_NULL: u64 = 0;
+pub(super) const DT_NULL: u64 = 0;
 const DT_NEEDED: u64 = 1;
-const DT_SCE_JMPREL: u64 = 0x6100_0029;
-const DT_SCE_PLTRELSZ: u64 = 0x6100_002d;
-const DT_SCE_RELA: u64 = 0x6100_002f;
-const DT_SCE_RELASZ: u64 = 0x6100_0031;
-const DT_SCE_STRTAB: u64 = 0x6100_0035;
-const DT_SCE_STRSZ: u64 = 0x6100_0037;
-const DT_SCE_SYMTAB: u64 = 0x6100_0039;
-const DT_SCE_SYMTABSZ: u64 = 0x6100_003f;
+pub(super) const DT_SCE_JMPREL: u64 = 0x6100_0029;
+pub(super) const DT_SCE_PLTRELSZ: u64 = 0x6100_002d;
+pub(super) const DT_SCE_RELA: u64 = 0x6100_002f;
+pub(super) const DT_SCE_RELASZ: u64 = 0x6100_0031;
+pub(super) const DT_SCE_STRTAB: u64 = 0x6100_0035;
+pub(super) const DT_SCE_STRSZ: u64 = 0x6100_0037;
+pub(super) const DT_SCE_SYMTAB: u64 = 0x6100_0039;
+pub(super) const DT_SCE_SYMTABSZ: u64 = 0x6100_003f;
 
-const R_X86_64_64: u32 = 1;
-const R_X86_64_GLOB_DAT: u32 = 6;
-const R_X86_64_JUMP_SLOT: u32 = 7;
-const R_X86_64_RELATIVE: u32 = 8;
-const SHN_ABS: u16 = 0xfff1;
-const STT_OBJECT: u8 = 1;
-const STT_FUNC: u8 = 2;
+pub(super) const R_X86_64_64: u32 = 1;
+pub(super) const R_X86_64_GLOB_DAT: u32 = 6;
+pub(super) const R_X86_64_JUMP_SLOT: u32 = 7;
+pub(super) const R_X86_64_RELATIVE: u32 = 8;
+pub(super) const SHN_ABS: u16 = 0xfff1;
+pub(super) const STT_OBJECT: u8 = 1;
+pub(super) const STT_FUNC: u8 = 2;
 
 /// `Elf64_Sym` and `Elf64_Rela` are both 24 bytes.
-const SYMBOL_SIZE: u64 = 24;
-const RELOCATION_SIZE: u64 = 24;
+pub(super) const SYMBOL_SIZE: u64 = 24;
+pub(super) const RELOCATION_SIZE: u64 = 24;
 /// `boot.bin` stores each import name NUL-padded to this size.
-const IMPORT_NAME_SIZE: usize = 128;
+pub(super) const IMPORT_NAME_SIZE: usize = 128;
 const RET: u8 = 0xc3;
 const IOS_BASE_INIT: &str = "_ZNSt8ios_base4InitC1Ev";
 const STATUS: &str = "Prepared only; execution and Vulkan are tested separately.";
@@ -352,7 +352,7 @@ struct Symbol {
     size: u64,
 }
 
-fn file_name(path: &Path) -> String {
+pub(super) fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
@@ -365,11 +365,11 @@ fn io_error(path: &Path) -> impl FnOnce(io::Error) -> PrepareError + '_ {
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn hex_number<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+pub(super) fn hex_number<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&format!("{value:#x}"))
 }
 
@@ -396,7 +396,7 @@ fn out_of_bounds(data: &[u8], offset: u64, size: u64) -> PrepareError {
 }
 
 /// `data[offset..offset + size]`, or the out-of-bounds error.
-fn span(data: &[u8], offset: u64, size: u64) -> Result<&[u8], PrepareError> {
+pub(super) fn span(data: &[u8], offset: u64, size: u64) -> Result<&[u8], PrepareError> {
     let range = usize::try_from(offset).ok().zip(
         offset
             .checked_add(size)
@@ -413,28 +413,28 @@ fn array<const N: usize>(data: &[u8], offset: u64) -> Result<[u8; N], PrepareErr
         .map_err(|_| out_of_bounds(data, offset, N as u64))
 }
 
-fn u8_at(data: &[u8], offset: u64) -> Result<u8, PrepareError> {
+pub(super) fn u8_at(data: &[u8], offset: u64) -> Result<u8, PrepareError> {
     Ok(u8::from_le_bytes(array(data, offset)?))
 }
 
-fn u16_at(data: &[u8], offset: u64) -> Result<u16, PrepareError> {
+pub(super) fn u16_at(data: &[u8], offset: u64) -> Result<u16, PrepareError> {
     Ok(u16::from_le_bytes(array(data, offset)?))
 }
 
-fn u32_at(data: &[u8], offset: u64) -> Result<u32, PrepareError> {
+pub(super) fn u32_at(data: &[u8], offset: u64) -> Result<u32, PrepareError> {
     Ok(u32::from_le_bytes(array(data, offset)?))
 }
 
-fn u64_at(data: &[u8], offset: u64) -> Result<u64, PrepareError> {
+pub(super) fn u64_at(data: &[u8], offset: u64) -> Result<u64, PrepareError> {
     Ok(u64::from_le_bytes(array(data, offset)?))
 }
 
-fn i64_at(data: &[u8], offset: u64) -> Result<i64, PrepareError> {
+pub(super) fn i64_at(data: &[u8], offset: u64) -> Result<i64, PrepareError> {
     Ok(i64::from_le_bytes(array(data, offset)?))
 }
 
 /// Copies `bytes` to offset `at` of `target`, or the out-of-bounds error when they do not fit.
-fn place(target: &mut [u8], at: u64, bytes: &[u8]) -> Result<(), PrepareError> {
+pub(super) fn place(target: &mut [u8], at: u64, bytes: &[u8]) -> Result<(), PrepareError> {
     let error = out_of_bounds(target, at, bytes.len() as u64);
     let start = usize::try_from(at).ok();
     let end = start.and_then(|start| start.checked_add(bytes.len()));
@@ -689,7 +689,7 @@ fn tag(tags: &HashMap<u64, u64>, key: u64) -> Result<u64, PrepareError> {
 }
 
 /// The table of the library blob that the dynamic tags `offset_tag` and `size_tag` locate.
-fn table<'a>(
+pub(super) fn table<'a>(
     blob: &'a [u8],
     tags: &HashMap<u64, u64>,
     offset_tag: u64,
@@ -700,7 +700,7 @@ fn table<'a>(
 }
 
 /// The NUL-terminated ASCII name at `offset` of the string table.
-fn name_at(strings: &[u8], offset: u64) -> Result<String, PrepareError> {
+pub(super) fn name_at(strings: &[u8], offset: u64) -> Result<String, PrepareError> {
     span(strings, offset, 1)?;
     let bad = || PrepareError::BadName(offset);
     let tail = usize::try_from(offset)
@@ -733,7 +733,7 @@ fn symbol_at(syms: &[u8], strings: &[u8], pos: u64) -> Result<Symbol, PrepareErr
 }
 
 /// Whether `size` bytes at `address` lie inside one loadable segment.
-fn mapped(loads: &[Segment], address: u64, size: u64) -> bool {
+pub(super) fn mapped(loads: &[Segment], address: u64, size: u64) -> bool {
     loads.iter().any(|p| {
         p.vaddr <= address
             && u128::from(address) + u128::from(size) <= u128::from(p.vaddr) + u128::from(p.memsz)

@@ -1,6 +1,13 @@
 //! The runner (Python `run.py`): starts the game under the probe and reports what it saw.
 
+pub mod link_libc;
+pub mod link_modules;
 pub mod prepare;
+
+/// The synthetic probe inputs the runner's tests build (`tests/test_probe.py::package` and more).
+#[cfg(test)]
+#[path = "../../tests/common/packages.rs"]
+mod packages;
 
 use std::ffi::OsString;
 use std::io::Write;

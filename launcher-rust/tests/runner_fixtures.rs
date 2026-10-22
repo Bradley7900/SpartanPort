@@ -5,7 +5,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::prepare::prepare;
+use spartanport_launcher::runner::{link_libc, link_modules};
 
 fn fixture_dir(case: &str) -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/runner")).join(case)
@@ -48,4 +50,24 @@ fn prepare_matches_python() {
     let analysis = String::from_utf8(fs::read(out.join("analysis.json")).unwrap()).unwrap();
     let expected = String::from_utf8(expected("prepare", "analysis.json")).unwrap();
     assert_eq!(with_placeholder(&analysis, dir.path()), expected);
+}
+
+#[test]
+fn link_matches_python() {
+    let dir = tempfile::tempdir().unwrap();
+    let game = fixture_dir("link").join("input");
+    let out = dir.path().join("out");
+    fs::create_dir_all(&out).unwrap();
+    fs::copy(game.join("boot.bin"), out.join("boot.bin")).unwrap();
+    link_libc::link(&game, &out).unwrap();
+    link_modules::link(&game, &out, &DEFAULT_MODULES).unwrap();
+    for name in ["boot-libc.bin", "boot-linked.bin"] {
+        let actual = fs::read(out.join(name)).unwrap();
+        assert_same_bytes(&actual, &expected("link", name), name);
+    }
+    for name in ["libc-link.json", "link.json"] {
+        let actual = String::from_utf8(fs::read(out.join(name)).unwrap()).unwrap();
+        let expected = String::from_utf8(expected("link", name)).unwrap();
+        assert_eq!(with_placeholder(&actual, dir.path()), expected, "{name}");
+    }
 }
