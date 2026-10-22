@@ -127,22 +127,30 @@ pub fn load_app_settings(paths: &Paths) -> Settings {
     read_app_settings(paths).0
 }
 
-/// Defaults overlaid with the saved file, and whether the file is there but unreadable (an I/O
-/// error, invalid JSON or not a JSON object): spec §6 warns once. Such a file gives the defaults
-/// and is left untouched until the next save; a missing one is no problem.
-pub fn read_app_settings(paths: &Paths) -> (Settings, bool) {
+/// What `read_app_settings` found at `paths.config_file()` after the portable migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsFile {
+    Missing,
+    Read,
+    Unreadable,
+}
+
+/// Defaults overlaid with the saved file, and what the file was: `Unreadable` is there but an I/O
+/// error, invalid JSON or not a JSON object (spec §6 warns once). Such a file gives the defaults
+/// and is left untouched until the next save; a `Missing` one is no problem.
+pub fn read_app_settings(paths: &Paths) -> (Settings, SettingsFile) {
     let config = paths.config_file();
     migrate_portable_settings(&config, &paths.legacy_config_file());
-    let (saved, unreadable) = match read_json::<Value>(&config) {
-        Ok(Some(Value::Object(map))) => (map, false),
-        Ok(None) => (Map::new(), false),
-        Ok(Some(_)) | Err(_) => (Map::new(), true),
+    let (saved, file) = match read_json::<Value>(&config) {
+        Ok(Some(Value::Object(map))) => (map, SettingsFile::Read),
+        Ok(None) => (Map::new(), SettingsFile::Missing),
+        Ok(Some(_)) | Err(_) => (Map::new(), SettingsFile::Unreadable),
     };
     let mut merged = app_defaults(&|k| std::env::var(k).ok());
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
     }
-    (Settings(merged), unreadable)
+    (Settings(merged), file)
 }
 
 /// Writes the settings as 2-space JSON without a trailing newline.
@@ -227,20 +235,62 @@ mod tests {
             (k == "SPARTAN_DATA_DIR").then(|| data.clone())
         });
         // Missing: the defaults, nothing to report.
-        let (settings, unreadable) = read_app_settings(&paths);
-        assert!(!unreadable);
+        let (settings, file) = read_app_settings(&paths);
+        assert_eq!(file, SettingsFile::Missing);
         assert_eq!(settings.get_str("ui_language"), "en");
         for broken in ["{not json", "[1, 2]", ""] {
             fs::write(paths.config_file(), broken).unwrap();
-            let (settings, unreadable) = read_app_settings(&paths);
-            assert!(unreadable, "{broken:?}");
+            let (settings, file) = read_app_settings(&paths);
+            assert_eq!(file, SettingsFile::Unreadable, "{broken:?}");
             assert_eq!(settings.get_str("ui_language"), "en", "{broken:?}");
             assert_eq!(fs::read_to_string(paths.config_file()).unwrap(), broken);
         }
         fs::write(paths.config_file(), r#"{"ui_language": "pt"}"#).unwrap();
-        let (settings, unreadable) = read_app_settings(&paths);
-        assert!(!unreadable);
+        let (settings, file) = read_app_settings(&paths);
+        assert_eq!(file, SettingsFile::Read);
         assert_eq!(settings.get_str("ui_language"), "pt");
+    }
+
+    #[test]
+    fn a_missing_file_is_told_apart_from_an_unreadable_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().to_string_lossy().into_owned();
+        let paths = Paths::from_env(dir.path(), &|k| match k {
+            "SPARTAN_DATA_DIR" => Some(data.clone()),
+            "APPDATA" | "XDG_CONFIG_HOME" => Some(format!("{data}/nowhere")),
+            _ => None,
+        });
+        assert_eq!(read_app_settings(&paths).1, SettingsFile::Missing);
+        for broken in ["{not json", "[1, 2]", ""] {
+            fs::write(paths.config_file(), broken).unwrap();
+            assert_eq!(read_app_settings(&paths).1, SettingsFile::Unreadable, "{broken:?}");
+        }
+        fs::write(paths.config_file(), r#"{"ui_language": "pt"}"#).unwrap();
+        let (settings, file) = read_app_settings(&paths);
+        assert_eq!(file, SettingsFile::Read);
+        assert_eq!(settings.get_str("ui_language"), "pt");
+    }
+
+    #[test]
+    fn a_legacy_settings_file_counts_as_read() {
+        // Review Focus: the portable migration runs before the file is looked for.
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("data");
+        // `Paths::legacy_config_file` is `<APPDATA>/gow3-launcher/settings.json` on Windows and
+        // `<XDG_CONFIG_HOME>/gow3-launcher/settings.json` elsewhere.
+        let legacy = dir.path().join("legacy").join("gow3-launcher");
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("settings.json"), r#"{"ui_language": "de"}"#).unwrap();
+        let config_home = dir.path().join("legacy").to_string_lossy().into_owned();
+        let paths = Paths::from_env(dir.path(), &|k| match k {
+            "SPARTAN_DATA_DIR" => Some(data.to_string_lossy().into_owned()),
+            "APPDATA" | "XDG_CONFIG_HOME" => Some(config_home.clone()),
+            _ => None,
+        });
+        let (settings, file) = read_app_settings(&paths);
+        assert_eq!(file, SettingsFile::Read);
+        assert_eq!(settings.get_str("ui_language"), "de");
+        assert!(paths.config_file().is_file(), "the migration copied it");
     }
 
     #[test]

@@ -21,7 +21,7 @@ use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
 use crate::core::release::ReleaseId;
-use crate::core::settings::{read_app_settings, Settings};
+use crate::core::settings::{read_app_settings, Settings, SettingsFile};
 use crate::core::update::{can_self_update, installed_release, stamp_path};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
@@ -119,6 +119,8 @@ pub struct State {
     /// Whether `settings.json` or the ini could not be read at start and nothing was saved since:
     /// only Save and PLAY write then (spec §6), not closing, opening the ini or Add to Steam.
     pub settings_unreadable: bool,
+    /// What `settings.json` was at the start; `State::open` opens the setup on `Missing`.
+    pub settings_file: SettingsFile,
     /// Whether the Home fire burns (the `launcher_effects` setting).
     pub effects: bool,
 
@@ -145,10 +147,10 @@ impl State {
     /// Reads `settings.json` and the ini (one warning when either is there but unreadable);
     /// everything else starts empty.
     pub fn new(paths: Paths) -> State {
-        let (settings, settings_unreadable) = read_app_settings(&paths);
+        let (settings, settings_file) = read_app_settings(&paths);
         let (ini, ini_unreadable) = read_ini(&paths.ini_path());
         let unreadable: Vec<PathBuf> = [
-            (settings_unreadable, paths.config_file()),
+            (settings_file == SettingsFile::Unreadable, paths.config_file()),
             (ini_unreadable, paths.ini_path()),
         ]
         .into_iter()
@@ -220,6 +222,7 @@ impl State {
             art_override: None,
             modal: None,
             settings_unreadable: !unreadable.is_empty(),
+            settings_file,
             effects,
 
             linux_tools: if cfg!(windows) {
