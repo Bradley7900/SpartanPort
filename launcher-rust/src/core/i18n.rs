@@ -170,6 +170,11 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         "✓ Saves found",
         &[("pt", "✓ Saves encontrados"), ("es", "✓ Partidas guardadas")],
     ),
+    // The Home graphics card chip when the probe did not answer.
+    (
+        "• GPU: not checked",
+        &[("pt", "• GPU: não verificada"), ("es", "• GPU: sin comprobar")],
+    ),
     ("any key skips", &[("pt", "qualquer tecla pula")]),
     (
         "Effects",

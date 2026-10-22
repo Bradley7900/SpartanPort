@@ -60,7 +60,7 @@ fn home_shows_play_and_the_three_chips() {
         [
             "• No saves yet",
             "✗ No eboot.bin in the game folder",
-            "• Graphics card: not checked",
+            "• GPU: not checked",
         ]
     );
     assert_eq!(
@@ -87,7 +87,7 @@ fn the_chips_read_saves_then_game_then_graphics_card_from_the_left() {
     let (saves, game, card) = (
         x("• No saves yet"),
         x("✗ No eboot.bin in the game folder"),
-        x("• Graphics card: not checked"),
+        x("• GPU: not checked"),
     );
     assert!(saves < game && game < card, "{saves}, {game}, {card}");
 }
@@ -327,26 +327,32 @@ fn the_rust_only_home_and_splash_texts_have_portuguese() {
 }
 
 #[test]
-fn the_graphics_card_chip_uses_the_python_text() {
+fn the_graphics_card_chip_shows_only_the_name_of_the_card_the_game_uses() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.gpus = vec![GpuRow {
-        index: "0".into(),
-        name: "NVIDIA GeForce RTX 4060".into(),
+    let card = |index: &str, name: &str, chosen: bool| GpuRow {
+        index: index.into(),
+        name: name.into(),
         kind: "discrete".into(),
         msaa: None,
-        chosen: true,
-    }];
-    // `✓ Graphics card: {}` of the 2.6.0 tables, not a Vulkan version nobody checked.
-    assert_eq!(
-        home::chips(&state)[2],
-        "✓ Graphics card: NVIDIA GeForce RTX 4060"
-    );
+        chosen,
+    };
+    state.gpus = vec![
+        card("0", "Intel(R) Arc(TM) Graphics", false),
+        card("1", "NVIDIA GeForce RTX 4060", true),
+    ];
+    // The probe's pick, by its name alone, in every language.
+    assert_eq!(home::chips(&state)[2], "✓ NVIDIA GeForce RTX 4060");
+    // The Graphics card setting wins over the probe's pick.
+    state.settings.set("gpu_id", json!("0"));
+    assert_eq!(home::chips(&state)[2], "✓ Intel(R) Arc(TM) Graphics");
     state.lang = "pt".into();
-    assert_eq!(
-        home::chips(&state)[2],
-        "✓ Placa de vídeo: NVIDIA GeForce RTX 4060"
-    );
+    assert_eq!(home::chips(&state)[2], "✓ Intel(R) Arc(TM) Graphics");
+    // No card known: the probe did not answer.
+    state.gpus.clear();
+    assert_eq!(home::chips(&state)[2], "• GPU: não verificada");
+    state.lang = "en".into();
+    assert_eq!(home::chips(&state)[2], "• GPU: not checked");
 }
 
 #[test]

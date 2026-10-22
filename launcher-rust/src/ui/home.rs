@@ -496,10 +496,10 @@ fn ini_value<'a>(state: &'a State, key: &str) -> &'a str {
 /// requirements chip).
 pub fn chips(state: &State) -> [String; 3] {
     let lang = state.lang.as_str();
+    // Only the card the game will use, by its name (the probe lists no Vulkan version).
     let gpu = match chosen_gpu(&state.gpus, &state.settings.get_str("gpu_id")) {
-        // The text of the 2.6.0 tables; the probe lists the cards without their Vulkan version.
-        Some(row) => tr_fmt(lang, "✓ Graphics card: {}", &[&row.name]),
-        None => tr(lang, "• Graphics card: not checked"),
+        Some(row) => format!("✓ {}", row.name),
+        None => tr(lang, "• GPU: not checked"),
     };
     let game = match &state.home.info {
         Some(info) => {
