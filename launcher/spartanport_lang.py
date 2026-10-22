@@ -2042,9 +2042,9 @@ for _language, _text in {
 
 EXTRA.setdefault('id', {}).update({
     'The launcher cannot write to {}, so it cannot replace itself there. Open the releases page to download the new version by hand?':
-        'Peluncur tidak dapat menulis ke {}, sehingga tidak dapat mengganti dirinya sendiri di sana. Buka halaman rilis untuk mengunduh versi baru secara manual?',
+        'Launcher tidak dapat menulis ke {}, sehingga tidak dapat mengganti dirinya sendiri di sana. Buka halaman rilis untuk mengunduh versi baru secara manual?',
     'Version {} is out, but it has no Linux build yet.':
-        'Versi {} telah keluar, tetapi belum ada build Linux.',
+        'Versi {} sudah rilis, tetapi belum ada build untuk Linux.',
     'Polish': 'Polandia',
     'Portuguese (Brazil)': 'Portugis (Brasil)',
     'Aspect ratio': 'Rasio aspek',
