@@ -1,8 +1,9 @@
-//! Palette, fonts, widget styles and the zoom rule of the launcher.
+//! Palette, fonts, widget styles, the zoom rule and the right-to-left mirror of the launcher.
 
+use iced::alignment::Horizontal;
 use iced::font::{Family, Weight};
 use iced::widget::{button, checkbox, container, pick_list, text};
-use iced::{Background, Border, Color, Font, Theme};
+use iced::{Background, Border, Color, Font, Padding, Theme};
 
 /// Colours of the launcher (spec section 3.3).
 pub mod palette {
@@ -181,6 +182,38 @@ pub fn ui_scale(mode: &str, desktop_scale: f32) -> f32 {
         "1" => 1.0,
         "2" => 2.0,
         _ => desktop_scale.clamp(1.0, 4.0),
+    }
+}
+
+/// The scale factor iced applies on top of the desktop's own (which it already draws at), so the
+/// interface shows at `scale` screen pixels per logical pixel.
+pub fn window_zoom(scale: f32, desktop_scale: f32) -> f32 {
+    if desktop_scale > 0.0 {
+        scale / desktop_scale
+    } else {
+        scale
+    }
+}
+
+/// `side` as a right-to-left language shows it: left and right swap.
+pub fn mirror_x(side: Horizontal, rtl: bool) -> Horizontal {
+    match side {
+        Horizontal::Left if rtl => Horizontal::Right,
+        Horizontal::Right if rtl => Horizontal::Left,
+        side => side,
+    }
+}
+
+/// `padding` as a right-to-left language shows it: the left and right sides swap.
+pub fn mirror_padding(padding: Padding, rtl: bool) -> Padding {
+    if rtl {
+        Padding {
+            left: padding.right,
+            right: padding.left,
+            ..padding
+        }
+    } else {
+        padding
     }
 }
 #[cfg(test)]

@@ -9,7 +9,9 @@ use serde_json::json;
 
 use crate::core::i18n::{native_name, region_of, tr, Region, LANGS};
 use crate::ui::app::{home_interactive_enabled, Message, State};
-use crate::ui::theme::{button_flat, container_card, palette, CINZEL_BOLD};
+use crate::ui::theme::{
+    button_flat, container_card, mirror_padding, mirror_x, palette, CINZEL_BOLD,
+};
 
 /// Hovering the button this long opens the list (spec 4.5).
 pub const HOVER_OPEN: Duration = Duration::from_millis(450);
@@ -106,7 +108,8 @@ pub fn button_view(state: &State) -> Element<'_, Message> {
         .into()
 }
 
-/// The open list, positioned under the button in the top-right corner of the Home view.
+/// The open list, positioned under the button in the top-right corner of the Home view (the
+/// top-left one, right to left).
 pub fn menu(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     let groups = [
@@ -145,12 +148,15 @@ pub fn menu(state: &State) -> Element<'_, Message> {
     container(row![hovered])
         .width(Fill)
         .height(Fill)
-        .align_x(Right)
+        .align_x(mirror_x(Right, state.rtl))
         .align_y(Top)
-        .padding(Padding {
-            top: EDGE_TOP + MENU_DROP,
-            right: EDGE_RIGHT,
-            ..Padding::ZERO
-        })
+        .padding(mirror_padding(
+            Padding {
+                top: EDGE_TOP + MENU_DROP,
+                right: EDGE_RIGHT,
+                ..Padding::ZERO
+            },
+            state.rtl,
+        ))
         .into()
 }

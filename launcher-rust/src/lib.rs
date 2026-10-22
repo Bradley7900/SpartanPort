@@ -1,4 +1,5 @@
 pub mod core;
+pub mod startup;
 pub mod ui;
 
 pub const APP_NAME: &str = "SpartanPort";

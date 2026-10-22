@@ -1,5 +1,6 @@
 //! The splash screen: three parallel start-up checks behind the monogram, then the monogram
-//! flies to the top-left corner (spec 4.2).
+//! flies to the top-left corner (spec 4.2), the top-right one in a right-to-left language, where
+//! the Home view keeps it.
 
 use std::time::Duration;
 
@@ -198,7 +199,12 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
     let height = (state.window_size.height - BAR_HEIGHT).max(0.0);
 
     let size = lerp(BIG, SMALL, t);
-    let x = lerp((width - BIG) / 2.0, CORNER, t);
+    let corner_x = if state.rtl {
+        width - CORNER - SMALL
+    } else {
+        CORNER
+    };
+    let x = lerp((width - BIG) / 2.0, corner_x, t);
     let y = lerp((height - BIG) / 2.0 - 30.0, CORNER, t);
     let glow = lerp(GLOW, 0.0, t);
 

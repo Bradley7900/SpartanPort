@@ -14,10 +14,10 @@ use serde_json::{Map, Value};
 use crate::core::controls::{control_changes, Kind};
 use crate::core::fs::{atomic_write, load_json};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display};
-use crate::core::i18n::{is_rtl, system_language, tr};
+use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
 use crate::core::ini::{load_ini, save_ini, INI_FLAGS};
 use crate::core::settings::{save_settings, Settings};
-use crate::ui::app::{Message, State};
+use crate::ui::app::{self, Message, State};
 use crate::ui::home;
 use crate::ui::pages::mods::{self, ModsMessage};
 use crate::ui::pages::{game, performance};
@@ -54,8 +54,6 @@ pub const SHOWN_INI_KEYS: &[&str] = &[
 /// The error dialog of a failed save.
 const SAVE_FAILED: &str =
     "Could not save all settings. Check write permissions and free disk space, then try again.";
-/// The desktop's zoom; Task 35 reads the real one.
-const DESKTOP_SCALE: f32 = 1.0;
 
 /// What `collect` writes, as data: `settings.json`, the ini values, and `mods.json` and
 /// `patches.json` when the window lists mods and third-party patches.
@@ -308,19 +306,22 @@ pub fn show_save_failed(state: &mut State) {
 }
 
 /// The Save button (Python `save`): the files, without starting the game. A new launcher language
-/// or zoom rebuilds the window in it; a failed save shows the error dialog and keeps the edits.
+/// or zoom rebuilds the window in it, and a new zoom sizes the window again; a failed save shows
+/// the error dialog and keeps the edits.
 pub fn save(state: &mut State) -> Task<Message> {
     if collect(state).is_err() {
         show_save_failed(state);
         return Task::none();
     }
-    let language = match state.settings.get_str("ui_language") {
-        language if language.is_empty() => system_language(),
-        language => language,
-    };
-    let scale = theme::ui_scale(&state.settings.get_str("ui_scale"), DESKTOP_SCALE);
-    if language != state.lang || scale != state.scale {
-        return rebuild(state, language, scale);
+    let language = launcher_language(&state.settings.get_str("ui_language"), system_language);
+    let scale = theme::ui_scale(&state.settings.get_str("ui_scale"), state.desktop_scale);
+    let rezoomed = scale != state.scale;
+    if language != state.lang || rezoomed {
+        let rebuilt = rebuild(state, language, scale);
+        if rezoomed {
+            return Task::batch([rebuilt, app::fit_window(state)]);
+        }
+        return rebuilt;
     }
     Task::none()
 }

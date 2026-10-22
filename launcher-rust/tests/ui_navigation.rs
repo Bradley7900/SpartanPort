@@ -18,8 +18,9 @@ use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{
     self, home_interactive_enabled, home_interactive_opacity, key_message, Message, State,
 };
-use spartanport_launcher::ui::drawer::{drawer_width, DrawerState};
+use spartanport_launcher::ui::drawer::{self, drawer_width, DrawerState};
 use spartanport_launcher::ui::pages::Page;
+use spartanport_launcher::VERSION;
 
 /// The page order of the Global Constraints.
 const ORDER: [Page; 9] = [
@@ -195,4 +196,35 @@ fn background_click_closes_but_the_drawer_body_does_not() {
 
     click_at(&mut state, 1200.0, 300.0);
     assert_eq!(state.drawer, DrawerState::Closed);
+}
+
+#[test]
+fn rtl_puts_the_drawer_on_the_right() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("settings.json"), r#"{"ui_language": "ar"}"#).unwrap();
+    let mut state = state_in(dir.path());
+    assert_eq!(state.lang, "ar");
+    assert!(state.rtl);
+    // The tab labels are in Arabic, so the page is opened by its message, not by its label.
+    let _ = app::update(&mut state, Message::ShowPage(Page::Graphics));
+    let _ = app::update(
+        &mut state,
+        Message::Tick(Instant::now() + Duration::from_secs(1)),
+    );
+    let mut ui = Simulator::with_size(
+        Settings::default(),
+        Size::new(1280.0, 800.0),
+        app::view(&state),
+    );
+    let panel = ui.find(drawer::panel_id()).unwrap().bounds();
+    assert!(panel.x >= 640.0, "drawer at x = {}", panel.x);
+    assert!((panel.x + panel.width - 1280.0).abs() < 1.0, "{panel:?}");
+    // The bar is mirrored too: the version sits at the left, the tabs at the right.
+    let version = ui.find(format!("v{VERSION}")).unwrap().bounds();
+    assert!(version.x < 640.0, "version at x = {}", version.x);
+    // Arabic needs advanced shaping: iced's default (`Auto`) gives it to every non-ASCII text.
+    assert!(matches!(
+        iced::widget::text::Shaping::default(),
+        iced::widget::text::Shaping::Auto | iced::widget::text::Shaping::Advanced
+    ));
 }

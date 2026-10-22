@@ -165,7 +165,8 @@ fn can_write(folder: &Path) -> bool {
     tempfile::NamedTempFile::new_in(folder).is_ok()
 }
 
-fn is_packaged() -> bool {
+/// The Python's `FROZEN`: whether this is the packaged launcher (ruling R47).
+pub fn is_packaged() -> bool {
     std::env::current_exe().is_ok_and(|exe| {
         exe.file_name()
             .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(PACKAGED_EXE))

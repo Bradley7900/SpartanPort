@@ -8,12 +8,12 @@ use iced::keyboard::key::Named;
 use iced::keyboard::{self, Key, Location, Modifiers};
 use iced::time::Instant;
 use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
-use iced::{window, Background, Center, Color, Element, Fill, Size, Subscription, Task};
+use iced::{window, Background, Center, Color, Element, Fill, Point, Size, Subscription, Task};
 use serde_json::Value;
 
 use crate::core::desktop::{linux_tools, open_path, LinuxTools};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
-use crate::core::i18n::{is_rtl, system_language, tr};
+use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
 use crate::core::ini::{load_ini, Ini, INI_DEFAULTS, INI_FLAGS};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
@@ -36,7 +36,7 @@ use crate::ui::persist::{self, Persisted};
 use crate::ui::play::{self, GameMessage, GameState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
-use crate::ui::theme::{self, palette, CINZEL_BOLD};
+use crate::ui::theme::{self, palette, window_zoom, CINZEL_BOLD};
 use crate::ui::update::{self, UpdateMessage, UpdateState};
 use crate::ui::widgets;
 use crate::ui::widgets::modal::{Modal, ModalMessage};
@@ -65,7 +65,10 @@ pub struct State {
     pub lang: String,
     /// Whether the interface language reads right to left (Arabic).
     pub rtl: bool,
+    /// The interface zoom (`theme::ui_scale`): screen pixels per logical pixel.
     pub scale: f32,
+    /// The desktop's own scale where the window opened; 1.0 until the window reports it.
+    pub desktop_scale: f32,
     pub splash: SplashState,
     pub game: GameState,
     /// The Home status line while the game starts, runs or its system files are copied; empty
@@ -118,6 +121,8 @@ pub struct State {
     pub game_ready: Option<bool>,
     /// Logical window size, for the drawer width.
     pub window_size: Size,
+    /// The launcher window, once it has opened.
+    pub window: Option<window::Id>,
     /// Clock of the animations, advanced by `Tick` and by the messages that start them.
     pub now: Instant,
 }
@@ -127,10 +132,8 @@ impl State {
     pub fn new(paths: Paths) -> State {
         let settings = load_app_settings(&paths);
         let ini = load_ini(&paths.ini_path());
-        let lang = match settings.get_str("ui_language") {
-            lang if lang.is_empty() => system_language(),
-            lang => lang,
-        };
+        let lang = launcher_language(&settings.get_str("ui_language"), system_language);
+        // The desktop's scale is known once the window opens (`DesktopScale`).
         let scale = theme::ui_scale(&settings.get_str("ui_scale"), 1.0);
         let now = Instant::now();
         let rtl = is_rtl(&lang);
@@ -159,6 +162,7 @@ impl State {
             lang,
             rtl,
             scale,
+            desktop_scale: 1.0,
             splash: SplashState::new(now),
             game: Default::default(),
             status: String::new(),
@@ -195,6 +199,7 @@ impl State {
             focused: true,
             game_ready: None,
             window_size: WINDOW_SIZE,
+            window: None,
             now,
         };
         home::load_home_art(&mut state);
@@ -238,6 +243,12 @@ pub enum Message {
     Key(Key, Modifiers, Location),
     WindowFocused(bool),
     Resized(Size),
+    /// The window opened: its id and logical size.
+    WindowOpened(window::Id, Size),
+    /// The desktop's scale factor where the window opened.
+    DesktopScale(f32),
+    /// The logical size of the monitor that shows the window, when the system tells it.
+    MonitorSize(Option<Size>),
     Splash(SplashMessage),
     Lang(LangMessage),
     Game(GameMessage),
@@ -299,6 +310,18 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             };
         }
         Message::Resized(size) => state.window_size = size,
+        Message::WindowOpened(id, size) => {
+            state.window = Some(id);
+            state.window_size = size;
+            return window::scale_factor(id).map(Message::DesktopScale);
+        }
+        // GUI Scale "Auto" follows the monitor the window opened on.
+        Message::DesktopScale(factor) => {
+            state.desktop_scale = factor;
+            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"), factor);
+            return fit_window(state);
+        }
+        Message::MonitorSize(monitor) => return size_window(state, monitor),
         Message::Tick(at) => {
             tick(state, at);
             lang_menu::update(state, LangMessage::Tick(at));
@@ -543,15 +566,17 @@ fn bar(state: &State) -> Element<'_, Message> {
     let version = text(format!("v{VERSION}"))
         .size(13)
         .style(theme::text_muted);
-    container(
+    // Right to left, the bar is mirrored: the tabs sit at the right, the version at the left.
+    let line = if state.rtl {
+        row![version, space::horizontal(), tabs]
+    } else {
         row![tabs, space::horizontal(), version]
-            .align_y(Center)
-            .padding([0, 16]),
-    )
-    .width(Fill)
-    .height(BAR_HEIGHT)
-    .style(theme::container_panel)
-    .into()
+    };
+    container(line.align_y(Center).padding([0, 16]))
+        .width(Fill)
+        .height(BAR_HEIGHT)
+        .style(theme::container_panel)
+        .into()
 }
 
 /// One tab: the label button and, when active, the red underline.
@@ -577,9 +602,9 @@ fn tab(state: &State, page: Page) -> Element<'_, Message> {
     column![tab_button, underline].into()
 }
 
-/// Keys and window size; animation frames while the drawer slides; the mouse while a key box of
-/// the Controls page waits. The clock also carries the game's output, so it keeps running while
-/// a game is live, even with the window hidden.
+/// Keys and the window (opening, size, focus); animation frames while the drawer slides; the mouse
+/// while a key box of the Controls page waits. The clock also carries the game's output, so it
+/// keeps running while a game is live, even with the window hidden.
 pub fn subscription(state: &State) -> Subscription<Message> {
     let keys = keyboard::listen().filter_map(|event| match event {
         keyboard::Event::KeyPressed {
@@ -590,7 +615,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         } => Some(Message::Key(key, modifiers, location)),
         _ => None,
     });
-    let resized = window::resize_events().map(|(_window, size)| Message::Resized(size));
+    let window_events = window::events().filter_map(window_message);
     let frames = if state.drawer_progress.is_animating(state.now) {
         window::frames().map(Message::Tick)
     } else {
@@ -607,7 +632,91 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         } else {
             Subscription::none()
         };
-    Subscription::batch([keys, resized, frames, clock, controls::subscription(state)])
+    Subscription::batch([
+        keys,
+        window_events,
+        frames,
+        clock,
+        controls::subscription(state),
+    ])
+}
+
+/// What a window event means here: the window opened, changed size, or gained or lost the focus.
+pub fn window_message((id, event): (window::Id, window::Event)) -> Option<Message> {
+    match event {
+        window::Event::Opened { size, .. } => Some(Message::WindowOpened(id, size)),
+        window::Event::Resized(size) => Some(Message::Resized(size)),
+        window::Event::Focused => Some(Message::WindowFocused(true)),
+        window::Event::Unfocused => Some(Message::WindowFocused(false)),
+        _ => None,
+    }
+}
+
+/// Python `size_window`: `WINDOW_SIZE`, at most 90 % of the monitor (in logical pixels).
+pub fn fitted_window(monitor: Option<Size>) -> Size {
+    monitor.map_or(WINDOW_SIZE, |monitor| {
+        Size::new(
+            WINDOW_SIZE.width.min((monitor.width * 0.9).floor()),
+            WINDOW_SIZE.height.min((monitor.height * 0.9).floor()),
+        )
+    })
+}
+
+/// Asks for the monitor's size, to which `MonitorSize` fits the window; nothing before the window
+/// opened.
+pub fn fit_window(state: &State) -> Task<Message> {
+    match state.window {
+        Some(id) => window::monitor_size(id).map(Message::MonitorSize),
+        None => Task::none(),
+    }
+}
+
+/// Where the window of `size` sits centred on `monitor` (both in logical pixels at `zoom`), in the
+/// desktop's units that moving a window takes. The monitor is taken to start at the screen's
+/// origin: the window opens centred on the primary monitor, whose corner that is.
+pub fn centred_position(monitor: Size, size: Size, zoom: f32) -> Point {
+    Point::new(
+        ((monitor.width - size.width) / 2.0).max(0.0) * zoom,
+        ((monitor.height - size.height) / 2.0).max(0.0) * zoom,
+    )
+}
+
+/// Sizes the window for the current zoom, its minimum included, and centres it: the zoom changes
+/// what a logical pixel measures, and the window was opened before the desktop's scale was known.
+fn size_window(state: &mut State, monitor: Option<Size>) -> Task<Message> {
+    let size = fitted_window(monitor);
+    state.window_size = size;
+    let Some(id) = state.window else {
+        return Task::none();
+    };
+    let mut steps = vec![
+        window::set_min_size(id, Some(size)),
+        window::resize(id, size),
+    ];
+    if let Some(monitor) = monitor {
+        let zoom = window_zoom(state.scale, state.desktop_scale);
+        steps.push(window::move_to(id, centred_position(monitor, size, zoom)));
+    }
+    Task::batch(steps)
+}
+
+/// The window as it opens: icon, starting and minimum size and place (`size_window` adjusts them
+/// once the desktop's scale and the monitor are known) and, on Linux, the application id the menu
+/// entry matches (`StartupWMClass`, the Python's Tk class).
+fn window_settings() -> window::Settings {
+    window::Settings {
+        size: WINDOW_SIZE,
+        min_size: Some(WINDOW_SIZE),
+        position: window::Position::Centered,
+        icon: window::icon::from_file_data(include_bytes!("../../assets/spartanport.png"), None)
+            .ok(),
+        #[cfg(target_os = "linux")]
+        platform_specific: window::settings::PlatformSpecific {
+            application_id: "spartanport".to_string(),
+            ..Default::default()
+        },
+        ..window::Settings::default()
+    }
 }
 
 /// Opens the launcher window and runs until it closes.
@@ -622,11 +731,8 @@ pub fn run(paths: Paths) -> iced::Result {
         .title("SpartanPort (PC)")
         .theme(|_: &State| theme::theme())
         .subscription(subscription)
-        .window(window::Settings {
-            size: WINDOW_SIZE,
-            min_size: Some(WINDOW_SIZE),
-            ..window::Settings::default()
-        });
+        .scale_factor(|state: &State| window_zoom(state.scale, state.desktop_scale))
+        .window(window_settings());
     theme::font_bytes()
         .into_iter()
         .fold(app, |app, font| app.font(font))

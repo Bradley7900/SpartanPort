@@ -11,7 +11,7 @@ use iced::widget::{
     button, canvas as canvas_widget, column, container, image, row, space, stack, text,
 };
 use iced::{
-    Background, Bottom, Center, Color, ContentFit, Element, Fill, Padding, Point, Radians,
+    Background, Bottom, Center, Color, ContentFit, Element, Fill, Left, Padding, Point, Radians,
     Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
@@ -26,7 +26,9 @@ use crate::ui::lang_menu;
 use crate::ui::pages::performance;
 use crate::ui::play::GameState;
 use crate::ui::splash;
-use crate::ui::theme::{button_flat, button_play, palette, text_muted, CINZEL_BLACK};
+use crate::ui::theme::{
+    button_flat, button_play, mirror_padding, mirror_x, palette, text_muted, CINZEL_BLACK,
+};
 use crate::ui::update::{UpdateMessage, UpdateState};
 use crate::ui::widgets::{chip, ChipKind};
 
@@ -599,22 +601,29 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
         text(hint).size(12).style(text_muted),
     ]
     .spacing(14)
-    .align_x(Right);
+    .align_x(mirror_x(Right, state.rtl));
     let placed = container(dimmed(content.into(), state))
         .width(Fill)
         .height(Fill)
-        .align_x(Right)
+        .align_x(mirror_x(Right, state.rtl))
         .align_y(Bottom)
-        .padding(Padding {
-            right: BLOCK_RIGHT,
-            bottom: BLOCK_BOTTOM,
-            ..Padding::ZERO
-        });
+        .padding(mirror_padding(
+            Padding {
+                right: BLOCK_RIGHT,
+                bottom: BLOCK_BOTTOM,
+                ..Padding::ZERO
+            },
+            state.rtl,
+        ));
     placed.into()
 }
 
 fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
     let mut line = row![].spacing(10).align_y(Center);
+    // Right to left, the line is mirrored: the language button keeps the outer corner.
+    if state.rtl {
+        line = line.push(lang_menu::button_view(state));
+    }
     match &state.update {
         UpdateState::Available(release) => {
             let pill = text(update_pill_text(&state.lang, &release.version)).size(11);
@@ -640,17 +649,22 @@ fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
         }
         _ => {}
     }
-    line = line.push(lang_menu::button_view(state));
+    if !state.rtl {
+        line = line.push(lang_menu::button_view(state));
+    }
     container(dimmed(line.into(), state))
         .width(Fill)
         .height(Fill)
-        .align_x(Right)
+        .align_x(mirror_x(Right, state.rtl))
         .align_y(Top)
-        .padding(Padding {
-            top: TOP_RIGHT_TOP,
-            right: TOP_RIGHT_RIGHT,
-            ..Padding::ZERO
-        })
+        .padding(mirror_padding(
+            Padding {
+                top: TOP_RIGHT_TOP,
+                right: TOP_RIGHT_RIGHT,
+                ..Padding::ZERO
+            },
+            state.rtl,
+        ))
         .into()
 }
 
@@ -665,6 +679,7 @@ pub fn block(state: &State) -> Element<'_, Message> {
             container(image(monogram()).width(MONOGRAM).height(MONOGRAM))
                 .width(Fill)
                 .height(Fill)
+                .align_x(mirror_x(Left, state.rtl))
                 .padding(MONOGRAM_EDGE),
         );
     }

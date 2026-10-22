@@ -242,6 +242,16 @@ pub fn system_language() -> String {
     environment_language(&|name| std::env::var(name).ok())
 }
 
+/// The launcher's language: the `ui_language` setting, or the system language when it is empty
+/// (the "System" choice). `system` is only asked then.
+pub fn launcher_language(ui_language: &str, system: impl FnOnce() -> String) -> String {
+    if ui_language.is_empty() {
+        system()
+    } else {
+        ui_language.to_string()
+    }
+}
+
 pub fn is_rtl(lang: &str) -> bool {
     lang == "ar"
 }

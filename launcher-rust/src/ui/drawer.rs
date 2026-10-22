@@ -1,6 +1,7 @@
-//! The drawer: the panel that slides in from the left with the open page.
+//! The drawer: the panel that slides in from the left (from the right in a right-to-left
+//! language) with the open page.
 
-use iced::widget::{button, column, container, opaque, pin, row, scrollable, space, text};
+use iced::widget::{button, column, container, opaque, pin, row, scrollable, space, text, Id};
 use iced::{Center, Element, Fill};
 
 use crate::core::i18n::tr;
@@ -36,7 +37,13 @@ pub fn slide_offset(progress: f32, width: f32) -> f32 {
     (progress - 1.0) * width
 }
 
-/// The drawer of `page`, shifted by the slide animation at `state.now`.
+/// The drawer panel's widget id.
+pub fn panel_id() -> Id {
+    Id::new("drawer")
+}
+
+/// The drawer of `page`, shifted by the slide animation at `state.now`; right to left, it is
+/// mirrored against the right edge of the window.
 pub fn view(state: &State, page: Page) -> Element<'_, Message> {
     let width = drawer_width(state);
     let progress = state.drawer_progress.interpolate(0.0, 1.0, state.now);
@@ -51,11 +58,18 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
     let header = row![title, space::horizontal(), save_button(state)].align_y(Center);
     let body = scrollable(pages::view(state, page)).height(Fill);
     let panel = container(column![header, body].spacing(18))
+        .id(panel_id())
         .padding(28)
         .width(width)
         .height(Fill)
         .style(container_panel);
-    pin(opaque(panel)).x(slide_offset(progress, width)).into()
+    let offset = slide_offset(progress, width);
+    let x = if state.rtl {
+        state.window_size.width - width - offset
+    } else {
+        offset
+    };
+    pin(opaque(panel)).x(x).into()
 }
 
 /// Save, at the right of the header: active only while the window differs from the files. The
