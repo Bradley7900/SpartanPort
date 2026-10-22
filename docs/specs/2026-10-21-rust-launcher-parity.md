@@ -362,9 +362,9 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_update.py::RelaunchTest::test_the_old_mount_does_not_leak_into_the_new_appimage` | `src/core/update.rs::tests::the_old_mount_does_not_leak_into_the_new_appimage` | ported |
 | `tests/test_launcher_update.py::RelaunchTest::test_a_library_path_that_was_only_the_mount_is_dropped` | `src/core/update.rs::tests::a_library_path_that_was_only_the_mount_is_dropped` | ported |
 | `tests/test_launcher_update.py::RelaunchTest::test_a_library_path_is_kept_without_an_appdir` | `src/core/update.rs::tests::a_library_path_is_kept_without_an_appdir` | ported |
-| `tests/test_launcher_update.py::LatestReleaseTest::test_windows_takes_the_zip` | `src/core/update.rs::tests::windows_takes_the_zip` | ported |
-| `tests/test_launcher_update.py::LatestReleaseTest::test_linux_takes_the_appimage_not_its_checksum` | `src/core/update.rs::tests::linux_takes_the_appimage_not_its_checksum` | ported |
-| `tests/test_launcher_update.py::LatestReleaseTest::test_linux_has_no_package_while_the_release_has_no_appimage` | `src/core/update.rs::tests::linux_has_no_package_while_the_release_has_no_appimage` | ported |
+| `tests/test_launcher_update.py::LatestReleaseTest::test_windows_takes_the_zip` | `src/core/release.rs::tests::windows_takes_the_zip` | ported |
+| `tests/test_launcher_update.py::LatestReleaseTest::test_linux_takes_the_appimage_not_its_checksum` | `src/core/release.rs::tests::linux_takes_the_appimage_not_its_checksum` | ported |
+| `tests/test_launcher_update.py::LatestReleaseTest::test_linux_has_no_package_while_the_release_has_no_appimage` | `src/core/release.rs::tests::linux_has_no_package_while_the_release_has_no_appimage` | ported |
 | `tests/test_launcher_update.py::CanSelfUpdateTest::test_linux_updates_only_as_an_appimage` | `src/core/update.rs::tests::linux_updates_only_as_an_appimage` | ported |
 | `tests/test_launcher_update.py::CanSelfUpdateTest::test_windows_always_updates` | `src/core/update.rs::tests::windows_always_updates` | ported |
 | `tests/test_launcher_upscale.py::UpscalerSettingsTest::test_remaining_choices_have_no_spatial_upscaler` | — | dropped: no Rust counterpart — the upscaler choices are fsr3, taa and off, with no spatial upscaler |

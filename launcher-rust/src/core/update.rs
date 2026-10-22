@@ -39,19 +39,8 @@ pub struct Release {
     pub page: String,
 }
 
-/// Every run of digits in `text`, as numbers.
-pub fn version_tuple(text: &str) -> Vec<u64> {
-    digit_runs(text)
-        .into_iter()
-        .map(|run| run.parse().unwrap_or(u64::MAX))
-        .collect()
-}
-
-fn digit_runs(text: &str) -> Vec<&str> {
-    text.split(|c: char| !c.is_ascii_digit())
-        .filter(|run| !run.is_empty())
-        .collect()
-}
+use crate::core::release::digit_runs;
+pub use crate::core::release::version_tuple;
 
 /// The release in GitHub's JSON: the zip on Windows, the AppImage elsewhere.
 pub fn parse_release(json: &Value, windows: bool) -> Result<Release, UpdateError> {
