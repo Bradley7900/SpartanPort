@@ -248,7 +248,11 @@ fn ini_on(state: &State, key: &str) -> bool {
 
 /// The drop-down of `key` as the Performance page draws it (its pairs and current value).
 pub fn select_row<'a>(state: &State, lang: &str, key: &str) -> Element<'a, Message> {
-    let rows = rows(state, lang);
+    select_from(&rows(state, lang), key)
+}
+
+/// The drop-down of `key` among rows already built; an empty one when no row has that key.
+fn select_from<'a>(rows: &[SelectRow], key: &str) -> Element<'a, Message> {
     match rows.iter().find(|row| row.key == key) {
         Some(row) => select_pairs(key, &row.pairs, &row.current),
         None => select_pairs(key, &[], ""),
@@ -271,7 +275,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .text_size(SELECT_TEXT)
         .style(theme::pick_list_dark),
     );
-    let pick = |key: &str| select_row(state, lang, key);
+    // The rows are built once for the whole page.
+    let selects = rows(state, lang);
+    let pick = |key: &str| select_from(&selects, key);
 
     column![
         section(state.rtl, &tr(lang, "Frame rate")),
