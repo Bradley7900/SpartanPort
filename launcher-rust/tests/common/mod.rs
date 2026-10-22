@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+use iced::widget::text;
+use iced::{Element, Font, Size};
 use iced_test::simulator::simulator;
 use spartanport_launcher::core::gpu::{parse_display_list, Display, GpuRow};
 use spartanport_launcher::core::paths::Paths;
@@ -41,6 +43,12 @@ pub fn click(state: &mut State, label: &str) {
     for message in messages(state, label) {
         let _ = app::update(state, message);
     }
+}
+
+/// The size `label` takes on its own, on one line, in `font` at `size`.
+pub fn natural_size(label: &str, font: Font, size: f32) -> Size {
+    let alone: Element<'_, Message> = text(label).font(font).size(size).into();
+    simulator(alone).find(label).unwrap().bounds().size()
 }
 
 /// The folder dialog answered `path` for the setting `key`.

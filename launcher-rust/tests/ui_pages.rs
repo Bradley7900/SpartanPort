@@ -328,6 +328,35 @@ fn choosing_the_game_folder_refreshes_title_and_patches() {
     );
 }
 
+#[test]
+fn a_folder_too_long_for_its_field_wraps_inside_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    // One word, with no place for a line break.
+    let folder = "AFolderNameFarTooLongForTheFieldOfTheGamePage";
+    state.settings.set("game_dir", folder.into());
+    open(&mut state, Page::Game);
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 4000.0),
+        app::view(&state),
+    );
+    let field = ui.find(folder).unwrap().bounds();
+    let alone = common::natural_size(folder, iced::Font::DEFAULT, 16.0);
+    assert!(
+        alone.width > field.width,
+        "the field is {} wide",
+        field.width
+    );
+    // Kept on one line, the name would run under the Browse and Open buttons.
+    assert!(
+        field.height > 1.5 * alone.height,
+        "{} high: not wrapped",
+        field.height
+    );
+}
+
 /// Like `click`, in a window tall enough to show the whole page (the drawer scrolls).
 fn click_tall(state: &mut app::State, label: &str) {
     let mut ui = iced_test::simulator::Simulator::with_size(
@@ -1316,6 +1345,29 @@ fn check_updates_row_hidden_without_self_update() {
     assert!(advanced::check_keys(&state).contains(&"close_on_play"));
     state.self_update = true;
     assert!(advanced::check_keys(&state).contains(&"check_updates"));
+}
+
+#[test]
+fn the_launcher_buttons_wrap_instead_of_squeezing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    // Portuguese has the longest labels of the row; 1280 × 800 gives the narrowest drawer.
+    state.lang = "pt".into();
+    open(&mut state, Page::Advanced);
+    let _ = app::update(
+        &mut state,
+        Message::Tick(iced::time::Instant::now() + std::time::Duration::from_secs(1)),
+    );
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 800.0),
+        app::view(&state),
+    );
+    for label in [tr("pt", "Desktop shortcut"), tr("pt", "Add to Steam")] {
+        let shown = ui.find(label.as_str()).unwrap().bounds().width;
+        let alone = common::natural_size(&label, iced::Font::DEFAULT, 16.0).width;
+        assert!(shown >= alone - 0.5, "{label}: {shown} wide, needs {alone}");
+    }
 }
 
 #[test]

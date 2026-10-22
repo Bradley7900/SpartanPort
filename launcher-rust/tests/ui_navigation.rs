@@ -5,9 +5,12 @@
 //! the widget tree, not the application's keyboard subscription, so the keyboard tests feed
 //! `Message::Key(...)` to `app::update` directly, as the subscription does at run time.
 
+mod common;
+
 use std::path::Path;
 use std::time::Duration;
 
+use common::natural_size;
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Location, Modifiers};
 use iced::time::Instant;
@@ -20,6 +23,7 @@ use spartanport_launcher::ui::app::{
 };
 use spartanport_launcher::ui::drawer::{self, drawer_width, DrawerState};
 use spartanport_launcher::ui::pages::Page;
+use spartanport_launcher::ui::theme::CINZEL_BOLD;
 use spartanport_launcher::VERSION;
 
 /// The page order of the Global Constraints.
@@ -227,4 +231,52 @@ fn rtl_puts_the_drawer_on_the_right() {
         iced::widget::text::Shaping::default(),
         iced::widget::text::Shaping::Auto | iced::widget::text::Shaping::Advanced
     ));
+}
+
+/// The window of `state` at 1280 × 800, once the drawer has finished sliding.
+fn settled_ui(state: &mut State) -> Simulator<'_, Message> {
+    let _ = app::update(
+        state,
+        Message::Tick(Instant::now() + Duration::from_secs(1)),
+    );
+    Simulator::with_size(
+        Settings::default(),
+        Size::new(1280.0, 800.0),
+        app::view(state),
+    )
+}
+
+#[test]
+fn tab_labels_keep_their_width() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.lang = "en".into();
+    let mut ui = settled_ui(&mut state);
+    // Squeezed into a narrower tab, a label spills over its neighbours.
+    for page in Page::ALL {
+        let label = page.label_en();
+        let shown = ui.find(label).unwrap().bounds().width;
+        let alone = natural_size(label, CINZEL_BOLD, 14.0).width;
+        assert!(shown >= alone - 0.5, "{label}: {shown} wide, needs {alone}");
+    }
+}
+
+#[test]
+fn the_drawer_scrollbar_sits_beside_the_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.lang = "en".into();
+    let _ = app::update(&mut state, Message::ShowPage(Page::Game));
+    let mut ui = settled_ui(&mut state);
+    let panel = ui.find(drawer::panel_id()).unwrap().bounds();
+    // The Game page is taller than the window, so its body scrolls. The panel pads its body by 28
+    // and iced's scrollbar is 10 wide; the Open buttons end the folder rows at the right, 10 past
+    // their text.
+    let scrollbar = panel.x + panel.width - 28.0 - 10.0;
+    let open = ui.find("Open").unwrap().bounds();
+    assert!(
+        open.x + open.width + 10.0 <= scrollbar + 0.5,
+        "the Open button ends at {}, under the scrollbar at {scrollbar}",
+        open.x + open.width + 10.0
+    );
 }

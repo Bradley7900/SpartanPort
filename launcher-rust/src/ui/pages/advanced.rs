@@ -318,7 +318,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .push(flat(tr(lang, "Desktop shortcut"), Message::DesktopShortcut))
         .push(flat(tr(lang, "Add to Steam"), Message::AddToSteam))
         .push(text(format!("v{VERSION}")).style(theme::text_muted));
-    page = page.push(column![buttons].padding([10, 0]));
+    // A narrow drawer in a long language moves the last buttons to a second line.
+    page = page.push(column![buttons.wrap().vertical_spacing(6)].padding([10, 0]));
 
     if !cfg!(windows) {
         page = page.push(section(&tr(lang, "Linux")));

@@ -8,7 +8,9 @@ use iced::keyboard::key::Named;
 use iced::keyboard::{self, Key, Location, Modifiers};
 use iced::time::Instant;
 use iced::widget::{button, column, container, mouse_area, row, space, stack, text};
-use iced::{window, Background, Center, Color, Element, Fill, Point, Size, Subscription, Task};
+use iced::{
+    window, Background, Center, Color, Element, Fill, Point, Shrink, Size, Subscription, Task,
+};
 use serde_json::Value;
 
 use crate::core::desktop::{linux_tools, open_path, LinuxTools};
@@ -590,7 +592,8 @@ fn bar(state: &State) -> Element<'_, Message> {
         .into()
 }
 
-/// One tab: the label button and, when active, the red underline.
+/// One tab: the label button and, when active, the red underline. The tab is as wide as its label,
+/// so the labels never overlap.
 fn tab(state: &State, page: Page) -> Element<'_, Message> {
     let active = state.page == page;
     let label = text(tr(&state.lang, page.label_en()))
@@ -610,7 +613,7 @@ fn tab(state: &State, page: Page) -> Element<'_, Message> {
             background: active.then_some(Background::Color(palette::RED_HI)),
             ..container::Style::default()
         });
-    column![tab_button, underline].into()
+    column![tab_button, underline].width(Shrink).into()
 }
 
 /// Keys and the window (opening, size, focus); animation frames while the drawer slides; the mouse

@@ -10,6 +10,9 @@ use crate::ui::pages::{self, Page};
 use crate::ui::persist::dirty;
 use crate::ui::theme::{button_play, container_panel, text_muted, CINZEL_BLACK, CINZEL_BOLD};
 
+/// Space between the drawer's page and its scrollbar.
+const SCROLLBAR_GAP: f32 = 8.0;
+
 /// Whether the drawer shows a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DrawerState {
@@ -56,7 +59,10 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
     ]
     .spacing(4);
     let header = row![title, space::horizontal(), save_button(state)].align_y(Center);
-    let body = scrollable(pages::view(state, page)).height(Fill);
+    // The scrollbar takes its own lane beside the page instead of covering its right edge.
+    let body = scrollable(pages::view(state, page))
+        .spacing(SCROLLBAR_GAP)
+        .height(Fill);
     let panel = container(column![header, body].spacing(18))
         .id(panel_id())
         .padding(28)

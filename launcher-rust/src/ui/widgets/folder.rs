@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use iced::widget::text::Wrapping;
 use iced::widget::{button, row as layout, text};
 use iced::{Center, Element, Fill};
 
@@ -22,6 +23,8 @@ pub fn folder<'a>(
     } else {
         text(value.to_string())
     };
+    // A long folder name breaks inside a word rather than run under the buttons.
+    let shown = shown.wrapping(Wrapping::WordOrGlyph);
     let browse = button(text(tr(lang, "Browse…")))
         .style(theme::button_flat)
         .on_press(Message::Browse(key.to_string()));
