@@ -40,19 +40,11 @@ pub fn physical_memory_mb() -> Option<u64> {
     (ok != 0).then_some(status.ullTotalPhys >> 20)
 }
 
-/// The installed RAM in MiB (`MemTotal` of `/proc/meminfo`), or `None` when unreadable.
+/// Off Windows the installed RAM is not read (the Python returns `None` too): the warning's advice
+/// is about the Windows page file and error 1450.
 #[cfg(not(windows))]
 pub fn physical_memory_mb() -> Option<u64> {
-    let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
-    mem_total_mb(&meminfo)
-}
-
-/// `MemTotal:  16303000 kB` to MiB.
-#[cfg(not(windows))]
-fn mem_total_mb(meminfo: &str) -> Option<u64> {
-    let line = meminfo.lines().find(|line| line.starts_with("MemTotal:"))?;
-    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-    Some(kb >> 10)
+    None
 }
 
 /// A warning when the pool and the probe's headroom need more than the installed RAM.
@@ -76,7 +68,7 @@ pub fn memory_warning(
         "set Performance -> Stream buffer memory to GPU memory, "
     };
     Some(format!(
-        "Memory: the guest memory pool commits {pool} MiB and the game needs about {needed} MiB          in all, more than the {physical} MiB of RAM. The game may close at start (error 1450):          {advice}make sure the Windows page file can grow, or choose a lower render resolution."
+        "Memory: the guest memory pool commits {pool} MiB and the game needs about {needed} MiB in all, more than the {physical} MiB of RAM. The game may close at start (error 1450): {advice}make sure the Windows page file can grow, or choose a lower render resolution."
     ))
 }
 
@@ -128,29 +120,26 @@ mod tests {
         assert!(warning.contains("9152 MiB"));
     }
 
-    #[cfg(not(windows))]
     #[test]
-    fn meminfo_total_is_read_in_mib() {
+    fn warning_text_is_the_pythons() {
+        // `guest_memory.memory_warning(8128, 8000, 'cached')` of scripts/guest_memory.py.
+        let python = "Memory: the guest memory pool commits 9152 MiB and the game needs about 13248 MiB in all, more than the 8000 MiB of RAM. The game may close at start (error 1450): set Performance -> Stream buffer memory to GPU memory, make sure the Windows page file can grow, or choose a lower render resolution.";
         assert_eq!(
-            mem_total_mb(
-                "MemTotal:       16695296 kB
-MemFree: 1 kB
-"
-            ),
-            Some(16304)
-        );
-        assert_eq!(
-            mem_total_mb(
-                "MemFree: 1 kB
-"
-            ),
-            None
+            memory_warning(8128, Some(8000), "cached").as_deref(),
+            Some(python)
         );
     }
 
+    #[cfg(windows)]
     #[test]
     fn physical_memory_is_reported() {
         assert!(physical_memory_mb().is_some_and(|mb| mb > 0));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn physical_memory_is_unknown_off_windows() {
+        assert_eq!(physical_memory_mb(), None);
     }
 
     #[test]

@@ -129,17 +129,10 @@ mod tests {
     #[test]
     fn parse_cpu_features_reads_the_missing_line() {
         assert_eq!(
-            parse_cpu_features(
-                "CPU: missing MOVBE, BMI1, LZCNT
-"
-            ),
+            parse_cpu_features("CPU: missing MOVBE, BMI1, LZCNT\n"),
             ["MOVBE", "BMI1", "LZCNT"]
         );
-        assert!(parse_cpu_features(
-            "CPU: complete
-"
-        )
-        .is_empty());
+        assert!(parse_cpu_features("CPU: complete\n").is_empty());
     }
 
     #[test]
