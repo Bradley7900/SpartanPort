@@ -1,6 +1,7 @@
-//! The splash screen: three parallel start-up checks behind the monogram, then the monogram
-//! flies to the top-left corner (spec 4.2), the top-right one in a right-to-left language, where
-//! the Home view keeps it.
+//! The splash screen: the start-up checks behind the monogram, then the monogram flies to the
+//! top-left corner (spec 4.2), the top-right one in a right-to-left language, where the Home view
+//! keeps it. It shows two checks (R97): the settings files can be read, and the updates; the
+//! graphics cards and the game folder are read in the background, for the Home and PLAY.
 
 use std::time::Duration;
 
@@ -30,15 +31,12 @@ pub const SPLASH_BG: Color = Color::from_rgb8(0x07, 0x06, 0x06);
 pub const MIN_SHOWN: Duration = Duration::from_millis(800);
 /// The splash always ends by this.
 pub const MAX_SHOWN: Duration = Duration::from_millis(3000);
-/// The shortest time each check's text shows (ruling R86): a third of the minimum, so the three
+/// The texts of the checks the splash shows, in their order (ruling R97).
+const CHECK_TEXTS: [&str; 2] = ["Checking the settings…", "Checking for updates…"];
+/// The shortest time each check's text shows (ruling R86): an equal share of the minimum, so the
 /// texts take turns even when every check answers at once.
-pub const TEXT_TURN: Duration = Duration::from_nanos(MIN_SHOWN.as_nanos() as u64 / 3);
-/// The texts of the three checks, in their order.
-const CHECK_TEXTS: [&str; 3] = [
-    "Checking Vulkan graphics cards…",
-    "Checking the game folder…",
-    "Checking for updates…",
-];
+pub const TEXT_TURN: Duration =
+    Duration::from_nanos(MIN_SHOWN.as_nanos() as u64 / CHECK_TEXTS.len() as u64);
 /// Duration of the flight to the corner.
 pub const FLY: Duration = Duration::from_millis(700);
 /// Monogram size on the splash and in the corner, in logical pixels.
@@ -52,7 +50,8 @@ const CORNER: f32 = 24.0;
 const HALO_RADIUS: f32 = 0.7;
 const HALO_PEAK: f32 = 0.35;
 
-/// What a finished start-up check found.
+/// What a finished start-up check found. Only the update check has a text on the splash; the
+/// settings check is the read `State::new` made before the window opened.
 #[derive(Debug, Clone)]
 pub enum Check {
     Gpus(Vec<GpuRow>),
@@ -60,15 +59,10 @@ pub enum Check {
     Update(Option<Release>),
 }
 
-impl Check {
-    fn index(&self) -> usize {
-        match self {
-            Check::Gpus(_) => 0,
-            Check::GameFolder(_) => 1,
-            Check::Update(_) => 2,
-        }
-    }
-}
+/// The position of the settings check's text in `CHECK_TEXTS` and `SplashState::done_at`.
+const SETTINGS_TURN: usize = 0;
+/// The position of the update check's text.
+const UPDATE_TURN: usize = 1;
 
 /// Splash events.
 #[derive(Debug, Clone)]
@@ -82,18 +76,22 @@ pub enum SplashMessage {
 #[derive(Debug, Clone)]
 pub struct SplashState {
     pub started: Instant,
-    /// When each check answered: graphics cards, game folder, updates.
-    pub done_at: [Option<Instant>; 3],
+    /// When each check with a text answered: the settings, the updates.
+    pub done_at: [Option<Instant>; 2],
     pub done: bool,
     pub skipped: bool,
     pub fly: Animation<bool>,
 }
 
 impl SplashState {
+    /// The splash from `now`. The settings were read before (`State::new`, which also prepares the
+    /// warning about a file it could not read), so their check has answered.
     pub fn new(now: Instant) -> Self {
+        let mut done_at = [None; 2];
+        done_at[SETTINGS_TURN] = Some(now);
         SplashState {
             started: now,
-            done_at: [None; 3],
+            done_at,
             done: false,
             skipped: false,
             fly: Animation::new(false).duration(FLY).easing(Easing::EaseOut),
@@ -103,8 +101,8 @@ impl SplashState {
     /// When each check's text gives way: once its check answered and the text showed for
     /// `TEXT_TURN`, each turn starting where the one before ended; `None` from the first check that
     /// has not answered.
-    fn turn_ends(&self) -> [Option<Instant>; 3] {
-        let mut ends = [None; 3];
+    fn turn_ends(&self) -> [Option<Instant>; 2] {
+        let mut ends = [None; 2];
         let mut start = self.started;
         for (end, done) in ends.iter_mut().zip(self.done_at) {
             let Some(done) = done else { break };
@@ -115,11 +113,11 @@ impl SplashState {
         ends
     }
 
-    /// Whether the flight should start: the three texts had their turns (so every check
-    /// answered) or a skip, after the minimum time; or the maximum time.
+    /// Whether the flight should start: the texts had their turns (so their checks answered) or
+    /// a skip, after the minimum time; or the maximum time.
     pub fn should_end(&self, now: Instant) -> bool {
         let shown = now.saturating_duration_since(self.started);
-        let texts_shown = self.turn_ends()[2].is_some_and(|end| now >= end);
+        let texts_shown = self.turn_ends()[UPDATE_TURN].is_some_and(|end| now >= end);
         ((texts_shown || self.skipped) && shown >= MIN_SHOWN) || shown >= MAX_SHOWN
     }
 
@@ -162,8 +160,11 @@ pub fn apply(state: &mut State, message: SplashMessage) {
             }
         }
         SplashMessage::Tick => state.splash.advance(state.now),
+        // The background checks may answer after the splash: their results still apply.
         SplashMessage::CheckDone(check) => {
-            state.splash.done_at[check.index()] = Some(state.now);
+            if matches!(check, Check::Update(_)) {
+                state.splash.done_at[UPDATE_TURN] = Some(state.now);
+            }
             match check {
                 Check::Gpus(gpus) => state.gpus = gpus,
                 Check::GameFolder(ready) => state.game_ready = Some(ready),
@@ -182,7 +183,8 @@ pub fn start_up_offer(state: &mut State, release: Release, windows: bool) {
     }
 }
 
-/// Starts the three checks in parallel; each answers with `SplashMessage::CheckDone`.
+/// Starts the checks in parallel: the update check of the splash and, in the background, the
+/// graphics cards and the game folder; each answers with `SplashMessage::CheckDone`.
 pub fn start_checks(state: &State) -> Task<Message> {
     let done = |check| Message::Splash(SplashMessage::CheckDone(check));
     let paths = state.paths.clone();
@@ -340,13 +342,13 @@ mod tests {
     }
 
     #[test]
-    fn splash_waits_for_the_three_checks() {
+    fn splash_waits_for_the_update_check() {
+        // R97: the settings were read before the window opened; the update check holds the end.
         let start = Instant::now();
         let mut splash = SplashState::new(start);
+        assert_eq!(splash.done_at, [Some(start), None]);
         assert!(!splash.should_end(ms(start, 1000)));
-        splash.done_at = [Some(start), Some(start), None];
-        assert!(!splash.should_end(ms(start, 1000)));
-        splash.done_at = [Some(start); 3];
+        splash.done_at[1] = Some(start);
         assert!(splash.should_end(ms(start, 1000)));
     }
 
@@ -354,7 +356,7 @@ mod tests {
     fn splash_never_ends_before_800ms() {
         let start = Instant::now();
         let mut splash = SplashState::new(start);
-        splash.done_at = [Some(start); 3];
+        splash.done_at = [Some(start); 2];
         splash.skipped = true;
         assert!(!splash.should_end(ms(start, 799)));
         assert!(splash.should_end(ms(start, 800)));
@@ -377,40 +379,45 @@ mod tests {
         assert!(splash.should_end(ms(start, 900)));
     }
 
-    const GPUS: &str = "Checking Vulkan graphics cards…";
-    const GAME: &str = "Checking the game folder…";
+    const SETTINGS: &str = "Checking the settings…";
     const UPDATES: &str = "Checking for updates…";
 
     #[test]
-    fn the_three_texts_take_turns_when_the_checks_answer_at_once() {
-        // Ruling R86: each text for a third of the minimum, though every result is already in.
+    fn the_two_texts_take_turns_when_the_checks_answer_at_once() {
+        // Rulings R86 and R97: the settings, then the updates, each for half of the minimum,
+        // though both results are already in.
+        assert_eq!(TEXT_TURN, Duration::from_millis(400));
         let start = Instant::now();
         let mut splash = SplashState::new(start);
-        splash.done_at = [Some(start); 3];
-        assert_eq!(splash.current_text("en", ms(start, 100)), GPUS);
-        assert_eq!(splash.current_text("en", ms(start, 400)), GAME);
+        splash.done_at = [Some(start); 2];
+        assert_eq!(splash.current_text("en", ms(start, 100)), SETTINGS);
+        assert_eq!(splash.current_text("en", ms(start, 399)), SETTINGS);
+        assert_eq!(splash.current_text("en", ms(start, 400)), UPDATES);
         assert_eq!(splash.current_text("en", ms(start, 700)), UPDATES);
         assert!(!splash.should_end(ms(start, 799)));
         assert!(splash.should_end(ms(start, 800)));
     }
 
     #[test]
-    fn a_text_stays_until_its_check_answers() {
+    fn the_update_text_stays_until_its_check_answers() {
         let start = Instant::now();
         let mut splash = SplashState::new(start);
-        // Nothing answered: the first text, however long it takes.
-        assert_eq!(splash.current_text("en", ms(start, 2000)), GPUS);
-        // The graphics cards answer at 1 s: the game folder and the updates take their turns after.
-        splash.done_at = [Some(ms(start, 1000)), Some(start), Some(start)];
-        assert_eq!(splash.current_text("en", ms(start, 999)), GPUS);
-        assert_eq!(splash.current_text("en", ms(start, 1100)), GAME);
-        assert_eq!(splash.current_text("en", ms(start, 1300)), UPDATES);
-        assert!(!splash.should_end(ms(start, 1500)));
-        assert!(splash.should_end(ms(start, 1534)));
+        // The update check answers at 1 s: its text stays until then.
+        assert_eq!(splash.current_text("en", ms(start, 300)), SETTINGS);
+        assert_eq!(splash.current_text("en", ms(start, 2000)), UPDATES);
+        splash.done_at[1] = Some(ms(start, 1000));
+        assert_eq!(splash.current_text("en", ms(start, 999)), UPDATES);
+        assert!(!splash.should_end(ms(start, 999)));
+        assert!(splash.should_end(ms(start, 1000)));
         // A check still running holds its text, until the 3 s limit.
-        splash.done_at = [Some(start), None, Some(start)];
-        assert_eq!(splash.current_text("en", ms(start, 2000)), GAME);
+        splash.done_at[1] = None;
         assert!(!splash.should_end(ms(start, 2999)));
         assert!(splash.should_end(ms(start, 3000)));
+    }
+
+    #[test]
+    fn the_splash_texts_have_portuguese() {
+        assert_eq!(tr("pt", SETTINGS), "Verificando as configurações…");
+        assert_eq!(tr("pt", UPDATES), "Verificando atualizações…");
     }
 }

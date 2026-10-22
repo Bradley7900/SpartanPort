@@ -158,11 +158,15 @@ une o relógio do fogo, a leitura do pipe e os eventos de teclado.
 ### 4.2 Splash
 
 Fundo `#070606` sem fogo (R96), monograma SP (200 px) com brilho vermelho, texto da checagem corrente
-abaixo. Três `Task`s em paralelo: lista de GPUs, checagem da pasta do jogo, checagem de atualização
-(só com `check_updates` ligado). Os textos das três se revezam nessa ordem, cada um por pelo menos
-um terço do mínimo mesmo com as respostas já dadas, e nenhum sai antes da sua checagem responder
-(R86). O splash termina quando os três textos tiveram a vez, com mínimo de 0,8 s e máximo de 3 s;
-qualquer tecla ou clique pula. Transição de 0,7 s: o monograma voa para o canto
+abaixo. O splash existe para duas checagens (R97), cujos textos se revezam nessa ordem, cada um por
+pelo menos metade do mínimo (0,4 s) mesmo com as respostas já dadas, e nenhum sai antes da sua
+checagem responder (R86): "Checking the settings…" (`settings.json` e `spartanport.ini` legíveis: a
+leitura feita ao abrir, R69; um arquivo ilegível ainda traz o aviso de sempre) e "Checking for
+updates…" (só consulta com `check_updates` ligado; desligado, o texto aparece e a vez termina no
+mínimo). A lista de GPUs e a checagem da pasta do jogo rodam em paralelo, sem texto próprio e sem
+segurar o splash; os resultados alimentam os chips da Home e o PLAY quando chegam. O splash termina
+quando os dois textos tiveram a vez, com mínimo de 0,8 s e máximo de 3 s; qualquer tecla ou clique
+pula. Transição de 0,7 s: o monograma voa para o canto
 superior esquerdo (60 px) com `Animation` e easing `EaseOut`, o fundo escuro e os textos somem, a
 Home aparece. O monograma fica no canto e é a única identificação do launcher na janela.
 
@@ -252,6 +256,10 @@ atômica: arquivo temporário na mesma pasta e rename.
 
 ### 5.2 Checagens do splash
 
+As duas com texto no splash são as configurações e a atualização (R97); GPUs e pasta do jogo
+rodam em segundo plano.
+
+- Configurações: a leitura de `settings.json` e `spartanport.ini` feita ao abrir (R69).
 - GPUs: `spartanport-gpu-capabilities --list` em `bin/` ou `out/`, timeout de 5 s, lista vazia
   se falhar.
 - Pasta do jogo: `ready_to_play(game_dir, update_dir)` (param.sfo, eboot, arquivos obrigatórios,

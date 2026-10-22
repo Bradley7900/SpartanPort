@@ -23,33 +23,43 @@ fn state_in(dir: &std::path::Path) -> State {
 }
 
 #[test]
-fn the_splash_shows_the_three_checks_in_turn() {
-    // Ruling R86: the checks answer at once, and each text still shows for a third of the 0.8 s.
+fn the_splash_shows_the_settings_then_the_update_check() {
+    // Rulings R86 and R97: the splash checks the settings and the updates, each text for half of
+    // the 0.8 s. The graphics cards and the game folder are read in the background without a text
+    // of their own and do not hold the splash; their results still reach the Home.
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     let start = state.splash.started;
-    for check in [
-        Check::Gpus(Vec::new()),
-        Check::GameFolder(false),
-        Check::Update(None),
-    ] {
-        let _ = app::update(&mut state, Message::Splash(SplashMessage::CheckDone(check)));
-    }
+    let _ = app::update(
+        &mut state,
+        Message::Splash(SplashMessage::CheckDone(Check::Update(None))),
+    );
     for (at, shown) in [
-        (100, "Checking Vulkan graphics cards…"),
-        (400, "Checking the game folder…"),
-        (700, "Checking for updates…"),
+        (100, "Checking the settings…"),
+        (500, "Checking for updates…"),
     ] {
         let _ = app::update(&mut state, Message::Tick(start + Duration::from_millis(at)));
         let mut ui = simulator(app::view(&state));
         assert!(ui.find(shown).is_ok(), "{shown} missing at {at} ms");
         assert!(!state.splash.flying(), "flying at {at} ms");
     }
+    for gone in [
+        "Checking Vulkan graphics cards…",
+        "Checking the game folder…",
+    ] {
+        assert!(simulator(app::view(&state)).find(gone).is_err(), "{gone}");
+    }
     let _ = app::update(
         &mut state,
         Message::Tick(start + Duration::from_millis(800)),
     );
     assert!(state.splash.flying());
+    // The background checks answer later.
+    let _ = app::update(
+        &mut state,
+        Message::Splash(SplashMessage::CheckDone(Check::GameFolder(true))),
+    );
+    assert_eq!(state.game_ready, Some(true));
 }
 
 #[test]
@@ -59,13 +69,10 @@ fn no_fire_burns_until_the_monogram_flies() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     let start = state.splash.started;
-    for check in [
-        Check::Gpus(Vec::new()),
-        Check::GameFolder(false),
-        Check::Update(None),
-    ] {
-        let _ = app::update(&mut state, Message::Splash(SplashMessage::CheckDone(check)));
-    }
+    let _ = app::update(
+        &mut state,
+        Message::Splash(SplashMessage::CheckDone(Check::Update(None))),
+    );
     for at in [33, 400, 799] {
         let _ = app::update(&mut state, Message::Tick(start + Duration::from_millis(at)));
         assert_eq!(state.fire.intensity(), 0.0, "{at} ms");

@@ -185,6 +185,15 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         &[("pt", "• GPU: não verificada"), ("es", "• GPU: sin comprobar")],
     ),
     ("any key skips", &[("pt", "qualquer tecla pula")]),
+    // The splash's two checks (ruling R97).
+    (
+        "Checking the settings…",
+        &[("pt", "Verificando as configurações…")],
+    ),
+    (
+        "Checking for updates…",
+        &[("pt", "Verificando atualizações…")],
+    ),
     (
         "Effects",
         &[("pt", "Efeitos"), ("es", "Efectos"), ("ru", "Эффекты")],
