@@ -88,6 +88,10 @@ fn lookup(lang: &str, en: &str) -> Option<String> {
 /// languages fall back to English: a translator gap to fill.
 static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
     (
+        "Graphics card not checked: the game picks one.",
+        &[("pt", "Placa de vídeo não verificada: o jogo escolhe uma.")],
+    ),
+    (
         "Missing or empty files:",
         &[("pt", "Arquivos ausentes ou vazios:")],
     ),

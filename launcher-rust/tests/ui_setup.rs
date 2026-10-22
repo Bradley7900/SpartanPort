@@ -5,12 +5,14 @@ mod common;
 
 use std::path::Path;
 
-use common::{browsed, dump_with_patches, messages};
+use common::{browsed, dump_with_patches, gpu_rows, messages, ARC_LAPTOP};
 use iced_test::simulator::simulator;
 use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
+use spartanport_launcher::ui::pages::performance;
 use spartanport_launcher::ui::setup::{can_advance, folder_problems, SetupMessage, Step};
+use spartanport_launcher::ui::splash::{Check, SplashMessage};
 
 /// A state over `dir` only, as the program opens it, with the splash already gone.
 fn opened(dir: &Path) -> State {
@@ -21,6 +23,13 @@ fn opened(dir: &Path) -> State {
     };
     let mut state = State::open(Paths::from_env(dir, &env));
     state.splash.done = true;
+    state
+}
+
+/// A state over `dir` with the setup already on `step`.
+fn at_step(dir: &Path, step: Step) -> State {
+    let mut state = opened(dir);
+    state.setup.as_mut().unwrap().step = step;
     state
 }
 
@@ -202,4 +211,46 @@ fn the_update_folder_must_differ_from_the_game_folder() {
         Some("Missing or empty files:")
     );
     assert!(!can_advance(&state));
+}
+
+/// The labels of the graphics card drop-down, in order.
+fn gpu_labels(state: &State) -> Vec<String> {
+    let rows = performance::rows(state, "en");
+    let cards = rows.iter().find(|row| row.key == "gpu_id").unwrap();
+    cards.pairs.iter().map(|(_, label)| label.clone()).collect()
+}
+
+#[test]
+fn the_card_step_lists_automatic_and_the_cards() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = at_step(dir.path(), Step::Gpu);
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Step 2 of 3 · Graphics card").is_ok());
+    // A closed drop-down draws its choice itself, so the simulator cannot find it: the choices
+    // are read from the rows the page builds.
+    assert_eq!(gpu_labels(&state), ["Automatic"]);
+    assert!(ui
+        .find("Graphics card not checked: the game picks one.")
+        .is_ok());
+    drop(ui);
+
+    // Review Focus: the list arrives after the player reached this step.
+    let _ = app::update(&mut state, Message::Set("gpu_id".into(), "1".into()));
+    let _ = app::update(
+        &mut state,
+        Message::Splash(SplashMessage::CheckDone(Check::Gpus(gpu_rows(&ARC_LAPTOP)))),
+    );
+    assert_eq!(state.settings.get_str("gpu_id"), "1");
+    let mut ui = simulator(app::view(&state));
+    assert_eq!(
+        gpu_labels(&state),
+        [
+            "Automatic",
+            "Intel(R) Arc(TM) Graphics",
+            "NVIDIA GeForce RTX 4060 Laptop GPU"
+        ]
+    );
+    assert!(ui
+        .find("Graphics card not checked: the game picks one.")
+        .is_err());
 }

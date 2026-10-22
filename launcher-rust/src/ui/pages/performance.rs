@@ -246,6 +246,15 @@ fn ini_on(state: &State, key: &str) -> bool {
     state.ini.values.get(key).is_some_and(|value| value == "1")
 }
 
+/// The drop-down of `key` as the Performance page draws it (its pairs and current value).
+pub fn select_row<'a>(state: &State, lang: &str, key: &str) -> Element<'a, Message> {
+    let rows = rows(state, lang);
+    match rows.iter().find(|row| row.key == key) {
+        Some(row) => select_pairs(key, &row.pairs, &row.current),
+        None => select_pairs(key, &[], ""),
+    }
+}
+
 pub fn view(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     let hint = |english: &str| tr(lang, english);
@@ -262,11 +271,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .text_size(SELECT_TEXT)
         .style(theme::pick_list_dark),
     );
-    let rows = rows(state, lang);
-    let pick = |key: &str| match rows.iter().find(|row| row.key == key) {
-        Some(row) => select_pairs(key, &row.pairs, &row.current),
-        None => select_pairs(key, &[], ""),
-    };
+    let pick = |key: &str| select_row(state, lang, key);
 
     column![
         section(state.rtl, &tr(lang, "Frame rate")),

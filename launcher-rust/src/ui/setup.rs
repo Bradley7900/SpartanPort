@@ -11,10 +11,12 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::ui::app::{Message, State};
 use crate::ui::home;
 use crate::ui::pages::game::folder_row;
+use crate::ui::pages::performance::select_row;
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::describe_missing;
 use crate::ui::splash::SPLASH_BG;
 use crate::ui::theme::{self, mirror_x, palette, CINZEL_BOLD};
+use crate::ui::widgets::row as labeled_row;
 
 /// One step of the setup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -251,6 +253,32 @@ fn folders_body(state: &State) -> Element<'_, Message> {
     body.into()
 }
 
+/// The graphics card selector, with a note while the cards have not been listed.
+fn gpu_body(state: &State) -> Element<'_, Message> {
+    let lang = state.lang.as_str();
+    let hint = tr(
+        lang,
+        "The GPU the game runs on. Choose your dedicated card if the game uses the integrated one.",
+    );
+    let mut body = column![labeled_row(
+        state.rtl,
+        &tr(lang, "Graphics card"),
+        select_row(state, lang, "gpu_id"),
+        Some(&hint),
+    )]
+    .spacing(8)
+    .width(Fill)
+    .align_x(mirror_x(Left, state.rtl));
+    if state.gpus.is_empty() {
+        body = body.push(
+            text(tr(lang, "Graphics card not checked: the game picks one."))
+                .size(13)
+                .style(theme::text_muted),
+        );
+    }
+    body.into()
+}
+
 /// The card of the step on screen: title, step line, intro, body and footer.
 fn card(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
@@ -266,7 +294,8 @@ fn card(state: &State) -> Element<'_, Message> {
     );
     let body: Element<'_, Message> = match step {
         Step::Folders => folders_body(state),
-        Step::Gpu | Step::Video => column![].into(),
+        Step::Gpu => gpu_body(state),
+        Step::Video => column![].into(),
     };
     // Left to right: Skip at the start, then Back and Next or Finish; right to left the row is
     // reversed, so Skip is at the right.
