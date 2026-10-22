@@ -399,6 +399,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 13. `game_dir` starts empty on Windows too (the Python guesses `<port parent>/CUSA01623`); the player browses to the folder (R83).
 14. Without a game in the game folder the Home has no "Choose the game folder first." line: the game chip ("✗ No eboot.bin in the game folder") says it, and the line under the settings shows the in-game menu hint (R85). With a game, that line names the patches the last start left out ("{} patches not found in this eboot.bin at the last start (see Log)") instead of the Python's whole summary.
 15. GUI Scale offers 1x (the default) and 1.5x, both absolute on any desktop (R90; the Python offered Auto, the default, 1x and 2x). A stored "auto" loads as 1x and a stored "2" as 1.5x; `tests/fixtures.rs` expects `"ui_scale": "1"` where the Python's fixtures hold its default.
+16. Discord Rich Presence is on by default (R91; the Python's default was off): a new `settings.json` holds `"discord_rpc": true`, and the game gets `SPARTAN_DISCORD=1` unless the player switches it off. `tests/fixtures.rs` lists it with `ui_scale` in `DECIDED_DEFAULTS`, the only defaults allowed to differ from the Python's fixtures.
 
 ## Partly covered
 

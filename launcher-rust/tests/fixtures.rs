@@ -27,6 +27,8 @@ struct DecidedDefault {
     /// Its default as the Python writes it (JSON text) and as the Rust launcher does.
     python: &'static str,
     rust: &'static str,
+    /// The variable it gives the game, with the Python's value and the Rust one.
+    env: Option<(&'static str, &'static str, &'static str)>,
 }
 
 /// The only differences from the Python's defaults the fixtures allow, each a user's ruling. They
@@ -37,6 +39,14 @@ const DECIDED_DEFAULTS: &[DecidedDefault] = &[
         key: "ui_scale",
         python: r#""auto""#,
         rust: r#""1""#,
+        env: None,
+    },
+    // R91: Discord Rich Presence is on by default, so the game gets SPARTAN_DISCORD=1.
+    DecidedDefault {
+        key: "discord_rpc",
+        python: "false",
+        rust: "true",
+        env: Some(("SPARTAN_DISCORD", "0", "1")),
     },
 ];
 
@@ -232,10 +242,20 @@ fn environment_for_case(case: &str) -> (IndexMap<String, String>, String) {
 
 fn assert_environment_matches(case: &str) {
     let (actual, data) = environment_for_case(case);
-    let expected: IndexMap<String, String> = serde_json::from_str(
+    let mut expected: IndexMap<String, String> = serde_json::from_str(
         &fs::read_to_string(fixture_dir(case).join("environment.json")).unwrap(),
     )
     .unwrap();
+    for decided in decided_defaults(&load_input(case)) {
+        if let Some((name, python, rust)) = decided.env {
+            assert_eq!(
+                expected.get(name).map(String::as_str),
+                Some(python),
+                "{case}"
+            );
+            expected.insert(name.to_string(), rust.to_string());
+        }
+    }
     let norm = |s: &str| s.replace(['\\', '/'], std::path::MAIN_SEPARATOR_STR);
     for (key, want) in &expected {
         let got = actual.get(key);

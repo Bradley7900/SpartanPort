@@ -81,7 +81,7 @@ pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> 
         "gpu_profile": false,
         "vk_validation": false,
         "close_on_play": false,
-        "discord_rpc": false,
+        "discord_rpc": true,
         "check_updates": false,
         "game_patches": {},
         "controls": {},
@@ -172,6 +172,8 @@ mod tests {
         assert_eq!(defaults["game_dir"], json!(""));
         // Ruling R90: GUI Scale starts at 1x (the Python's "auto" followed the desktop).
         assert_eq!(defaults["ui_scale"], json!("1"));
+        // Ruling R91: Discord Rich Presence starts on.
+        assert_eq!(defaults["discord_rpc"], json!(true));
         let env = |k: &str| (k == "SPARTAN_GAME_DIR").then(|| "/games".to_string());
         assert_eq!(app_defaults(&env)["game_dir"], json!("/games"));
     }

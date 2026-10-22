@@ -191,9 +191,10 @@ pub fn game_environment(
             ui_language
         },
     );
+    // On by default (R91), also in a file without the key.
     env.insert(
         "SPARTAN_DISCORD".into(),
-        one_or_zero(flag(settings, "discord_rpc", false)),
+        one_or_zero(flag(settings, "discord_rpc", true)),
     );
     if flag(settings, "hdr", false) {
         env.insert("SPARTAN_HDR".into(), "1".into());
@@ -384,6 +385,21 @@ mod tests {
         let env = game_environment(&settings, &paths, "en", &inherited, true);
         assert_eq!(env["SPARTAN_GPU_ID"], "2");
         assert_eq!(env["SPARTAN_MONITOR"], "1");
+    }
+
+    #[test]
+    fn discord_rich_presence_is_on_by_default() {
+        // R91: the default turns it on, and a file without the key (an older launcher's) too.
+        let (settings, paths, _dir) = setup(json!({}));
+        let env = game_environment(&settings, &paths, "en", &IndexMap::new(), true);
+        assert_eq!(env["SPARTAN_DISCORD"], "1");
+        let mut without = settings.clone();
+        without.0.shift_remove("discord_rpc");
+        let env = game_environment(&without, &paths, "en", &IndexMap::new(), true);
+        assert_eq!(env["SPARTAN_DISCORD"], "1");
+        let (off, paths, _dir) = setup(json!({"discord_rpc": false}));
+        let env = game_environment(&off, &paths, "en", &IndexMap::new(), true);
+        assert_eq!(env["SPARTAN_DISCORD"], "0");
     }
 
     #[test]
