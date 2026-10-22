@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 const LEGACY_CONFIG_DIR: &str = "gow3-launcher";
 
 /// Every launcher folder and file, derived from the executable's folder and the environment:
-/// `SPARTAN_PORT_DIR` names the port folder (default: the executable's), whose `run.py`, `bin/`
-/// and `scripts/` the launcher uses; `SPARTAN_DATA_DIR` the data folder (default: the port
-/// folder, as the Python's `DATA_DIR = PORT_DIR`); `SPARTAN_CONFIG` the ini.
+/// `SPARTAN_PORT_DIR` names the port folder (default: the executable's; absolute, even when the
+/// variable is relative), whose `run.py`, `bin/` and `scripts/` the launcher uses;
+/// `SPARTAN_DATA_DIR` the data folder (default: the port folder, as the Python's
+/// `DATA_DIR = PORT_DIR`); `SPARTAN_CONFIG` the ini.
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub port_dir: PathBuf,
@@ -18,11 +19,16 @@ pub struct Paths {
 }
 
 impl Paths {
-    /// `env` reads one environment variable; nothing else touches the OS.
+    /// `env` reads one environment variable; a relative `SPARTAN_PORT_DIR` is also joined to the
+    /// current folder. Nothing else touches the OS.
     pub fn from_env(exe_dir: &Path, env: &dyn Fn(&str) -> Option<String>) -> Paths {
+        // Made absolute here, once: the game and the Python launcher start inside it.
         let port_dir = env("SPARTAN_PORT_DIR")
             .filter(|dir| !dir.is_empty())
-            .map_or_else(|| exe_dir.to_path_buf(), PathBuf::from);
+            .map_or_else(
+                || exe_dir.to_path_buf(),
+                |dir| std::path::absolute(&dir).unwrap_or_else(|_| PathBuf::from(dir)),
+            );
         let data_dir = env("SPARTAN_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| port_dir.clone());
@@ -158,17 +164,27 @@ mod tests {
     #[test]
     fn the_port_folder_follows_spartan_port_dir() {
         // A cargo build runs from target/: the variable points it at the repository.
+        // A relative folder is taken from the current one, once: the game and the Python
+        // launcher start inside the port folder, where it would point somewhere else.
+        let repo = std::env::current_dir().unwrap().join("repo");
         let paths = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_PORT_DIR", "repo")]));
-        assert_eq!(paths.port_dir, Path::new("repo"));
+        assert_eq!(paths.port_dir, repo);
         // Python `DATA_DIR = PORT_DIR` unless `SPARTAN_DATA_DIR` says otherwise.
-        assert_eq!(paths.data_dir, Path::new("repo"));
-        assert_eq!(paths.ini_path(), Path::new("repo").join("spartanport.ini"));
+        assert_eq!(paths.data_dir, repo);
+        assert_eq!(paths.ini_path(), repo.join("spartanport.ini"));
         let both = Paths::from_env(
             Path::new("exe"),
             &env_of(&[("SPARTAN_PORT_DIR", "repo"), ("SPARTAN_DATA_DIR", "data")]),
         );
-        assert_eq!(both.port_dir, Path::new("repo"));
+        assert_eq!(both.port_dir, repo);
         assert_eq!(both.data_dir, Path::new("data"));
+        // An absolute folder stays as it is.
+        let absolute = repo.join("port").display().to_string();
+        let given = Paths::from_env(
+            Path::new("exe"),
+            &env_of(&[("SPARTAN_PORT_DIR", absolute.as_str())]),
+        );
+        assert_eq!(given.port_dir, repo.join("port"));
         // An empty value counts as unset.
         let empty = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_PORT_DIR", "")]));
         assert_eq!(empty.port_dir, Path::new("exe"));
