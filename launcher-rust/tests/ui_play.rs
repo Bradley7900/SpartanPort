@@ -4,10 +4,13 @@
 //! `tests/test_launcher_run_log.py` (the halves that are not Tk). The game is always the
 //! `fake-game` test binary, never `run.py`.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use common::sfo;
 use iced_test::simulator::simulator;
 use serde_json::json;
 use spartanport_launcher::core::log::ExitHint;
@@ -49,33 +52,6 @@ fn fake_game(state: &mut State, args: &[&str]) {
     let mut command = vec![env!("CARGO_BIN_EXE_fake-game").to_string()];
     command.extend(args.iter().map(|arg| arg.to_string()));
     state.launch_command = Some(command);
-}
-
-fn sfo(entries: &[(&str, &str)]) -> Vec<u8> {
-    let keys_off = 20 + 16 * entries.len();
-    let (mut keys, mut values, mut table) = (Vec::new(), Vec::new(), Vec::new());
-    for (key, value) in entries {
-        let mut raw = value.as_bytes().to_vec();
-        raw.push(0);
-        table.extend_from_slice(&(keys.len() as u16).to_le_bytes());
-        table.extend_from_slice(&0x204u16.to_le_bytes());
-        table.extend_from_slice(&(raw.len() as u32).to_le_bytes());
-        table.extend_from_slice(&(raw.len() as u32).to_le_bytes());
-        table.extend_from_slice(&(values.len() as u32).to_le_bytes());
-        keys.extend_from_slice(key.as_bytes());
-        keys.push(0);
-        values.extend_from_slice(&raw);
-    }
-    let values_off = keys_off + keys.len();
-    let mut out = b"\0PSF".to_vec();
-    out.extend_from_slice(&0x101u32.to_le_bytes());
-    out.extend_from_slice(&(keys_off as u32).to_le_bytes());
-    out.extend_from_slice(&(values_off as u32).to_le_bytes());
-    out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-    out.extend(table);
-    out.extend(keys);
-    out.extend(values);
-    out
 }
 
 fn game_sfo() -> Vec<u8> {
