@@ -195,7 +195,8 @@ fn next_is_ignored_while_the_folder_is_incomplete() {
 
 #[test]
 fn the_update_folder_must_differ_from_the_game_folder() {
-    // Review Focus: the update folder chosen first, the game folder pointed at it later.
+    // The update folder is chosen first and the game folder is then pointed at the same folder:
+    // the update folder's check follows the game folder.
     let dir = tempfile::tempdir().unwrap();
     let mut state = opened(dir.path());
     let dump = complete_dump(dir.path());
@@ -274,7 +275,8 @@ fn the_card_step_lists_automatic_and_the_cards() {
         .is_ok());
     drop(ui);
 
-    // Review Focus: the list arrives after the player reached this step.
+    // The cards are listed only after the player reached this step and chose one: the choice
+    // stays and the list fills in.
     let _ = app::update(&mut state, Message::Set("gpu_id".into(), "1".into()));
     let _ = app::update(
         &mut state,

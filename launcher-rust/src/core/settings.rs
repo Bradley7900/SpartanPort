@@ -277,7 +277,8 @@ mod tests {
 
     #[test]
     fn a_legacy_settings_file_counts_as_read() {
-        // Review Focus: the portable migration runs before the file is looked for.
+        // A settings file only at the old location: the portable migration copies it before the
+        // file is looked for, so it counts as read.
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
         // `Paths::legacy_config_file` is `<APPDATA>/gow3-launcher/settings.json` on Windows and

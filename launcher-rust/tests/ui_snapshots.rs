@@ -70,7 +70,8 @@ const SHOWN_PORT: &str = if cfg!(windows) {
 const EXTERNAL_PATCH: &str = "<Patch><TitleID><ID>CUSA01623</ID></TitleID>\
      <Metadata Name=\"Sharper Shadows\" Author=\"Bo\" AppVer=\"01.02\" isEnabled=\"true\"><PatchList/></Metadata></Patch>";
 
-/// What a snapshot shows: the splash over Home, or a page (Home is the page without the drawer).
+/// What a snapshot shows: the splash over Home, a page (Home is the page without the drawer), or a
+/// step of the first-run setup.
 #[derive(Debug, Clone, Copy)]
 enum Shot {
     Splash,

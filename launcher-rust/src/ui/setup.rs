@@ -256,7 +256,8 @@ pub fn finish(state: &mut State) -> Task<Message> {
 /// Width of the card.
 const CARD_WIDTH: f32 = 640.0;
 
-/// The splash's dark background, with the fire over it once the splash is gone.
+/// The splash's dark background with the fire over it, which fills in while the monogram flies to
+/// the corner.
 pub fn background(state: &State) -> Element<'_, Message> {
     stack![
         container(space())
@@ -427,9 +428,10 @@ fn card(state: &State) -> Element<'_, Message> {
         .as_ref()
         .map_or(Step::Folders, |setup| setup.step);
     let number = step.number().to_string();
+    let total = Step::ALL.len().to_string();
     let step_line = format!(
         "{} · {}",
-        tr_fmt(lang, "Step {} of {}", &[&number, "3"]),
+        tr_fmt(lang, "Step {} of {}", &[&number, &total]),
         tr(lang, step.title_en())
     );
     let body: Element<'_, Message> = match step {

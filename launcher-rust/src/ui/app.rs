@@ -650,7 +650,9 @@ pub fn home_interactive_opacity(state: &State) -> f32 {
 
 /// The scene over the tab bar, bottom to top: the Home background, the dim layer that closes
 /// the drawer when clicked (only while it is open), the Home block, and the drawer. The Home
-/// block sits above the dim layer so it stays clickable next to a 46 % drawer.
+/// block sits above the dim layer so it stays clickable next to a 46 % drawer. While the setup is
+/// open the scene fills the whole window instead: the setup's background and, once the splash is
+/// gone, its card, with no Home block, drawer or tab bar.
 pub fn view(state: &State) -> Element<'_, Message> {
     let setup = state.setup.is_some();
     let base = if setup {
