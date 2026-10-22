@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The Home page (chips, quick line, PLAY, update pill) and the language menu.
 
+mod common;
+
 use std::path::Path;
 use std::time::Duration;
 
@@ -187,6 +189,50 @@ fn the_hint_sits_under_the_settings_line_in_the_mockup_words() {
             "{lang}: line {line:?}, hint {below:?}"
         );
     }
+}
+
+/// Writes the last start's patch report with `skipped` patches left out.
+fn last_start_skipped(state: &State, skipped: &[&str]) {
+    let out = state.paths.data_dir.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let skipped: serde_json::Map<String, serde_json::Value> = skipped
+        .iter()
+        .map(|name| (name.to_string(), json!("site not found")))
+        .collect();
+    let report = json!({"sha256": "ab", "applied": ["Fix Alpha"], "skipped": skipped});
+    std::fs::write(out.join("patch_status.json"), report.to_string()).unwrap();
+}
+
+#[test]
+fn the_hint_line_names_the_patches_the_last_start_left_out() {
+    // Ruling R85: the tail of the 2.6.0 status line, in the hint's place while the game is idle.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let dump = common::dump_with_patches(dir.path());
+    state
+        .settings
+        .set("game_dir", json!(dump.display().to_string()));
+    last_start_skipped(&state, &["Fix Beta", "Fix Gamma"]);
+    home::refresh_facts(&mut state);
+    let note = "2 patches not found in this eboot.bin at the last start (see Log)";
+    assert_eq!(home::status_line(&state), note);
+    assert!(simulator(app::view(&state)).find(note).is_ok());
+    state.lang = "pt".into();
+    assert_eq!(
+        home::status_line(&state),
+        "2 patches não encontrados neste eboot.bin na última inicialização (veja o Registro)"
+    );
+    state.lang = "en".into();
+    let hint = "In the game: Insert or R3+L2 opens the port's menu.";
+    // Every patch applied: the hint.
+    last_start_skipped(&state, &[]);
+    home::refresh_facts(&mut state);
+    assert_eq!(home::status_line(&state), hint);
+    // As the Python's summary: no note without a game in the game folder.
+    last_start_skipped(&state, &["Fix Beta"]);
+    state.settings.set("game_dir", json!(""));
+    home::refresh_facts(&mut state);
+    assert_eq!(home::status_line(&state), hint);
 }
 
 #[test]

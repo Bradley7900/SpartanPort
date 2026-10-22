@@ -20,6 +20,7 @@ use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder,
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS};
+use crate::core::patches::patch_status;
 use crate::ui::app::{
     home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
 };
@@ -140,9 +141,11 @@ pub struct HomeFacts {
     pub title_id: Option<String>,
     pub patchable: bool,
     pub saves: bool,
+    /// Patches the last start left out (`patch_status.json`).
+    pub skipped: usize,
 }
 
-/// Re-reads the game folder and the saves folder for the chips.
+/// Re-reads the game folder, the saves folder and the last start's patch report.
 pub fn refresh_facts(state: &mut State) {
     let meta = meta_folder(
         &state.settings.get_str("game_dir"),
@@ -155,6 +158,8 @@ pub fn refresh_facts(state: &mut State) {
         title_id,
         patchable: game_patchable(&meta),
         saves: has_files(&savedata),
+        skipped: patch_status(&state.paths.data_dir.join("out"))
+            .map_or(0, |status| status.skipped.len()),
     };
 }
 
@@ -518,11 +523,20 @@ pub fn chips(state: &State) -> [String; 3] {
 }
 
 /// The line under the settings line (mockup `#status`, Python `self.status`): what the game is
-/// doing while it starts, runs or its system files are copied; the in-game menu hint otherwise.
+/// doing while it starts, runs or its system files are copied; at rest, the patches the last start
+/// left out (ruling R85, the tail of the Python's `summary()`, which needs a patchable game in the
+/// game folder), else the in-game menu hint.
 pub fn status_line(state: &State) -> String {
     let busy = !matches!(state.game, GameState::Idle);
+    let facts = &state.home;
     if busy && !state.status.is_empty() {
         state.status.clone()
+    } else if !busy && facts.skipped > 0 && facts.info.is_some() && facts.patchable {
+        tr_fmt(
+            &state.lang,
+            "{} patches not found in this eboot.bin at the last start (see Log)",
+            &[&facts.skipped.to_string()],
+        )
     } else {
         tr(
             &state.lang,

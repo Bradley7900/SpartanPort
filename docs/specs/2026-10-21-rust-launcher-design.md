@@ -187,7 +187,8 @@ lado), chips em uma linha sem quebra (saves, título e versão do jogo, placa de
 ajustes substitui o antigo chip de requisitos), linha de ajustes (resolução de saída, FPS, modo de
 janela, monitor: só chaves que a página Graphics oferece; upscaler e preset voltam quando ela os
 oferecer), dica "Insert ou R3+L2", que dá lugar ao status do jogo enquanto ele prepara, roda ou
-copia os arquivos de sistema.
+copia os arquivos de sistema e, com o jogo parado, ao aviso dos patches que a última partida não
+achou no eboot.bin (R85).
 
 ### 4.4 Barra e gaveta
 

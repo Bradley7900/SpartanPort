@@ -170,6 +170,15 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         "✓ Saves found",
         &[("pt", "✓ Saves encontrados"), ("es", "✓ Partidas guardadas")],
     ),
+    // The Home hint line after a start that left patches out (ruling R85): the Python's
+    // "{} not found in this eboot.bin at the last start (see Log)" with the word it followed.
+    (
+        "{} patches not found in this eboot.bin at the last start (see Log)",
+        &[(
+            "pt",
+            "{} patches não encontrados neste eboot.bin na última inicialização (veja o Registro)",
+        )],
+    ),
     // The Home graphics card chip when the probe did not answer.
     (
         "• GPU: not checked",
