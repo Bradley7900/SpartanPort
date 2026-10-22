@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <SDL3/SDL.h>
 #include "runtime.h"
 #include "cpu_check.h"
 #include "isa_rewrite.h"
@@ -46,7 +47,10 @@ static int entered_game;
 static int gpu_enabled;
 static unsigned cpu_missing_sets; /* CPU_SET_* the host lacks; the guest code needs them rewritten */
 static IsaTable *isa_table; /* rewritten sites (--isa-rewrite); the fault handlers and the report read it */
-static void isa_report_hook(void) { isa_rewrite_report(isa_table, stdout); }
+static void loader_report_hook(void) {
+    if (isa_table) isa_rewrite_report(isa_table, stdout);
+    if (gpu_enabled) printf("GPU: copy waits yielded %llu times\n", spartanportgpu_copy_yields());
+}
 int vulkan_smoke(void);
 
 static void fail(const char *message) { fprintf(stderr, "ERROR: %s\n", message); exit(1); }
@@ -379,9 +383,36 @@ extern uintptr_t spartanport_damage_multiplier(int taken);
 extern uintptr_t spartanport_orb_pickup_multiplier(unsigned kind);
 extern void spartanport_stat_multipliers_status(int damage, int orb_pickup);
 extern uintptr_t spartanport_qte_state_address(void);
+extern void spartanport_qte_status(int supported);
+extern uintptr_t spartanport_auto_qte_flag(void);
 
 /* The hooks below find their sites by signature (src/signature.h), so they work in any region
  * and version of the game whose code matches; a site that is not found leaves its feature off. */
+static void find_save_preview(Segment *segments, uint64_t count, uint64_t size) {
+    const SpartanSignature site={
+        "4c 8d 3d ?? ?? ?? ?? 48 8d 35 ?? ?? ?? ?? 48 8d 15 ?? ?? ?? ?? 31 c0 44 89 e9 4c 89 ff e8 ?? ?? ?? ??",0};
+    runtime_savedata_preview_path(NULL);
+    uint64_t at=spartanport_signature_find(image,size,&site);
+    if (at==UINT64_MAX || !mapped(segments,count,at,33)) return;
+    const char *expected[]={NULL,"%sSAVEDATA/SAVEPT%02u.PNG","/app0/EXEC/ICONS/"};
+    uint64_t target[3];
+    for (unsigned i=0;i<3;++i) {
+        int32_t relative; memcpy(&relative,image+at+i*7+3,4);
+        int64_t offset=(int64_t)at+(i+1)*7+relative;
+        size_t length=i ? strlen(expected[i])+1 : 128;
+        if (offset<0 || !mapped(segments,count,(uint64_t)offset,length)) return;
+        target[i]=(uint64_t)offset;
+        if (i && memcmp(image+target[i],expected[i],length)) return;
+    }
+    int writable=0;
+    for (uint64_t i=0;i<count;++i)
+        if ((segments[i].flags&2) && target[0]>=segments[i].address &&
+            target[0]-segments[i].address<segments[i].size &&
+            128<=segments[i].size-(target[0]-segments[i].address)) writable=1;
+    if (!writable) return;
+    runtime_savedata_preview_path((const char *)image+target[0]);
+    puts("Save preview: pending manual-save image located");
+}
 static void install_cheats(Segment *segments, uint64_t count, uint64_t size) {
     const char *names[] = {"health", "magic", "item meter", "Rage of Sparta", "red orbs",
                            "Very Hard unlock", "infinite double jumps"};
@@ -489,9 +520,9 @@ static void install_actor_watch(Segment *segments, uint64_t count, uint64_t size
 }
 
 /* QTE prompts (src/qte_hook.h): a frame count in the prompt's update and an answer in its
- * rotation check, for the stick prompts in runtime_pad.c (typed or drawn rotations). Both or
- * neither; they do nothing until the player finishes a rotation that way. */
-static void install_qte_hooks(Segment *segments, uint64_t count, uint64_t size) {
+ * rotation check, for the stick prompts in runtime_pad.c and Automatic QTE. Both or neither;
+ * they do nothing until one of those answers a prompt. Returns 1 when installed. */
+static int install_qte_hooks(Segment *segments, uint64_t count, uint64_t size) {
     const uint64_t sites[2] = {spartanport_signature_find(image, size, &spartanport_qte_update_site),
                                spartanport_signature_find(image, size, &spartanport_qte_rotation_site)};
     const unsigned char *originals[2] = {spartanport_qte_update_original, spartanport_qte_rotation_original};
@@ -499,13 +530,13 @@ static void install_qte_hooks(Segment *segments, uint64_t count, uint64_t size) 
         if (sites[i] == UINT64_MAX || !mapped(segments, count, sites[i], SPARTAN_QTE_BLOCK_NEXT) ||
             memcmp(image + sites[i], originals[i], SPARTAN_QTE_HOOK_LENGTH)) {
             printf("Stick prompts: unavailable (code not found in this eboot.bin)\n");
-            return;
+            return 0;
         }
     }
     const uint64_t block = spartanport_qte_block(image + sites[1], sites[1]);
     if (!mapped(segments, count, block, SPARTAN_QTE_TYPE_OFFSET + 2)) {
         printf("Stick prompts: unavailable (prompt state outside the image)\n");
-        return;
+        return 0;
     }
     unsigned char *stubs = allocate(page_size);
     int32_t relative[2];
@@ -513,14 +544,14 @@ static void install_qte_hooks(Segment *segments, uint64_t count, uint64_t size) 
         const int64_t delta = (int64_t)(uintptr_t)(stubs + i * 128) - (int64_t)(uintptr_t)(image + sites[i] + 5);
         if (delta < INT32_MIN || delta > INT32_MAX) {
             printf("Stick prompts: unavailable (hook outside relative-jump range)\n");
-            return;
+            return 0;
         }
         relative[i] = (int32_t)delta;
     }
     SpartanQteState *state = (SpartanQteState *)spartanport_qte_state_address();
     spartanport_qte_build_update_stub(stubs, (uintptr_t)&state->heartbeat,
                                (uintptr_t)(image + sites[0] + SPARTAN_QTE_HOOK_LENGTH));
-    spartanport_qte_build_rotation_stub(stubs + 128, (uintptr_t)&state->pass,
+    spartanport_qte_build_rotation_stub(stubs + 128, (uintptr_t)&state->pass, spartanport_auto_qte_flag(),
                                  (uintptr_t)(image + sites[1] + SPARTAN_QTE_HOOK_LENGTH));
     protect(stubs, page_size, 5);
     for (unsigned i = 0; i < 2; ++i) {
@@ -530,6 +561,57 @@ static void install_qte_hooks(Segment *segments, uint64_t count, uint64_t size) 
     }
     state->block = (uint64_t)(uintptr_t)(image + block);
     printf("Stick prompts: rotation prompt hooks ready\n");
+    return 1;
+}
+
+/* Automatic QTE (src/qte_hook.h): the button check of timed prompts, the press query of repeated
+ * presses, the held buttons of charged presses and the Circle struggle; rotations go through the
+ * rotation stub above. Each site on its own: one that is not found leaves that kind to the player. */
+enum { AUTO_QTE_SITES = 4 };
+static void install_auto_qte_hooks(Segment *segments, uint64_t count, uint64_t size, int rotation) {
+    const SpartanSignature *signatures[AUTO_QTE_SITES] = {&spartanport_qte_timed_site, &spartanport_qte_repeat_site,
+                                                       &spartanport_qte_charged_site, &spartanport_qte_circle_site};
+    const unsigned lengths[AUTO_QTE_SITES] = {SPARTAN_QTE_TIMED_LENGTH, 5, SPARTAN_QTE_CHARGED_LENGTH,
+                                              SPARTAN_QTE_CIRCLE_LENGTH};
+    const char *names[AUTO_QTE_SITES] = {"button", "repeated press", "held press", "Circle struggle"};
+    const uintptr_t automatic = spartanport_auto_qte_flag();
+    unsigned char *stubs = allocate(page_size);
+    uint64_t sites[AUTO_QTE_SITES];
+    int32_t relative[AUTO_QTE_SITES] = {0};
+    int ready = 0;
+    for (unsigned i = 0; i < AUTO_QTE_SITES; ++i) {
+        sites[i] = spartanport_signature_find(image, size, signatures[i]);
+        if (sites[i] == UINT64_MAX || !mapped(segments, count, sites[i], lengths[i])) {
+            printf("Automatic QTE: %s prompts unavailable (code not found in this eboot.bin)\n", names[i]);
+            sites[i] = UINT64_MAX;
+            continue;
+        }
+        unsigned char *stub = stubs + i * 128;
+        const int64_t delta = (int64_t)(uintptr_t)stub - (int64_t)(uintptr_t)(image + sites[i] + 5);
+        if (delta < INT32_MIN || delta > INT32_MAX) {
+            printf("Automatic QTE: %s prompts unavailable (hook outside relative-jump range)\n", names[i]);
+            sites[i] = UINT64_MAX;
+            continue;
+        }
+        relative[i] = (int32_t)delta;
+        const uintptr_t resume = (uintptr_t)(image + sites[i] + lengths[i]);
+        if (i == 0) spartanport_qte_build_timed_stub(stub, automatic, resume);
+        else if (i == 1) spartanport_qte_build_repeat_stub(stub, automatic,
+                                                    (uintptr_t)(image + spartanport_qte_call_target(image + sites[i], sites[i])));
+        else if (i == 2) spartanport_qte_build_charged_stub(stub, automatic, resume);
+        else spartanport_qte_build_circle_stub(stub, automatic, resume, (uintptr_t)(image + sites[i] + SPARTAN_QTE_CIRCLE_SKIP));
+    }
+    protect(stubs, page_size, 5);
+    for (unsigned i = 0; i < AUTO_QTE_SITES; ++i) {
+        if (sites[i] == UINT64_MAX) continue;
+        image[sites[i]] = i == 1 ? 0xe8 : 0xe9;  /* the repeat site stays a call */
+        memcpy(image + sites[i] + 1, &relative[i], 4);
+        memset(image + sites[i] + 5, 0x90, lengths[i] - 5);
+        ++ready;
+    }
+    if (!ready && !rotation) return;
+    spartanport_qte_status(1);
+    printf("Automatic QTE: ready for %d of %d prompt kinds (menu, Game)\n", ready + rotation, AUTO_QTE_SITES + 1);
 }
 
 static void install_orb_multiplier(Segment *segments, uint64_t count, uint64_t size) {
@@ -616,7 +698,8 @@ static void menu_quit(void) {
 static void ABI menu_setting(void *self, uint16_t function, uint64_t *result, void *args) {
     (void)self;
     (void)args;
-    *result = spartanportgpu_enemy_health_bar(function == 0xffd);
+    *result = function >= 0xffd ? (uint64_t)spartanportgpu_enemy_health_bar(function == 0xffd)
+                              : spartanportgpu_native_setting(function);
 }
 static const uintptr_t menu_vtable[4] = {0, 0, 0, (uintptr_t)menu_setting};
 static const uintptr_t *menu_provider = menu_vtable;
@@ -730,6 +813,56 @@ static int cpu_supported(char *missing, size_t size) {
     return 1;
 }
 
+/* --displays: the monitors a launcher can offer, one TSV line each on stdout so a machine can parse
+ * them: index, name, primary, x, y, width, height. The index is the position in SDL_GetDisplays(),
+ * the same value SPARTAN_MONITOR carries; SDL_DisplayID is per process and never printed. TAB, CR and
+ * LF in a name would break the columns or the lines, so they are printed as spaces. Diagnostics go
+ * to stderr and stdout stays empty when the enumeration fails. */
+static int describe_displays(void) {
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        fprintf(stderr, "Displays: cannot initialize SDL video: %s\n", SDL_GetError());
+        return 1;
+    }
+    int count = 0;
+    SDL_DisplayID *displays = SDL_GetDisplays(&count);
+    if (!displays) {
+        fprintf(stderr, "Displays: cannot enumerate displays: %s\n", SDL_GetError());
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        return 1;
+    }
+    if (count == 0) {
+        /* A valid enumeration with no monitors is not a failure: no line, no error code. */
+        fprintf(stderr, "Displays: none\n");
+        SDL_free(displays);
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        return 0;
+    }
+    /* 0 when SDL cannot tell: no display matches, so no line claims to be the primary. */
+    const SDL_DisplayID primary = SDL_GetPrimaryDisplay();
+    if (!primary) fprintf(stderr, "Displays: no primary display reported: %s\n", SDL_GetError());
+    for (int i = 0; i < count; ++i) {
+        SDL_Rect bounds;
+        if (!SDL_GetDisplayBounds(displays[i], &bounds)) {
+            /* Reported and left out: a line with invented geometry would lie to the launcher. */
+            fprintf(stderr, "Displays: display %d has no bounds: %s\n", i, SDL_GetError());
+            continue;
+        }
+        const char *name = SDL_GetDisplayName(displays[i]);
+        char fallback[32];
+        if (!name || !name[0]) {
+            snprintf(fallback, sizeof(fallback), "Display %d", i);
+            name = fallback;
+        }
+        printf("%d\t", i);
+        for (const char *at = name; *at; ++at)
+            putchar(*at == '\t' || *at == '\r' || *at == '\n' ? ' ' : *at);
+        printf("\t%d\t%d\t%d\t%d\t%d\n", displays[i] == primary, bounds.x, bounds.y, bounds.w, bounds.h);
+    }
+    SDL_free(displays);
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
 #ifndef _WIN32
@@ -750,6 +883,10 @@ int main(int argc, char **argv) {
         /* Before the memory reservation: this only asks SDL, nothing of the game is set up yet. */
         runtime_pad_describe();
         return 0;
+    }
+    if (argc == 2 && !strcmp(argv[1], "--displays")) {
+        /* Before the memory reservation: this only asks SDL, nothing of the game is set up yet. */
+        return describe_displays();
     }
 #ifdef _WIN32
     /* The PS4 user range must stay free of host allocations (GPU driver, heaps), and the guest
@@ -781,7 +918,7 @@ int main(int argc, char **argv) {
         else { fprintf(stderr, "Unknown option: %s\n", argv[i]); return 1; }
     }
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad\n", argv[0]);
+        fprintf(stderr, "Usage: %s boot.bin [--cpu-only] [--strict-imports] [--check-imports] [--content-profile file] [--app0 dir] [--user dir] [--patches file] [--isa-rewrite file] [--pause-menu R_UI.WAD] [--mount guest=host]... [--timeout seconds] | --vulkan-only | --cpu-features | --gamepad | --displays\n", argv[0]);
         return 1;
     }
     if (!cpu_supported(missing, sizeof missing)) return 20;
@@ -959,6 +1096,7 @@ int main(int argc, char **argv) {
     unsigned char *stubs = image + round_page(size);
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
     fclose(f);
+    find_save_preview(segments,ns,size);
     if (isa_table && isa_table_matches(isa_table, image, size)) {
         printf("STOP: this CPU lacks %s and no rewrite table matches the image\n", missing);
         return 20;
@@ -1029,7 +1167,7 @@ int main(int argc, char **argv) {
     if (gpu_enabled) find_engine_fps(segments, ns, size);
     if (gpu_enabled) install_actor_watch(segments, ns, size);
     if (gpu_enabled) install_stat_multipliers(segments, ns, size);
-    if (gpu_enabled) install_qte_hooks(segments, ns, size);
+    if (gpu_enabled) install_auto_qte_hooks(segments, ns, size, install_qte_hooks(segments, ns, size));
     if (gpu_enabled && pause_menu && app0) install_menu_exit(segments, ns, size, pause_menu);
 #ifdef _WIN32
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
@@ -1044,9 +1182,9 @@ int main(int argc, char **argv) {
         if (isa_sets == 0xffffffffu) printf("ISA: forced rewrite of all %u sites (SPARTAN_ISA_REWRITE=1), %u skipped\n", r.rewritten, r.skipped);
         else printf("ISA: CPU lacks %s: %u sites rewritten (%u jmp, %u relocated, %u int3), %u skipped\n",
                     missing, r.rewritten, r.jmp, r.relocated, r.int3, r.skipped);
-        runtime_set_report_hook(isa_report_hook);
         protect(stubs, stub_area, 5);
     }
+    runtime_set_report_hook(loader_report_hook);
     protect(traps, round_page((import_count + 1) * 32), 5);
     protect(image, round_page(size), 0);
     int executable_entry = 0;

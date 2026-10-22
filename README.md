@@ -19,6 +19,12 @@ and Linux (experimental AppImage).
 > This project is not affiliated with or endorsed by Sony Interactive Entertainment or Santa Monica Studio.
 > God of War is a trademark of Sony Interactive Entertainment.
 
+> **Formerly gow3_pc.** Updating from 2.5.0 through the launcher keeps your saves and settings:
+> on the first start, the game settings (`gow3.ini`), the launcher settings and, on Linux, the data
+> folder (`~/.local/share/gow3`) are copied to their new names. The old files stay where they were,
+> and existing shortcuts keep working. On Linux, the AppImage is now `spartanport-x86_64.AppImage`:
+> update Steam launch options that use the old file name.
+
 ## Contents
 
 - [SpartanPort](#spartanport)
@@ -114,7 +120,7 @@ Arch and openSUSE Tumbleweed; this does not establish gameplay compatibility on 
 3. Choose your game folder, save the settings and press **PLAY**.
 
 If an older download reports `GLIBC_2.44 not found`, download the rebuilt AppImage again.
-The Windows updater is not available on Linux; download a newer AppImage to update.
+The AppImage updates itself: **Advanced → Check for updates** (or the notice when the launcher opens) downloads the newer AppImage from the release, checks its SHA-256 and replaces the file. It needs a writable folder; otherwise it opens the releases page.
 Steam Deck/RADV rendering corruption is a known issue in the published 2.2.0 AppImage.
 
 - **Files:** saves, settings, shader cache and the log are in `~/.local/share/spartanport`; the launcher's
@@ -146,8 +152,8 @@ Steam Deck/RADV rendering corruption is a known issue in the published 2.2.0 App
 - Saving and loading: the save list is shown on screen, as on the PS4. Autosave works too. The
   launcher backs the saves up before every start.
 - Patches: render resolution of 480p, 720p, 900p, 1440p, 1800p or 4K, corrupted texture fix and skip
-  videos with the X button (community); engine frame rate of 120 FPS (kvicken), 100 FPS (for 100 Hz displays) or 240 FPS
-  (adapted by Felipe Prado).
+  videos with the X button (community); engine frame rate of 120 FPS (kvicken), 100 FPS (for 100 Hz displays),
+  144 FPS (for 144 Hz displays) or 240 FPS (adapted by Felipe Prado).
 - **Ultrawide (beta):** 21:9, 32:9 and 16:10 render resolutions (3440x1440 tested) with a wider field of view
   instead of a zoomed-in picture, built in: choose one in **Render resolution**, where every size shows its exact
   resolution and aspect ratio. Cutscenes keep their 16:9 borders (see [docs/ultrawide.md](docs/ultrawide.md)).
@@ -164,7 +170,8 @@ Steam Deck/RADV rendering corruption is a known issue in the published 2.2.0 App
   performance, game folder and save backups, patches, mods (order, presets and conflicts),
   controls with PlayStation or Xbox button icons, updates and diagnostics.
 - **In-game menu** (Insert on the keyboard, R3+L2 on the controller), with four tabs:
-  - **Game:** cheats (infinite health, magic, item meter, Rage of Sparta, max red orbs);
+  - **Game:** cheats (infinite health, magic, item meter, Rage of Sparta, max red orbs,
+    automatic QTE: button and stick-rotation prompts answer themselves);
     multipliers from 0.1x to 100x for red, green (health), blue (magic) and gold (Rage of
     Sparta) orbs and for damage dealt and taken; an enemy health bar.
   - **Image:** display mode (windowed, borderless, fullscreen), VSync and RCAS sharpening.
@@ -194,7 +201,7 @@ packages can use different source revisions. Check the release notes for changes
 ## Settings
 
 Settings are kept in `spartanport.ini` (the game and the in-game menu) and in
-`%APPDATA%\spartanport-launcher\settings.json` (the launcher). Saves, the shader cache and
+`settings.json` (the launcher), in the port folder. Saves, the shader cache and
 `last_run.log` go to the project's `user` folder.
 
 **GUI Scale:** choose **Auto**, **1x** or **2x** under **Advanced → Launcher**,
@@ -203,8 +210,7 @@ game resolution. Auto follows the desktop scale reported by Tk, with X11/XWaylan
 font DPI and window-scale fallbacks on Linux. On macOS, Retina scaling stays with
 the operating system. Manual 1x/2x sets the launcher's logical size, including text,
 icons, controls, scrollbars and spacing. Screen resolution alone does not select
-a scale. The choice is saved in
-`~/.config/spartanport-launcher/settings.json` (or `$XDG_CONFIG_HOME/spartanport-launcher/settings.json`).
+a scale. The choice is saved in `settings.json`.
 
 On **Performance → GPU data → Stream buffer memory**, choose **System RAM (cached, default)**,
 **System RAM (uncached)** or **GPU memory (previous behavior)**. System RAM can improve frame
@@ -223,6 +229,22 @@ GPU on those two drivers, integrated ones included; the game's log line `GPU: gu
 multisampling off` or `on` is what was applied. Choose **Off** if the lines appear on another
 card and **On** to keep multisampling anyway. Off and On set `SPARTAN_NO_MSAA=1` or `0`; Automatic
 passes an inherited `SPARTAN_NO_MSAA` through. Applies on the next game launch.
+
+### Chinese interface
+
+Select **简体中文** under **Advanced → Launcher language** for the launcher and the
+Insert / R3+L2 menu. This does not change the game's text or voice language. Direct launches
+without the launcher can set `SPARTAN_UI_LANGUAGE=zh`.
+
+The launcher prefers an installed CJK font (Microsoft YaHei UI on Windows, Noto Sans CJK SC
+or another available CJK family elsewhere). The in-game menu merges an installed Chinese
+font with its embedded font: Windows YaHei/SimHei, common Linux Noto/WenQuanYi locations,
+or macOS PingFang. No additional font is distributed. If no usable CJK font is found, the
+in-game menu keeps English and logs the reason instead of displaying missing-glyph boxes.
+
+The headless `chinese-ui-test` CMake target checks translation fallback, printf arguments,
+font merging and Chinese glyphs without a game dump or Vulkan device. Its real glyph checks
+are skipped, with a message, on systems without an installed CJK font.
 
 ## Keyboard controls
 
@@ -265,10 +287,11 @@ works as on the PS4, and Share/Create works like View.
 
 **In-game button icons** (off by default) are chosen on the launcher's Controls page, under
 *In-game button icons*: *Match my controller*, *Xbox*, *Nintendo* or *Keyboard*. They replace the PlayStation icons in the
-tutorial, move-list and quick-time prompts; the pause-menu controller drawing stays a DualShock 4.
+tutorial, move-list and quick-time prompts and, for the controller styles, on the Muses' lyre in the
+Chamber of the Flame; the pause-menu controller drawing stays a DualShock 4.
 *Keyboard* shows the key that presses each button, following your keyboard mapping (a changed key shows
 on the next start); *Match my controller* shows the keys too when no gamepad is connected.
-The launcher writes a patched copy of two game files into the port's data folder and never changes
+The launcher writes a patched copy of up to three game files (about 410 MB) into the port's data folder and never changes
 your game folder. A new controller is picked up after a restart. Without the launcher, set
 `SPARTAN_GLYPH_STYLE` to `auto`, `xbox`, `nintendo` or `keyboard` before starting `run.py`.
 
@@ -320,6 +343,10 @@ for every overlay configuration.
   If it persists, report your GPU, driver, game build and **Advanced → Log** output. Clearing
   the shader cache is not a general fix and requires rebuilding it on the next launch.
 - The game closes with "cannot create ... guest memory (error 1450)": Windows ran out of virtual memory to allocate the guest pool. Increase the page file: press **Win + R**, type `SystemPropertiesAdvanced`, go to **Performance** Settings → **Advanced** → **Virtual memory** Change, uncheck automatic management, select drive **C:**, set a custom size (e.g. 16384 MB initial, 24576 MB maximum), click **Set**, **OK**, and restart your PC.
+- **Game language** in the launcher has no effect: it is only used on the game's first start. After
+  that the game restores its own text and speech languages from its settings save, so change them in
+  the game: **Options → Game Settings → Game Text** and **Options → Audio → Speech** (for example,
+  Polish text with English voices).
 - The game does not open: check **Advanced → Log**, or send `user\last_run.log` with your report.
   With a custom **Saves folder**, `last_run.log` is in that folder instead.
 - Yellow/orange/white textures or wrong lighting: try disabling **Performance → GPU data →
@@ -504,19 +531,21 @@ This project is a fork of Supermedo's Windows port, which builds on deadinside28
   native port.
 - **Supermedo** (Mohammed Albarghouthi): [bloodborne_pc for Windows](https://github.com/Supermedo/bloodborne_pc),
   the fork this project comes from.
-- **cuesta4**: [shadPS4 fork focused on SpartanPort](https://github.com/cuesta4/shadPS4/tree/eltutz)
+- **cuesta4**: [shadPS4 fork focused on this game](https://github.com/cuesta4/shadPS4/tree/eltutz)
   (branch `eltutz`). The game's rendering in this port depends on its fixes: the GNM blend
   rewrite, depth/stencil state and image aliasing. cuesta4 is also a co-author of the
   resolution, texture fix, 120 FPS and skip videos patches (below). If you play on shadPS4,
   this is the build to use for this game.
 - **shadPS4 team**: the [shadPS4](https://github.com/shadps4-emu/shadPS4) video core, which does
   all the GPU and shader translation to Vulkan in this port.
+- **[WilkPrintes](https://github.com/WilkPrintes)**: designed and built the
+  [SpartanPort website](https://spartanport.com/en). Special thanks for giving the project its home.
 
 Patches: kvicken and cuesta4 (resolution, texture fix, 120 FPS and skip videos, building on the
 PS3 patches by illusion0001), published for shadPS4 in
 [shadps4-emu/ps4_cheats#145](https://github.com/shadps4-emu/ps4_cheats/pull/145) and adapted to
-this executable. The 240 FPS patch was adapted by Felipe Prado from the 120 FPS patch; the 100 FPS one is the same
-patch with 100.
+this executable. The 144 and 240 FPS patches were adapted by Felipe Prado from the 120 FPS patch; the 100 FPS one is
+the same patch with 100.
 Cheats: adapted from Celogamez's [GoldHEN cheats](https://github.com/GoldHEN/GoldHEN_Cheat_Repository).
 
 Also used: [LibAtrac9](https://github.com/Thealexbarney/LibAtrac9), [FFmpeg](https://ffmpeg.org),

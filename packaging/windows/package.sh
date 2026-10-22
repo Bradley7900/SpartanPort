@@ -49,6 +49,7 @@ legacy_names=$(out/pyenv/Scripts/python.exe -c "import sys; sys.path.insert(0, '
 cp "$dest/SpartanPort.exe" "$dest/$(sed -n 1p <<< "$legacy_names")"
 cp "$dest/Play SpartanPort.exe" "$dest/$(sed -n 2p <<< "$legacy_names")"
 cp launcher/spartanport.ico launcher/spartanport.png launcher/logo.png launcher/Cinzel-Black.ttf launcher/OFL-Cinzel.txt "$dest/launcher/"
+cp launcher/BodoniModa.ttf launcher/OFL-BodoniModa.txt "$dest/launcher/"
 # The executables without debug information (out/ keeps the symbols for crash reports).
 for exe in spartanport-probe.exe spartanport-gpu-capabilities.exe; do
     llvm-strip --strip-debug -o "$dest/bin/$exe" "out/$exe"
@@ -59,6 +60,9 @@ ldd "$dest/bin/spartanport-probe.exe" "$dest/bin/spartanport-gpu-capabilities.ex
         cp -u "$dll" "$dest/bin/"
     done
 cp -r scripts patches "$dest/"
+mkdir -p "$dest/tools" "$dest/docs"
+cp tools/xvag_voice_swap.py "$dest/tools/"
+cp docs/VOICE_REPLACEMENT.md "$dest/docs/"
 cp run.py LICENSE README.md packaging/windows/README-Windows.txt "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
 [[ -f $dest/scripts/discord_presence.py ]] || { echo 'scripts/discord_presence.py is missing from the package' >&2; exit 1; }
@@ -68,6 +72,7 @@ grep -Eq "^CLIENT_ID = '[0-9]+'" "$dest/scripts/discord_presence.py" ||
 # settings, logs) may ship: stop when one is found.
 forbidden=$(find "$dest" \( -iname eboot.bin -o -iname sce_module -o -iname sce_sys -o -iname savedata \
     -o -iname user -o -iname cache -o -iname '*.log' -o -iname spartanport.ini -o -iname settings.json \
+    -o -iname game_icon.ico \
     -o -iname mods.json -o -iname patches.json -o -iname fsr4_shaders -o -iname 'nvngx_dlss*.dll' \
     -o -iname '*.spv' -o -iname '*.pkg' -o -iname '*.sprx' -o -iname '*.prx' \) -print)
 if [[ -n $forbidden ]]; then
@@ -90,7 +95,7 @@ if [[ ${running:-0} != 0 ]]; then
 else
     mkdir -p "$play"
     find "$play" -mindepth 1 -maxdepth 1 ! -name user ! -name mods ! -name spartanport.ini \
-        ! -name mods.json ! -name patches.json -exec rm -rf {} +
+        ! -name mods.json ! -name patches.json ! -name settings.json ! -name game_icon.ico -exec rm -rf {} +
     cp -r "$dest/." "$play/"
 fi
 du -sh "$dest" dist/spartanport-windows.zip

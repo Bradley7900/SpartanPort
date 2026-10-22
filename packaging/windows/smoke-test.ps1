@@ -13,7 +13,7 @@ $failed = @()
 
 # The same names package.sh refuses to ship: game files and anything a player makes.
 $forbidden = 'eboot.bin', 'sce_module', 'sce_sys', 'savedata', 'user', 'cache', '*.log', 'spartanport.ini',
-    'settings.json', 'mods.json', 'patches.json', 'fsr4_shaders', 'nvngx_dlss*.dll', '*.spv', '*.pkg',
+    'settings.json', 'game_icon.ico', 'mods.json', 'patches.json', 'fsr4_shaders', 'nvngx_dlss*.dll', '*.spv', '*.pkg',
     '*.sprx', '*.prx'
 $found = Get-ChildItem -LiteralPath $tree -Recurse -Force |
     Where-Object { $name = $_.Name; $forbidden | Where-Object { $name -like $_ } }
@@ -39,7 +39,16 @@ $check = Join-Path $work 'imports.py'
 Set-Content -LiteralPath $check -Value @'
 import sys, traceback
 try:
-    import PIL.Image, iced_x86
+    import PIL.Image, iced_x86, math, zlib, runpy
+    from pathlib import Path
+    tool = Path(sys.executable).parent / 'tools' / 'xvag_voice_swap.py'
+    voice = runpy.run_path(str(tool))
+    assert callable(voice['swap_voice'])
+    assert voice['main'](['--help']) == 0
+except SystemExit as error:
+    if error.code:
+        traceback.print_exc()
+        sys.exit(1)
 except Exception:
     traceback.print_exc()
     sys.exit(1)

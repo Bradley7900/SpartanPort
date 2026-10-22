@@ -18,6 +18,12 @@ e Linux (AppImage experimental).
 > CUSA01623 e CUSA01715, versões 01.00 e 01.02). Este projeto não tem relação com a Sony Interactive Entertainment nem com o
 > Santa Monica Studio, nem é endossado por elas. God of War é marca registrada da Sony Interactive Entertainment.
 
+> **Antes gow3_pc.** Atualizar a partir da 2.5.0 pelo launcher mantém seus saves e configurações:
+> na primeira abertura, as configurações do jogo (`gow3.ini`), as do launcher e, no Linux, a pasta de
+> dados (`~/.local/share/gow3`) são copiadas para os nomes novos. Os arquivos antigos continuam onde
+> estavam, e os atalhos existentes continuam funcionando. No Linux, a AppImage agora é
+> `spartanport-x86_64.AppImage`: atualize as opções de inicialização do Steam que usam o nome antigo.
+
 ## Sumário
 
 - [SpartanPort](#spartanport)
@@ -116,7 +122,7 @@ Fedora 42, Arch e openSUSE Tumbleweed; isso não comprova gameplay em todas as G
 3. Escolha a pasta do jogo, salve as configurações e pressione **PLAY**.
 
 Se um download antigo mostrar `GLIBC_2.44 not found`, baixe novamente o AppImage recompilado.
-O atualizador do Windows não está disponível no Linux; baixe um AppImage novo para atualizar.
+O AppImage se atualiza sozinho: **Advanced → Check for updates** (ou o aviso ao abrir o launcher) baixa o AppImage novo do release, confere o SHA-256 e troca o arquivo. Precisa de uma pasta com permissão de escrita; senão abre a página de releases.
 A corrupção gráfica no Steam Deck/RADV é um problema conhecido do AppImage 2.2.0 publicado.
 
 - **Arquivos:** saves, configurações, cache de shaders e o registro ficam em `~/.local/share/spartanport`; as
@@ -146,8 +152,8 @@ A corrupção gráfica no Steam Deck/RADV é um problema conhecido do AppImage 2
 - Salvar e carregar: a lista de saves aparece na tela, como no PS4. O autosave também funciona.
   O launcher faz backup dos saves antes de cada partida.
 - Patches: resolução de renderização de 480p, 720p, 900p, 1440p, 1800p ou 4K, correção de texturas
-  corrompidas e pular vídeos com o botão X (comunidade); FPS do motor de 120 (kvicken), 100 (para telas de 100 Hz) ou 240
-  (adaptado por Felipe Prado).
+  corrompidas e pular vídeos com o botão X (comunidade); FPS do motor de 120 (kvicken), 100 (para telas de 100 Hz),
+  144 (para telas de 144 Hz) ou 240 (adaptado por Felipe Prado).
 - **Ultrawide (beta):** resoluções 21:9, 32:9 e 16:10 (3440x1440 testada) com campo de visão mais largo, em vez de
   uma imagem com zoom, já embutidas: escolha em **Resolução de renderização**, onde cada opção mostra a resolução
   exata e a proporção da tela. As cutscenes mantêm as bordas 16:9 (veja [docs/ultrawide.md](docs/ultrawide.md)).
@@ -167,7 +173,7 @@ A corrupção gráfica no Steam Deck/RADV é um problema conhecido do AppImage 2
   ser os do seu controle, Xbox ou Nintendo, ou as teclas do teclado com que você joga (tela Game, seção Controls).
 - **Menu dentro do jogo** (Insert no teclado, R3+L2 no controle), com quatro abas:
   - **Game:** trapaças (vida, magia, item e Fúria de Esparta infinitos, orbes vermelhos no
-    máximo); multiplicadores de 0,1x a 100x para orbes vermelhos, verdes (vida), azuis (magia)
+    máximo, QTE automático: prompts de botão e de giro do analógico se resolvem sozinhos); multiplicadores de 0,1x a 100x para orbes vermelhos, verdes (vida), azuis (magia)
     e dourados (Fúria de Esparta) e para dano causado e recebido; barra de vida do inimigo.
   - **Image:** modo de tela (janela, sem borda, tela cheia), VSync e nitidez RCAS.
   - **Performance:** limite de FPS (de 30 a ilimitado), quadros na fila, compilação de shaders
@@ -197,7 +203,7 @@ mudanças em downloads posteriores.
 ## Configurações
 
 As configurações ficam em `spartanport.ini` (o jogo e o menu do jogo) e em
-`%APPDATA%\spartanport-launcher\settings.json` (o launcher). Saves, cache de shaders e `last_run.log`
+`settings.json` (o launcher), na pasta do port. Saves, cache de shaders e `last_run.log`
 ficam na pasta `user` do projeto.
 
 Em **Performance → GPU data → Stream buffer memory**, escolha **System RAM (cached, default)**,
@@ -260,11 +266,11 @@ como no PS4, e Share/Create funciona como View.
 
 Os **ícones de botões no jogo** (desligados por padrão) são escolhidos na tela Controls do launcher, em
 *Ícones dos botões no jogo*: *Igual ao meu controle*, *Xbox*, *Nintendo* ou *Teclado*. Eles trocam os ícones
-PlayStation dos tutoriais, da lista de golpes e dos eventos rápidos; o desenho do controle no menu
-de pausa continua sendo um DualShock 4. *Teclado* mostra a tecla que aperta cada botão, seguindo o seu
+PlayStation dos tutoriais, da lista de golpes, dos eventos rápidos e, nos estilos de controle, da lira das Musas
+na Câmara da Chama; o desenho do controle no menu de pausa continua sendo um DualShock 4. *Teclado* mostra a tecla que aperta cada botão, seguindo o seu
 mapeamento do teclado (uma tecla trocada aparece no próximo início); *Igual ao meu controle* também mostra
-as teclas quando nenhum controle está conectado. O launcher grava uma cópia com patch de dois arquivos do
-jogo na pasta de dados do port e nunca altera a pasta do jogo. Um controle novo é reconhecido após
+as teclas quando nenhum controle está conectado. O launcher grava uma cópia com patch de até três arquivos do
+jogo (cerca de 410 MB) na pasta de dados do port e nunca altera a pasta do jogo. Um controle novo é reconhecido após
 reiniciar. Sem o launcher, defina `SPARTAN_GLYPH_STYLE` como `auto`, `xbox`, `nintendo` ou `keyboard` antes de
 iniciar o `run.py`.
 
@@ -313,6 +319,10 @@ uma correção para todas as configurações de overlay.
   Se persistir, informe GPU, driver, build do jogo e a saída de **Advanced → Log**. Apagar o
   cache de shaders não é uma solução geral e exige reconstruí-lo na próxima abertura.
 - O jogo fecha com "cannot create ... guest memory (error 1450)": o Windows ficou sem memória virtual para alocar o pool de memória do jogo. Aumente o arquivo de paginação: pressione **Win + R**, digite `SystemPropertiesAdvanced`, vá em Configurações de **Desempenho** → guia **Avançado** → **Memória virtual** Alterar, desmarque o gerenciamento automático, selecione a unidade **C:**, defina um tamanho personalizado (ex.: 16384 MB inicial, 24576 MB máximo), clique em **Definir**, **OK** e reinicie o PC.
+- O **Idioma do jogo** do launcher não muda nada: ele só vale no primeiro início do jogo. Depois, o
+  jogo restaura os próprios idiomas de texto e de falas do save de configurações, então troque no
+  jogo: **Opções → Configurações de jogo → Texto de jogo** e **Opções → Áudio → Falas** (por exemplo,
+  texto em português com vozes em inglês).
 - O jogo não abre: veja **Advanced → Log**, ou envie o `user\last_run.log` junto com o relato.
   Se escolheu uma **Saves folder** personalizada, o `last_run.log` fica nessa pasta.
 - Texturas amarelas/laranjas/brancas ou iluminação errada: experimente desligar **Performance →
@@ -502,19 +512,21 @@ Este projeto é um fork do port para Windows de Supermedo, que parte do original
   original.
 - **Supermedo** (Mohammed Albarghouthi): [bloodborne_pc para Windows](https://github.com/Supermedo/bloodborne_pc),
   o fork de onde este projeto vem.
-- **cuesta4**: [fork do shadPS4 focado em SpartanPort](https://github.com/cuesta4/shadPS4/tree/eltutz)
+- **cuesta4**: [fork do shadPS4 focado neste jogo](https://github.com/cuesta4/shadPS4/tree/eltutz)
   (branch `eltutz`). A renderização do jogo neste port depende das correções dele: a regravação
   de blends da GNM, o estado de profundidade e stencil e as correções de imagens que
   compartilham memória. cuesta4 também é coautor dos patches de resolução, correção de texturas,
   120 FPS e pular vídeos (abaixo). Para jogar este jogo no shadPS4, este é o build indicado.
 - **Equipe do shadPS4**: o núcleo de vídeo do [shadPS4](https://github.com/shadps4-emu/shadPS4),
   que faz toda a tradução de GPU e shaders para Vulkan neste port.
+- **[WilkPrintes](https://github.com/WilkPrintes)**: criou o design e o
+  [site do SpartanPort](https://spartanport.com/pt). Agradecimento especial por dar uma casa ao projeto.
 
 Patches: kvicken e cuesta4 (resolução, correção de texturas, 120 FPS e pular vídeos, a partir
 dos patches de PS3 de illusion0001), publicados para o shadPS4 em
 [shadps4-emu/ps4_cheats#145](https://github.com/shadps4-emu/ps4_cheats/pull/145) e adaptados a
-este executável. O patch de 240 FPS foi adaptado por Felipe Prado a partir do de 120 FPS; o de 100 FPS é o mesmo
-patch com 100.
+este executável. Os patches de 144 e 240 FPS foram adaptados por Felipe Prado a partir do de 120 FPS; o de 100 FPS é
+o mesmo patch com 100.
 Trapaças: adaptadas dos [cheats GoldHEN](https://github.com/GoldHEN/GoldHEN_Cheat_Repository) de
 Celogamez.
 

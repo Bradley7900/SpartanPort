@@ -1,5 +1,6 @@
 """Exit to Desktop rows (scripts/pause_menu.py). The script is the game's own, so the patch is
 checked on the dump's R_UI.WAD when SPARTAN_GAME_DIR points at one; the refusals need no files."""
+import json
 import os
 import struct
 import tempfile
@@ -38,6 +39,74 @@ class Refusals(unittest.TestCase):
             source.write_bytes(wad('TXRX_R_UI', b'x' * 8))
             self.assertEqual(pause_menu.build(folder, folder, source), {})
             self.assertFalse((Path(folder) / 'pause_menu' / 'R_UI.WAD').exists())
+
+
+class Labels(unittest.TestCase):
+    def test_resolve_label_by_id(self):
+        self.assertEqual(pause_menu.resolve_label(0), (pause_menu.LABELS['ja'], 'ja'))
+        self.assertEqual(pause_menu.resolve_label('0'), (pause_menu.LABELS['ja'], 'ja'))
+        self.assertEqual(pause_menu.resolve_label(10), (pause_menu.LABELS['zh'], 'zh'))
+        self.assertEqual(pause_menu.resolve_label('10'), (pause_menu.LABELS['zh'], 'zh'))
+        self.assertEqual(pause_menu.resolve_label(1), (pause_menu.LABELS['en'], 'en'))
+        self.assertEqual(pause_menu.resolve_label('1'), (pause_menu.LABELS['en'], 'en'))
+        self.assertEqual(pause_menu.resolve_label(16), (pause_menu.LABELS['pl'], 'pl'))
+        self.assertEqual(pause_menu.resolve_label(8), (pause_menu.LABELS['ru'], 'ru'))
+        self.assertEqual(pause_menu.resolve_label(7), (pause_menu.LABELS['pt'], 'pt'))
+        self.assertEqual(pause_menu.resolve_label(17), (pause_menu.LABELS['pt'], 'pt'))
+
+    def test_resolve_label_by_code(self):
+        self.assertEqual(pause_menu.resolve_label('ja'), (pause_menu.LABELS['ja'], 'ja'))
+        self.assertEqual(pause_menu.resolve_label('JA'), (pause_menu.LABELS['ja'], 'ja'))
+        self.assertEqual(pause_menu.resolve_label('zh'), (pause_menu.LABELS['zh'], 'zh'))
+        self.assertEqual(pause_menu.resolve_label('ZH'), (pause_menu.LABELS['zh'], 'zh'))
+        self.assertEqual(pause_menu.resolve_label('zh-tw'), (pause_menu.LABELS['zh'], 'zh'))
+        self.assertEqual(pause_menu.resolve_label('en'), (pause_menu.LABELS['en'], 'en'))
+        self.assertEqual(pause_menu.resolve_label('es'), (pause_menu.LABELS['es'], 'es'))
+        self.assertEqual(pause_menu.resolve_label('es-419'), (pause_menu.LABELS['es'], 'es'))
+        self.assertEqual(pause_menu.resolve_label('fr'), (pause_menu.LABELS['fr'], 'fr'))
+        self.assertEqual(pause_menu.resolve_label('de'), (pause_menu.LABELS['de'], 'de'))
+        self.assertEqual(pause_menu.resolve_label('it'), (pause_menu.LABELS['it'], 'it'))
+        self.assertEqual(pause_menu.resolve_label('pl'), (pause_menu.LABELS['pl'], 'pl'))
+        self.assertEqual(pause_menu.resolve_label('pt'), (pause_menu.LABELS['pt'], 'pt'))
+        self.assertEqual(pause_menu.resolve_label('pt-br'), (pause_menu.LABELS['pt'], 'pt'))
+        self.assertEqual(pause_menu.resolve_label('ru'), (pause_menu.LABELS['ru'], 'ru'))
+
+    def test_resolve_label_fallback(self):
+        self.assertEqual(pause_menu.resolve_label('999'), (pause_menu.LABELS['en'], 'en'))
+        self.assertEqual(pause_menu.resolve_label('unknown'), (pause_menu.LABELS['en'], 'en'))
+
+    def test_resolve_label_environment(self):
+        old = os.environ.get('SPARTAN_LANGUAGE')
+        try:
+            os.environ['SPARTAN_LANGUAGE'] = '0'
+            self.assertEqual(pause_menu.resolve_label(), (pause_menu.LABELS['ja'], 'ja'))
+            os.environ['SPARTAN_LANGUAGE'] = '10'
+            self.assertEqual(pause_menu.resolve_label(), (pause_menu.LABELS['zh'], 'zh'))
+            os.environ['SPARTAN_LANGUAGE'] = '16'
+            self.assertEqual(pause_menu.resolve_label(), (pause_menu.LABELS['pl'], 'pl'))
+            os.environ.pop('SPARTAN_LANGUAGE')
+            self.assertEqual(pause_menu.resolve_label(), (pause_menu.LABELS['en'], 'en'))
+        finally:
+            if old is not None:
+                os.environ['SPARTAN_LANGUAGE'] = old
+            else:
+                os.environ.pop('SPARTAN_LANGUAGE', None)
+
+    def test_build_cache_stamp_tracks_language(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'R_UI.WAD'
+            source.write_bytes(wad('TXRX_R_UI', b'x' * 8))
+            target = Path(folder) / 'pause_menu'
+            stamp_file = target / 'stamp.json'
+            # Fake a patched copy and stamp for 'en'
+            target.mkdir(parents=True)
+            (target / 'R_UI.WAD').write_bytes(b'dummy_en')
+            stamp_file.write_text(json.dumps([pause_menu.VERSION, str(source), source.stat().st_size,
+                                              source.stat().st_mtime_ns, 'en']))
+            # Switching language to 'ja' invalidates cache and triggers rebuild
+            # (which returns {} here because source is a dummy WAD without SMI_R_UI)
+            self.assertEqual(pause_menu.build(folder, folder, source, language='ja'), {})
+            self.assertFalse((target / 'R_UI.WAD').exists())
 
 
 @unittest.skipUnless(GAME and (GAME / pause_menu.WAD).is_file(), 'needs SPARTAN_GAME_DIR with the game')
@@ -124,15 +193,17 @@ class GameScript(unittest.TestCase):
 
     def test_options_row(self):
         options, row = self.new.one('PauseOptions'), self.new.by_name['HLDisplay'][1]
-        self.assertEqual(len(self.new.records), len(self.old.records) + 2)
+        self.assertEqual(len(self.new.records), len(self.old.records) + 21)
         self.assertEqual(row['parent'], options['at'] - 4)
-        self.assertEqual(options['size'], self.old.one('PauseOptions')['size'] + pause_menu.ROW_SIZE)
-        self.assertEqual(row['at'], options['at'] + options['size'] - pause_menu.ROW_SIZE)
+        cheats = self.new.one('HLNativeCheats')
+        self.assertEqual(options['size'], self.old.one('PauseOptions')['size'] + pause_menu.ROW_SIZE + cheats['size'])
+        self.assertEqual(row['at'] + row['size'], cheats['at'])
         # The WAD entry, the script header and the padding agree with the new size.
         size = struct.unpack_from('<I', self.data, self.base - 0x40 + 4)[0]
         old_size = struct.unpack_from('<I', self.original, self.old_base - 0x40 + 4)[0]
         self.assertEqual(struct.unpack_from('<I', self.data, self.base + 8)[0], size - 4)
-        self.assertEqual(len(self.data) - len(self.original), ((size + 15) & ~15) - ((old_size + 15) & ~15))
+        # Six dedicated native slider instances (352 bytes each) and their 64-byte references.
+        self.assertEqual(len(self.data) - len(self.original), ((size + 15) & ~15) - ((old_size + 15) & ~15) + 2496)
         self.assertEqual([n for _o, _s, n in pause_menu.entries(self.data)][-1], 'GroupEnd')
 
     def test_every_other_goto_is_unchanged(self):
@@ -142,16 +213,81 @@ class GameScript(unittest.TestCase):
         spans = [(a, b) for a, b in self.old.spans() if not lo <= a < hi]
         before = gotos(self.original, self.old_base, spans)
         after = gotos(self.data, self.base, spans)
-        options = self.new.one('PauseOptions')
-        inserted = next(i for i, r in enumerate(self.new.records) if r['at'] == options['at'] + options['size'] - pause_menu.ROW_SIZE)
+        inserted = self.new.records.index(self.new.by_name['HLDisplay'][1])
         display = self.new.one('PauseDisplay')
         health = next(i for i, r in enumerate(self.new.records)
                       if r['at'] == display['at'] + display['size'] - 0x44)
-        moved = lambda i: i + (i >= inserted) + (i + (i >= inserted) >= health)  # noqa: E731
+        names = {id(r): name for name, records in self.new.by_name.items() for r in records}
+        original_indices = [i for i, r in enumerate(self.new.records)
+                            if i not in (inserted, health) and not (names[id(r)] or '').startswith(('Native', 'HLNative'))]
+        self.assertEqual(len(original_indices), len(self.old.records))
+        moved = lambda i: original_indices[i]  # noqa: E731
         changed = {at: after[at] for at, b in before.items() if after[at] != moved(b)}
         wad_choose = moved(next(i for i, r in enumerate(self.old.records) if r['at'] == dead['at']))
-        # Only the neighbors of the three added rows change destinations.
-        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, health]))
+        cheats = self.new.records.index(self.new.one('HLNativeCheats'))
+        # Only the neighbors of the four added rows change destinations.
+        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, health, cheats, cheats]))
+
+    def test_japanese_fallback(self):
+        data = bytearray(self.original)
+        pause_menu.patch(data, language='ja')
+        entry = next(o + 0x40 for o, _s, n in pause_menu.entries(data) if n == 'SMI_R_UI')
+        s = Script(data, entry)
+        main = s.one('PauseMain')
+        main_entry = s.block_bytes(next(v for k, v, _t in s.blocks(main) if k == 1))
+        idx = main_entry.index(b'\x09\xe0\x06\x43')
+        lit_offset = int.from_bytes(main_entry[idx - 2:idx], 'big')
+        label_bytes = bytes(data[entry + s.lit + lit_offset:]).split(b'\0', 1)[0]
+        self.assertEqual(label_bytes, b'Exit to Desktop')
+
+    def test_chinese_fallback(self):
+        data = bytearray(self.original)
+        pause_menu.patch(data, language='zh')
+        entry = next(o + 0x40 for o, _s, n in pause_menu.entries(data) if n == 'SMI_R_UI')
+        s = Script(data, entry)
+        main = s.one('PauseMain')
+        main_entry = s.block_bytes(next(v for k, v, _t in s.blocks(main) if k == 1))
+        idx = main_entry.index(b'\x09\xe0\x06\x43')
+        lit_offset = int.from_bytes(main_entry[idx - 2:idx], 'big')
+        label_bytes = bytes(data[entry + s.lit + lit_offset:]).split(b'\0', 1)[0]
+        self.assertEqual(label_bytes, b'Exit to Desktop')
+
+    def test_russian_fallback(self):
+        data = bytearray(self.original)
+        pause_menu.patch(data, language='ru')
+        entry = next(o + 0x40 for o, _s, n in pause_menu.entries(data) if n == 'SMI_R_UI')
+        s = Script(data, entry)
+        main = s.one('PauseMain')
+        main_entry = s.block_bytes(next(v for k, v, _t in s.blocks(main) if k == 1))
+        idx = main_entry.index(b'\x09\xe0\x06\x43')
+        lit_offset = int.from_bytes(main_entry[idx - 2:idx], 'big')
+        label_bytes = bytes(data[entry + s.lit + lit_offset:]).split(b'\0', 1)[0]
+        self.assertEqual(label_bytes, b'Exit to Desktop')
+
+    def test_polish_translated(self):
+        data = bytearray(self.original)
+        pause_menu.patch(data, language='pl')
+        entry = next(o + 0x40 for o, _s, n in pause_menu.entries(data) if n == 'SMI_R_UI')
+        s = Script(data, entry)
+        main = s.one('PauseMain')
+        main_entry = s.block_bytes(next(v for k, v, _t in s.blocks(main) if k == 1))
+        idx = main_entry.index(b'\x09\xe0\x06\x43')
+        lit_offset = int.from_bytes(main_entry[idx - 2:idx], 'big')
+        label_bytes = bytes(data[entry + s.lit + lit_offset:]).split(b'\0', 1)[0]
+        self.assertEqual(label_bytes, 'Wyjdź do pulpitu'.encode('utf-8'))
+
+    def test_all_supported_languages(self):
+        for lang_code, expected_bytes in pause_menu.LABELS.items():
+            data = bytearray(self.original)
+            pause_menu.patch(data, language=lang_code)
+            entry = next(o + 0x40 for o, _s, n in pause_menu.entries(data) if n == 'SMI_R_UI')
+            s = Script(data, entry)
+            main = s.one('PauseMain')
+            main_entry = s.block_bytes(next(v for k, v, _t in s.blocks(main) if k == 1))
+            idx = main_entry.index(b'\x09\xe0\x06\x43')
+            lit_offset = int.from_bytes(main_entry[idx - 2:idx], 'big')
+            label_bytes = bytes(data[entry + s.lit + lit_offset:]).split(b'\0', 1)[0]
+            self.assertEqual(label_bytes, expected_bytes)
 
 
 if __name__ == '__main__':

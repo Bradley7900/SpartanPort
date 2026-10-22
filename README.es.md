@@ -19,6 +19,12 @@ y Linux (AppImage experimental).
 > Este proyecto no está afiliado a Sony Interactive Entertainment ni a Santa Monica Studio, ni cuenta con su respaldo.
 > God of War es una marca registrada de Sony Interactive Entertainment.
 
+> **Antes gow3_pc.** Actualizar desde la 2.5.0 con el launcher conserva tus partidas y ajustes: en el
+> primer inicio, los ajustes del juego (`gow3.ini`), los del launcher y, en Linux, la carpeta de datos
+> (`~/.local/share/gow3`) se copian a sus nombres nuevos. Los archivos viejos quedan donde estaban y
+> los accesos directos existentes siguen funcionando. En Linux, el AppImage ahora es
+> `spartanport-x86_64.AppImage`: actualizá las opciones de inicio de Steam que usan el nombre viejo.
+
 ## Índice
 
 - [SpartanPort](#spartanport)
@@ -119,7 +125,7 @@ Fedora 42, Arch y openSUSE Tumbleweed; esto no comprueba gameplay en todas las G
 3. Elegí la carpeta del juego, guardá los ajustes y presioná **PLAY**.
 
 Si una descarga anterior muestra `GLIBC_2.44 not found`, descargá de nuevo el AppImage recompilado.
-El actualizador de Windows no está disponible en Linux; descargá un AppImage nuevo para actualizar.
+El AppImage se actualiza solo: **Advanced → Check for updates** (o el aviso al abrir el launcher) descarga el AppImage nuevo del release, verifica su SHA-256 y reemplaza el archivo. Necesita una carpeta con permiso de escritura; si no, abre la página de releases.
 La corrupción gráfica en Steam Deck/RADV es un problema conocido del AppImage 2.2.0 publicado.
 
 - **Archivos:** las partidas, los ajustes, la caché de shaders y el log están en
@@ -150,8 +156,8 @@ La corrupción gráfica en Steam Deck/RADV es un problema conocido del AppImage 
   autoguardado también funciona. El launcher hace una copia de seguridad de las partidas antes de
   cada inicio.
 - Parches: resolución de render de 480p, 720p, 900p, 1440p, 1800p o 4K, corrección de texturas corruptas
-  y saltar videos con el botón X (comunidad); tasa de cuadros del motor de 120 FPS (kvicken), 100 FPS (para pantallas de 100 Hz) o 240
-  FPS (adaptado por Felipe Prado).
+  y saltar videos con el botón X (comunidad); tasa de cuadros del motor de 120 FPS (kvicken), 100 FPS (para pantallas de 100 Hz),
+  144 FPS (para pantallas de 144 Hz) o 240 FPS (adaptado por Felipe Prado).
 - **Ultrawide (beta):** resoluciones 21:9, 32:9 y 16:10 (3440x1440 probada) con un campo de visión más ancho en
   lugar de una imagen con zoom, ya incluidas: elige una en **Resolución de render**, donde cada opción muestra la
   resolución exacta y la relación de aspecto. Las escenas de vídeo mantienen sus bordes 16:9 (ver
@@ -171,7 +177,7 @@ La corrupción gráfica en Steam Deck/RADV es un problema conocido del AppImage 
   actualizaciones y diagnóstico.
 - **Menú dentro del juego** (Insert en el teclado, R3+L2 en el control), con cuatro pestañas:
   - **Game:** trucos (vida infinita, magia, medidor de objeto, Furia de Esparta, máximo de orbes
-    rojos); multiplicadores de 0,1x a 100x para los orbes rojos, verdes (vida), azules (magia) y
+    rojos, QTE automático: los avisos de botón y de giro del stick se resuelven solos); multiplicadores de 0,1x a 100x para los orbes rojos, verdes (vida), azules (magia) y
     dorados (Furia de Esparta) y para el daño causado y recibido; una barra de vida de enemigos.
   - **Image:** modo de pantalla (ventana, sin bordes, pantalla completa), VSync y nitidez RCAS.
   - **Performance:** límite de cuadros por segundo (30 a ilimitado), cuadros en cola, compilación de
@@ -201,7 +207,7 @@ para los cambios en descargas posteriores.
 ## Configuración
 
 Los ajustes se guardan en `spartanport.ini` (el juego y el menú dentro del juego) y en
-`%APPDATA%\spartanport-launcher\settings.json` (el launcher). Las partidas, la caché de shaders y
+`settings.json` (el launcher), en la carpeta del port. Las partidas, la caché de shaders y
 `last_run.log` van a la carpeta `user` del proyecto.
 
 En **Performance → GPU data → Stream buffer memory**, elegí **System RAM (cached, default)**,
@@ -264,11 +270,11 @@ PS4, y Share/Create funciona como View.
 
 Los **íconos de botones en el juego** (desactivados por defecto) se eligen en la página Controls del launcher, en
 *In-game button icons*: *Match my controller*, *Xbox*, *Nintendo* o *Keyboard*. Reemplazan los íconos de
-PlayStation en los tutoriales, la lista de movimientos y las indicaciones de quick-time events; el
-dibujo del control en el menú de pausa sigue siendo un DualShock 4. *Keyboard* muestra la tecla que
+PlayStation en los tutoriales, la lista de movimientos, las indicaciones de quick-time events y, con los estilos
+de control, en la lira de las Musas en la Cámara de la Llama; el dibujo del control en el menú de pausa sigue siendo un DualShock 4. *Keyboard* muestra la tecla que
 presiona cada botón, según tu mapeo del teclado (una tecla cambiada aparece en el próximo inicio);
 *Match my controller* también muestra las teclas cuando no hay un control conectado. El launcher escribe una copia
-parcheada de dos archivos del juego en la carpeta de datos del port y nunca modifica tu carpeta del
+parcheada de hasta tres archivos del juego (unos 410 MB) en la carpeta de datos del port y nunca modifica tu carpeta del
 juego. Un control nuevo se detecta después de reiniciar. Sin el launcher, definí `SPARTAN_GLYPH_STYLE`
 como `auto`, `xbox`, `nintendo` o `keyboard` antes de iniciar `run.py`.
 
@@ -319,6 +325,10 @@ para todas las configuraciones de overlay.
   paginación de Windows. **Win + R** → `SystemPropertiesAdvanced` → configuración de
   **Rendimiento** → **Opciones avanzadas** → **Memoria virtual**. Podés usar un tamaño
   personalizado en C: (por ejemplo, 16384 MB inicial y 24576 MB máximo); aplicá y reiniciá el PC.
+- El **Idioma del juego** del launcher no cambia nada: solo se usa en el primer inicio del juego.
+  Después, el juego restaura sus propios idiomas de texto y de diálogos desde su partida de ajustes,
+  así que cambialos en el juego: **Opciones → Ajustes de juego → Texto del juego** y
+  **Opciones → Audio → Diálogos** (por ejemplo, texto en español con voces en inglés).
 - El juego no abre: revisá **Advanced → Log**, o enviá `user\last_run.log` junto con tu reporte.
   Con una **Saves folder** personalizada, `last_run.log` está en esa carpeta.
 - Texturas amarillas/naranjas/blancas o iluminación incorrecta: probá desactivar **Performance →
@@ -509,19 +519,21 @@ deadinside28:
   original.
 - **Supermedo** (Mohammed Albarghouthi): [bloodborne_pc para Windows](https://github.com/Supermedo/bloodborne_pc),
   el fork del que proviene este proyecto.
-- **cuesta4**: [fork de shadPS4 enfocado en SpartanPort](https://github.com/cuesta4/shadPS4/tree/eltutz)
+- **cuesta4**: [fork de shadPS4 enfocado en este juego](https://github.com/cuesta4/shadPS4/tree/eltutz)
   (rama `eltutz`). El renderizado del juego en este port depende de sus correcciones: la reescritura
   del blend GNM, el estado de depth/stencil y el aliasing de imágenes. cuesta4 también es coautor de
   los parches de resolución, corrección de texturas, 120 FPS y saltar videos (abajo). Si jugás en
   shadPS4, esta es la build a usar para este juego.
 - **Equipo de shadPS4**: el video core de [shadPS4](https://github.com/shadps4-emu/shadPS4), que
   hace toda la traducción de GPU y shaders a Vulkan en este port.
+- **[WilkPrintes](https://github.com/WilkPrintes)**: diseñó y construyó el
+  [sitio de SpartanPort](https://spartanport.com/es). Un agradecimiento especial por darle un hogar al proyecto.
 
 Parches: kvicken y cuesta4 (resolución, corrección de texturas, 120 FPS y saltar videos, sobre los
 parches de PS3 de illusion0001), publicados para shadPS4 en
 [shadps4-emu/ps4_cheats#145](https://github.com/shadps4-emu/ps4_cheats/pull/145) y adaptados a este
-ejecutable. El parche de 240 FPS fue adaptado por Felipe Prado a partir del de 120 FPS; el de 100 FPS es el mismo
-parche con 100.
+ejecutable. Los parches de 144 y 240 FPS fueron adaptados por Felipe Prado a partir del de 120 FPS; el de 100 FPS es
+el mismo parche con 100.
 Trucos: adaptados de los [GoldHEN cheats](https://github.com/GoldHEN/GoldHEN_Cheat_Repository) de
 Celogamez.
 

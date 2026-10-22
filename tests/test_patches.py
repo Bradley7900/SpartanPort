@@ -67,6 +67,7 @@ class ExternalPatchTests(unittest.TestCase):
 class GameProfileTests(unittest.TestCase):
     def test_profiles_by_title_id(self):
         self.assertEqual(game_profile('CUSA01623')[1:3], (SPARTAN, '01.02'))
+        self.assertEqual(game_profile('CUSA01740')[1:3], (SPARTAN, '01.02'))  # the Asian release
         self.assertIsNone(game_profile('CUSA99999'))
         self.assertIsNone(game_profile(None))
 
@@ -102,9 +103,14 @@ class GameProfileTests(unittest.TestCase):
         from unittest import mock
         import patches
         self.assertEqual(game_profile('CUSA01715')[1], SPARTAN)
-        self.assertEqual(game_profile('CUSA99999', 'SpartanPort® III Remastered')[1], SPARTAN)
+        # The game's own title (param.sfo TITLE), with or without the (R) and TM marks: this is what found the
+        # patches of a release under an ID that is not listed before the project was renamed to SpartanPort.
+        self.assertEqual(game_profile('CUSA99999', 'God of War® III Remastered')[1], SPARTAN)
+        self.assertEqual(game_profile('CUSA99999', 'God of War™ III Remastered')[1], SPARTAN)
+        self.assertEqual(game_profile('CUSA99999', 'God of War III Remastered')[1], SPARTAN)
+        self.assertIsNone(game_profile('CUSA99999', 'SpartanPort'))  # the project name is not a game title
         self.assertIsNone(game_profile('CUSA99999', 'Another Game'))
-        with mock.patch.object(patches, 'game_sfo', return_value={'TITLE_ID': 'CUSA77777', 'TITLE': 'SpartanPort'}):
+        with mock.patch.object(patches, 'game_sfo', return_value={'TITLE_ID': 'CUSA77777', 'TITLE': 'God of War III'}):
             self.assertTrue(patches.game_patchable('folder'))
         self.assertFalse(patches.game_patchable(None))
         with tempfile.TemporaryDirectory() as folder:
@@ -291,7 +297,17 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(patch_requirements(SPARTAN, ['Resolution Patch - 4K', 'Skip Any Video With X Button'], '01.02'),
                          (5056 + 6144, None))
         self.assertEqual(patch_requirements(SPARTAN, ['Frame Rate Patch - 120 FPS'], '01.02'), (None, 120))
+        self.assertEqual(patch_requirements(SPARTAN, ['Frame Rate Patch - 144 FPS'], '01.02'), (None, 144))
         self.assertEqual(patch_requirements(SPARTAN, [], '01.02'), (None, None))
+
+    def test_144_frame_rate_patch_has_the_reference_sites_and_value(self):
+        metadata = next(m for m in ET.parse(SPARTAN).getroot().iter('Metadata')
+                        if m.get('Name') == 'Frame Rate Patch - 144 FPS')
+        lines = list(metadata.find('PatchList'))
+        self.assertEqual([line.get('Address') for line in lines],
+                         ['0x0048ff1a', '0x0075dbe4'])
+        self.assertEqual(lines[1].get('Value'), '00001043')
+        self.assertIn('VBlank to 144 FPS', metadata.get('Note'))
 
 
 

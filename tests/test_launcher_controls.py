@@ -66,6 +66,23 @@ class DiskModsTest(unittest.TestCase):
 
 
 class ControlMapTest(unittest.TestCase):
+    def test_shader_notes_are_off_without_a_saved_choice(self):
+        self.assertFalse(launcher.APP_DEFAULTS['shader_notes'])
+        settings = {**launcher.APP_DEFAULTS}
+        settings.pop('shader_notes')
+        self.assertEqual(launcher.game_environment(settings)['SPARTAN_SHADER_NOTES'], '0')
+
+    def test_saved_shader_notes_choice_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory) / 'settings.json'
+            for enabled in (True, False):
+                with self.subTest(enabled=enabled):
+                    config.write_text('{"shader_notes": ' + str(enabled).lower() + '}', encoding='utf-8')
+                    settings = launcher.load_app_settings(config)
+                    self.assertEqual(settings['shader_notes'], enabled)
+                    self.assertEqual(launcher.game_environment(settings)['SPARTAN_SHADER_NOTES'],
+                                     '1' if enabled else '0')
+
     def test_new_cheats_default_to_disabled(self):
         self.assertEqual(launcher.INI_DEFAULTS['cheat_double_jumps'], '0')
         self.assertEqual(launcher.INI_DEFAULTS['cheat_very_hard'], '0')
@@ -265,6 +282,12 @@ class ControlMapTest(unittest.TestCase):
         self.assertEqual(env['SPARTAN_PERF_DIAG'], '0')
         self.assertEqual(env['SPARTAN_PARTIAL_HEIGHT_VIEWS'], '1')
         self.assertEqual(launcher.game_environment({**settings, 'partial_height_views': False})['SPARTAN_PARTIAL_HEIGHT_VIEWS'], '0')
+        self.assertEqual((env['SPARTAN_DISK_SHADERS'], env['SPARTAN_SHADER_PREFETCH'], env['SPARTAN_SHADER_NOTES']),
+                         ('1', '1', '0'))
+        off = launcher.game_environment({**settings, 'disk_shaders': False, 'shader_prefetch': False,
+                                         'shader_notes': False})
+        self.assertEqual((off['SPARTAN_DISK_SHADERS'], off['SPARTAN_SHADER_PREFETCH'], off['SPARTAN_SHADER_NOTES']),
+                         ('0', '0', '0'))
         self.assertNotIn('SPARTAN_FRAME_CAPTURE_KEY', {k for k in env if k not in __import__('os').environ})
         self.assertEqual(launcher.game_environment({**settings, 'frame_capture_key': True})['SPARTAN_FRAME_CAPTURE_KEY'], '1')
         # Graphics options live in spartanport.ini (run.py and the in-game menu), not in the environment.
@@ -318,7 +341,8 @@ class ControlMapTest(unittest.TestCase):
     def test_graphics_defaults_match_the_game(self):
         d = launcher.INI_DEFAULTS
         self.assertEqual((d['display_mode'], d['vsync'], d['fps_limit'], d['engine_fps']), ('windowed', '1', '0', '120'))
-        self.assertEqual([v for v, _t in launcher.FPS_LIMITS], ['30', '60', '100', '120', '240', '0'])
+        self.assertEqual([v for v, _t in launcher.FPS_LIMITS], ['30', '60', '100', '120', '144', '180', '240', '0'])
+        self.assertEqual([v for v, _t in launcher.ENGINE_FPS_CHOICES], ['60', '100', '120', '144', '180', '240'])
         self.assertEqual(d['frames_queued'], '1')
         self.assertEqual([v for v, _t in launcher.FRAMES_QUEUED], ['1', '2', '0'])
         self.assertNotIn('SPARTAN_FRAMES_AHEAD', launcher.game_environment({**launcher.APP_DEFAULTS, 'frames_ahead': '2'}))
@@ -729,9 +753,9 @@ class GpuChoiceTest(unittest.TestCase):
 
 class ReleaseVersionTest(unittest.TestCase):
     def test_port_release_is_newer_than_the_inherited_tags(self):
-        self.assertEqual(launcher.VERSION, '2.5.0')
+        self.assertEqual(launcher.VERSION, '2.7.0')
         self.assertGreater(launcher.version_tuple(launcher.VERSION), launcher.version_tuple('windows-v1.5'))
-        self.assertGreater(launcher.version_tuple('windows-v2.5.1'), launcher.version_tuple(launcher.VERSION))
+        self.assertGreater(launcher.version_tuple('windows-v2.7.1'), launcher.version_tuple(launcher.VERSION))
 
     def test_first_start_is_in_english(self):
         # The translations are partial; 'System' stays a choice in Advanced.

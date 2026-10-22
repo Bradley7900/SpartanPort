@@ -230,7 +230,8 @@ extern "C" int spartanportgpu_init(const SpartanGpuConfig* config) {
     if (config->user_dir) setenv("SPARTAN_GPU_USER_DIR", config->user_dir, 0);
 #endif
     Core::Emulator::FillElfInfo(*config);
-    const std::string title = config->title ? config->title : "SpartanPort";
+    // The window carries the project name; the dump's own title stays in ElfInfo (above).
+    const std::string title = "SpartanPort";
     const s32 width = config->width, height = config->height;
     g_window_thread = std::thread([title, width, height] {
         Common::SetCurrentThreadName("spartanport:window");
@@ -286,6 +287,10 @@ extern "C" int spartanportgpu_handle_fault(void* ucontext, void* address) {
 
 extern "C" unsigned spartanportgpu_symbol_count(void) {
     return unsigned(g_symbols.size());
+}
+
+extern "C" unsigned long long spartanportgpu_copy_yields(void) {
+    return SpartanCopy::Yields();
 }
 
 // Kernel service thread: runs boost::asio timers for equeue timer events.
@@ -371,6 +376,16 @@ extern "C" int spartanportgpu_mouse_aim_sensitivity(void) {
     return SpartanSettings::Get().mouse_aim_sensitivity.load(std::memory_order_relaxed);
 }
 
+// The menu's Automatic QTE switch, read by the game's code through the QTE stubs (src/qte_hook.h).
+extern "C" uintptr_t spartanport_auto_qte_flag(void) {
+    static_assert(sizeof(std::atomic<bool>) == 1, "the stubs compare one byte");
+    return reinterpret_cast<uintptr_t>(&SpartanSettings::Get().auto_qte);
+}
+
+extern "C" void spartanport_qte_status(int supported) {
+    SpartanSettings::Get().qte_supported = supported != 0;
+}
+
 extern "C" void spartanportgpu_mouse_pause_key(void) {
     Frontend::ToggleMousePause();
 }
@@ -413,6 +428,20 @@ extern "C" int spartanportgpu_choice_begin(const char* title, const char* const*
 
 extern "C" int spartanportgpu_choice_poll(void) {
     return SpartanOverlay::PollChoice();
+}
+
+extern "C" int spartanportgpu_choice_confirm(const char* title, const char* const* items, int count, int focus,
+                                           const unsigned char* png, uint64_t size, const char* caption, const char* unavailable) {
+    if (!g_window || !items || count <= 0) return 0;
+    SpartanPng::Image preview;
+    std::string label = caption ? caption : "";
+    if (!png || !size || size > 4u * 1024u * 1024u || !SpartanPng::DecodeRgba(png, size, preview)) {
+        label += "\n";
+        label += unavailable ? unavailable : "";
+    }
+    SpartanOverlay::BeginChoice(title ? title : "", std::vector<std::string>(items, items + count),
+                               std::vector<SpartanPng::Image>(count), focus, label, std::move(preview));
+    return 1;
 }
 
 extern "C" int spartanportgpu_text_input_poll(char* out, uint64_t size) {

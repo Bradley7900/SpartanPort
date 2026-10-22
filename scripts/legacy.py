@@ -16,8 +16,11 @@ LEGACY_PLAY_EXE = f'Play {LEGACY_TITLE}.exe'     # the windowless start that sho
 LEGACY_ENV = 'GOW3_'
 LEGACY_PATCH_FILE = 'God_of_War_III_Remastered.xml'  # an older build's patches, left in patches/ by an update
 LEGACY_DESKTOP_MARKER = 'X-GOW3-Integration=true'
+LEGACY_CONFIG_DIR = f'{LEGACY_NAME}-launcher'  # the launcher's settings, in AppData or ~/.config
 NEW_NAME, NEW_ENV = 'spartanport', 'SPARTAN_'
 MARKER = 'legacy-migrated'
+SHORTCUT_MARKER = 'shortcut-migrated'
+DATA_SKIP = ('user/cache', 'out')
 # Old binaries an update leaves behind, with the file that replaced each one.
 LEFTOVERS = {
     f'bin/{LEGACY_NAME}-probe.exe': f'bin/{NEW_NAME}-probe.exe',
@@ -47,11 +50,15 @@ def _appimage_data_dir(env):
         return None
 
 
-def _merge(old, new):
-    """Copies the files of folder `old` into `new` that `new` does not have yet."""
+def _merge(old, new, skip=()):
+    """Copies the files of folder `old` into `new` that `new` does not have yet, leaving out the
+    folders in `skip` (relative to `old`)."""
     copied = 0
     for source in old.rglob('*'):
-        target = new / source.relative_to(old)
+        relative = source.relative_to(old)
+        if any(relative == Path(s) or Path(s) in relative.parents for s in skip):
+            continue
+        target = new / relative
         if source.is_dir():
             target.mkdir(parents=True, exist_ok=True)
         elif not target.exists():
@@ -74,20 +81,20 @@ def copy_game_settings(data_dir):
     return False
 
 
-def migrate(config_dir, data_dir, home=None, windows=os.name == 'nt'):
-    """Copies the launcher's settings folder, the data folder (Linux) and the game settings file from
-    their old names. Returns what was done, as text lines for the log."""
-    config_dir, data_dir = Path(config_dir), Path(data_dir)
+def migrate(data_dir, home=None, windows=os.name == 'nt'):
+    """Copies the data folder (Linux) and the game settings file from their old names. The launcher's
+    settings come from LEGACY_CONFIG_DIR afterwards (migrate_portable_settings in the launcher).
+    Returns what was done, as text lines for the log."""
+    data_dir = Path(data_dir)
     home = Path(home or Path.home())
-    if (config_dir / MARKER).is_file():
+    if (data_dir / MARKER).is_file():
         return []
     done = []
-    old_config = config_dir.parent / f'{LEGACY_NAME}-launcher'
-    if old_config.is_dir():
-        done.append(f'settings: {_merge(old_config, config_dir)} files from {old_config}')
     old_data = data_dir.parent / LEGACY_NAME
     if data_dir.name == NEW_NAME and old_data.is_dir():
-        done.append(f'data: {_merge(old_data, data_dir)} files from {old_data}')
+        # The GPU caches (rebuilt while playing, can be gigabytes) and the run views in out/ (links
+        # into the game dump) stay behind: copying them would stall the first start.
+        done.append(f'data: {_merge(old_data, data_dir, DATA_SKIP)} files from {old_data}')
     old_ini = data_dir / f'{LEGACY_NAME}.ini'
     if copy_game_settings(data_dir):
         done.append(f'game settings: {old_ini} copied to {NEW_NAME}.ini')
@@ -99,9 +106,9 @@ def migrate(config_dir, data_dir, home=None, windows=os.name == 'nt'):
                 done.append(f'menu: removed {entry}')
         except OSError:
             pass
-    if done or old_config.is_dir() or old_data.is_dir() or old_ini.is_file():
-        config_dir.mkdir(parents=True, exist_ok=True)
-        (config_dir / MARKER).write_text('\n'.join(done) + '\n', encoding='utf-8')
+    if done or old_data.is_dir() or old_ini.is_file():
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / MARKER).write_text('\n'.join(done) + '\n', encoding='utf-8')
     return done
 
 
@@ -117,24 +124,84 @@ def remove_leftovers(port_dir):
             pass  # in use or read-only: tried again at the next start
 
 
-def retarget_desktop_shortcut(port_dir, desktop=None):
-    """Windows: the desktop shortcut the old launcher made (named after the old title) is renamed
-    SpartanPort.lnk and pointed at SpartanPort.exe, when it started this installation."""
-    desktop = Path(desktop or Path(os.environ.get('USERPROFILE', Path.home())) / 'Desktop')
-    old, new = desktop / f'{LEGACY_TITLE}.lnk', desktop / 'SpartanPort.lnk'
-    target = Path(port_dir) / 'SpartanPort.exe'
-    if not old.is_file() or new.exists() or not target.is_file():
-        return False
-    script = ('$w=New-Object -ComObject WScript.Shell;$s=$w.CreateShortcut($env:SP_OLD);'
-              'if ($s.TargetPath -like ($env:SP_PORT + "\\*")) {'
-              '$n=$w.CreateShortcut($env:SP_NEW);$n.TargetPath=$env:SP_TARGET;$n.Arguments=$s.Arguments;'
-              '$n.WorkingDirectory=$env:SP_PORT;$n.IconLocation=$env:SP_TARGET+",0";$n.Save();'
-              'Remove-Item -LiteralPath $env:SP_OLD}')
-    env = {**os.environ, 'SP_OLD': str(old), 'SP_NEW': str(new), 'SP_PORT': str(Path(port_dir)),
-           'SP_TARGET': str(target)}
+def _windows_desktop():
     try:
-        subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', script], env=env,
-                       capture_output=True, timeout=20, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        import ctypes.wintypes
+        buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+        ctypes.windll.shell32.SHGetFolderPathW(None, 0x0010, None, 0, buf)
+        if buf.value:
+            return Path(buf.value)
+    except (AttributeError, OSError):
+        pass
+    return Path(os.environ.get('USERPROFILE', Path.home())) / 'Desktop'
+
+
+def retarget_desktop_shortcut(port_dir, desktop=None, data_dir=None):
+    """Windows: the desktop shortcut the old launcher made (named after the old title, pointing to
+    God of War III.exe with no arguments) is migrated non-destructively by creating SpartanPort.lnk
+    pointing to SpartanPort.exe. User-created, renamed, or customized shortcuts are preserved. Runs once."""
+    if os.name != 'nt':
+        return False
+    port_dir = Path(port_dir)
+    data_dir = Path(data_dir or port_dir)
+    marker = data_dir / SHORTCUT_MARKER
+    if marker.is_file():
+        return False
+    desktop = Path(desktop or _windows_desktop())
+    old, new = desktop / f'{LEGACY_TITLE}.lnk', desktop / 'SpartanPort.lnk'
+    target = port_dir / 'SpartanPort.exe'
+    legacy_target = port_dir / LEGACY_EXE
+    if new.exists() or not old.is_file():
+        try:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            marker.write_text('', encoding='utf-8')
+        except OSError:
+            pass
+        return False
+    if not target.is_file():
+        return False
+    script = (
+        '$w = New-Object -ComObject WScript.Shell;'
+        '$s = $w.CreateShortcut($env:SP_OLD);'
+        'if (![string]::IsNullOrWhiteSpace($s.TargetPath)) {'
+        '  $target = [System.IO.Path]::GetFullPath($s.TargetPath);'
+        '  $legacy = [System.IO.Path]::GetFullPath($env:SP_LEGACY);'
+        '  $port = [System.IO.Path]::GetFullPath($env:SP_PORT);'
+        '  $work = if ([string]::IsNullOrWhiteSpace($s.WorkingDirectory)) { $port } else { [System.IO.Path]::GetFullPath($s.WorkingDirectory) };'
+        '  $args = if ($s.Arguments) { $s.Arguments.Trim() } else { "" };'
+        '  if (($target -ieq $legacy) -and ($args -eq "") -and ($work -ieq $port)) {'
+        '    $n = $w.CreateShortcut($env:SP_NEW);'
+        '    $n.TargetPath = $env:SP_TARGET;'
+        '    $n.WorkingDirectory = $env:SP_PORT;'
+        '    $n.IconLocation = $env:SP_TARGET + ",0";'
+        '    $n.Save();'
+        '    if (!(Test-Path -LiteralPath $env:SP_NEW)) { exit 1; }'
+        '  }'
+        '}'
+    )
+    env = {
+        **os.environ,
+        'SP_OLD': str(old),
+        'SP_NEW': str(new),
+        'SP_PORT': str(port_dir.resolve()),
+        'SP_TARGET': str(target.resolve()),
+        'SP_LEGACY': str(legacy_target.resolve()),
+    }
+    try:
+        proc = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+            env=env,
+            capture_output=True,
+            timeout=20,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        )
     except (OSError, subprocess.SubprocessError):
         return False
+    if proc.returncode != 0:
+        return False
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        marker.write_text('', encoding='utf-8')
+    except OSError:
+        pass
     return new.is_file()

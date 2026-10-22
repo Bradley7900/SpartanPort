@@ -16,12 +16,12 @@ proportions and you see more to the sides.
 | 5120x2160 | 21:9 | **Tested in game** by two players (issue #505); largest Video Arena (3.98 GiB) |
 | 1920x1200 | 16:10 | **Tested in game** (taller than 16:9: see Notes) |
 | 2560x1600 | 16:10 | **Tested in game** (taller than 16:9: see Notes) |
-| 1280x800 | 16:10 | Not tested (the Steam Deck's screen) |
+| 1280x800 | 16:10 | **Tested in game** (the Steam Deck's screen; chosen by default on a Steam Deck) |
 | 1280x960, 1440x1080, 1920x1440, 2048x1536, 2560x1920 | 4:3 | 1280x960 and 1920x1440 tested (menu and gameplay; 1920x1440 by a player on a 4:3 CRT); the others are not |
-| 1440x900 | 16:10 | Not tested |
-| 1360x768 | 16:9 | Not tested (the shape of the original picture) |
+| 1440x900 | 16:10 | **Tested in game** |
+| 1360x768 | 16:9 | **Tested in game** (the shape of the original picture) |
 
-Every size but 1280x800, 1440x900, 1360x768, 1440x1080, 2048x1536 and 2560x1920 was tested in game. Thanks to the players who tested them in issue #180. Since 2.4.0 these sizes are
+Every size but 1440x1080, 2048x1536 and 2560x1920 was tested in game. Thanks to the players who tested them in issue #180. Since 2.4.0 these sizes are
 built in (Render resolution); the mod is for older versions. If something looks wrong on your screen, please say
 how it looks (resolution, and whether anything is cropped, stretched or missing at the edges) in an issue.
 
@@ -35,7 +35,7 @@ game stays at its usual resolution.
    **Open**; create the folder if it is not there). Do not unzip it: the game does that by itself.
 2. Open the launcher. The mod is listed on the Mods page, ticked, with "(game patches)".
 3. In **Render resolution** (Home or Performance) pick `3440x1440 (mod)` or another size, then **PLAY**. The
-   in-game menu (Insert → Performance) lists them too. The **Engine frame rate** (60, 120 or 240) is a
+   in-game menu (Insert → Performance) lists them too. The **Engine frame rate** (60, 100, 120, 144, 180 or 240) is a
    separate choice that works with any resolution.
 4. Use a display or window of the same size (borderless is the easy way).
 
@@ -101,7 +101,7 @@ lados.
 `Ultrawide-installer.zip` (anexado ao pull request #202), extraia, dê dois cliques no **`INSTALL.bat`**, cole
 a pasta do jogo, escolha a resolução no menu e inicie o jogo pelo **`Play SpartanPort.exe`** (não pelo
 launcher). Para desfazer: **`UNINSTALL.bat`**. Em **Render resolution** aparecem `3440x1440 (mod)` e os outros tamanhos (e no menu do jogo,
-tecla Insert). O **Engine frame rate** (60, 120 ou 240) é uma escolha à parte e vale com qualquer resolução.
+tecla Insert). O **Engine frame rate** (60, 100, 120, 144, 180 ou 240) é uma escolha à parte e vale com qualquer resolução.
 
 **As cutscenes continuam com bordas:** são vídeos 16:9 pré-renderizados, então tocam com barras pretas dos
 lados (em cima e embaixo no 16:10); as builds anteriores à de teste deixavam o último frame do jogo nessas

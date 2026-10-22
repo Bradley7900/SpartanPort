@@ -37,6 +37,8 @@ void runtime_set_procparam(void *param);
 void **runtime_application_heap_api(void);
 uintptr_t runtime_thread_resolve(const char *name);
 void runtime_thread_report(void);
+/* Counts a guest sched_yield (zero_sleep 0) or a zero-length sleep (1) for the report (#209). */
+void runtime_thread_count_yield(int zero_sleep);
 void runtime_set_main_tls(const void *data, uint64_t filesz, uint64_t memsz, uint64_t align);
 void runtime_thread_attach_main(void);
 int32_t *runtime_errno(void);
@@ -103,5 +105,6 @@ void runtime_savedata_report(void);
 #define RUNTIME_SAVE_PARAM_SIZE 1328
 int runtime_savedata_param(int32_t user, const char *dir, void *param);
 int runtime_savedata_icon(int32_t user, const char *dir, char *out, size_t size);
+void runtime_savedata_preview_path(const char *path);
 void runtime_thread_attach_host(const char *name);
 #endif
