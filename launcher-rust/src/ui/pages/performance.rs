@@ -18,7 +18,9 @@ use crate::core::options::{
 use crate::core::patches::resolution_names;
 use crate::ui::app::{Message, State};
 use crate::ui::theme;
-use crate::ui::widgets::{checkbox, checkbox_ini, choice_pairs, row, section, select_pairs};
+use crate::ui::widgets::{
+    checkbox, checkbox_ini, choice_pairs, min_width, row, section, select_pairs, SELECT_MIN,
+};
 
 /// Suffix of the labels of the sizes a mod adds.
 const MOD_SUFFIX: &str = " (mod)";
@@ -249,12 +251,15 @@ pub fn view(state: &State) -> Element<'_, Message> {
     // A row that needs a new start of the game carries a small `restart` note.
     let restart = |english: &str| format!("{}  ·  {}", tr(lang, english), tr(lang, "restart"));
 
-    let aspect = pick_list(
-        aspect_options(state),
-        Some(state.aspect.clone()),
-        Message::Aspect,
-    )
-    .style(theme::pick_list_dark);
+    let aspect = min_width(
+        SELECT_MIN,
+        pick_list(
+            aspect_options(state),
+            Some(state.aspect.clone()),
+            Message::Aspect,
+        )
+        .style(theme::pick_list_dark),
+    );
     let rows = rows(state, lang);
     let pick = |key: &str| match rows.iter().find(|row| row.key == key) {
         Some(row) => select_pairs(key, &row.pairs, &row.current),
@@ -301,6 +306,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         ),
         section(state.rtl, &tr(lang, "Shaders")),
         checkbox(
+            state.rtl,
             "pipeline_binary_cache",
             &tr(lang, "Use pipeline binary cache (A/B test)"),
             state.settings.get_bool("pipeline_binary_cache"),
@@ -309,6 +315,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox(
+            state.rtl,
             "background_warmup",
             &tr(lang, "Load shader cache in the background"),
             state.settings.get_bool("background_warmup"),
@@ -317,6 +324,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox_ini(
+            state.rtl,
             "async_shaders",
             &tr(lang, "Compile new shaders in the background"),
             ini_on(state, "async_shaders"),
@@ -325,6 +333,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox(
+            state.rtl,
             "parallel_warmup",
             &tr(lang, "Fast shader cache loading (parallel)"),
             state.settings.get_bool("parallel_warmup"),
@@ -350,6 +359,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox_ini(
+            state.rtl,
             "stale_readback",
             &restart("Game reads GPU data without waiting (big FPS gain)"),
             ini_on(state, "stale_readback"),
@@ -358,6 +368,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox_ini(
+            state.rtl,
             "deferred_readback",
             &restart("Deferred GPU readbacks"),
             ini_on(state, "deferred_readback"),
@@ -366,6 +377,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox(
+            state.rtl,
             "partial_height_views",
             &restart("Fast screen effects (Rage of Sparta, weapons)"),
             state.settings.get_bool("partial_height_views"),

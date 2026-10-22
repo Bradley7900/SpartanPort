@@ -29,7 +29,9 @@ use crate::ui::app::{apply_set, Message, State};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
 use crate::ui::widgets::button_icon::game_button;
-use crate::ui::widgets::{button_icon, checkbox, checkbox_ini, row, section, select, slider};
+use crate::ui::widgets::{
+    button_icon, checkbox, checkbox_ini, min_width, row, section, select, slider, SELECT_MIN,
+};
 
 /// A waiting key box gives up after this long.
 pub const CAPTURE_SECONDS: u64 = 5;
@@ -83,8 +85,6 @@ const PAD_NOTE: &str = "L2/R2 stay on the triggers. Touchpad right opens the gam
 
 /// Side of a button icon.
 const ICON_SIZE: f32 = 28.0;
-/// Width of the button names of the tables.
-const TITLE_WIDTH: f32 = 150.0;
 /// Width of a key box, enough for the countdown text.
 const BOX_WIDTH: f32 = 220.0;
 
@@ -716,7 +716,7 @@ fn key_line<'a>(row: KeyRow) -> Element<'a, Message> {
     }
     layout![
         button_icon(icon, style, ICON_SIZE),
-        text(row.title).width(TITLE_WIDTH),
+        text(row.title).width(Fill),
         input,
         reset,
     ]
@@ -731,17 +731,20 @@ fn pad_line<'a>(row: PadRow, pad_style: &str) -> Element<'a, Message> {
         PadChoice::Pick { pairs, current } => {
             let labels: Vec<String> = pairs.iter().map(|(_, label)| label.clone()).collect();
             let button = row.button;
-            pick_list(labels, Some(current), move |label: String| {
-                pad_pick(button, &pairs, &label)
-            })
-            .style(theme::pick_list_dark)
+            min_width(
+                SELECT_MIN,
+                pick_list(labels, Some(current), move |label: String| {
+                    pad_pick(button, &pairs, &label)
+                })
+                .style(theme::pick_list_dark),
+            )
             .into()
         }
         PadChoice::Fixed(fixed) => text(fixed).style(theme::text_muted).into(),
     };
     layout![
         button_icon(icon, style, ICON_SIZE),
-        text(row.title).width(TITLE_WIDTH),
+        text(row.title).width(Fill),
         button_icon(&row.icon, pad_style, ICON_SIZE),
         choice,
     ]
@@ -757,6 +760,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
     for key_row in key_rows(state, lang) {
         if key_row.button == "rage" {
             lines = lines.push(checkbox(
+                state.rtl,
                 "rage_one_input",
                 &tr(lang, RAGE_CHECK),
                 rage_on,
@@ -822,6 +826,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
             Some(&hint(SENSITIVITY_HINT)),
         ),
         checkbox_ini(
+            state.rtl,
             "mouse_lock",
             &tr(lang, "Keep the mouse in the game window"),
             ini_on(state, "mouse_lock"),

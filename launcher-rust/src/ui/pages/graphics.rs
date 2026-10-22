@@ -76,12 +76,14 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox_ini(
+            state.rtl,
             "vsync",
             &tr(lang, "VSync"),
             ini_on(state, "vsync"),
             Some(&hint("Off allows tearing for the lowest latency.")),
         ),
         checkbox(
+            state.rtl,
             "hdr",
             &tr(lang, "Allow HDR output"),
             state.settings.get_bool("hdr"),
@@ -98,6 +100,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         ),
         section(state.rtl, &tr(lang, "Overlay")),
         checkbox_ini(
+            state.rtl,
             "show_fps",
             &tr(lang, "Show performance overlay"),
             ini_on(state, "show_fps"),

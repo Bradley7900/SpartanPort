@@ -205,7 +205,9 @@ O conteúdo das páginas segue o launcher 2.6.0 linha a linha: as mesmas seçõe
 textos e chaves de settings de `build_graphics`, `build_display`, `build_performance`,
 `build_game`, `build_save_backups`, `build_patches`, `build_third_party_patches`,
 `build_trophies`, `build_controls`, `build_mods_page`, `build_linux_options`, `build_advanced` e
-`build_log`. Advanced ganha uma linha nova, "Efeitos" (fogo ligado ou desligado).
+`build_log`. Advanced ganha uma linha nova, "Efeitos" (fogo ligado ou desligado). Cada ajuste é uma
+linha do mockup (`.row`): o nome à esquerda e o controle (lista, caixa de seleção, botão) na ponta
+direita, com a dica embaixo; a caixa de seleção vem depois do nome, que também a alterna.
 
 ### 4.5 Seletor de idioma
 

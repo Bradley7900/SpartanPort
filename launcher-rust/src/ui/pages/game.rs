@@ -6,7 +6,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use iced::widget::{button, checkbox as check_box, column, pick_list, row as layout, text};
+use iced::widget::{button, column, pick_list, row as layout, text};
 use iced::{Center, Element, Left, Right, Task};
 use serde_json::{Map, Value};
 
@@ -22,7 +22,8 @@ use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::widgets::{
-    checkbox_ini, folder, row, section, select, Modal, ModalKind, ModalMessage,
+    checkbox_ini, folder, min_width, row, section, select, toggle_row, Modal, ModalKind,
+    ModalMessage, SELECT_MIN,
 };
 use crate::APP_NAME;
 
@@ -296,12 +297,15 @@ fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Element<
 
 fn backups_row(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
-    let choose = pick_list(
-        state.backups.clone(),
-        (!state.backup_choice.is_empty()).then(|| state.backup_choice.clone()),
-        |name| Message::Backup(BackupMessage::Choose(name)),
-    )
-    .style(theme::pick_list_dark);
+    let choose = min_width(
+        SELECT_MIN,
+        pick_list(
+            state.backups.clone(),
+            (!state.backup_choice.is_empty()).then(|| state.backup_choice.clone()),
+            |name| Message::Backup(BackupMessage::Choose(name)),
+        )
+        .style(theme::pick_list_dark),
+    );
     let restore = button(text(tr(lang, "Restore")))
         .style(theme::button_flat)
         .on_press(Message::Backup(BackupMessage::Restore));
@@ -346,15 +350,14 @@ fn patches_section(state: &State) -> Element<'_, Message> {
             None => meta.name.clone(),
         };
         let name = meta.name.clone();
-        let boxed = check_box(patches.chosen.contains(&meta.name))
-            .label(label)
-            .on_toggle(move |on| Message::PatchToggled(name.clone(), on))
-            .style(theme::checkbox_red);
-        let mut item = column![boxed].spacing(2);
-        if let Some(note) = &meta.note {
-            item = item.push(text(tr(lang, note)).size(13).style(theme::text_muted));
-        }
-        body = body.push(item.padding([4, 0]));
+        let note = meta.note.as_deref().map(|note| tr(lang, note));
+        body = body.push(toggle_row(
+            state.rtl,
+            &label,
+            patches.chosen.contains(&meta.name),
+            Some(move |on| Message::PatchToggled(name.clone(), on)),
+            note.as_deref(),
+        ));
     }
     body.into()
 }
@@ -368,6 +371,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     column![
         section(state.rtl, &tr(lang, "Cheats")),
         checkbox_ini(
+            state.rtl,
             "cheat_double_jumps",
             &tr(lang, "Infinite Double Jumps"),
             ini_on(state, "cheat_double_jumps"),
@@ -376,6 +380,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         checkbox_ini(
+            state.rtl,
             "cheat_very_hard",
             &tr(lang, "Unlock Very Hard"),
             ini_on(state, "cheat_very_hard"),

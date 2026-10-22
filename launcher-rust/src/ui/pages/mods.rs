@@ -30,7 +30,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::pages::performance;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
-use crate::ui::widgets::{checkbox, folder, section, Modal, ModalKind};
+use crate::ui::widgets::{checkbox, folder, section, toggle_row, Modal, ModalKind};
 use crate::APP_NAME;
 
 /// Width of the details card picture, in logical pixels; it is at most 4:3.
@@ -753,12 +753,13 @@ fn patches_section<'a>(state: &State) -> Element<'a, Message> {
             _ => key.clone(),
         };
         let toggled = key.clone();
-        body = body.push(
-            check_box(state.mods.external_enabled.contains(key))
-                .label(label)
-                .on_toggle(move |_| Message::Mods(ModsMessage::ToggleExternal(toggled.clone())))
-                .style(theme::checkbox_red),
-        );
+        body = body.push(toggle_row(
+            state.rtl,
+            &label,
+            state.mods.external_enabled.contains(key),
+            Some(move |_| Message::Mods(ModsMessage::ToggleExternal(toggled.clone()))),
+            None,
+        ));
     }
     body.into()
 }
@@ -778,6 +779,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     };
     let top = row![
         checkbox(
+            state.rtl,
             "mods_enabled",
             &tr(lang, "Load mods"),
             state.settings.get_bool("mods_enabled"),

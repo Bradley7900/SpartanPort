@@ -11,7 +11,7 @@ use spartanport_launcher::core::gpu::{display_label, parse_display_list};
 use spartanport_launcher::core::options::DISPLAY_MODES;
 use spartanport_launcher::ui::app::{self, Message};
 use spartanport_launcher::ui::pages::{performance, Page};
-use spartanport_launcher::ui::widgets::select_message;
+use spartanport_launcher::ui::widgets::{self, select_message};
 
 #[test]
 fn graphics_rows_change_the_right_keys() {
@@ -32,6 +32,72 @@ fn graphics_rows_change_the_right_keys() {
     let _ = app::update(&mut state, pick);
     assert_eq!(state.ini.values["display_mode"], "borderless");
     assert!(state.settings.get("display_mode").is_none());
+}
+
+/// The window of `state` at `width` × `height` with `page` open, once the drawer has stopped.
+fn settled(
+    state: &mut app::State,
+    page: Page,
+    width: f32,
+    height: f32,
+) -> iced_test::simulator::Simulator<'_, Message> {
+    open(state, page);
+    let _ = app::update(
+        state,
+        Message::Tick(iced::time::Instant::now() + std::time::Duration::from_secs(1)),
+    );
+    iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(width, height),
+        app::view(state),
+    )
+}
+
+/// The bounds of the control of the row named `label`.
+fn control(ui: &mut iced_test::simulator::Simulator<'_, Message>, label: &str) -> iced::Rectangle {
+    ui.find(iced_test::selector::id(widgets::row::control_id(label)))
+        .unwrap_or_else(|error| panic!("control of {label:?}: {error:?}"))
+        .bounds()
+}
+
+#[test]
+fn every_row_control_ends_on_the_same_right_edge() {
+    // Mockup `.row { grid-template-columns: 1fr auto }`: drop-downs, check boxes and buttons end
+    // where the row ends, whatever the name before them; right to left they start where it starts.
+    for lang in ["en", "pt", "ar"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        state.lang = lang.into();
+        state.rtl = lang == "ar";
+        let tr = |english: &str| spartanport_launcher::core::i18n::tr(lang, english);
+        let labels = [
+            tr("Display mode"),
+            tr("Monitor"),
+            tr("VSync"),
+            tr("Allow HDR output"),
+            format!("{}  ·  {}", tr("Anisotropic filtering"), tr("restart")),
+            tr("Show performance overlay"),
+            tr("F12 in the game"),
+        ];
+        let mut ui = settled(&mut state, Page::Graphics, 1280.0, 800.0);
+        let edges: Vec<(String, f32)> = labels
+            .iter()
+            .map(|label| {
+                let bounds = control(&mut ui, label);
+                let edge = if lang == "ar" {
+                    bounds.x
+                } else {
+                    bounds.x + bounds.width
+                };
+                (label.clone(), edge)
+            })
+            .collect();
+        let first = edges[0].1;
+        assert!(
+            edges.iter().all(|(_, edge)| (edge - first).abs() < 0.5),
+            "{lang}: {edges:?}"
+        );
+    }
 }
 
 #[test]

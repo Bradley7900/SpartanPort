@@ -388,7 +388,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 2. `--run`, `--script`, `--install-update`, `--play` are forwarded to the Python launcher (transition) until sub-project 4 ports them.
 3. The Steam Deck `render_resolution` default is not ported.
 4. On Save the Python resets a stored choice that is absent from its option list to the first option and converts value types; the Rust keeps stored values except the monitor.
-5. In Arabic the bar, the drawer side, the drawer header and the setting rows (name, control and note, folder rows and section headings) are mirrored (R68). What stays left to right: the bar's tab order inside the right-aligned group, check boxes (the box before its label), and the pages' own layouts (the Trophies list, the Controls mapping table, the Mods list and presets, the Log and Files button rows).
+5. In Arabic the bar, the drawer side, the drawer header and the setting rows (name, control and note, check boxes, folder rows and section headings) are mirrored (R68). What stays left to right: the bar's tab order inside the right-aligned group and the pages' own layouts (the Trophies list, the Controls mapping table, the Mods list and presets, the Log and Files button rows).
 6. The fire shader draws its particles additively while the canvas fallback is source-over.
 7. `UpdateState::Failed` is unused — the update worker reports failures through the status line.
 8. Tab traversal (spec §4.6) is not implemented: iced 0.14 cannot focus buttons or pick lists; a focus ring is follow-up work (R67).

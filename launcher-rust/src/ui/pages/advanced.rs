@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use iced::widget::{button, checkbox as check_box, column, row as layout, text};
+use iced::widget::{button, column, row as layout, text};
 use iced::{Center, Element, Task};
 use serde_json::Value;
 
@@ -25,7 +25,10 @@ use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, CINZEL_BOLD};
 use crate::ui::update::UpdateMessage;
-use crate::ui::widgets::{checkbox, choice_pairs, row, section, select_pairs, Modal, ModalKind};
+use crate::ui::widgets::{
+    checkbox, choice_pairs, row, section, select_pairs, select_pairs_small, toggle_row, Modal,
+    ModalKind,
+};
 use crate::{APP_NAME, VERSION};
 
 /// One check box of the page.
@@ -260,20 +263,19 @@ pub fn check_keys(state: &State) -> Vec<&'static str> {
 
 // --- View ---
 
-fn check_view<'a>(check: &CheckRow) -> Element<'a, Message> {
+fn check_view<'a>(rtl: bool, check: &CheckRow) -> Element<'a, Message> {
     let hint = Some(check.hint.as_str());
     if check.enabled {
-        return checkbox(check.key, &check.label, check.checked, hint);
+        return checkbox(rtl, check.key, &check.label, check.checked, hint);
     }
     // A tool this system lacks: the box is drawn, but nothing toggles it.
-    let boxed = check_box(check.checked)
-        .label(check.label.clone())
-        .style(theme::checkbox_red);
-    let mut body = column![boxed].spacing(2);
-    if let Some(hint) = hint.filter(|hint| !hint.is_empty()) {
-        body = body.push(text(hint.to_string()).size(13).style(theme::text_muted));
-    }
-    body.padding([4, 0]).into()
+    toggle_row(
+        rtl,
+        &check.label,
+        check.checked,
+        None::<fn(bool) -> Message>,
+        hint,
+    )
 }
 
 fn flat<'a>(label: String, message: Message) -> Element<'a, Message> {
@@ -288,6 +290,8 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let hint = |english: &str| tr(lang, english);
     let selects = rows(state, lang);
     let pick = |key: &str| match selects.iter().find(|row| row.key == key) {
+        // Mockup `.sel.sm`: the scale's short choices take a narrower box.
+        Some(row) if key == "ui_scale" => select_pairs_small(key, &row.pairs, &row.current),
         Some(row) => select_pairs(key, &row.pairs, &row.current),
         None => select_pairs(key, &[], ""),
     };
@@ -308,7 +312,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     ]
     .spacing(2);
     for check in launcher_checks(state, lang) {
-        page = page.push(check_view(&check));
+        page = page.push(check_view(state.rtl, &check));
     }
 
     let mut buttons = layout![].spacing(6).align_y(Center);
@@ -329,7 +333,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         page = page.push(section(state.rtl, &tr(lang, "Linux")));
         let linux = linux_checks(state, lang);
         if let Some(first) = linux.first() {
-            page = page.push(check_view(first));
+            page = page.push(check_view(state.rtl, first));
         }
         let wayland = if state.linux_tools.wayland {
             String::new()
@@ -347,7 +351,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             ),
         ));
         for check in linux.iter().skip(1) {
-            page = page.push(check_view(check));
+            page = page.push(check_view(state.rtl, check));
         }
     }
 
@@ -396,7 +400,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     );
     if state.diagnostics_open {
         for check in diagnostic_checks(state, lang) {
-            page = page.push(check_view(&check));
+            page = page.push(check_view(state.rtl, &check));
         }
     }
     page.into()

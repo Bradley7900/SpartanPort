@@ -1,4 +1,5 @@
-//! A drop-down over a list of choices; selecting one stores its value, not its label.
+//! A drop-down over a list of choices; selecting one stores its value, not its label. It is as wide
+//! as its longest option, and at least the mockup's `.sel` minimum.
 
 use iced::widget::pick_list;
 use iced::Element;
@@ -8,6 +9,12 @@ use crate::core::i18n::tr;
 use crate::core::options::Choice;
 use crate::ui::app::Message;
 use crate::ui::theme;
+use crate::ui::widgets::min_width;
+
+/// The narrowest a drop-down gets (mockup `.sel { min-width: 170px }`).
+pub const SELECT_MIN: f32 = 170.0;
+/// The narrowest a short drop-down gets (mockup `.sel.sm { min-width: 90px }`).
+pub const SELECT_MIN_SMALL: f32 = 90.0;
 
 /// What a choice is called in `lang`: the Russian text when there is one, else `tr` of English.
 fn label(choice: &Choice, lang: &str) -> String {
@@ -46,11 +53,11 @@ pub fn select<'a>(
         .map(|choice| label(choice, lang));
     let key = key.to_string();
     let lang = lang.to_string();
-    pick_list(labels, selected, move |chosen: String| {
+    let list = pick_list(labels, selected, move |chosen: String| {
         select_message(&key, choices, &lang, &chosen).unwrap_or(Message::Noop)
     })
-    .style(theme::pick_list_dark)
-    .into()
+    .style(theme::pick_list_dark);
+    min_width(SELECT_MIN, list).into()
 }
 
 /// Same, over `(value, label)` pairs whose labels are already translated.
@@ -59,6 +66,24 @@ pub fn select_pairs<'a>(
     pairs: &[(String, String)],
     current: &str,
 ) -> Element<'a, Message> {
+    pairs_list(key, pairs, current, SELECT_MIN)
+}
+
+/// Same, for a list of short labels (mockup `.sel.sm`).
+pub fn select_pairs_small<'a>(
+    key: &str,
+    pairs: &[(String, String)],
+    current: &str,
+) -> Element<'a, Message> {
+    pairs_list(key, pairs, current, SELECT_MIN_SMALL)
+}
+
+fn pairs_list<'a>(
+    key: &str,
+    pairs: &[(String, String)],
+    current: &str,
+    min: f32,
+) -> Element<'a, Message> {
     let labels: Vec<String> = pairs.iter().map(|(_, label)| label.clone()).collect();
     let selected = pairs
         .iter()
@@ -66,13 +91,13 @@ pub fn select_pairs<'a>(
         .map(|(_, label)| label.clone());
     let key = key.to_string();
     let pairs = pairs.to_vec();
-    pick_list(labels, selected, move |chosen: String| {
+    let list = pick_list(labels, selected, move |chosen: String| {
         pairs
             .iter()
             .find(|(_, label)| *label == chosen)
             .map(|(value, _)| Message::Set(key.clone(), Value::String(value.clone())))
             .unwrap_or(Message::Noop)
     })
-    .style(theme::pick_list_dark)
-    .into()
+    .style(theme::pick_list_dark);
+    min_width(min, list).into()
 }

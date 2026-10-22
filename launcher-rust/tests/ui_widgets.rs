@@ -1,8 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The settings widgets: what they emit when the user acts on them.
 
-use iced::Element;
-use iced_test::simulator;
+use iced::{Element, Size};
+use iced_test::core::Settings;
+use iced_test::simulator::{simulator, Simulator};
 use serde_json::Value;
 use spartanport_launcher::core::options::UPSCALERS;
 use spartanport_launcher::ui::app::Message;
@@ -44,7 +45,7 @@ fn select_emits_set_with_the_value_not_the_label() {
 fn checkbox_ini_emits_one_and_zero() {
     for (checked, expected) in [(true, "0"), (false, "1")] {
         let messages = click(
-            widgets::checkbox_ini("vsync", "Vsync", checked, None),
+            widgets::checkbox_ini(false, "vsync", "Vsync", checked, None),
             "Vsync",
         );
         assert_eq!(messages.len(), 1);
@@ -54,10 +55,35 @@ fn checkbox_ini_emits_one_and_zero() {
         );
     }
     let messages = click(
-        widgets::checkbox("fx", "Effects", false, Some("hint")),
+        widgets::checkbox(false, "fx", "Effects", false, Some("hint")),
         "Effects",
     );
     assert!(matches!(&messages[0], Message::Set(key, Value::Bool(true)) if key == "fx"));
+}
+
+#[test]
+fn a_check_box_sits_at_the_end_of_its_row() {
+    // Mockup `.row` with `.cb`: the name first, the box at the row's end; mirrored right to left.
+    for rtl in [false, true] {
+        let row = widgets::checkbox_ini(rtl, "vsync", "Vsync", true, Some("A note."));
+        let mut ui = Simulator::with_size(Settings::default(), Size::new(600.0, 200.0), row);
+        let boxed = ui
+            .find(iced_test::selector::id(widgets::row::control_id("Vsync")))
+            .unwrap()
+            .bounds();
+        let name = ui.find("Vsync").unwrap().bounds();
+        if rtl {
+            assert!(
+                boxed.x.abs() < 0.5 && name.x > boxed.x,
+                "{boxed:?}, {name:?}"
+            );
+        } else {
+            assert!(
+                (boxed.x + boxed.width - 600.0).abs() < 0.5 && name.x < boxed.x,
+                "{boxed:?}, {name:?}"
+            );
+        }
+    }
 }
 
 #[test]
