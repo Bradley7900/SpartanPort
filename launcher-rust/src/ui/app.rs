@@ -237,6 +237,10 @@ pub enum Message {
     MonitorsListed(Vec<Display>),
     /// Opens a folder in the desktop's file manager.
     OpenPath(PathBuf),
+    /// Saves, then opens `spartanport.ini` (Python `open_path` of an `.ini`).
+    OpenIni,
+    /// The window's close button: saves first (Python `close`).
+    CloseRequested(window::Id),
     Play,
     Stop,
     Save,
@@ -403,6 +407,17 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         | Message::SteamDone(_)
         | Message::ClearShaderCache
         | Message::ShaderCacheCleared(_)) => return advanced::update(state, message),
+        Message::OpenIni => {
+            if persist::collect_or_report(state) {
+                return Task::done(Message::OpenPath(state.paths.ini_path()));
+            }
+        }
+        Message::CloseRequested(id) => {
+            // A running game keeps running, as it does after the Python launcher closes.
+            if persist::collect_or_report(state) {
+                return window::close(id);
+            }
+        }
         Message::Noop => {}
     }
     Task::none()
@@ -630,6 +645,8 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         _ => None,
     });
     let window_events = window::events().filter_map(window_message);
+    // The close button is ours: the window closes once the settings are saved.
+    let close = window::close_requests().map(Message::CloseRequested);
     let frames = if state.drawer_progress.is_animating(state.now) {
         window::frames().map(Message::Tick)
     } else {
@@ -649,6 +666,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     Subscription::batch([
         keys,
         window_events,
+        close,
         frames,
         clock,
         controls::subscription(state),
@@ -728,12 +746,14 @@ fn size_window(state: &mut State, monitor: Option<Size>) -> Task<Message> {
 
 /// The window as it opens: icon, starting and minimum size and place (`size_window` adjusts them
 /// once the desktop's scale and the monitor are known) and, on Linux, the application id the menu
-/// entry matches (`StartupWMClass`, the Python's Tk class).
+/// entry matches (`StartupWMClass`, the Python's Tk class). The close button only asks
+/// (`CloseRequested`), so the settings are saved before the window goes.
 fn window_settings() -> window::Settings {
     window::Settings {
         size: WINDOW_SIZE,
         min_size: Some(WINDOW_SIZE),
         position: window::Position::Centered,
+        exit_on_close_request: false,
         icon: window::icon::from_file_data(include_bytes!("../../assets/spartanport.png"), None)
             .ok(),
         #[cfg(target_os = "linux")]

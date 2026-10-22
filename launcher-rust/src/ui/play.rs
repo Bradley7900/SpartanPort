@@ -198,8 +198,7 @@ pub fn play(state: &mut State) -> Task<Message> {
     if !matches!(state.game, GameState::Idle) {
         return Task::none();
     }
-    if persist::collect(state).is_err() {
-        persist::show_save_failed(state);
+    if !persist::collect_or_report(state) {
         return Task::none();
     }
     if game_info(&state.settings.get_str("game_dir")).is_none() {

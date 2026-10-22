@@ -542,3 +542,100 @@ fn every_setting_lights_save_persists_and_comes_back() {
     assert_eq!(reopened.controls.pad["cross"], "b");
     assert!(!dirty(&reopened));
 }
+
+/// A folder in the place of `settings.json`, so no save can replace it.
+fn block_settings(state: &State) {
+    fs::create_dir(state.paths.config_file()).unwrap();
+}
+
+fn save_failed_shown(state: &State) -> bool {
+    state
+        .modal
+        .as_ref()
+        .is_some_and(|modal| matches!(modal.kind, ModalKind::Error) && modal.text == SAVE_FAILED)
+}
+
+#[test]
+fn closing_the_window_saves_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    set(&mut state, "vsync", json!(false));
+    // Python `close`: collect, then destroy the window.
+    let task = app::update(
+        &mut state,
+        Message::CloseRequested(iced::window::Id::unique()),
+    );
+    let ini = fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(ini.lines().any(|line| line == "vsync=0"), "{ini}");
+    assert!(state.modal.is_none());
+    assert!(!dirty(&state));
+    assert_eq!(task.units(), 1, "the window closes");
+}
+
+#[test]
+fn a_failed_save_keeps_the_window_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    set(&mut state, "vsync", json!(false));
+    block_settings(&state);
+    let task = app::update(
+        &mut state,
+        Message::CloseRequested(iced::window::Id::unique()),
+    );
+    assert_eq!(task.units(), 0, "the window stays");
+    assert!(save_failed_shown(&state), "{:?}", state.modal);
+    assert!(dirty(&state));
+}
+
+#[test]
+fn opening_the_ini_saves_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    open(&mut state, Page::Advanced);
+    let sent: Vec<Message> = {
+        let mut ui = simulator(app::view(&state));
+        ui.click("spartanport.ini").unwrap();
+        ui.into_messages().collect()
+    };
+    assert!(matches!(sent.as_slice(), [Message::OpenIni]), "{sent:?}");
+    set(&mut state, "vsync", json!(false));
+    // Python `open_path`: an `.ini` is collected first, then opened.
+    let task = app::update(&mut state, Message::OpenIni);
+    let ini = fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(ini.lines().any(|line| line == "vsync=0"), "{ini}");
+    assert_eq!(task.units(), 1, "the ini opens");
+
+    set(&mut state, "vsync", json!(true));
+    fs::remove_file(state.paths.config_file()).unwrap();
+    block_settings(&state);
+    let task = app::update(&mut state, Message::OpenIni);
+    assert_eq!(task.units(), 0, "nothing opens after a failed save");
+    assert!(save_failed_shown(&state), "{:?}", state.modal);
+}
+
+#[test]
+fn add_to_steam_saves_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    // No eboot.bin there: the bridge answers at once, without Python.
+    set(
+        &mut state,
+        "game_dir",
+        json!(dir.path().join("game").display().to_string()),
+    );
+    let task = app::update(&mut state, Message::AddToSteam);
+    let saved: Value =
+        serde_json::from_slice(&fs::read(state.paths.config_file()).unwrap()).unwrap();
+    assert_eq!(
+        saved["game_dir"],
+        json!(dir.path().join("game").display().to_string())
+    );
+    assert_eq!(task.units(), 1, "the bridge starts");
+
+    set(&mut state, "game_dir", json!(""));
+    fs::remove_file(state.paths.config_file()).unwrap();
+    block_settings(&state);
+    let task = app::update(&mut state, Message::AddToSteam);
+    assert_eq!(task.units(), 0, "no bridge after a failed save");
+    assert!(save_failed_shown(&state), "{:?}", state.modal);
+}

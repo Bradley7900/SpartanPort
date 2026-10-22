@@ -305,12 +305,21 @@ pub fn show_save_failed(state: &mut State) {
     });
 }
 
+/// `collect`, with the error dialog when it fails (Python's `if not self.collect(): return`):
+/// whether the files were written.
+pub fn collect_or_report(state: &mut State) -> bool {
+    if collect(state).is_err() {
+        show_save_failed(state);
+        return false;
+    }
+    true
+}
+
 /// The Save button (Python `save`): the files, without starting the game. A new launcher language
 /// or zoom rebuilds the window in it, and a new zoom sizes the window again; a failed save shows
 /// the error dialog and keeps the edits.
 pub fn save(state: &mut State) -> Task<Message> {
-    if collect(state).is_err() {
-        show_save_failed(state);
+    if !collect_or_report(state) {
         return Task::none();
     }
     let language = launcher_language(&state.settings.get_str("ui_language"), system_language);

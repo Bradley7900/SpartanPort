@@ -19,6 +19,7 @@ use crate::core::paths::Paths;
 use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
 use crate::ui::pages::performance::SelectRow;
+use crate::ui::persist;
 use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, CINZEL_BOLD};
@@ -346,16 +347,12 @@ pub fn view(state: &State) -> Element<'_, Message> {
         }
     }
 
-    // Task 32: collect() first
     let files = layout![
         flat(
             tr(lang, "Port folder"),
             Message::OpenPath(state.paths.data_dir.clone())
         ),
-        flat(
-            "spartanport.ini".to_string(),
-            Message::OpenPath(state.paths.ini_path())
-        ),
+        flat("spartanport.ini".to_string(), Message::OpenIni),
     ]
     .spacing(6);
     let clear = button(text(tr(lang, "Clear shader cache"))).style(theme::button_flat);
@@ -603,7 +600,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ShortcutDone(Err(error)) => modal(state, ModalKind::Error, error),
         Message::AddToSteam => {
-            // Task 32: collect() first
+            // The shortcut starts `--play`, which reads the files: they get the window's settings
+            // first (Python `add_to_steam`).
+            if !persist::collect_or_report(state) {
+                return Task::none();
+            }
             let (paths, settings) = (state.paths.clone(), state.settings.clone());
             return blocking(move || add_to_steam(&paths, &settings, &lang))
                 .map(Message::SteamDone);
