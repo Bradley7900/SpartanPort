@@ -15,7 +15,9 @@ use iced::{
     Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
-use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
+use crate::core::game::{
+    artwork_file, game_info, game_patchable, game_profile_of, meta_folder, GameInfo,
+};
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS};
@@ -128,13 +130,14 @@ pub struct HomeFacts {
     pub skipped: usize,
 }
 
-/// The `state.home_art` handle of `sce_sys/pic1.png` of the game (or update) folder.
+/// The `state.home_art` handle of `sce_sys/pic1.png` of the update, or of the game folder when
+/// the update has none.
 pub fn load_home_art(state: &mut State) {
-    let meta = meta_folder(
+    let file = artwork_file(
         &state.settings.get_str("game_dir"),
         &state.settings.get_str("update_dir"),
+        "pic1.png",
     );
-    let file = Path::new(&meta).join("sce_sys").join("pic1.png");
     state.home_art = std::fs::read(file).ok().map(Handle::from_bytes);
 }
 

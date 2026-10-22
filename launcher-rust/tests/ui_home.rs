@@ -69,6 +69,26 @@ fn home_shows_play_and_the_four_chips() {
 }
 
 #[test]
+fn the_home_art_falls_back_to_the_base_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let (game, update) = (dir.path().join("game"), dir.path().join("update"));
+    for folder in [&game, &update] {
+        std::fs::create_dir_all(folder.join("sce_sys")).unwrap();
+        std::fs::write(folder.join("eboot.bin"), b"elf").unwrap();
+    }
+    std::fs::write(game.join("sce_sys/pic1.png"), b"png").unwrap();
+    let mut state = state_in(dir.path());
+    state
+        .settings
+        .set("game_dir", game.display().to_string().into());
+    state
+        .settings
+        .set("update_dir", update.display().to_string().into());
+    home::load_home_art(&mut state);
+    assert!(state.home_art.is_some(), "the update has no pic1.png");
+}
+
+#[test]
 fn saves_chip_follows_the_savedata_folder() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());

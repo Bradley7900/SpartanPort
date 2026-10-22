@@ -164,6 +164,18 @@ pub fn meta_folder(game_dir: &str, update_dir: &str) -> String {
     }
 }
 
+/// `sce_sys/<name>` of the meta folder (the update when there is one), or of the game folder
+/// when the update lacks that file (Python `artwork_file`).
+pub fn artwork_file(game_dir: &str, update_dir: &str, name: &str) -> PathBuf {
+    let meta = meta_folder(game_dir, update_dir);
+    let folder = if meta.is_empty() { "." } else { meta.as_str() };
+    let preferred = Path::new(folder).join("sce_sys").join(name);
+    if preferred.is_file() || game_dir.is_empty() {
+        return preferred;
+    }
+    Path::new(game_dir).join("sce_sys").join(name)
+}
+
 /// A game the built-in patches know: its title IDs, patch file, metadata app version, and the
 /// title that also recognises a release under an ID not listed.
 #[derive(Debug, PartialEq, Eq)]
@@ -401,6 +413,32 @@ mod tests {
 
     fn s(path: &Path) -> &str {
         path.to_str().unwrap()
+    }
+
+    #[test]
+    fn artwork_prefers_the_update_and_falls_back_to_the_game() {
+        let dir = tempfile::tempdir().unwrap();
+        let (game, update) = (dir.path().join("game"), dir.path().join("update"));
+        for folder in [&game, &update] {
+            fs::create_dir_all(folder.join("sce_sys")).unwrap();
+            fs::write(folder.join("eboot.bin"), b"elf").unwrap();
+        }
+        fs::write(game.join("sce_sys/pic1.png"), b"png").unwrap();
+        // Python `artwork_file`: an update without the picture shows the game's.
+        assert_eq!(
+            artwork_file(s(&game), s(&update), "pic1.png"),
+            game.join("sce_sys").join("pic1.png")
+        );
+        fs::write(update.join("sce_sys/pic1.png"), b"png").unwrap();
+        assert_eq!(
+            artwork_file(s(&game), s(&update), "pic1.png"),
+            update.join("sce_sys").join("pic1.png")
+        );
+        // No game folder: the update's place, even without the file.
+        assert_eq!(
+            artwork_file("", s(&update), "icon0.png"),
+            update.join("sce_sys").join("icon0.png")
+        );
     }
 
     #[test]
