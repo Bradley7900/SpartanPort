@@ -33,7 +33,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py` | 49 | 18 | 18 | 0 | 0 | 13 |
 | `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 |
 | `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 |
-| `tests/test_launcher_exit_hint.py` | 6 | 0 | 4 | 0 | 0 | 2 |
+| `tests/test_launcher_exit_hint.py` | 6 | 2 | 4 | 0 | 0 | 0 |
 | `tests/test_launcher_font.py` | 19 | 0 | 6 | 6 | 0 | 7 |
 | `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 | 0 |
 | `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 |
@@ -55,7 +55,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **320** | **113** | **83** | **20** | **1** | **103** |
+| **Total** | **320** | **115** | **83** | **20** | **1** | **101** |
 
 ## Map
 
@@ -163,8 +163,8 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_debug_exception_while_reading_files_points_to_the_dump` | `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` | replaced by `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_other_lines_have_no_hint` | `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` | replaced by `src/core/log.rs::tests::hints_and_statuses_match_the_python_strings` |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_the_hint_follows_the_exit_line` | `tests/ui_play.rs::play_runs_the_fake_game_and_shows_its_lines_then_the_exit` | replaced by `tests/ui_play.rs::play_runs_the_fake_game_and_shows_its_lines_then_the_exit` |
-| `tests/test_launcher_exit_hint.py::HybridGpuTest::test_windows_hides_the_amd_switchable_layer` | — | dropped: no Rust counterpart — on Windows the launcher sets VK_LOADER_LAYERS_DISABLE=VK_LAYER_AMD_switchable_graphics (the Rust launcher does not set it) |
-| `tests/test_launcher_exit_hint.py::HybridGpuTest::test_a_value_set_by_the_player_is_kept` | — | dropped: no Rust counterpart — a VK_LOADER_LAYERS_DISABLE the player set is kept |
+| `tests/test_launcher_exit_hint.py::HybridGpuTest::test_windows_hides_the_amd_switchable_layer` | `src/core/env.rs::tests::windows_hides_the_amd_switchable_layer` | ported |
+| `tests/test_launcher_exit_hint.py::HybridGpuTest::test_a_value_set_by_the_player_is_kept` | `src/core/env.rs::tests::a_value_set_by_the_player_is_kept` | ported |
 | `tests/test_launcher_font.py::FontFileTest::test_font_file_is_a_launcher_asset_under_port_dir` | `src/ui/theme.rs::tests::fonts_are_embedded` | replaced by `src/ui/theme.rs::tests::fonts_are_embedded` |
 | `tests/test_launcher_font.py::FontFileTest::test_windows_package_ships_the_font` | `src/ui/theme.rs::tests::fonts_are_embedded` | replaced by `src/ui/theme.rs::tests::fonts_are_embedded` |
 | `tests/test_launcher_font.py::FontFileTest::test_packages_ship_the_font_license` | — | dropped: no Rust counterpart — the Cinzel OFL license text ships with the face (launcher-rust/assets/OFL-Cinzel.txt exists; no test checks it or its packaging) |
@@ -388,9 +388,13 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 2. `--run`, `--script`, `--install-update`, `--play` are forwarded to the Python launcher (transition) until sub-project 4 ports them.
 3. The Steam Deck `render_resolution` default is not ported.
 4. On Save the Python resets a stored choice that is absent from its option list to the first option and converts value types; the Rust keeps stored values except the monitor.
-5. The drawer's rows keep LTR order in Arabic (bar and drawer side are mirrored); the bar's tab order is kept LTR inside the right-aligned group.
+5. In Arabic the bar, the drawer side, the drawer header and the setting rows (name, control and note, folder rows and section headings) are mirrored (R68). What stays left to right: the bar's tab order inside the right-aligned group, check boxes (the box before its label), and the pages' own layouts (the Trophies list, the Controls mapping table, the Mods list and presets, the Log and Files button rows).
 6. The fire shader draws its particles additively while the canvas fallback is source-over.
 7. `UpdateState::Failed` is unused — the update worker reports failures through the status line.
+8. Tab traversal (spec §4.6) is not implemented: iced 0.14 cannot focus buttons or pick lists; a focus ring is follow-up work (R67).
+9. No `build.rs`: the exe has no Explorer icon or manifest until packaging (M14).
+10. `--version` prints only when started from a terminal: the launcher is a windowed program on Windows and attaches to the parent console when there is one (R65).
+11. An unreadable `settings.json` or `spartanport.ini` gives one warning at start (spec §6, R69; the Python said nothing, and stopped on an ini that is not UTF-8); a corrupt `mods_presets.json` lists no preset and is not replaced by Save or Delete preset (the Python replaced it).
 
 ## Partly covered
 
@@ -450,7 +454,7 @@ the Python test:
 
 ## Gaps
 
-The 103 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 101 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_window_icon_is_the_ports_own_whatever_the_dump` — the window icon is the port's own spartanport icon, never the dump's icon0.png
@@ -471,8 +475,6 @@ The 103 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_controls.py::PadStyleTest::test_connected_gamepad_reads_the_probe` — the probe's "Gamepad: type=" line means a gamepad, "No gamepad" none, a timeout unknown (only a missing probe is asserted)
 - `tests/test_launcher_controls.py::PadStyleTest::test_nintendo_icons` — the Nintendo icons put B on the south button and ZL on the left trigger
 - `tests/test_launcher_desktop.py::DesktopIntegrationTest::test_without_the_environment_argument_the_real_one_is_read` — the start-up integration honours DESKTOPINTEGRATION from the real environment
-- `tests/test_launcher_exit_hint.py::HybridGpuTest::test_windows_hides_the_amd_switchable_layer` — on Windows the launcher sets VK_LOADER_LAYERS_DISABLE=VK_LAYER_AMD_switchable_graphics (the Rust launcher does not set it)
-- `tests/test_launcher_exit_hint.py::HybridGpuTest::test_a_value_set_by_the_player_is_kept` — a VK_LOADER_LAYERS_DISABLE the player set is kept
 - `tests/test_launcher_font.py::FontFileTest::test_packages_ship_the_font_license` — the Cinzel OFL license text ships with the face (launcher-rust/assets/OFL-Cinzel.txt exists; no test checks it or its packaging)
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_prefers_windows_cjk_font_for_body_and_headings` — Chinese uses an installed CJK face (Microsoft YaHei UI) for the body and the headings
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_can_use_noto_on_linux` — Chinese uses Noto Sans CJK SC on Linux for the body and serif text
