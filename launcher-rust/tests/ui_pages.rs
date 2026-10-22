@@ -1699,6 +1699,7 @@ mod update_flow {
     use iced_test::simulator::simulator;
     use spartanport_launcher::core::update::Release;
     use spartanport_launcher::ui::app::{self, Message};
+    use spartanport_launcher::ui::splash;
     use spartanport_launcher::ui::update::{
         install_decision, offer_decision, Decision, InstallPlan, UpdateMessage, UpdateState,
     };
@@ -1800,6 +1801,23 @@ mod update_flow {
                 "Version 999.0.0 is out, but it has no Linux build yet."
             );
         }
+    }
+
+    #[test]
+    fn the_start_up_offer_follows_the_url_or_windows_rule() {
+        let no_url = release("999.0.0", None);
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        splash::start_up_offer(&mut state, no_url.clone(), false);
+        assert!(matches!(state.update, UpdateState::None));
+        assert!(state.status.is_empty());
+        splash::start_up_offer(&mut state, no_url, true);
+        assert!(matches!(&state.update, UpdateState::Available(_)));
+        // A release with a package is offered on both systems.
+        let built = release("999.0.0", Some("https://example.test/a.AppImage"));
+        let mut other = super::common::state(dir.path());
+        splash::start_up_offer(&mut other, built, false);
+        assert!(matches!(&other.update, UpdateState::Available(_)));
     }
 
     #[test]

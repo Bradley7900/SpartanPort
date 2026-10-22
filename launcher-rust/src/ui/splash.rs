@@ -133,12 +133,18 @@ pub fn apply(state: &mut State, message: SplashMessage) {
             match check {
                 Check::Gpus(gpus) => state.gpus = gpus,
                 Check::GameFolder(ready) => state.game_ready = Some(ready),
-                Check::Update(Some(release)) if update::is_newer(&release) => {
-                    update::offer(state, release);
-                }
-                Check::Update(_) => {}
+                Check::Update(Some(release)) => start_up_offer(state, release, cfg!(windows)),
+                Check::Update(None) => {}
             }
         }
+    }
+}
+
+/// The start-up check's release: offered by the same rule as a manual check (newer, and a package
+/// for this system or Windows). `windows` is a parameter so tests can cover both systems.
+pub fn start_up_offer(state: &mut State, release: Release, windows: bool) {
+    if update::offer_decision(&release, false, windows) == update::Decision::Offer {
+        update::offer(state, release);
     }
 }
 
