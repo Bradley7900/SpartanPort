@@ -25,7 +25,7 @@ use crate::ui::home::{self, HomeFacts};
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::controls::{self, ControlsMessage, ControlsView};
 use crate::ui::pages::game::{self, BackupMessage, PatchesView};
-use crate::ui::pages::mods::{ModsMessage, ModsView};
+use crate::ui::pages::mods::{self, ModsMessage, ModsView};
 use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
@@ -291,8 +291,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 34
         Message::Update(UpdateMessage::Install) => {}
         Message::Trophies(message) => return trophies::update(state, message),
-        // Task 29
-        Message::Mods(message) => match message {},
+        Message::Mods(message) => return mods::update(state, message),
         Message::Controls(message) => return controls::update(state, message),
         Message::Noop => {}
     }
@@ -304,6 +303,10 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
     let in_ini = INI_DEFAULTS.iter().any(|(name, _)| *name == key) || INI_FLAGS.contains(&key);
     if !in_ini {
         state.settings.set(key, value);
+        // "Load mods" decides whether the sizes of the mods are offered.
+        if key == "mods_enabled" {
+            performance::refresh_mod_resolutions(state);
+        }
         return;
     }
     let text = match value {
@@ -377,6 +380,7 @@ fn show_page(state: &mut State, page: Page) -> Task<Message> {
     match page {
         Page::Trophies => trophies::refresh(state),
         Page::Controls => controls::opened(state),
+        Page::Mods => mods::refresh(state),
         _ => Task::none(),
     }
 }

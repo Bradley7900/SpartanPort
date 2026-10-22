@@ -1234,3 +1234,172 @@ fn reset_buttons_and_the_rage_rows() {
     assert_eq!(state.controls.pad["cross"], "a");
     assert_eq!(state.controls.pad["l2"], "");
 }
+
+// --- Mods page (Task 29) ---
+
+use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
+
+fn make_mod(state: &app::State, name: &str, file: &str) {
+    let folder = state.paths.mods_dir("").join(name).join("EXEC");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join(file), b"data").unwrap();
+}
+
+fn mods_state(dir: &std::path::Path) -> app::State {
+    let mut state = state(dir);
+    state.lang = "en".into();
+    state
+}
+
+fn mods_update(state: &mut app::State, message: ModsMessage) {
+    let _ = app::update(state, Message::Mods(message));
+}
+
+fn load_mods(state: &mut app::State) {
+    let view = mods::load(&state.paths, &state.settings);
+    mods_update(state, ModsMessage::Loaded(Box::new(view)));
+}
+
+#[test]
+fn mods_list_follows_the_folder_and_saved_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    for name in ["a", "b", "c"] {
+        make_mod(&state, name, &format!("{name}.bin"));
+    }
+    std::fs::write(
+        state.paths.mods_json(),
+        r#"{"order": ["b","a"], "disabled": ["a"]}"#,
+    )
+    .unwrap();
+    load_mods(&mut state);
+    assert_eq!(state.mods.order, ["b", "a", "c"]);
+    assert!(state.mods.enabled["b"]);
+    assert!(!state.mods.enabled["a"]);
+    assert!(state.mods.enabled["c"]);
+    open(&mut state, Page::Mods);
+    assert!(tall_has(&state, "2 of 3 active"));
+}
+
+#[test]
+fn moving_a_mod_changes_the_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    for name in ["a", "b", "c"] {
+        make_mod(&state, name, &format!("{name}.bin"));
+    }
+    load_mods(&mut state);
+    assert_eq!(state.mods.order, ["a", "b", "c"]);
+    mods_update(&mut state, ModsMessage::Move(0, 1));
+    assert_eq!(state.mods.order, ["b", "a", "c"]);
+    // Past either end nothing moves.
+    mods_update(&mut state, ModsMessage::Move(0, -1));
+    mods_update(&mut state, ModsMessage::Move(2, 1));
+    assert_eq!(state.mods.order, ["b", "a", "c"]);
+}
+
+#[test]
+fn conflict_summary_names_the_winner() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    make_mod(&state, "alpha", "same.bin");
+    make_mod(&state, "beta", "same.bin");
+    load_mods(&mut state);
+    let found = spartanport_launcher::core::mods::conflicts(
+        &state.paths.mods_dir(""),
+        &state.mods.order,
+        None,
+    );
+    mods_update(&mut state, ModsMessage::Conflicts(found));
+    open(&mut state, Page::Mods);
+    assert!(tall_has(
+        &state,
+        "⚠ 1 file is changed by two mods. beta wins."
+    ));
+    // The lower mod moves up: the other one wins.
+    mods_update(&mut state, ModsMessage::Move(1, -1));
+    assert_eq!(state.mods.order, ["beta", "alpha"]);
+    let found = spartanport_launcher::core::mods::conflicts(
+        &state.paths.mods_dir(""),
+        &state.mods.order,
+        None,
+    );
+    mods_update(&mut state, ModsMessage::Conflicts(found));
+    assert!(tall_has(
+        &state,
+        "⚠ 1 file is changed by two mods. alpha wins."
+    ));
+}
+
+#[test]
+fn preset_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    for name in ["a", "b"] {
+        make_mod(&state, name, &format!("{name}.bin"));
+    }
+    load_mods(&mut state);
+    // No name: an Info dialog and no file.
+    mods_update(&mut state, ModsMessage::SavePreset);
+    let modal = state.modal.take().unwrap();
+    assert_eq!(modal.text, "Type a name for the preset first.");
+    assert!(!state.paths.mod_presets().exists());
+
+    mods_update(&mut state, ModsMessage::Toggle("a".into()));
+    mods_update(&mut state, ModsMessage::Move(0, 1));
+    mods_update(&mut state, ModsMessage::PresetName("x".into()));
+    mods_update(&mut state, ModsMessage::SavePreset);
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(state.paths.mod_presets()).unwrap()).unwrap();
+    assert_eq!(
+        saved,
+        serde_json::json!({"x": {"order": ["b", "a"], "disabled": ["a"]}})
+    );
+    assert_eq!(state.mods.presets, ["x"]);
+
+    mods_update(&mut state, ModsMessage::Toggle("a".into()));
+    mods_update(&mut state, ModsMessage::Move(0, 1));
+    assert_eq!(state.mods.order, ["a", "b"]);
+    assert!(state.mods.enabled["a"]);
+    mods_update(&mut state, ModsMessage::LoadPreset);
+    assert_eq!(state.mods.order, ["b", "a"]);
+    assert!(!state.mods.enabled["a"]);
+
+    mods_update(&mut state, ModsMessage::DeletePreset);
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(state.paths.mod_presets()).unwrap()).unwrap();
+    assert_eq!(saved, serde_json::json!({}));
+    assert!(state.mods.presets.is_empty());
+    assert!(state.mods.preset_name.is_empty());
+}
+
+#[test]
+fn the_list_follows_the_mods() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    performance::refresh_mod_resolutions(&mut state);
+    let builtin = performance::resolution_options(&state).len();
+    // No mod yet.
+    load_mods(&mut state);
+    assert_eq!(performance::resolution_options(&state).len(), builtin);
+    // The Mods page lists the new folder.
+    let patches = state.paths.mods_dir("").join("Ultrawide").join("patches");
+    std::fs::create_dir_all(&patches).unwrap();
+    write_mod_patch(&patches, "3840x1080");
+    load_mods(&mut state);
+    let options = performance::resolution_options(&state);
+    assert_eq!(options.len(), builtin + 1);
+    let label = options.iter().find(|(v, _)| v == "3840x1080").unwrap();
+    assert_eq!(label.1, "3840 × 1080 · 32:9 (mod)");
+    // Unticked on the Mods page.
+    mods_update(&mut state, ModsMessage::Toggle("Ultrawide".into()));
+    assert_eq!(performance::resolution_options(&state).len(), builtin);
+    mods_update(&mut state, ModsMessage::Toggle("Ultrawide".into()));
+    assert_eq!(performance::resolution_options(&state).len(), builtin + 1);
+    // "Load mods" off.
+    let _ = app::update(
+        &mut state,
+        Message::Set("mods_enabled".into(), false.into()),
+    );
+    assert_eq!(performance::resolution_options(&state).len(), builtin);
+}

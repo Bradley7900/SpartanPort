@@ -17,7 +17,7 @@ use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta}
 use crate::core::save_backup::{list_backups, restore, KEEP};
 use crate::ui::app::{Message, State};
 use crate::ui::home;
-use crate::ui::pages::{performance, trophies};
+use crate::ui::pages::{mods, performance, trophies};
 use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
@@ -60,6 +60,8 @@ pub fn browse_prompt(key: &str) -> &'static str {
     match key {
         "update_dir" => "Choose the folder of the update (eboot.bin, sce_sys)",
         "user_dir" => "Choose the saves folder",
+        "mods_dir" => "Choose the mods folder",
+        "patches_dir" => "Choose the patches folder",
         _ => "Choose the folder with eboot.bin",
     }
 }
@@ -81,6 +83,7 @@ pub fn folder_chosen(state: &mut State, key: &str, path: &Path) -> Task<Message>
             // The saves folder holds trophies.dat.
             return trophies::refresh(state);
         }
+        "mods_dir" | "patches_dir" => return mods::refresh(state),
         _ => {}
     }
     Task::none()
@@ -94,7 +97,7 @@ pub fn game_changed(state: &mut State) -> Task<Message> {
     refresh_game_patches(state);
     refresh_backups(state);
     // Task 33: also call this when the game exits.
-    trophies::refresh(state)
+    Task::batch([trophies::refresh(state), mods::refresh(state)])
 }
 
 // --- Save backups ---

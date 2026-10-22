@@ -38,8 +38,18 @@ fn mod_sizes(state: &State) -> Vec<String> {
     let root = state.paths.mods_dir(&state.settings.get_str("mods_dir"));
     let game = state.settings.get_str("game_dir");
     let game = (!game.is_empty()).then(|| PathBuf::from(game));
-    let names =
-        selected(&root, Some(&state.paths.mods_json()), game.as_deref()).unwrap_or_default();
+    // The Mods page's order and switches, which Save (Task 32) has not written to mods.json yet.
+    let names = if state.mods.order.is_empty() {
+        selected(&root, Some(&state.paths.mods_json()), game.as_deref()).unwrap_or_default()
+    } else {
+        state
+            .mods
+            .order
+            .iter()
+            .filter(|name| state.mods.enabled.get(*name).copied().unwrap_or(false))
+            .cloned()
+            .collect()
+    };
     let files: Vec<PathBuf> = names
         .iter()
         .flat_map(|name| patch_files(&root.join(name)))
