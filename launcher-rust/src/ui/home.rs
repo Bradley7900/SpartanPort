@@ -26,7 +26,7 @@ use crate::ui::app::{
 };
 use crate::ui::lang_menu;
 use crate::ui::play::GameState;
-use crate::ui::splash;
+
 use crate::ui::theme::{
     button_flat, button_play, faded, faded_button, mirror_padding, mirror_x, palette, CINZEL_BLACK,
 };
@@ -465,7 +465,7 @@ pub fn background(state: &State) -> Element<'_, Message> {
         .content_fit(ContentFit::Cover)
         .crop(art_crop(shown.size, scene_size(state)))
         .opacity(ART_OPACITY);
-    let mut layers = stack![
+    stack![
         layer(Layer::Base),
         container(art).width(Fill).height(Fill).id(ART_ID)
     ]
@@ -476,12 +476,10 @@ pub fn background(state: &State) -> Element<'_, Message> {
     .clip(true)
     .push(layer(Layer::Veil))
     .push(layer(Layer::Fog))
-    .push(layer(Layer::Heat(elapsed)));
-    // While the splash is live it draws the fire itself, above its own dark background.
-    if splash::layers(state).home_draws_fire {
-        layers = layers.push(state.fire.view());
-    }
-    layers.into()
+    .push(layer(Layer::Heat(elapsed)))
+    // The only fire layer (R96): the splash's dark background covers it until the flight.
+    .push(state.fire.view())
+    .into()
 }
 
 // --- Texts ---

@@ -33,7 +33,7 @@ Cada sub-projeto tem spec, plano e implementação próprios. Nada é empacotado
 | Layout | Opção A2: arte em tela cheia, barra inferior com as abas à esquerda, PLAY à direita, gaveta deslizante pela esquerda. |
 | Páginas largas | W1: gaveta de 72 % para Performance, Trophies, Controls, Mods e Log (Performance desde R95); 46 % para as demais. |
 | Log | L2: página comum na gaveta larga, sem fundo preto. |
-| Splash | S2: monograma SP sobre brasas, só os textos das checagens (sem barra), monograma voa para o canto superior esquerdo e substitui o logotipo. |
+| Splash | S2: monograma SP sobre o fundo escuro, sem fogo (R96), só os textos das checagens (sem barra), monograma voa para o canto superior esquerdo e substitui o logotipo. |
 | Idioma | Seletor no canto superior direito, abre por hover (0,45 s) ou clique, agrupado por Américas, Europa, Ásia e Oriente Médio, sem ícone de globo. |
 | Home | Bloco à direita, de cima para baixo: logotipo SpartanPort (54 px), PLAY, requisitos em uma linha, linha de ajustes, dica. |
 | Fundo | Gradiente vermelho de base, arte a 70 % de opacidade, véu escuro, névoa vermelha inclinada 7 ° (mais baixa à esquerda, mais alta à direita), calor pulsando, brasas e chamas subindo. |
@@ -157,7 +157,7 @@ une o relógio do fogo, a leitura do pipe e os eventos de teclado.
 
 ### 4.2 Splash
 
-Fundo `#070606`, brasas, monograma SP (200 px) com brilho vermelho, texto da checagem corrente
+Fundo `#070606` sem fogo (R96), monograma SP (200 px) com brilho vermelho, texto da checagem corrente
 abaixo. Três `Task`s em paralelo: lista de GPUs, checagem da pasta do jogo, checagem de atualização
 (só com `check_updates` ligado). Os textos das três se revezam nessa ordem, cada um por pelo menos
 um terço do mínimo mesmo com as respostas já dadas, e nenhum sai antes da sua checagem responder
@@ -179,8 +179,9 @@ Fundo em cinco camadas, de baixo para cima:
 4. Névoa vermelha e preta do rodapé girada −7 ° (encosta no chão à esquerda, sobe à direita).
 5. Calor laranja pulsando em 2,8 s (blend aditivo), brasas e chamas: nascem numa linha que sobe até
    22 % da altura no lado direito, vivem até 70 % mais lá. Shader wgpu; versão em `canvas` quando o
-   renderer é tiny-skia. Intensidade 1,0 no splash, 0,8 na Home, 0,3 sem foco, 0 com a janela
-   escondida ou com a opção "Efeitos" desligada.
+   renderer é tiny-skia. Intensidade 0 no splash (R96: o fogo começa com a Home e aparece durante
+   o voo do monograma, à medida que o fundo escuro do splash some), 0,8 na Home, 0,3 sem foco, 0
+   com a janela escondida ou com a opção "Efeitos" desligada.
 
 Canto superior direito: pílula "Version X is available · Update" quando há atualização, e o
 seletor de idioma (nome do idioma atual e seta). Bloco inferior direito, alinhado à direita:

@@ -1,11 +1,12 @@
-//! Embers and flames behind the splash and the Home page (spec 4.3 item 5); the heat pulse under
-//! them is the Home's layer 5 (`home.rs`), the same for both fires.
+//! Embers and flames behind the Home page (spec 4.3 item 5); the heat pulse under them is the
+//! Home's layer 5 (`home.rs`), the same for both fires. The splash has none (R96): the fire comes
+//! in with the Home, as the splash's flight fades its dark background out.
 
 use iced::futures::executor::block_on;
 use iced::mouse;
 use iced::wgpu;
 use iced::widget::canvas::{self, Geometry, Path};
-use iced::widget::{canvas as canvas_widget, shader as shader_widget};
+use iced::widget::{canvas as canvas_widget, container, shader as shader_widget, Id};
 use iced::{Color, Element, Fill, Point, Rectangle, Renderer, Size, Theme, Vector};
 
 use crate::ui::app::Message;
@@ -51,13 +52,40 @@ impl Fire {
         }
     }
 
-    /// The fire filling its layer.
-    pub fn view(&self) -> Element<'_, Message> {
+    fn sim(&self) -> &FireSim {
         match self {
-            Fire::Canvas(fire) => canvas_widget(fire).width(Fill).height(Fill).into(),
-            Fire::Shader(fire) => shader_widget(fire).width(Fill).height(Fill).into(),
+            Fire::Canvas(fire) => &fire.sim,
+            Fire::Shader(fire) => fire.sim(),
         }
     }
+
+    /// The intensity `set_intensity` last gave.
+    pub fn intensity(&self) -> f32 {
+        self.sim().intensity
+    }
+
+    /// The embers and flames alive.
+    pub fn particle_count(&self) -> usize {
+        self.sim().particles.len()
+    }
+
+    /// The fire filling its layer, a container with `layer_id`.
+    pub fn view(&self) -> Element<'_, Message> {
+        let fire: Element<'_, Message> = match self {
+            Fire::Canvas(fire) => canvas_widget(fire).width(Fill).height(Fill).into(),
+            Fire::Shader(fire) => shader_widget(fire).width(Fill).height(Fill).into(),
+        };
+        container(fire)
+            .id(layer_id())
+            .width(Fill)
+            .height(Fill)
+            .into()
+    }
+}
+
+/// The id of the fire's layer.
+pub fn layer_id() -> Id {
+    Id::new("fire")
 }
 
 /// Whether the fire can be the wgpu shader. Asks the GPU, so call it once, at start-up.
@@ -106,13 +134,11 @@ fn adapter_found() -> bool {
     block_on(instance.request_adapter(&options)).is_ok()
 }
 
-/// How much fire there is: 1.0 on the splash, 0.8 on a focused Home, 0.3 unfocused, none when
-/// hidden or when effects are off.
+/// How much fire there is: none while the splash covers the window (`splash`; R96), 0.8 on a
+/// focused Home, 0.3 unfocused, none when hidden or when effects are off.
 pub fn intensity_for(splash: bool, focused: bool, visible: bool, effects: bool) -> f32 {
-    if !effects || !visible {
+    if !effects || !visible || splash {
         0.0
-    } else if splash {
-        1.0
     } else if focused {
         0.8
     } else {
@@ -369,7 +395,9 @@ mod tests {
 
     #[test]
     fn intensity_rules() {
-        assert_eq!(intensity_for(true, true, true, true), 1.0);
+        // R96: no fire while the splash covers the window.
+        assert_eq!(intensity_for(true, true, true, true), 0.0);
+        assert_eq!(intensity_for(true, false, true, true), 0.0);
         assert_eq!(intensity_for(false, true, true, true), 0.8);
         assert_eq!(intensity_for(false, false, true, true), 0.3);
         assert_eq!(intensity_for(true, true, false, true), 0.0);

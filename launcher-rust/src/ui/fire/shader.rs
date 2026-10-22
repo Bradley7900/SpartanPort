@@ -48,6 +48,10 @@ impl FireShader {
     pub fn tick(&mut self, dt: f32, size: Size) {
         self.sim.tick(dt, size);
     }
+
+    pub(super) fn sim(&self) -> &FireSim {
+        &self.sim
+    }
 }
 
 impl shader::Program<Message> for FireShader {

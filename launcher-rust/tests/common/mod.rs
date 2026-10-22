@@ -57,6 +57,46 @@ pub fn natural_size(label: &str, font: Option<Font>, size: f32) -> Size {
     simulator(alone).find(label).unwrap().bounds().size()
 }
 
+/// A headless tiny-skia renderer with the simulator's default font, for tests that build a
+/// `UserInterface` themselves (to keep its widget state from one view to the next, or to run an
+/// operation of their own).
+pub fn headless_renderer() -> iced::Renderer {
+    use iced::advanced::renderer::Headless;
+    iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+        Font::with_name("Fira Sans"),
+        iced::Pixels(16.0),
+        Some("tiny-skia"),
+    ))
+    .unwrap()
+}
+
+/// How many containers with `id` the 1280 × 800 window of `view` holds.
+pub fn count_ids(view: Element<'_, Message>, id: &iced::widget::Id) -> usize {
+    use iced::advanced::widget::Operation;
+    use iced_test::runtime::user_interface::{Cache, UserInterface};
+    struct Count<'a>(&'a iced::widget::Id, usize);
+    impl Operation for Count<'_> {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn container(&mut self, id: Option<&iced::widget::Id>, _bounds: iced::Rectangle) {
+            if id == Some(self.0) {
+                self.1 += 1;
+            }
+        }
+    }
+    let mut renderer = headless_renderer();
+    let mut ui = UserInterface::build(
+        view,
+        Size::new(1280.0, 800.0),
+        Cache::default(),
+        &mut renderer,
+    );
+    let mut count = Count(id, 0);
+    ui.operate(&renderer, &mut count);
+    count.1
+}
+
 /// The folder dialog answered `path` for the setting `key`.
 pub fn browsed(state: &mut State, key: &str, path: &Path) {
     let _ = app::update(

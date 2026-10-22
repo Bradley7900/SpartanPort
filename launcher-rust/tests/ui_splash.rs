@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The splash phase: skip, fly to the corner, done.
 
+mod common;
+
 use std::time::Duration;
 
 use iced::keyboard::key::Named;
@@ -8,7 +10,8 @@ use iced::keyboard::{Key, Location, Modifiers};
 use iced_test::simulator::simulator;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
-use spartanport_launcher::ui::splash::{Check, SplashMessage};
+use spartanport_launcher::ui::fire;
+use spartanport_launcher::ui::splash::{self, Check, SplashMessage};
 
 fn state_in(dir: &std::path::Path) -> State {
     let root = dir.display().to_string();
@@ -47,6 +50,52 @@ fn the_splash_shows_the_three_checks_in_turn() {
         Message::Tick(start + Duration::from_millis(800)),
     );
     assert!(state.splash.flying());
+}
+
+#[test]
+fn no_fire_burns_until_the_monogram_flies() {
+    // R96: the fire does not start with the splash; it comes in with the Home, as the flight fades
+    // the splash's dark background out.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let start = state.splash.started;
+    for check in [
+        Check::Gpus(Vec::new()),
+        Check::GameFolder(false),
+        Check::Update(None),
+    ] {
+        let _ = app::update(&mut state, Message::Splash(SplashMessage::CheckDone(check)));
+    }
+    for at in [33, 400, 799] {
+        let _ = app::update(&mut state, Message::Tick(start + Duration::from_millis(at)));
+        assert_eq!(state.fire.intensity(), 0.0, "{at} ms");
+        assert_eq!(state.fire.particle_count(), 0, "{at} ms");
+    }
+    // The flight starts at 0.8 s; from the next frame the Home's fire fills in.
+    let _ = app::update(
+        &mut state,
+        Message::Tick(start + Duration::from_millis(800)),
+    );
+    assert!(state.splash.flying());
+    let _ = app::update(
+        &mut state,
+        Message::Tick(start + Duration::from_millis(833)),
+    );
+    assert_eq!(state.fire.intensity(), 0.8);
+    assert!(state.fire.particle_count() > 0);
+}
+
+#[test]
+fn the_home_alone_draws_the_fire() {
+    // R96: the splash layer has no fire of its own; the Home background holds the only one, under
+    // the splash's dark background until the flight fades it out.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let id = fire::layer_id();
+    assert_eq!(common::count_ids(splash::view(&state, "en"), &id), 0);
+    assert_eq!(common::count_ids(app::view(&state), &id), 1);
+    state.splash.done = true;
+    assert_eq!(common::count_ids(app::view(&state), &id), 1);
 }
 
 #[test]

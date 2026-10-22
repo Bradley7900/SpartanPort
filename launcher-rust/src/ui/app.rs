@@ -509,8 +509,9 @@ fn tick(state: &mut State, at: Instant) {
         .as_secs_f32()
         .min(0.1);
     state.now = at;
+    // No fire while the splash covers the window; it fills in during the flight to the corner.
     state.fire.set_intensity(intensity_for(
-        !state.splash.done,
+        !state.splash.done && !state.splash.flying(),
         state.focused,
         state.visible,
         state.effects,
