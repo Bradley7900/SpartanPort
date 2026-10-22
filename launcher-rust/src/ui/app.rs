@@ -24,7 +24,7 @@ use crate::ui::fire::{intensity_for, Fire};
 use crate::ui::home::{self, HomeFacts};
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::controls::ControlsMessage;
-use crate::ui::pages::game::PatchesView;
+use crate::ui::pages::game::{self, BackupMessage, PatchesView};
 use crate::ui::pages::mods::{ModsMessage, ModsView};
 use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{TrophiesMessage, TrophiesView};
@@ -74,6 +74,10 @@ pub struct State {
     pub trophies: TrophiesView,
     pub mods: ModsView,
     pub patches: PatchesView,
+    /// The names of the save backups, newest first.
+    pub backups: Vec<String>,
+    /// The backup chosen in the Saves row.
+    pub backup_choice: String,
     pub update: UpdateState,
     pub lang_menu: LangMenu,
     /// The art of the Home background, `sce_sys/pic1.png` of the game folder.
@@ -139,6 +143,8 @@ impl State {
             trophies: Default::default(),
             mods: Default::default(),
             patches: Default::default(),
+            backups: Vec::new(),
+            backup_choice: String::new(),
             update: Default::default(),
             lang_menu: Default::default(),
             home_art: None,
@@ -155,6 +161,8 @@ impl State {
         home::load_home_art(&mut state);
         home::refresh_facts(&mut state);
         performance::refresh_mod_resolutions(&mut state);
+        game::refresh_game_patches(&mut state);
+        game::refresh_backups(&mut state);
         state
     }
 }
@@ -171,6 +179,9 @@ pub enum Message {
     Aspect(String),
     Browse(String),
     Browsed(String, Option<PathBuf>),
+    /// A game patch check box of the Game page.
+    PatchToggled(String, bool),
+    Backup(BackupMessage),
     /// The monitors the probe listed, in the background.
     MonitorsListed(Vec<Display>),
     /// Opens a folder in the desktop's file manager.
@@ -258,8 +269,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
-        // Task 26
-        Message::Browse(_) | Message::Browsed(_, _) => {}
+        Message::Browse(key) => return browse(state, key),
+        Message::Browsed(key, Some(path)) => game::folder_chosen(state, &key, &path),
+        Message::Browsed(_, None) => {}
+        Message::PatchToggled(name, on) => game::patch_toggled(state, &name, on),
+        Message::Backup(message) => return game::backup_update(state, message),
         Message::WindowFocused(focused) => state.focused = focused,
         Message::Splash(message) => splash::apply(state, message),
         Message::Lang(message) => lang_menu::update(state, message),
@@ -294,6 +308,21 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
     if key == "render_resolution" {
         performance::resolution_chosen(state);
     }
+}
+
+/// Opens the folder dialog for the setting `key`; the answer comes back as `Browsed`.
+fn browse(state: &State, key: String) -> Task<Message> {
+    let start = match state.settings.get_str(&key) {
+        current if current.is_empty() => state.paths.port_dir.clone(),
+        current => PathBuf::from(current),
+    };
+    let dialog = rfd::AsyncFileDialog::new()
+        .set_title(tr(&state.lang, game::browse_prompt(&key)))
+        .set_directory(start)
+        .pick_folder();
+    Task::perform(dialog, move |handle| {
+        Message::Browsed(key.clone(), handle.map(|h| h.path().to_path_buf()))
+    })
 }
 
 /// Lists the monitors in the background; the splash does not wait for it.

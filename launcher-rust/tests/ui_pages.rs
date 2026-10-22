@@ -342,3 +342,260 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     performance::refresh_mod_resolutions(&mut state);
     assert_eq!(performance::resolution_options(&state).len(), builtin);
 }
+
+// --- Game page (Task 26) ---
+
+use spartanport_launcher::core::i18n::tr;
+use spartanport_launcher::core::options::LANGUAGES;
+use spartanport_launcher::ui::home;
+use spartanport_launcher::ui::pages::game::{self, BackupMessage};
+use spartanport_launcher::ui::widgets::{ModalKind, ModalMessage};
+
+fn sfo(entries: &[(&str, &str)]) -> Vec<u8> {
+    let keys_off = 20 + 16 * entries.len();
+    let (mut keys, mut values, mut table) = (Vec::new(), Vec::new(), Vec::new());
+    for (key, value) in entries {
+        let mut raw = value.as_bytes().to_vec();
+        raw.push(0);
+        table.extend_from_slice(&(keys.len() as u16).to_le_bytes());
+        table.extend_from_slice(&0x204u16.to_le_bytes());
+        table.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        table.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        table.extend_from_slice(&(values.len() as u32).to_le_bytes());
+        keys.extend_from_slice(key.as_bytes());
+        keys.push(0);
+        values.extend_from_slice(&raw);
+    }
+    let values_off = keys_off + keys.len();
+    let mut out = b"\0PSF".to_vec();
+    out.extend_from_slice(&0x101u32.to_le_bytes());
+    out.extend_from_slice(&(keys_off as u32).to_le_bytes());
+    out.extend_from_slice(&(values_off as u32).to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    out.extend(table);
+    out.extend(keys);
+    out.extend(values);
+    out
+}
+
+/// A dump with `eboot.bin` and a tiny `param.sfo`, plus a test patch file under the port folder.
+fn dump_with_patches(port: &std::path::Path) -> std::path::PathBuf {
+    let dump = port.join("dump");
+    std::fs::create_dir_all(dump.join("sce_sys")).unwrap();
+    std::fs::write(dump.join("eboot.bin"), b"elf").unwrap();
+    std::fs::write(
+        dump.join("sce_sys").join("param.sfo"),
+        sfo(&[
+            ("TITLE_ID", "CUSA01623"),
+            ("TITLE", "God of War III"),
+            ("APP_VER", "01.02"),
+        ]),
+    )
+    .unwrap();
+    std::fs::create_dir_all(port.join("patches")).unwrap();
+    std::fs::write(
+        port.join("patches").join("CUSA01623.xml"),
+        "<Patch><TitleID><ID>CUSA01623</ID></TitleID>\
+         <Metadata Name=\"Fix Alpha\" Author=\"Ann\" Note=\"Fixes alpha.\" AppVer=\"01.02\" isEnabled=\"true\"><PatchList/></Metadata>\
+         <Metadata Name=\"Resolution Patch - 3440x1440\" AppVer=\"01.02\"><PatchList/></Metadata>\
+         <Metadata Name=\"Fix Other\" AppVer=\"01.01\" isEnabled=\"true\"><PatchList/></Metadata></Patch>",
+    )
+    .unwrap();
+    dump
+}
+
+fn browsed(state: &mut app::State, key: &str, path: &std::path::Path) {
+    let _ = app::update(
+        state,
+        Message::Browsed(key.into(), Some(path.to_path_buf())),
+    );
+}
+
+#[test]
+fn choosing_the_game_folder_refreshes_title_and_patches() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    assert_eq!(state.patches.title_id, None);
+    let dump = dump_with_patches(dir.path());
+    browsed(&mut state, "game_dir", &dump);
+    assert_eq!(
+        state.settings.get_str("game_dir"),
+        dump.display().to_string()
+    );
+    assert_eq!(state.patches.title_id.as_deref(), Some("CUSA01623"));
+    let names: Vec<&str> = state
+        .patches
+        .selectable
+        .iter()
+        .map(|m| m.name.as_str())
+        .collect();
+    assert_eq!(names, ["Fix Alpha"]);
+    assert!(state.patches.chosen.contains("Fix Alpha"));
+    assert_eq!(state.patches.version, "01.02");
+    assert_eq!(state.patches.xml_name, "CUSA01623.xml");
+    assert_eq!(home::chips(&state)[1], "✓ CUSA01623 · v01.02");
+    // Cancelling the dialog changes nothing.
+    let _ = app::update(&mut state, Message::Browsed("game_dir".into(), None));
+    assert_eq!(
+        state.settings.get_str("game_dir"),
+        dump.display().to_string()
+    );
+}
+
+/// Like `click`, in a window tall enough to show the whole page (the drawer scrolls).
+fn click_tall(state: &mut app::State, label: &str) {
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 4000.0),
+        app::view(state),
+    );
+    ui.click(label)
+        .unwrap_or_else(|error| panic!("click {label:?}: {error:?}"));
+    let sent: Vec<Message> = ui.into_messages().collect();
+    for message in sent {
+        let _ = app::update(state, message);
+    }
+}
+
+#[test]
+fn unchecking_a_patch_lands_in_game_patches() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    browsed(&mut state, "game_dir", &dump_with_patches(dir.path()));
+    open(&mut state, Page::Game);
+    click_tall(&mut state, "Fix Alpha  (Ann)");
+    assert!(!state.patches.chosen.contains("Fix Alpha"));
+    let saved = state.settings.get("game_patches").unwrap();
+    assert_eq!(saved["CUSA01623"], serde_json::json!([]));
+    click_tall(&mut state, "Fix Alpha  (Ann)");
+    let saved = state.settings.get("game_patches").unwrap();
+    assert_eq!(saved["CUSA01623"], serde_json::json!(["Fix Alpha"]));
+}
+
+#[test]
+fn restore_asks_first_and_is_blocked_while_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    let user = state.paths.user_dir("");
+    let backup = user.join("savedata_backups").join("20261009-180000");
+    std::fs::create_dir_all(&backup).unwrap();
+    std::fs::write(backup.join("data.bin"), b"old").unwrap();
+    std::fs::create_dir_all(user.join("savedata")).unwrap();
+    std::fs::write(user.join("savedata").join("data.bin"), b"new").unwrap();
+
+    // Nothing chosen: nothing happens.
+    let _ = app::update(&mut state, Message::Backup(BackupMessage::Restore));
+    assert!(state.modal.is_none());
+
+    let _ = app::update(&mut state, Message::Backup(BackupMessage::Refresh));
+    assert_eq!(state.backups, ["20261009-180000"]);
+    assert_eq!(state.backup_choice, "20261009-180000");
+    // Task 33 adds the running states; until then only an idle game exists.
+    assert!(!game::restore_blocked(&state));
+
+    let _ = app::update(&mut state, Message::Backup(BackupMessage::Restore));
+    let asked = state.modal.clone().unwrap();
+    assert!(matches!(
+        &asked.kind,
+        ModalKind::YesNo {
+            yes: Message::Backup(BackupMessage::RestoreConfirmed),
+            no: Message::Modal(ModalMessage::Dismiss)
+        }
+    ));
+    assert_eq!(
+        asked.text,
+        "Replace the current saves with the backup 20261009-180000? The current saves are backed up first."
+    );
+    // Nothing was restored yet.
+    assert_eq!(
+        std::fs::read(user.join("savedata/data.bin")).unwrap(),
+        b"new"
+    );
+
+    // Yes closes the dialog and starts the restore in the background.
+    let _ = app::update(&mut state, Message::Backup(BackupMessage::RestoreConfirmed));
+    assert!(state.modal.is_none());
+    // The background work runs on its own thread: wait for the saves to come back.
+    let saves = user.join("savedata/data.bin");
+    for _ in 0..200 {
+        if std::fs::read(&saves).is_ok_and(|bytes| bytes == b"old") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert_eq!(std::fs::read(&saves).unwrap(), b"old");
+    let _ = app::update(
+        &mut state,
+        Message::Backup(BackupMessage::Restored(Ok(Some("20261009-181000".into())))),
+    );
+    let done = state.modal.clone().unwrap();
+    assert!(matches!(done.kind, ModalKind::Info));
+    assert_eq!(
+        done.text,
+        "Saves restored from 20261009-180000. Previous saves: 20261009-181000."
+    );
+    let _ = app::update(
+        &mut state,
+        Message::Backup(BackupMessage::Restored(Err("disk full".into()))),
+    );
+    let failed = state.modal.clone().unwrap();
+    assert!(matches!(failed.kind, ModalKind::Error));
+    assert_eq!(failed.text, "Could not restore: disk full");
+    assert!(matches!(
+        game::restore_saves(&user, "nope"),
+        Err(text) if text.contains("nope")
+    ));
+}
+
+#[test]
+fn brazilian_portuguese_is_offered_with_its_system_id() {
+    let offered = LANGUAGES
+        .iter()
+        .find(|choice| choice.value == "17")
+        .unwrap();
+    assert_eq!(offered.en, "Portuguese (Brazil)");
+}
+
+#[test]
+fn choosing_brazilian_portuguese_starts_the_game_with_id_17() {
+    // The Language row stores the system id the game is started with (Task 33 passes it on).
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    let pick = select_message("language", LANGUAGES, "en", "Portuguese (Brazil)").unwrap();
+    let _ = app::update(&mut state, pick);
+    assert_eq!(state.settings.get_str("language"), "17");
+}
+
+#[test]
+fn brazilian_portuguese_label_is_translated_in_portuguese_and_spanish() {
+    assert_eq!(tr("pt", "Portuguese (Brazil)"), "Português (Brasil)");
+    assert_eq!(tr("es", "Portuguese (Brazil)"), "Portugués (Brasil)");
+    assert_eq!(tr("id", "Portuguese (Brazil)"), "Portugis (Brasil)");
+}
+
+#[test]
+fn the_note_names_the_game_menus() {
+    let note = game::LANGUAGE_NOTE;
+    assert!(note.contains("Options → Game Settings → Game Text"));
+    assert!(note.contains("Options → Audio → Speech"));
+    assert!(note.starts_with("Used on the game's first start."));
+}
+
+#[test]
+fn the_note_uses_the_game_menu_names_of_each_language() {
+    let names = [
+        ("pt", "Texto de jogo", "Falas"),
+        ("es", "Texto del juego", "Diálogos"),
+        ("pl", "Tekst gry", "Dialogi"),
+        ("fr", "Texte du jeu", "Voix"),
+        ("de", "Spieltext", "Sprachausgabe"),
+        ("it", "Testo di gioco", "Dialoghi"),
+    ];
+    for (language, text, speech) in names {
+        let translated = tr(language, game::LANGUAGE_NOTE);
+        assert!(translated.contains(text), "{language}: {translated}");
+        assert!(translated.contains(speech), "{language}: {translated}");
+    }
+}
