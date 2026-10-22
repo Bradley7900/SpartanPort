@@ -11,9 +11,10 @@ use iced::widget::{button, column, container, mouse_area, row, space, stack, tex
 use iced::{window, Background, Center, Color, Element, Fill, Size, Subscription, Task};
 use serde_json::Value;
 
-use crate::core::gpu::{Display, GpuRow};
+use crate::core::desktop::open_path;
+use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
 use crate::core::i18n::{is_rtl, system_language, tr};
-use crate::core::ini::{load_ini, Ini};
+use crate::core::ini::{load_ini, Ini, INI_DEFAULTS, INI_FLAGS};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::paths::Paths;
 use crate::core::settings::{load_app_settings, Settings};
@@ -29,6 +30,7 @@ use crate::ui::pages::Page;
 use crate::ui::persist::Persisted;
 use crate::ui::play::{GameMessage, GameState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
+use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, CINZEL_BOLD};
 use crate::ui::update::{UpdateMessage, UpdateState};
 use crate::ui::widgets;
@@ -152,6 +154,10 @@ pub enum Message {
     Set(String, Value),
     Browse(String),
     Browsed(String, Option<PathBuf>),
+    /// The monitors the probe listed, in the background.
+    MonitorsListed(Vec<Display>),
+    /// Opens a folder in the desktop's file manager.
+    OpenPath(PathBuf),
     Play,
     Stop,
     Save,
@@ -214,8 +220,24 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Play | Message::Stop => {}
         // Task 32
         Message::Save => {}
-        // Task 32 (save flow) handles Set
-        Message::Set(_, _) => {}
+        // Task 32 persists what `Set` stored.
+        Message::Set(key, value) => apply_set(state, &key, value),
+        Message::MonitorsListed(displays) => {
+            let saved = state.settings.get_str("monitor");
+            state.monitor_pairs = monitor_options(&displays);
+            state.settings.set(
+                "monitor",
+                Value::String(monitor_selection(&displays, &saved)),
+            );
+            state.displays = displays;
+        }
+        // The result is ignored, as the Python launcher ignores a failed open.
+        Message::OpenPath(path) => {
+            return blocking(move || {
+                let _ = open_path(&path);
+            })
+            .map(|()| Message::Noop);
+        }
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         // Task 26
@@ -236,6 +258,28 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Noop => {}
     }
     Task::none()
+}
+
+/// Stores a setting: the ini keys go to the ini values as text, every other key to the app settings.
+pub fn apply_set(state: &mut State, key: &str, value: Value) {
+    let in_ini = INI_DEFAULTS.iter().any(|(name, _)| *name == key) || INI_FLAGS.contains(&key);
+    if !in_ini {
+        state.settings.set(key, value);
+        return;
+    }
+    let text = match value {
+        Value::Bool(on) => if on { "1" } else { "0" }.to_string(),
+        Value::String(text) => text,
+        other => other.to_string(),
+    };
+    state.ini.values.insert(key.to_string(), text);
+}
+
+/// Lists the monitors in the background; the splash does not wait for it.
+pub fn start_monitor_listing(state: &State) -> Task<Message> {
+    let paths = state.paths.clone();
+    let backend = state.settings.get_str("video_backend");
+    blocking(move || list_displays(&paths, &backend)).map(Message::MonitorsListed)
 }
 
 /// Advances the clock, the fire and the splash.
@@ -408,7 +452,8 @@ pub fn run(paths: Paths) -> iced::Result {
     let boot = move || {
         let state = State::new(paths.clone());
         let checks = splash::start_checks(&state);
-        (state, checks)
+        let monitors = start_monitor_listing(&state);
+        (state, Task::batch([checks, monitors]))
     };
     let app = iced::application(boot, update, view)
         .title("SpartanPort (PC)")

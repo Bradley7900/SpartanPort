@@ -1,5 +1,7 @@
 //! A folder setting: the current path, `Browse…` and `Open`.
 
+use std::path::PathBuf;
+
 use iced::widget::{button, row as layout, text};
 use iced::{Center, Element, Fill};
 
@@ -23,10 +25,12 @@ pub fn folder<'a>(
     let browse = button(text(tr(lang, "Browse…")))
         .style(theme::button_flat)
         .on_press(Message::Browse(key.to_string()));
-    // Task 24 wires open_path
-    let open = button(text(tr(lang, "Open")))
-        .style(theme::button_flat)
-        .on_press(Message::Noop);
+    let open = button(text(tr(lang, "Open"))).style(theme::button_flat);
+    let open = if value.is_empty() {
+        open
+    } else {
+        open.on_press(Message::OpenPath(PathBuf::from(value)))
+    };
     let control = layout![shown.width(Fill), browse, open]
         .spacing(6)
         .align_y(Center);
