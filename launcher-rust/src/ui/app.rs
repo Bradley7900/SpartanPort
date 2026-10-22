@@ -587,7 +587,8 @@ pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
     }
 }
 
-/// Whether the Home block (PLAY, chips, language) responds: not behind a wide drawer.
+/// Whether the Home block (PLAY, chips, version and language buttons) responds: not behind a
+/// wide drawer.
 pub fn home_interactive_enabled(state: &State) -> bool {
     !matches!(state.drawer, DrawerState::Open(page) if page.wide())
 }

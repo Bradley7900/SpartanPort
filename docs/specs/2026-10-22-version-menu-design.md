@@ -256,7 +256,7 @@ Smoke tests dos dois sistemas conferindo `release.json` quando há tag (rodam no
 ## 10. Desvios
 
 O que o código faz de diferente do texto acima. As seções anteriores seguem como o design
-aprovado; esta é o registro.
+aprovado; este é o registro.
 
 ### 10.1 Previstos no plano
 
@@ -269,8 +269,8 @@ aprovado; esta é o registro.
 - `ReleaseId::label(lang)` e `ReleaseId::short()` substituem uma implementação de `Display`, porque
   o rótulo depende do idioma.
 - `core/release.rs` (identidade da tag, leitura da lista, `stables`/`prereleases`/`newer_stable`,
-  `version_tuple`) foi separado de `core/update.rs`, que mantém a chamada HTTP, o leitor do stamp e
-  o código de instalação.
+  `version_tuple`) foi separado de `core/update.rs`, que mantém a chamada HTTP, o leitor do
+  carimbo e o código de instalação.
 
 ### 10.2 Encontrados na implementação
 
@@ -310,3 +310,31 @@ aprovado; esta é o registro.
   job, porque o `gh` não está no PATH do msys2. Os dois workflows imprimem um `::warning::` quando
   `gh release view` falha, antes de carimbar a build como pre-release (a §5 previa um fallback
   silencioso). Commit 2e77113.
+- O asset do carimbo na release é um por sistema: `release-windows.json` e `release-linux.json`
+  (`release::stamp_asset`), e `parse_releases` exige o deste sistema. O arquivo dentro do pacote
+  continua `release.json` (`release::STAMP_FILE`, em `port_dir` ou `$APPDIR`). A §3.2 e a §5 diziam
+  `release.json` para os dois: uma release costuma levar os dois pacotes, então o primeiro sistema
+  a publicar marcaria a release como da era Rust também para o outro, e os dois jobs disputariam o
+  mesmo asset. Commit b4b214f.
+- Os dois workflows ganharam o input `stamp` (booleano, desligado por padrão): o step `Stamp`, o
+  `SPARTAN_RELEASE_TAG` do smoke test e o upload do carimbo só acontecem com ele ligado. Ele só
+  deve ser ligado quando o pacote levar o launcher em Rust (sub-projeto 4): uma release carimbada
+  antes disso listaria no menu um pacote com o launcher em Python. Commit b7f37f3.
+- No step `Stamp`, uma falha do `gh release view` que não seja "not found" falha o step com um
+  `::error::`; só a release inexistente conta como pre-release. Substitui o `::warning::` do
+  commit 2e77113, que carimbava como pre-release uma estável cuja consulta falhou. Commit b7f37f3.
+- A release instalada é reconhecida por versão e build (`ReleaseId::same_build`), sem olhar o
+  canal: o canal do carimbo fica congelado no build do pacote, e o da lista segue o `prerelease`
+  atual da API. Uma release promovida ou rebaixada, ou uma estável carimbada como pre-release,
+  continua com `✓` e não se reinstala. Vale para o `✓`, para `Pick` e para `Install`.
+  Commit 6f7b745.
+- Durante um download o menu fica fechado e inerte (a §4.2 passa a ser cumprida):
+  `version_menu::update` ignora `Enter`, `Leave`, `Toggle`, `Tick` e `Pick` e fecha uma lista
+  aberta, e `button_view` devolve o botão sem o `mouse_area`. Commit 43f96a1.
+- `Decision::NoLinuxBuild` saiu: no Linux a lista já descarta as releases sem AppImage, então uma
+  checagem manual cuja estável mais nova só tem pacote Windows diz "You have the latest version".
+  Commit 59cc916.
+- `UpdateState::Downloading { releases, release, percent }` substitui o `Downloading(Release, u8)`
+  da §4.1, para a lista continuar no menu durante o download. As mensagens
+  `UpdateMessage::OpenPage(String)` e `UpdateMessage::Confirmed(Release)` levam a página e a release
+  escolhidas, porque o diálogo responde a qualquer linha do menu. Commit 59cc916.

@@ -728,7 +728,7 @@ fn top_right(state: &State) -> Element<'_, Message> {
         .into()
 }
 
-/// The interactive Home layer: corner monogram and language button, and the block
+/// The interactive Home layer: corner monogram, version and language buttons, and the block
 /// with the logotype, PLAY, chips, settings line and hint. Each part is sized to its content, so
 /// the empty space between them lets clicks through to the layers below.
 pub fn block(state: &State) -> Element<'_, Message> {

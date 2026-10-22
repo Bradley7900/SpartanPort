@@ -312,7 +312,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_save.py::SaveButtonTest::test_a_changed_setting_enables_saving_until_it_is_reverted` | `tests/ui_save.rs::a_changed_setting_enables_saving_until_it_is_reverted` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_saving_writes_the_files_and_disables_the_button` | `tests/ui_save.rs::saving_writes_the_files_and_disables_the_button` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_saving_a_new_launcher_language_rebuilds_the_window_in_it` | `tests/ui_save.rs::saving_a_new_launcher_language_rebuilds_the_window_in_it` | ported |
-| `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` | — | dropped: no Rust counterpart — a language rebuild keeps the status line of a running game (the Rust test keeps the log and the update offer of an idle game) |
+| `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` | — | dropped: no Rust counterpart — a language rebuild keeps the status line of a running game (the Rust test keeps the log and the version menu's release list of an idle game) |
 | `tests/test_launcher_save.py::SaveButtonTest::test_saving_without_language_or_scale_change_does_not_rebuild` | `tests/ui_save.rs::saving_without_language_or_scale_change_does_not_rebuild` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_repeated_language_switching_preserves_page_and_cleans_traces` | `tests/ui_save.rs::repeated_language_switching_preserves_the_page` | ported |
 | `tests/test_launcher_save.py::SaveButtonTest::test_save_button_event_generates_clean_language_rebuild` | `tests/ui_save.rs::repeated_language_switching_preserves_the_page` | replaced by `tests/ui_save.rs::repeated_language_switching_preserves_the_page` |
@@ -543,7 +543,7 @@ The 100 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_packaging_scripts_preserve_portable_files` — the Windows package and its smoke test keep settings.json and game_icon.ico (packaging is a later sub-project)
 - `tests/test_launcher_save.py::SaveButtonTest::test_failed_save_does_not_close_the_launcher` — a failed save on close keeps the launcher open (the Rust launcher does not save on close)
 - `tests/test_launcher_save.py::SaveButtonTest::test_failed_save_does_not_start_the_game` — a failed save stops PLAY before the game starts
-- `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` — a language rebuild keeps the status line of a running game (the Rust test keeps the log and the update offer of an idle game)
+- `tests/test_launcher_save.py::SaveButtonTest::test_rebuilding_keeps_the_status_of_a_running_game` — a language rebuild keeps the status line of a running game (the Rust test keeps the log and the version menu's release list of an idle game)
 - `tests/test_launcher_scaling.py::ScaleSelectionTest::test_ui_scale_does_not_change_the_game_environment` — the GUI scale does not change the game environment
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_save_scales_the_whole_interface_and_preserves_game_settings` — Save with GUI Scale 2 doubles the interface, keeps the page, the ini and the game environment, and back to 1 restores the sizes
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_failed_save_keeps_the_current_scale` — a failed save keeps the current GUI scale

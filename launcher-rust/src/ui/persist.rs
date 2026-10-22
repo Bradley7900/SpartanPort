@@ -368,8 +368,8 @@ pub fn save(state: &mut State) -> Task<Message> {
 /// The window in another language or zoom (Python `rebuild`). The views are functions of the
 /// state, so rebuilding is only this update: the language, its direction and the zoom change, and
 /// what the views show from the disk (the Home facts, the mod and patch lists, the game patches) is
-/// read again. Every setting, the page, the drawer, the log, the game, a pending update offer and
-/// an open dialog stay as they were.
+/// read again. Every setting, the page, the drawer, the log, the game, the update state (the
+/// release list, a check or a download under way) and an open dialog stay as they were.
 pub fn rebuild(state: &mut State, language: String, scale: f32) -> Task<Message> {
     state.rtl = is_rtl(&language);
     state.lang = language;

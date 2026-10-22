@@ -24,7 +24,8 @@ pub const MENU_ID: &str = "version-menu";
 /// Pre-release rows shown before the list scrolls.
 pub const VISIBLE_PRERELEASES: usize = 8;
 
-/// One row: 12.5 pt text + `[5, 12]` padding + 2 spacing.
+/// A ceiling on one row: 12.5 pt text + `[5, 12]` padding + 2 spacing measures about 28.25 pt,
+/// so the cap of `VISIBLE_PRERELEASES` rows binds from the ninth row and leaves a peek of it.
 pub const ROW_HEIGHT: f32 = 29.0;
 
 /// Button events.
