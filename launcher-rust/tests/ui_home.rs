@@ -839,8 +839,8 @@ fn the_prerelease_list_scrolls_after_eight_rows() {
     // the card stops growing once the ninth arrives.
     let capped = menu_height(20);
     assert_eq!(capped, menu_height(9));
-    assert!(menu_height(8) <= capped);
-    assert!(menu_height(3) < menu_height(8));
+    assert!(menu_height(8) < capped);
+    assert!(menu_height(7) < menu_height(8));
 }
 
 #[test]
