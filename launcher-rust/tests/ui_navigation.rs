@@ -332,6 +332,27 @@ fn every_drawer_has_its_subtitle() {
 }
 
 #[test]
+fn a_long_subtitle_leaves_the_save_button_its_width() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    for lang in ["en", "pt", "ar"] {
+        state.lang = lang.into();
+        state.rtl = lang == "ar";
+        let label = tr(lang, "Save");
+        let alone = natural_size(&label, Some(CINZEL_BOLD), 14.0).width;
+        for page in Page::ALL.into_iter().filter(|page| *page != Page::Home) {
+            let _ = app::update(&mut state, Message::ShowPage(page));
+            let mut ui = settled_ui(&mut state);
+            let shown = ui.find(label.as_str()).unwrap().bounds().width;
+            assert!(
+                shown >= alone - 0.5,
+                "{page:?} {lang}: Save is {shown} wide, needs {alone}"
+            );
+        }
+    }
+}
+
+#[test]
 fn rtl_mirrors_the_drawer_rows_and_header() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("settings.json"), r#"{"ui_language": "ar"}"#).unwrap();

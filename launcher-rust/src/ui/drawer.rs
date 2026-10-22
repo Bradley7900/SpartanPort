@@ -1,7 +1,7 @@
 //! The drawer: the panel that slides in from the left (from the right in a right-to-left
 //! language) with the open page.
 
-use iced::widget::{button, column, container, opaque, pin, row, scrollable, space, text, Id};
+use iced::widget::{button, column, container, opaque, pin, row, scrollable, text, Id};
 use iced::{Center, Element, Fill, Right};
 
 use crate::core::i18n::tr;
@@ -58,17 +58,16 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
             .size(12)
             .style(text_muted),
     ]
-    .spacing(4);
+    .spacing(4)
+    // The title takes what Save leaves, so a long subtitle wraps instead of squeezing Save.
+    .width(Fill);
     // Right to left the header is mirrored: Save at the left, the title against the right edge.
     let header = if state.rtl {
-        row![
-            save_button(state),
-            space::horizontal(),
-            title.align_x(Right)
-        ]
+        row![save_button(state), title.align_x(Right)]
     } else {
-        row![title, space::horizontal(), save_button(state)]
+        row![title, save_button(state)]
     }
+    .spacing(18)
     .align_y(Center);
     // The scrollbar takes its own lane beside the page instead of covering its right edge.
     let body = scrollable(pages::view(state, page))
