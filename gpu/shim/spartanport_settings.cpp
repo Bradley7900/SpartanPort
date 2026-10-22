@@ -413,6 +413,52 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
     auto& v = SpartanSettings::Get();
     const unsigned group = function & ~0xfu, index = function & 0xfu;
     const auto text = [](const char* value) { return reinterpret_cast<uint64_t>(value); };
+    if (function >= 0xf70 && function <= 0xfb0) {
+        const char* language = std::getenv("SPARTAN_LANGUAGE");
+        const bool portuguese = language && (std::strcmp(language, "7") == 0 || std::strcmp(language, "17") == 0
+            || std::strcmp(language, "pt") == 0 || std::strcmp(language, "pt-BR") == 0
+            || std::strcmp(language, "pt-br") == 0 || std::strcmp(language, "br") == 0);
+        const auto label = [&](const char* en, const char* pt) { return text(portuguese ? pt : en); };
+        const bool rcas_available = v.image_width > 0 && v.image_height > 0 && v.window_width > 0 && v.window_height > 0
+            && SpartanGraphics::FsrPassRuns(v.fsr1, true, v.image_width, v.image_height, v.window_width, v.window_height);
+        if (function == 0xfb0) {
+            v.frames_queued = 1;
+            v.async_shaders = true;
+            v.rcas = true;
+            v.rcas_strength = 75;
+            SpartanSettings::Save();
+            return 0;
+        }
+        if (index >= 4 || group > 0xfa0) return 0;
+        if (group == 0xfa0) return index == 3 ? std::clamp(v.rcas_strength.load(), 0, 100) : 0;
+        if (index == 3 && (!v.rcas || !rcas_available))
+            return text("-");
+        if (group == 0xf80 || group == 0xf90) {
+            if (index == 0) {
+                const auto& values = SpartanGraphics::FramesQueued;
+                const int current = SpartanGraphics::IndexOf(values, v.frames_queued.load(), 0);
+                v.frames_queued = values[(current + (group == 0xf90 ? 1 : 2)) % values.size()];
+            } else if (index == 1) {
+                v.async_shaders = !v.async_shaders.load();
+            } else if (index == 2) {
+                v.rcas = !v.rcas.load();
+            } else {
+                v.rcas_strength = std::clamp(v.rcas_strength.load() + (group == 0xf90 ? 5 : -5), 0, 100);
+            }
+            SpartanSettings::Save();
+        }
+        if (index == 0) {
+            if (v.frames_queued == 0) return label("Unlimited", "Sem limite");
+            return text(v.frames_queued == 2 ? "2" : "1");
+        }
+        if (index == 1 || index == 2) {
+            const bool enabled = index == 1 ? v.async_shaders.load() : v.rcas.load();
+            return enabled ? label("On", "Ligada") : label("Off", "Desligada");
+        }
+        static thread_local char strength[8];
+        std::snprintf(strength, sizeof(strength), "%d%%", v.rcas_strength.load());
+        return text(strength);
+    }
     if ((group == 0xf00 || group == 0xf10) && index == SPARTAN_CHEAT_COUNT) {
         if (!v.qte_supported.load()) return text("Unavailable");
         if (group == 0xf10) {

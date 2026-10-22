@@ -193,11 +193,14 @@ class GameScript(unittest.TestCase):
 
     def test_options_row(self):
         options, row = self.new.one('PauseOptions'), self.new.by_name['HLDisplay'][1]
-        self.assertEqual(len(self.new.records), len(self.old.records) + 21)
+        self.assertEqual(len(self.new.records), len(self.old.records) + 31)
         self.assertEqual(row['parent'], options['at'] - 4)
         cheats = self.new.one('HLNativeCheats')
-        self.assertEqual(options['size'], self.old.one('PauseOptions')['size'] + pause_menu.ROW_SIZE + cheats['size'])
-        self.assertEqual(row['at'] + row['size'], cheats['at'])
+        graphics = self.new.one('HLNativeGraphics')
+        self.assertEqual(options['size'], self.old.one('PauseOptions')['size'] + pause_menu.ROW_SIZE
+                         + cheats['size'] + graphics['size'])
+        self.assertEqual(row['at'] + row['size'], graphics['at'])
+        self.assertEqual(graphics['at'] + graphics['size'], cheats['at'])
         # The WAD entry, the script header and the padding agree with the new size.
         size = struct.unpack_from('<I', self.data, self.base - 0x40 + 4)[0]
         old_size = struct.unpack_from('<I', self.original, self.old_base - 0x40 + 4)[0]
@@ -225,8 +228,9 @@ class GameScript(unittest.TestCase):
         changed = {at: after[at] for at, b in before.items() if after[at] != moved(b)}
         wad_choose = moved(next(i for i, r in enumerate(self.old.records) if r['at'] == dead['at']))
         cheats = self.new.records.index(self.new.one('HLNativeCheats'))
+        graphics = self.new.records.index(self.new.one('HLNativeGraphics'))
         # Only the neighbors of the four added rows change destinations.
-        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, health, cheats, cheats]))
+        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, health, graphics, cheats]))
 
     def test_japanese_fallback(self):
         data = bytearray(self.original)

@@ -27,12 +27,109 @@ class NativeCheats(unittest.TestCase):
     def target(self, name, triggers):
         return next(int.from_bytes(arg, 'big') for _, op, arg in self.block(self.script.one(name), 3, triggers) if op == 0x47)
 
-    def test_cheats_is_between_game_settings_and_audio(self):
+    def test_graphics_and_cheats_follow_game_settings_before_audio(self):
         row = self.script.one('HLNativeCheats')
-        self.assertEqual(self.target('HLGSettings', pause_menu.DOWN), row['at'] - 4)
+        graphics = self.script.one('HLNativeGraphics')
+        self.assertEqual(self.target('HLGSettings', pause_menu.DOWN), graphics['at'] - 4)
+        self.assertEqual(self.target('HLNativeGraphics', pause_menu.UP), self.script.one('HLGSettings')['at'] - 4)
+        self.assertEqual(self.target('HLNativeGraphics', pause_menu.DOWN), row['at'] - 4)
         self.assertEqual(self.target('HLAudio', pause_menu.UP), row['at'] - 4)
-        self.assertEqual(self.target('HLNativeCheats', pause_menu.UP), self.script.one('HLGSettings')['at'] - 4)
+        self.assertEqual(self.target('HLNativeCheats', pause_menu.UP), graphics['at'] - 4)
         self.assertEqual(self.target('HLNativeCheats', pause_menu.DOWN), self.script.one('HLAudio')['at'] - 4)
+
+    def test_graphics_initializes_only_its_four_controls_and_returns_to_its_link(self):
+        page = self.script.one('NativeGraphics')
+        calls = [int.from_bytes(arg, 'big') for _, op, arg in self.block(page, 1) if op == 0x13]
+        for index in range(4):
+            self.assertIn(0xf70 + index, calls)
+            self.assertEqual(self.script.one(f'NativeGraphic{index}')['parent'], page['at'] - 4)
+        self.assertIn(0xfa3, calls)
+        self.assertNotIn(0xfc0, calls)
+        self.assertEqual(self.target('NativeGraphics', [0xeb]), self.script.one('HLNativeGraphics')['at'] - 4)
+        for name in ('NativeGraphic0', 'NativeGraphic3'):
+            index = int(name[-1])
+            for trigger, function in (([0xe6, 0xf2], 0xf80), ([0xe2, 0xee], 0xf90)):
+                self.assertIn(function + index, [int.from_bytes(arg, 'big') for _, op, arg in
+                                                self.block(self.script.one(name), 3, trigger) if op == 0x13])
+
+    def test_graphics_defaults_require_confirmation_and_cancel_preserves_the_selection(self):
+        self.assertEqual(self.target('NativeGraphicsReset', pause_menu.CONFIRM),
+                         self.script.one('NativeGraphicsConfirm')['at'] - 4)
+        reset = self.script.one('NativeGraphicsReset')['at'] - 4
+        for name in ('NativeGraphicsResetYes', 'NativeGraphicsResetNo'):
+            self.assertEqual(self.target(name, pause_menu.CONFIRM), reset)
+            calls = [int.from_bytes(arg, 'big') for _, op, arg in
+                     self.block(self.script.one(name), 3, pause_menu.CONFIRM) if op == 0x13]
+            self.assertEqual(0xfb0 in calls, name.endswith('Yes'))
+        self.assertEqual(self.target('NativeGraphicsConfirm', [0xeb]), reset)
+
+    def test_graphics_labels_follow_the_game_language(self):
+        self.assertTrue(b'Graphics Settings\0' in self.data)
+        data = bytearray((GAME / pause_menu.WAD).read_bytes())
+        pause_menu.patch(data, language=17)
+        for text in ('Configurações Gráficas', 'Restaurar padrões gráficos', 'Quadros enfileirados'):
+            self.assertTrue(text.encode('utf-8') + b'\0' in data, text)
+
+    def test_graphics_options_label_animation_and_confirmation_focus(self):
+        entry = self.block(self.script.one('PauseOptions'), 1)
+        assignments = {}
+        for previous, instruction in zip(entry, entry[1:]):
+            if previous[1] == 0x16 and instruction[1] == 0x09:
+                assignments[instruction[2][1]] = self.script.string(
+                    self.script.lit + int.from_bytes(previous[2], 'big'))
+        self.assertEqual(assignments[3], 'Graphics Settings')
+        self.assertEqual(assignments[4], 'Cheats')
+        for name, index in (('HLNativeGraphics', 2), ('HLNativeCheats', 3)):
+            for kind in (1, 2):
+                texts = [self.script.string(self.script.lit + int.from_bytes(arg, 'big'))
+                         for _, op, arg in self.block(self.script.one(name), kind) if op == 0x16]
+                self.assertIn(f'menuItem{index}Select', texts)
+        confirmation = self.block(self.script.one('NativeGraphicsConfirm'), 1)
+        self.assertEqual(next(int.from_bytes(arg, 'big') for _, op, arg in confirmation if op == 0x47),
+                         self.script.one('NativeGraphicsResetNo')['at'] - 4)
+
+    def test_graphics_rows_wrap_and_only_strength_uses_a_slider(self):
+        self.assertEqual(self.target('NativeGraphic0', pause_menu.UP),
+                         self.script.one('NativeGraphicsReset')['at'] - 4)
+        self.assertEqual(self.target('NativeGraphicsReset', pause_menu.DOWN),
+                         self.script.one('NativeGraphic0')['at'] - 4)
+        entry = self.block(self.script.one('NativeGraphics'), 1)
+        texts = [self.script.string(self.script.lit + int.from_bytes(arg, 'big'))
+                 for _, op, arg in entry if op == 0x16]
+        self.assertEqual(texts.count('sliderBar7'), 3)  # hide, position, show
+        self.assertIn('Restore Graphics Defaults', texts)
+        for name in ('NativeGraphic1', 'NativeGraphic2'):
+            trigger = next(t for k, v, t in self.script.blocks(self.script.one(name)) if k == 3 and 0xe9 in t)
+            self.assertEqual(trigger, [0xe6, 0xe2, 0xee, 0xf2, 0xe9])
+
+    def test_audio_clears_unused_rows_inherited_from_options(self):
+        entry = self.block(self.script.one('PauseAudio'), 1)
+        assignments = {}
+        for previous, instruction in zip(entry, entry[1:]):
+            if previous[1] == 0x16 and instruction[1] == 0x09:
+                assignments[instruction[2][1]] = self.script.string(
+                    self.script.lit + int.from_bytes(previous[2], 'big'))
+        for local in (6, 7, 8, 14, 15, 16):
+            self.assertEqual(assignments.get(local), '', f'Audio must clear local {local}')
+        for local, text in enumerate(('[msg_A[4180]]', '[msg_B[4180]]', '[msg_C[4180]]', '[msg_D[4180]]'), 1):
+            self.assertEqual(assignments[local], text)
+        original = (GAME / pause_menu.WAD).read_bytes()
+        base = next(o + 64 for o, size, name in entries(original) if name == 'SMI_R_UI')
+        script = Script(original, base)
+        ref = next(v for k, v, t in script.blocks(script.one('PauseAudio')) if k == 1)
+        body = script.block_bytes(ref)
+        before = decode(original, base + script.lit + ref, base + script.lit + ref + len(body))
+        # The cleanup must not change the audio controls or its language-dependent branches.
+        self.assertEqual([(op, arg) for _, op, arg in entry[18:] if op not in (0x47, 0x4a)],
+                         [(op, arg) for _, op, arg in before if op not in (0x47, 0x4a)])
+
+    def test_graphics_does_not_add_an_informational_row(self):
+        names = ['NativeGraphics', 'NativeGraphicsReset', *[f'NativeGraphic{i}' for i in range(4)]]
+        for name in names:
+            for kind, ref, triggers in self.script.blocks(self.script.one(name)):
+                calls = [int.from_bytes(arg, 'big') for _, op, arg in self.block(self.script.one(name), kind, triggers)
+                         if op == 0x13]
+                self.assertNotIn(0xfc0, calls, name)
 
     def test_every_cheat_has_native_selection_and_initial_value(self):
         page = self.script.one('NativeCheats')
@@ -101,7 +198,9 @@ class NativeCheats(unittest.TestCase):
     def test_custom_pages_preserve_the_native_footer(self):
         for name in ['HLNativeCheats', 'NativeCheats', 'NativeMultipliers', 'NativeMultipliersLink',
                      'NativeMultiplierReset', *[f'NativeCheat{i}' for i in range(8)],
-                     *[f'NativeMultiplier{i}' for i in range(6)]]:
+                     *[f'NativeMultiplier{i}' for i in range(6)], 'HLNativeGraphics', 'NativeGraphics',
+                     'NativeGraphicsReset', 'NativeGraphicsConfirm', 'NativeGraphicsResetYes',
+                     'NativeGraphicsResetNo', *[f'NativeGraphic{i}' for i in range(4)]]:
             for kind, ref, triggers in self.script.blocks(self.script.one(name)):
                 self.assertNotIn((0x09, b'\xe0\x1d'),
                                  [(op, arg) for _, op, arg in self.block(self.script.one(name), kind, triggers)], name)
@@ -132,7 +231,9 @@ class NativeCheats(unittest.TestCase):
     def test_every_state_reference_and_relative_call_stays_in_the_script(self):
         starts = {r['at'] - 4 for r in self.script.records}
         for name in ['HLNativeCheats', 'NativeCheats', 'NativeMultipliers', 'NativeMultiplierReset',
-                     *[f'NativeCheat{i}' for i in range(8)], *[f'NativeMultiplier{i}' for i in range(6)]]:
+                     *[f'NativeCheat{i}' for i in range(8)], *[f'NativeMultiplier{i}' for i in range(6)],
+                     'HLNativeGraphics', 'NativeGraphics', 'NativeGraphicsReset', 'NativeGraphicsConfirm',
+                     'NativeGraphicsResetYes', 'NativeGraphicsResetNo', *[f'NativeGraphic{i}' for i in range(4)]]:
             for kind, ref, triggers in self.script.blocks(self.script.one(name)):
                 for at, op, arg in self.block(self.script.one(name), kind, triggers):
                     if op == 0x47:
