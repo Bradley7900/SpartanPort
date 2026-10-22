@@ -20,7 +20,7 @@ ALLOWED_DROP_FILES = {
 GAP = 'dropped: no Rust counterpart — '
 # Behaviour the spec replaced on purpose, allowed in any file: `dropped: spec §<section> <reason>`.
 SPEC = 'dropped: spec §'
-SPEC_DROP = re.compile(r'^dropped: spec §\S+ .*\S')
+SPEC_DROP = re.compile(r'^dropped: spec §\d[\d.]* .*\S')
 
 RUST_ID = re.compile(r'`([^`]+\.rs(?:::\w+)+)`')
 STATUS = re.compile(r'^(ported|replaced by (?P<by>.+)|dropped: (?P<why>\S.*))$')

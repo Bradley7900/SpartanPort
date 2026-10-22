@@ -40,7 +40,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 0 | 3 |
 | `tests/test_launcher_mod_resolutions.py` | 3 | 2 | 1 | 0 | 0 | 0 |
-| `tests/test_launcher_monitor.py` | 73 | 17 | 11 | 0 | 7 | 38 |
+| `tests/test_launcher_monitor.py` | 73 | 17 | 16 | 0 | 1 | 39 |
 | `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 |
 | `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 |
 | `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 0 | 4 |
@@ -55,7 +55,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **320** | **113** | **78** | **20** | **7** | **102** |
+| **Total** | **320** | **113** | **83** | **20** | **1** | **103** |
 
 ## Map
 
@@ -264,15 +264,15 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` | — | dropped: no Rust counterpart — opening a folder starts the system opener without saving first (the Rust test only sees the screenshots button emit OpenPath) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_add_to_steam_collects_first` | — | dropped: no Rust counterpart — Add to Steam saves first and stops when the save fails (the Rust Advanced page does not save first) |
 | `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | ported |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` | `tests/ui_pages.rs::monitor_row_lists_the_probe_indices`, `src/core/gpu.rs::tests::the_default_is_first_and_the_rest_come_by_index` | replaced by `tests/ui_pages.rs::monitor_row_lists_the_probe_indices`, `src/core/gpu.rs::tests::the_default_is_first_and_the_rest_come_by_index` |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | replaced by `tests/ui_pages.rs::graphics_page_offers_the_choice` |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` | — | dropped: no Rust counterpart — the Graphics row shows a monitor picked elsewhere, as the entry of its index (Quick-settings part dropped by spec §4.3) |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` | `tests/ui_pages.rs::monitor_row_lists_the_probe_indices` | replaced by `tests/ui_pages.rs::monitor_row_lists_the_probe_indices` |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `tests/ui_pages.rs::graphics_page_offers_the_choice` | replaced by `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `tests/ui_pages.rs::graphics_page_offers_the_choice` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_a_new_window_system_drops_an_index_the_new_list_lost` | — | dropped: no Rust counterpart — both monitor rows drop an index the new window system's list lost |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_both_rows_follow_a_reordered_list_that_still_holds_the_index` | — | dropped: no Rust counterpart — both monitor rows follow an index that moved in the new list |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_of_quick_settings_reaches_the_game` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds` | `tests/ui_pages.rs::graphics_page_offers_the_choice`, `src/core/gpu.rs::tests::no_monitors_leaves_only_the_default` | replaced by `tests/ui_pages.rs::graphics_page_offers_the_choice`, `src/core/gpu.rs::tests::no_monitors_leaves_only_the_default` |
 | `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_auto_leaves_the_game_default_and_keeps_an_inherited_value` | `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | replaced by `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` |
 | `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_off_and_on_set_the_variable` | — | dropped: no Rust counterpart — no_msaa Off (1) and On (0) reach SPARTAN_NO_MSAA |
 | `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_choices_and_legacy_settings` | `tests/ui_pages.rs::no_msaa_auto_label_names_the_card_and_the_decision`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` | replaced by `tests/ui_pages.rs::no_msaa_auto_label_names_the_card_and_the_decision`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` |
@@ -426,6 +426,11 @@ the Python test:
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game`: the first monitor (0) and a number value are not asserted.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_an_invalid_choice_sends_nothing`: only -1 is asserted among the invalid values.
 - `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice`: the probe's window system, the Portuguese label and the refresh after a window system change are not asserted.
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice`: Quick-settings part dropped by spec §4.3; the Graphics row lists the probe's entries (its monitor_pairs, with the labels of the same two monitors); one enumeration under the saved window system is not asserted.
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries`: Quick-settings part dropped by spec §4.3; the Graphics list keeps the gap (indices 0 and 2, with their labels); picking the entry of index 2 is not asserted.
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings`: Quick-settings part dropped by spec §4.3; picking a Graphics entry stores its index (the pick is built from the row's pairs, as its on_select does, since iced_test cannot open a pick_list).
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening`: Quick-settings part dropped by spec §4.3; the monitor setting is saved and reopened (a placeholder value in the every-setting test) and a saved index the list holds is kept; the entry the row shows is not asserted.
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds`: Quick-settings part dropped by spec §4.3; an empty list leaves only the primary default as the choice.
 - `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_auto_leaves_the_game_default_and_keeps_an_inherited_value`: a SPARTAN_NO_MSAA set before the launcher reaching the game on Automatic is not asserted.
 - `tests/test_launcher_no_msaa.py::ChosenGpuTest::test_portuguese_texts`: only the title, the hint and the Automatic labels are checked in Portuguese.
 - `tests/test_launcher_polish_language.py::PolishLanguageTest::test_russian_and_english_fallbacks`: the Russian label of Polish itself is not asserted.
@@ -445,7 +450,7 @@ the Python test:
 
 ## Gaps
 
-The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 103 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_window_icon_is_the_ports_own_whatever_the_dump` — the window icon is the port's own spartanport icon, never the dump's icon0.png
@@ -515,6 +520,7 @@ The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_collects_before_opening_a_settings_file` — opening spartanport.ini saves first and opens nothing when the save fails (the Rust Advanced page opens it without saving)
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` — opening a folder starts the system opener without saving first (the Rust test only sees the screenshots button emit OpenPath)
 - `tests/test_launcher_monitor.py::CollectCallersTest::test_add_to_steam_collects_first` — Add to Steam saves first and stops when the save fails (the Rust Advanced page does not save first)
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` — the Graphics row shows a monitor picked elsewhere, as the entry of its index (Quick-settings part dropped by spec §4.3)
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_a_new_window_system_drops_an_index_the_new_list_lost` — both monitor rows drop an index the new window system's list lost
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_both_rows_follow_a_reordered_list_that_still_holds_the_index` — both monitor rows follow an index that moved in the new list
 - `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_off_and_on_set_the_variable` — no_msaa Off (1) and On (0) reach SPARTAN_NO_MSAA
