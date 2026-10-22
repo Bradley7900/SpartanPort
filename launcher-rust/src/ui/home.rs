@@ -563,7 +563,7 @@ fn logo() -> Handle {
 pub fn monogram() -> Handle {
     static MONOGRAM_IMAGE: OnceLock<Handle> = OnceLock::new();
     MONOGRAM_IMAGE
-        .get_or_init(|| Handle::from_bytes(&include_bytes!("../../assets/monogram.png")[..]))
+        .get_or_init(|| Handle::from_bytes(&include_bytes!("../../assets/spartanport.png")[..]))
         .clone()
 }
 

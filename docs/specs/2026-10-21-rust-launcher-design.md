@@ -57,7 +57,7 @@ launcher-rust/
 ├── build.rs                 # ícone e manifesto no Windows (winresource)
 ├── assets/                  # embutidos com include_bytes!
 │   ├── background.png
-│   ├── monogram.png
+│   ├── spartanport.png      # monograma SP (splash, canto da Home, ícone da janela)
 │   ├── spartanport-logo.png
 │   ├── spartanport.ico
 │   ├── Cinzel-Black.ttf, Cinzel-Bold.ttf, OFL-Cinzel.txt

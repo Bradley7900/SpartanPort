@@ -812,3 +812,20 @@ pub fn run(paths: Paths) -> iced::Result {
         .fold(app, |app, font| app.font(font))
         .run()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::widget::image::Handle;
+
+    #[test]
+    fn the_window_icon_is_the_monogram_artwork() {
+        let (pixels, size) = window_settings().icon.unwrap().into_raw();
+        let Handle::Bytes(_, bytes) = home::monogram() else {
+            panic!("the monogram is not embedded");
+        };
+        let monogram = ::image::load_from_memory(&bytes).unwrap().to_rgba8();
+        assert_eq!((size.width, size.height), monogram.dimensions());
+        assert!(pixels == monogram.into_raw(), "another picture");
+    }
+}
