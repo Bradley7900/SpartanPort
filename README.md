@@ -481,6 +481,7 @@ cargo test
 The page snapshots under `launcher-rust/snapshots/` are compared pixel by pixel on Windows only.
 `python -m unittest discover -s tests -p "test_launcher_parity_doc.py"` checks that every Python
 launcher test has its row in `docs/specs/2026-10-21-rust-launcher-parity.md`.
+`tools/runner_fixtures.py` generates `launcher-rust/fixtures/runner/`, the inputs and the files the Python runner's modules write over them, for the Rust runner's parity tests.
 
 ### Windows C++ tests (MSYS2 CLANG64)
 
