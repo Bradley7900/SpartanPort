@@ -1,5 +1,6 @@
 //! The environment the game is started with (`SPARTAN_*`) and the trophy texts it reads.
 
+use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
@@ -86,6 +87,22 @@ pub fn write_trophy_texts(folder: &Path, lang: &str) {
     if fs::create_dir_all(folder).is_ok() {
         let _ = fs::write(folder.join("trophy_texts.txt"), lines.join("\n") + "\n");
     }
+}
+
+/// An environment as text, in its order (lossily where it is not Unicode): what the game starts
+/// from is the launcher's whole environment, `environment_of(std::env::vars_os())`, as the
+/// Python passes `dict(os.environ)`.
+pub fn environment_of<K: AsRef<OsStr>, V: AsRef<OsStr>>(
+    vars: impl IntoIterator<Item = (K, V)>,
+) -> IndexMap<String, String> {
+    vars.into_iter()
+        .map(|(key, value)| {
+            (
+                key.as_ref().to_string_lossy().into_owned(),
+                value.as_ref().to_string_lossy().into_owned(),
+            )
+        })
+        .collect()
 }
 
 /// `base` (the launcher's own environment) plus everything the game reads from it.
@@ -306,6 +323,20 @@ mod tests {
         let mut env = variables(&[("VK_LOADER_LAYERS_DISABLE", "VK_LAYER_custom")]);
         start_up_environment(&mut env, true);
         assert_eq!(env["VK_LOADER_LAYERS_DISABLE"], "VK_LAYER_custom");
+    }
+
+    #[test]
+    fn the_game_starts_from_the_whole_environment() {
+        // Python `dict(os.environ)`: the variables a bundle sets for itself are passed too (a
+        // newer Mesa through LD_LIBRARY_PATH reaches the game).
+        let pairs = [
+            ("LD_LIBRARY_PATH", "/opt/mesa"),
+            ("PYTHONPATH", "/py"),
+            ("TCL_LIBRARY", "/tcl"),
+            ("PATH", "/bin"),
+        ];
+        let env = environment_of(pairs);
+        assert_eq!(env, variables(&pairs));
     }
 
     #[test]

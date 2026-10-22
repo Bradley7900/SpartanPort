@@ -609,6 +609,19 @@ fn a_running_game_blocks_restore_reset_and_cache_clear() {
 }
 
 #[test]
+fn the_game_gets_the_launchers_whole_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = state_in(dir.path());
+    let env = play::launch_environment(&state);
+    for (key, _) in std::env::vars_os() {
+        let key = key.to_string_lossy();
+        assert!(env.contains_key(key.as_ref()), "{key} is missing");
+    }
+    // Plus what the settings ask for.
+    assert!(env.contains_key("SPARTAN_GAME_DIR"));
+}
+
+#[test]
 fn a_confirmed_update_waits_for_the_game() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = ready(

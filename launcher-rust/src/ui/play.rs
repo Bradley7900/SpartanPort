@@ -11,9 +11,9 @@ use std::sync::mpsc::TryRecvError;
 use std::time::Duration;
 
 use iced::{window, Task};
+use indexmap::IndexMap;
 
-use crate::core::desktop::host_environment;
-use crate::core::env::game_environment;
+use crate::core::env::{environment_of, game_environment};
 use crate::core::game::{
     adopt_system_files, game_info, game_sfo, missing_game_files, same_folder, system_files_beside,
     FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
@@ -282,6 +282,18 @@ fn launch_error_text(error: &LaunchError) -> String {
     }
 }
 
+/// The game's environment: the launcher's whole environment (Python `dict(os.environ)`, so the
+/// variables of a bundle, `LD_LIBRARY_PATH` included, reach it) plus what the settings ask for.
+pub fn launch_environment(state: &State) -> IndexMap<String, String> {
+    game_environment(
+        &state.settings,
+        &state.paths,
+        &state.lang,
+        &environment_of(std::env::vars_os()),
+        cfg!(windows),
+    )
+}
+
 /// Starts the game with a fresh log and `last_run.log` (the saves backup is `run.py`'s).
 fn start(state: &mut State) -> Task<Message> {
     let lang = state.lang.clone();
@@ -291,13 +303,7 @@ fn start(state: &mut State) -> Task<Message> {
             .paths
             .run_log_path(&state.settings.get_str("user_dir")),
     );
-    let env = game_environment(
-        &state.settings,
-        &state.paths,
-        &lang,
-        &host_environment(),
-        cfg!(windows),
-    );
+    let env = launch_environment(state);
     let command = match &state.launch_command {
         Some(command) => Ok(command.clone()),
         None => run_py_command(&state.paths, &|key| env.get(key).cloned()),

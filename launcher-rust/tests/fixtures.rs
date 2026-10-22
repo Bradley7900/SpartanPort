@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use spartanport_launcher::core::controls::migrate_controls;
-use spartanport_launcher::core::env::game_environment;
+use spartanport_launcher::core::env::{environment_of, game_environment};
 use spartanport_launcher::core::ini::{load_ini, save_ini};
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::settings::{app_defaults, save_settings, Settings};
@@ -151,7 +151,14 @@ fn environment_for_case(case: &str) -> (IndexMap<String, String>, String) {
     for (key, value) in input["edits"]["app"].as_object().unwrap() {
         settings.set(key, value.clone());
     }
-    let base: IndexMap<String, String> = serde_json::from_value(input["env"].clone()).unwrap();
+    // The base production gives the game: the whole environment, here the Python's.
+    let base = environment_of(
+        input["env"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str().unwrap())),
+    );
     let lang = settings.get_str("ui_language");
     let lang = if lang.is_empty() {
         "en".to_string()
