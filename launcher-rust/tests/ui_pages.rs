@@ -101,6 +101,56 @@ fn every_row_control_ends_on_the_same_right_edge() {
 }
 
 #[test]
+fn a_drop_down_keeps_the_width_of_its_longest_option() {
+    // The user's screenshot: "RAM do sistema (com cache, padrão)" wrapped inside its drop-down,
+    // which got what a fixed-width name left of the row. The drop-down takes its own width and
+    // the name what is left; the note spans the row under both, from the name's edge.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "pt".into();
+    state.gpus = gpu_rows(&ARC_LAPTOP);
+    let tr = |english: &str| spartanport_launcher::core::i18n::tr("pt", english);
+    let restart = |english: &str| format!("{}  ·  {}", tr(english), tr("restart"));
+    let rows = performance::rows(&state, "pt");
+    let mut ui = settled(&mut state, Page::Performance, 1280.0, 800.0);
+    for (key, name, hint) in [
+        (
+            "stream_memory",
+            restart("Stream buffer memory"),
+            tr("System RAM can improve FPS on NVIDIA laptops. Choose GPU memory to restore the previous behavior. Applies on the next game launch."),
+        ),
+        // The longest option of the page.
+        (
+            "no_msaa",
+            restart("Game multisampling"),
+            tr(performance::NO_MSAA_HINT),
+        ),
+    ] {
+        let row = rows.iter().find(|row| row.key == key).unwrap();
+        let longest = row
+            .pairs
+            .iter()
+            .map(|(_, label)| common::natural_size(label, None, 16.0).width)
+            .fold(0.0, f32::max);
+        let control = control(&mut ui, &name);
+        // The label, the arrow (16 px) and the padding (10 px a side) on one line.
+        assert!(
+            control.width >= longest + 36.0 - 0.5,
+            "{key}: {} wide, its longest option needs {}",
+            control.width,
+            longest + 36.0
+        );
+        let label = ui.find(name.as_str()).unwrap().bounds();
+        let note = ui.find(hint.as_str()).unwrap().bounds();
+        assert!((note.x - label.x).abs() < 0.5, "{key}: {note:?}, {label:?}");
+        assert!(
+            (note.x + note.width - (control.x + control.width)).abs() < 0.5,
+            "{key}: the note {note:?} does not span the row to {control:?}"
+        );
+    }
+}
+
+#[test]
 fn monitor_row_lists_the_probe_indices() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
