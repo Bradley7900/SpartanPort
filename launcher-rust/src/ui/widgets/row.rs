@@ -2,18 +2,28 @@
 //! across the row (mockup `.row { grid-template-columns: 1fr auto }`); mirrored right to left
 //! (spec 4.5): the control at the left end, the name against the right edge.
 
-use iced::widget::{column, container, row as layout, text, Id};
+use iced::widget::text::Wrapping;
+use iced::widget::{column, container, row as layout, text, Id, Text};
 use iced::{Center, Element, Fill, Right};
 
 use crate::ui::app::Message;
 use crate::ui::theme;
+use crate::ui::widgets::leave_room;
 
 /// Space between the name and the control (mockup `.row` gap).
 pub const GAP: f32 = 14.0;
+/// The narrowest a row's name gets beside a wide control (R98).
+pub const NAME_MIN: f32 = 120.0;
 
 /// The id of the box that holds the control of the row named `label`.
 pub fn control_id(label: &str) -> Id {
     Id::from(format!("row-control: {label}"))
+}
+
+/// A row's name: a word longer than the name's room breaks inside it (iced does not clip text, and
+/// the default `Word` wrapping lets a long word run under the control).
+pub fn name<'a>(label: &str) -> Text<'a> {
+    text(label.to_string()).wrapping(Wrapping::WordOrGlyph)
 }
 
 /// A row named by the text `label`.
@@ -23,14 +33,15 @@ pub fn row<'a>(
     control: Element<'a, Message>,
     hint: Option<&str>,
 ) -> Element<'a, Message> {
-    line(rtl, text(label.to_string()).into(), label, control, hint)
+    line(rtl, name(label).into(), label, control, hint)
 }
 
 /// A row named by `name` (a check box's name, which toggles it too); `label` is its text, which
 /// names the control's box.
 ///
 /// The control keeps its own width and the name takes what is left, so a narrow drawer wraps the
-/// name, never the control.
+/// name, never the control; a control wider than the row less `NAME_MIN` is held to that, so the
+/// name keeps at least `NAME_MIN`.
 pub fn line<'a>(
     rtl: bool,
     name: Element<'a, Message>,
@@ -38,7 +49,8 @@ pub fn line<'a>(
     control: Element<'a, Message>,
     hint: Option<&str>,
 ) -> Element<'a, Message> {
-    let control = container(control).id(control_id(label));
+    // The row lays the control out first, against its width less the gap; the name gets the rest.
+    let control = leave_room(NAME_MIN, container(control).id(control_id(label)));
     let mut body = if rtl {
         // The text keeps its own alignment: an explicit one hides Arabic text in iced 0.14.
         let name = container(name).width(Fill).align_x(Right);

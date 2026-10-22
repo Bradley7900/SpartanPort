@@ -113,6 +113,8 @@ fn a_drop_down_keeps_the_width_of_its_longest_option() {
     let restart = |english: &str| format!("{}  ·  {}", tr(english), tr("restart"));
     let rows = performance::rows(&state, "pt");
     let mut ui = settled(&mut state, Page::Performance, 1280.0, 800.0);
+    // Mockup `.sel { font-size: 12.5px }` (R98).
+    let size = 12.5;
     for (key, name, hint) in [
         (
             "stream_memory",
@@ -130,15 +132,16 @@ fn a_drop_down_keeps_the_width_of_its_longest_option() {
         let longest = row
             .pairs
             .iter()
-            .map(|(_, label)| common::natural_size(label, None, 16.0).width)
+            .map(|(_, label)| common::natural_size(label, None, size).width)
             .fold(0.0, f32::max);
         let control = control(&mut ui, &name);
-        // The label, the arrow (16 px) and the padding (10 px a side) on one line.
+        // iced sizes a pick list to its longest label, the arrow (the text size), the padding's
+        // left side and then the padding (10 px a side) around it all, on one line.
+        let natural = longest + size + 30.0;
         assert!(
-            control.width >= longest + 36.0 - 0.5,
-            "{key}: {} wide, its longest option needs {}",
+            (control.width - natural).abs() < 0.5,
+            "{key}: {} wide, its longest option at {size} px needs {natural}",
             control.width,
-            longest + 36.0
         );
         let label = ui.find(name.as_str()).unwrap().bounds();
         let note = ui.find(hint.as_str()).unwrap().bounds();
@@ -148,6 +151,26 @@ fn a_drop_down_keeps_the_width_of_its_longest_option() {
             "{key}: the note {note:?} does not span the row to {control:?}"
         );
     }
+}
+
+#[test]
+fn the_multisampling_name_keeps_clear_of_its_drop_down() {
+    // N1 (R98): at 1280 × 800 the long "Automatic (NVIDIA GeForce RTX 4060 Laptop GPU: on)" option
+    // left the row's name a sliver, and the name's words ran over the drop-down.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "pt".into();
+    state.gpus = gpu_rows(&ARC_LAPTOP);
+    let tr = |english: &str| spartanport_launcher::core::i18n::tr("pt", english);
+    let name = format!("{}  ·  {}", tr("Game multisampling"), tr("restart"));
+    let mut ui = settled(&mut state, Page::Performance, 1280.0, 800.0);
+    let control = control(&mut ui, &name);
+    let label = ui.find(name.as_str()).unwrap().bounds();
+    assert!(
+        label.x + label.width <= control.x + 0.5,
+        "the name {label:?} runs over the drop-down {control:?}"
+    );
+    assert!(label.width >= 120.0 - 0.5, "the name is {label:?}");
 }
 
 #[test]

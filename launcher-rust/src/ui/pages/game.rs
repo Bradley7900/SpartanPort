@@ -23,7 +23,7 @@ use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::widgets::{
     checkbox_ini, folder, min_width, row, section, select, toggle_row, Modal, ModalKind,
-    ModalMessage, SELECT_MIN,
+    ModalMessage, SELECT_MIN, SELECT_TEXT,
 };
 use crate::APP_NAME;
 
@@ -304,6 +304,7 @@ fn backups_row(state: &State) -> Element<'_, Message> {
             (!state.backup_choice.is_empty()).then(|| state.backup_choice.clone()),
             |name| Message::Backup(BackupMessage::Choose(name)),
         )
+        .text_size(SELECT_TEXT)
         .style(theme::pick_list_dark),
     );
     let restore = button(text(tr(lang, "Restore")))

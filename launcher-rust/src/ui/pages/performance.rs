@@ -20,6 +20,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::theme;
 use crate::ui::widgets::{
     checkbox, checkbox_ini, choice_pairs, min_width, row, section, select_pairs, SELECT_MIN,
+    SELECT_TEXT,
 };
 
 /// Suffix of the labels of the sizes a mod adds.
@@ -258,6 +259,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             Some(state.aspect.clone()),
             Message::Aspect,
         )
+        .text_size(SELECT_TEXT)
         .style(theme::pick_list_dark),
     );
     let rows = rows(state, lang);

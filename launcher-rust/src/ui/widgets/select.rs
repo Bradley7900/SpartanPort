@@ -15,6 +15,8 @@ use crate::ui::widgets::min_width;
 pub const SELECT_MIN: f32 = 170.0;
 /// The narrowest a short drop-down gets (mockup `.sel.sm { min-width: 90px }`).
 pub const SELECT_MIN_SMALL: f32 = 90.0;
+/// The text size of every drop-down (mockup `.sel { font-size: 12.5px }`).
+pub const SELECT_TEXT: f32 = 12.5;
 
 /// What a choice is called in `lang`: the Russian text when there is one, else `tr` of English.
 fn label(choice: &Choice, lang: &str) -> String {
@@ -56,6 +58,7 @@ pub fn select<'a>(
     let list = pick_list(labels, selected, move |chosen: String| {
         select_message(&key, choices, &lang, &chosen).unwrap_or(Message::Noop)
     })
+    .text_size(SELECT_TEXT)
     .style(theme::pick_list_dark);
     min_width(SELECT_MIN, list).into()
 }
@@ -98,6 +101,7 @@ fn pairs_list<'a>(
             .map(|(value, _)| Message::Set(key.clone(), Value::String(value.clone())))
             .unwrap_or(Message::Noop)
     })
+    .text_size(SELECT_TEXT)
     .style(theme::pick_list_dark);
     min_width(min, list).into()
 }

@@ -1,13 +1,13 @@
 //! Check boxes as setting rows (mockup `.row` with `.cb`): the name, then the box at the row's end;
 //! the name toggles it too. One stores a JSON bool, the other the ini's `"1"` / `"0"`.
 
-use iced::widget::{checkbox as check_box, mouse_area, text};
+use iced::widget::{checkbox as check_box, mouse_area};
 use iced::Element;
 use serde_json::Value;
 
 use crate::ui::app::Message;
 use crate::ui::theme;
-use crate::ui::widgets::row::line;
+use crate::ui::widgets::row::{line, name};
 
 /// A check box row: `on_toggle` makes the message of a new state; without it the box is drawn but
 /// nothing toggles it.
@@ -24,12 +24,10 @@ where
     let boxed = check_box(checked).style(theme::checkbox_red);
     let (name, boxed): (Element<'a, Message>, _) = match on_toggle {
         Some(toggle) => (
-            mouse_area(text(label.to_string()))
-                .on_press(toggle(!checked))
-                .into(),
+            mouse_area(name(label)).on_press(toggle(!checked)).into(),
             boxed.on_toggle(toggle),
         ),
-        None => (text(label.to_string()).into(), boxed),
+        None => (name(label).into(), boxed),
     };
     line(rtl, name, label, boxed.into(), hint)
 }

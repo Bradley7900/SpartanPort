@@ -1,5 +1,7 @@
 //! A widget laid out at least some width wide, still growing to its content: the mockup's
 //! `.sel { min-width: 170px }` for a `Shrink` pick list, which iced sizes to its longest option.
+//! The same wrapper can also keep some of its parent's width free, for the siblings laid out after
+//! it (a row's name beside its control).
 
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{tree, Operation, Tree};
@@ -8,21 +10,34 @@ use iced::{Element, Event, Length, Rectangle, Renderer, Size, Theme, Vector};
 
 use crate::ui::app::Message;
 
-/// `content` with a minimum width; everything else is the content's own.
-pub struct MinWidth<'a> {
+/// `content` with a minimum width and some width kept free; everything else is the content's own.
+pub struct Widths<'a> {
     content: Element<'a, Message>,
     min: f32,
+    room: f32,
 }
 
 /// `content` at least `min` wide, when its parent has that room.
-pub fn min_width<'a>(min: f32, content: impl Into<Element<'a, Message>>) -> MinWidth<'a> {
-    MinWidth {
+pub fn min_width<'a>(min: f32, content: impl Into<Element<'a, Message>>) -> Widths<'a> {
+    Widths {
         content: content.into(),
         min,
+        room: 0.0,
     }
 }
 
-impl Widget<Message, Theme, Renderer> for MinWidth<'_> {
+/// `content` laid out `room` narrower than its parent allows. In a `row!` the children that are not
+/// `Fill` are laid out first, each against the whole remaining width; this one leaves `room` of it
+/// to the `Fill` children laid out after it.
+pub fn leave_room<'a>(room: f32, content: impl Into<Element<'a, Message>>) -> Widths<'a> {
+    Widths {
+        content: content.into(),
+        min: 0.0,
+        room,
+    }
+}
+
+impl Widget<Message, Theme, Renderer> for Widths<'_> {
     fn tag(&self) -> tree::Tag {
         self.content.as_widget().tag()
     }
@@ -54,7 +69,9 @@ impl Widget<Message, Theme, Renderer> for MinWidth<'_> {
         limits: &layout::Limits,
     ) -> layout::Node {
         // `min_width` stops at the maximum: a parent narrower than `min` still wins.
-        let limits = limits.min_width(self.min);
+        let limits = limits
+            .max_width((limits.max().width - self.room).max(0.0))
+            .min_width(self.min);
         self.content.as_widget_mut().layout(tree, renderer, &limits)
     }
 
@@ -128,8 +145,8 @@ impl Widget<Message, Theme, Renderer> for MinWidth<'_> {
     }
 }
 
-impl<'a> From<MinWidth<'a>> for Element<'a, Message> {
-    fn from(widget: MinWidth<'a>) -> Self {
+impl<'a> From<Widths<'a>> for Element<'a, Message> {
+    fn from(widget: Widths<'a>) -> Self {
         Element::new(widget)
     }
 }

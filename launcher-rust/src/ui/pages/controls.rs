@@ -31,6 +31,7 @@ use crate::ui::theme::{self, palette};
 use crate::ui::widgets::button_icon::game_button;
 use crate::ui::widgets::{
     button_icon, checkbox, checkbox_ini, min_width, row, section, select, slider, SELECT_MIN,
+    SELECT_TEXT,
 };
 
 /// A waiting key box gives up after this long.
@@ -736,6 +737,7 @@ fn pad_line<'a>(row: PadRow, pad_style: &str) -> Element<'a, Message> {
                 pick_list(labels, Some(current), move |label: String| {
                     pad_pick(button, &pairs, &label)
                 })
+                .text_size(SELECT_TEXT)
                 .style(theme::pick_list_dark),
             )
             .into()

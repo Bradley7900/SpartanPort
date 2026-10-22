@@ -21,7 +21,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
-use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
+use crate::ui::widgets::{Modal, ModalKind, ModalMessage, SELECT_TEXT};
 use crate::APP_NAME;
 
 /// Side of a trophy icon, in logical pixels.
@@ -216,6 +216,7 @@ fn filter_box<'a>(state: &State) -> Element<'a, Message> {
                 Message::Trophies(TrophiesMessage::Filter(filter))
             })
     })
+    .text_size(SELECT_TEXT)
     .style(theme::pick_list_dark)
     .into()
 }

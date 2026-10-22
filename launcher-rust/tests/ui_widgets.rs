@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The settings widgets: what they emit when the user acts on them.
 
+mod common;
+
 use iced::{Element, Size};
 use iced_test::core::Settings;
 use iced_test::simulator::{simulator, Simulator};
@@ -83,6 +85,45 @@ fn a_check_box_sits_at_the_end_of_its_row() {
                 "{boxed:?}, {name:?}"
             );
         }
+    }
+}
+
+#[test]
+fn a_long_control_leaves_the_row_name_its_floor() {
+    // N1 (R98): the control takes its natural width but never the name's last 120 px, and a
+    // word longer than the name's room breaks inside it instead of running under the control.
+    let long = "Automatic (NVIDIA GeForce RTX 4060 Laptop GPU: on)".to_string();
+    let name = "Supercalifragilisticexpialidocious";
+    let one_line = common::natural_size(name, None, 16.0);
+    for rtl in [false, true] {
+        let control = widgets::select_pairs("no_msaa", &[(String::new(), long.clone())], "");
+        let row = widgets::row(rtl, name, control, None);
+        let mut ui = Simulator::with_size(Settings::default(), Size::new(400.0, 200.0), row);
+        let control = ui
+            .find(iced_test::selector::id(widgets::row::control_id(name)))
+            .unwrap()
+            .bounds();
+        let label = ui.find(name).unwrap().bounds();
+        // The name's room: the row less the control and the gap between them.
+        let room = if rtl {
+            400.0 - (control.x + control.width)
+        } else {
+            control.x
+        } - widgets::row::GAP;
+        assert!(
+            room >= 120.0 - 0.5,
+            "rtl {rtl}: {room} left beside {control:?}"
+        );
+        let clear = if rtl {
+            control.x + control.width <= label.x + 0.5
+        } else {
+            label.x + label.width <= control.x + 0.5
+        };
+        assert!(clear, "rtl {rtl}: {label:?} overlaps {control:?}");
+        assert!(
+            label.height > one_line.height * 1.5,
+            "rtl {rtl}: the word stays on one line: {label:?}"
+        );
     }
 }
 
