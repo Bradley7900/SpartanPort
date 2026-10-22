@@ -293,12 +293,18 @@ fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
         &mut state,
         line("mmap failed of guest memory (error 1455)\n"),
     );
+    // A generic guest memory line takes the advice of the system the launcher runs on.
+    let advice = if cfg!(windows) {
+        ExitHint::GuestMemory
+    } else {
+        ExitHint::LinuxMemory
+    };
     assert!(matches!(
         state.game,
         GameState::Running {
-            hint: Some(ExitHint::GuestMemory),
+            hint: Some(hint),
             ..
-        }
+        } if hint == advice
     ));
 
     let statuses = pump(&mut state, BOUND, idle);
@@ -312,7 +318,7 @@ fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
     assert!(
         text.ends_with(&format!(
             "line 5\n\nThe game exited (code 3).\n{}",
-            ExitHint::GuestMemory.text_en()
+            advice.text_en()
         )),
         "{text}"
     );
