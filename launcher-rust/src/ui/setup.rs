@@ -2,14 +2,14 @@
 //! `State::setup` is `Some`.
 
 use iced::widget::{button, column, container, row, space, stack, text};
-use iced::{Background, Center, Element, Fill, Task};
+use iced::{Background, Center, Element, Fill, Left, Task};
 
 use crate::core::i18n::{tr, tr_fmt};
 use crate::ui::app::{Message, State};
 use crate::ui::home;
 use crate::ui::persist::{self, Persisted};
 use crate::ui::splash::SPLASH_BG;
-use crate::ui::theme::{self, CINZEL_BOLD};
+use crate::ui::theme::{self, mirror_x, CINZEL_BOLD};
 
 /// One step of the setup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,27 +171,38 @@ fn card(state: &State) -> Element<'_, Message> {
         tr(lang, step.title_en())
     );
     let body = column![];
-    let mut footer = row![button(text(tr(lang, "Skip")).style(theme::text_muted))
-        .style(theme::button_flat)
-        .on_press(Message::Setup(SetupMessage::Skip))]
-    .push(space().width(Fill))
-    .spacing(8);
+    // Left to right: Skip at the start, then Back and Next or Finish; right to left the row is
+    // reversed, so Skip is at the right.
+    let mut buttons: Vec<Element<'_, Message>> = vec![
+        button(text(tr(lang, "Skip")).style(theme::text_muted))
+            .style(theme::button_flat)
+            .on_press(Message::Setup(SetupMessage::Skip))
+            .into(),
+        space().width(Fill).into(),
+    ];
     if step.previous().is_some() {
-        footer = footer.push(
+        buttons.push(
             button(text(tr(lang, "Back")))
                 .style(theme::button_flat)
-                .on_press(Message::Setup(SetupMessage::Back)),
+                .on_press(Message::Setup(SetupMessage::Back))
+                .into(),
         );
     }
-    footer = footer.push(if step.next().is_some() {
+    buttons.push(if step.next().is_some() {
         button(text(tr(lang, "Next")))
             .style(theme::button_flat)
             .on_press(Message::Setup(SetupMessage::Next))
+            .into()
     } else {
         button(text(tr(lang, "Finish")))
             .style(theme::button_play)
             .on_press(Message::Setup(SetupMessage::Finish))
+            .into()
     });
+    if state.rtl {
+        buttons.reverse();
+    }
+    let footer = row(buttons).spacing(8);
     container(
         column![
             text(tr(lang, "Initial setup")).font(CINZEL_BOLD).size(22),
@@ -205,7 +216,9 @@ fn card(state: &State) -> Element<'_, Message> {
             ))
             .style(theme::text_muted),
         ]
-        .spacing(14),
+        .spacing(14)
+        .width(Fill)
+        .align_x(mirror_x(Left, state.rtl)),
     )
     .padding(24)
     .width(CARD_WIDTH)

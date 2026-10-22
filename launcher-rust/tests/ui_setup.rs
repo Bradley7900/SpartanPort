@@ -6,6 +6,7 @@ mod common;
 use std::path::Path;
 
 use iced_test::simulator::simulator;
+use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::setup::{SetupMessage, Step};
@@ -99,4 +100,20 @@ fn the_setup_reads_in_portuguese() {
     assert!(ui.find("Passo 1 de 3 · Pastas").is_ok());
     assert!(ui.find("Pular").is_ok());
     assert!(ui.find("Avançar").is_ok());
+}
+
+#[test]
+fn the_footer_is_mirrored_right_to_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let skip_left_of_next = |state: &State| {
+        let mut ui = simulator(app::view(state));
+        let skip = ui.find(tr(&state.lang, "Skip")).unwrap().bounds();
+        let next = ui.find(tr(&state.lang, "Next")).unwrap().bounds();
+        skip.x < next.x
+    };
+    assert!(skip_left_of_next(&state));
+    state.lang = "ar".into();
+    state.rtl = true;
+    assert!(!skip_left_of_next(&state), "Skip is at the right");
 }
