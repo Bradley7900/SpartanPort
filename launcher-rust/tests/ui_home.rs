@@ -7,6 +7,7 @@ use std::time::Duration;
 use iced::time::Instant;
 use iced_test::simulator::simulator;
 use serde_json::json;
+use spartanport_launcher::core::gpu::GpuRow;
 use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::update::Release;
 use spartanport_launcher::ui::app::{self, Message, State};
@@ -98,6 +99,29 @@ fn the_rust_only_home_and_splash_texts_have_portuguese() {
     state.splash.done = false;
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("qualquer tecla pula").is_ok());
+}
+
+#[test]
+fn the_graphics_card_chip_uses_the_python_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.gpus = vec![GpuRow {
+        index: "0".into(),
+        name: "NVIDIA GeForce RTX 4060".into(),
+        kind: "discrete".into(),
+        msaa: None,
+        chosen: true,
+    }];
+    // `✓ Graphics card: {}` of the 2.6.0 tables, not a Vulkan version nobody checked.
+    assert_eq!(
+        home::chips(&state)[0],
+        "✓ Graphics card: NVIDIA GeForce RTX 4060"
+    );
+    state.lang = "pt".into();
+    assert_eq!(
+        home::chips(&state)[0],
+        "✓ Placa de vídeo: NVIDIA GeForce RTX 4060"
+    );
 }
 
 #[test]

@@ -446,7 +446,8 @@ pub fn summary(state: &State) -> String {
 pub fn chips(state: &State) -> [String; 4] {
     let lang = state.lang.as_str();
     let gpu = match chosen_gpu(&state.gpus, &state.settings.get_str("gpu_id")) {
-        Some(row) => format!("✓ {} · Vulkan 1.3", row.name),
+        // The text of the 2.6.0 tables; the probe lists the cards without their Vulkan version.
+        Some(row) => tr_fmt(lang, "✓ Graphics card: {}", &[&row.name]),
         None => tr(lang, "• Graphics card: not checked"),
     };
     let game = match &state.home.info {
