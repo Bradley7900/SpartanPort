@@ -495,6 +495,20 @@ fn a_language_pick_rebuilds_without_writing() {
 }
 
 #[test]
+fn a_language_pick_keeps_the_ini_edits_for_finish() {
+    // An ini that outlived settings.json: an edit made before a language pick still reaches it.
+    let dir = tempfile::tempdir().unwrap();
+    let ini = opened(dir.path()).paths.ini_path();
+    std::fs::write(&ini, "fps_limit=0\n").unwrap();
+    let mut state = at_step(dir.path(), Step::Video);
+    let _ = app::update(&mut state, Message::Set("fps_limit".into(), "60".into()));
+    let _ = app::update(&mut state, Message::Lang(LangMessage::Pick("pt".into())));
+    setup(&mut state, SetupMessage::Finish);
+    let written = std::fs::read_to_string(&ini).unwrap();
+    assert!(written.contains("fps_limit=60"), "{written}");
+}
+
+#[test]
 fn the_setup_scene_is_the_whole_window() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = opened(dir.path());

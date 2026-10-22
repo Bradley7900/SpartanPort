@@ -10,7 +10,7 @@ use serde_json::json;
 use crate::core::game::{
     missing_game_files, same_folder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
-use crate::core::i18n::{tr, tr_fmt};
+use crate::core::i18n::{launcher_language, system_language, tr, tr_fmt};
 use crate::core::options::DISPLAY_MODES;
 use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
@@ -204,6 +204,17 @@ pub fn key_pressed(state: &mut State, key: &Key) -> Task<Message> {
         Some(_) if can_advance(state) => update(state, SetupMessage::Next),
         _ => Task::none(),
     }
+}
+
+/// A language was picked in the menu: the window is rebuilt in it, without writing anything.
+pub fn language_picked(state: &mut State) -> Task<Message> {
+    let language = launcher_language(&state.settings.get_str("ui_language"), system_language);
+    let scale = state.scale;
+    // The baseline stays what the files held when the setup opened, so Finish writes every edit.
+    let saved = state.saved.clone();
+    let task = persist::rebuild(state, language, scale);
+    state.saved = saved;
+    task
 }
 
 /// Writes the files as Save does; on success the setup closes and the Home shows.

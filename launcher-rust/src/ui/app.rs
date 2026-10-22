@@ -465,14 +465,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             if state.lang_menu.open {
                 state.version_menu.open = false;
             }
-            // Picking a language stores it and rebuilds the window in it, as Save does.
+            // Picking a language stores it and rebuilds the window in it, as Save does; during
+            // the setup nothing is written until Finish or Skip.
             if picked {
-                // During the setup nothing is written until Finish or Skip.
                 if state.setup.is_some() {
-                    let language =
-                        launcher_language(&state.settings.get_str("ui_language"), system_language);
-                    let scale = state.scale;
-                    return persist::rebuild(state, language, scale);
+                    return setup::language_picked(state);
                 }
                 return persist::save(state);
             }
