@@ -3,7 +3,8 @@
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command};
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
+use std::time::Duration;
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 use windows_sys::Win32::System::Console::{
     AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
@@ -12,7 +13,9 @@ use windows_sys::Win32::System::Console::{
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
 };
-use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE,
+};
 
 /// The user's UI language id (LANGID), or `None` when Windows reports 0.
 pub fn user_default_ui_language() -> Option<u32> {
@@ -105,4 +108,21 @@ pub fn close_std_streams() {
         // SAFETY: setting a std slot to null is always allowed.
         unsafe { SetStdHandle(which, std::ptr::null_mut()) };
     }
+}
+
+/// Waits up to `limit` for process `pid` to end. `true` when it ended or does not exist (it
+/// cannot be opened), `false` when it still runs after `limit`.
+pub fn wait_for_process(pid: u32, limit: Duration) -> bool {
+    // INFINITE is u32::MAX: a longer limit is cut one millisecond short of it.
+    let millis = u32::try_from(limit.as_millis()).unwrap_or(u32::MAX - 1);
+    // SAFETY: takes plain values; a pid that cannot be opened returns null.
+    let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+    if handle.is_null() {
+        return true;
+    }
+    // SAFETY: `handle` is a live process handle with SYNCHRONIZE access, opened above.
+    let result = unsafe { WaitForSingleObject(handle, millis) };
+    // SAFETY: `handle` is owned here and closed once.
+    unsafe { CloseHandle(handle) };
+    result == WAIT_OBJECT_0
 }

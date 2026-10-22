@@ -1,6 +1,7 @@
 //! Calls for systems other than Windows.
 
-use nix::sys::signal::{killpg, Signal};
+use nix::errno::Errno;
+use nix::sys::signal::{kill, killpg, Signal};
 use nix::unistd::Pid;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
@@ -64,5 +65,24 @@ pub fn close_std_streams() {
     if let Ok(null) = std::fs::File::options().write(true).open("/dev/null") {
         let _ = nix::unistd::dup2_stdout(&null);
         let _ = nix::unistd::dup2_stderr(&null);
+    }
+}
+
+/// Waits up to `limit` for process `pid` to end, polling every 100 ms. `true` when it ended or
+/// does not exist, `false` when it still runs after `limit`.
+pub fn wait_for_process(pid: u32, limit: Duration) -> bool {
+    let Ok(raw) = i32::try_from(pid) else {
+        return true;
+    };
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        // Signal 0 only checks the process; a process of another user (EPERM) still runs.
+        if kill(Pid::from_raw(raw), None) == Err(Errno::ESRCH) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
