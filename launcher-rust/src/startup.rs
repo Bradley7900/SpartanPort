@@ -12,7 +12,7 @@ use crate::core::launch::python_command;
 use crate::core::paths::Paths;
 use crate::core::settings::load_app_settings;
 use crate::core::update::update_dir;
-use crate::core::{desktop, legacy};
+use crate::core::{desktop, legacy, platform};
 use crate::ui::update::is_packaged;
 use crate::APP_NAME;
 
@@ -61,7 +61,10 @@ pub fn forward_to_python<S: AsRef<OsStr>>(port_dir: &Path, args: &[S]) -> i32 {
     let Some((program, interpreter_args)) = python.split_first() else {
         return 1;
     };
-    let status = Command::new(program)
+    let mut command = Command::new(program);
+    // From Steam or a shortcut no console window opens with it; a terminal still gets its output.
+    platform::no_window(&mut command);
+    let status = command
         .args(interpreter_args)
         .arg(
             port_dir

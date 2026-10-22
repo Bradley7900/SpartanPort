@@ -6,6 +6,10 @@ mod unix;
 mod windows;
 
 #[cfg(not(windows))]
-pub use unix::{close_std_streams, prepare, user_default_ui_language, Job};
+pub use unix::{
+    attach_parent_console, close_std_streams, no_window, prepare, user_default_ui_language, Job,
+};
 #[cfg(windows)]
-pub use windows::{close_std_streams, prepare, user_default_ui_language, Job};
+pub use windows::{
+    attach_parent_console, close_std_streams, no_window, prepare, user_default_ui_language, Job,
+};

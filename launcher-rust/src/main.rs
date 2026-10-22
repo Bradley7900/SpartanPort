@@ -1,11 +1,18 @@
+// A windowed program on Windows: no console opens with the launcher. From a terminal it attaches
+// to the terminal's console (`platform::attach_parent_console`).
+#![windows_subsystem = "windows"]
+
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use spartanport_launcher::core::paths::Paths;
+use spartanport_launcher::core::platform;
 use spartanport_launcher::startup::{self, Route};
 use spartanport_launcher::{ui, APP_NAME, VERSION};
 
 fn main() {
+    // First, so `--version`, the forwarded Python and start-up errors print in a terminal.
+    platform::attach_parent_console();
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let exe_dir = std::env::current_exe()
         .ok()

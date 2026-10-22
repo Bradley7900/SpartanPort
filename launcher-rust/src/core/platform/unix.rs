@@ -14,6 +14,12 @@ pub fn user_default_ui_language() -> Option<u32> {
     None
 }
 
+/// Programs share the terminal here: nothing to hide.
+pub fn no_window(_cmd: &mut Command) {}
+
+/// The output already reaches the terminal here.
+pub fn attach_parent_console() {}
+
 /// Puts the child in its own process group.
 pub fn prepare(cmd: &mut Command) {
     cmd.process_group(0);

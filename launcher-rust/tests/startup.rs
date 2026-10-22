@@ -37,6 +37,35 @@ fn arguments_route_to_python() {
     assert_eq!(route(&["play"]), Route::Launcher);
 }
 
+/// The launcher program cargo built for these tests.
+const LAUNCHER: &str = env!("CARGO_BIN_EXE_spartanport-launcher");
+
+#[test]
+fn version_prints_the_name_and_the_version() {
+    let out = std::process::Command::new(LAUNCHER)
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "SpartanPort 2.6.0"
+    );
+}
+
+/// No console window opens with the launcher: Windows starts it as a windowed program
+/// (`IMAGE_SUBSYSTEM_WINDOWS_GUI` in the PE optional header).
+#[cfg(windows)]
+#[test]
+fn the_launcher_is_a_windowed_program() {
+    let exe = std::fs::read(LAUNCHER).unwrap();
+    let word = |at: usize| u16::from_le_bytes([exe[at], exe[at + 1]]);
+    let pe = u32::from_le_bytes([exe[0x3c], exe[0x3d], exe[0x3e], exe[0x3f]]) as usize;
+    assert_eq!(&exe[pe..pe + 4], b"PE\0\0");
+    // The PE signature (4 bytes) and the file header (20) come first; Subsystem is at 68.
+    assert_eq!(word(pe + 24 + 68), 2, "IMAGE_SUBSYSTEM_WINDOWS_GUI");
+}
+
 #[test]
 fn first_start_is_in_english_when_the_system_language_is_unknown() {
     // The translations are partial; 'System' stays a choice in Advanced.

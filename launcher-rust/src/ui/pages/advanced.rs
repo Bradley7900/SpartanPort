@@ -16,6 +16,7 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::core::launch::python_command;
 use crate::core::options::{UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
 use crate::core::paths::Paths;
+use crate::core::platform;
 use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
 use crate::ui::pages::performance::SelectRow;
@@ -427,15 +428,6 @@ fn launcher_path() -> PathBuf {
         .unwrap_or_default()
 }
 
-#[cfg(windows)]
-fn no_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    command.creation_flags(0x0800_0000);
-}
-
-#[cfg(not(windows))]
-fn no_window(_command: &mut Command) {}
-
 /// The desktop shortcut; runs on a thread. Windows makes `SpartanPort.lnk` and returns no files.
 fn make_shortcut(paths: &Paths) -> Result<Vec<String>, String> {
     if cfg!(windows) {
@@ -555,7 +547,7 @@ fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String
         .args(leading)
         .args(steam_bridge_command(paths, settings, &launcher_path()))
         .stdin(Stdio::null());
-    no_window(&mut command);
+    platform::no_window(&mut command);
     let output = command.output().map_err(|error| error.to_string())?;
     steam_outcome(
         lang,

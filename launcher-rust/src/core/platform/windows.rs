@@ -6,7 +6,8 @@ use std::process::{Child, Command};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 use windows_sys::Win32::System::Console::{
-    GetStdHandle, SetStdHandle, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
+    STD_OUTPUT_HANDLE,
 };
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
@@ -20,9 +21,27 @@ pub fn user_default_ui_language() -> Option<u32> {
     (id != 0).then_some(u32::from(id))
 }
 
+/// Gives a console program no console window (the launcher, a windowed program, has none to share).
+pub fn no_window(cmd: &mut Command) {
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
 /// Hides the console window of the child.
 pub fn prepare(cmd: &mut Command) {
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    no_window(cmd);
+}
+
+/// Started from a terminal, a windowed program has no console: this attaches to the terminal's, so
+/// `--version` and start-up errors print there. Nothing changes when the output already goes
+/// somewhere (a pipe or a file) or when there is no terminal (a double click).
+pub fn attach_parent_console() {
+    // SAFETY: GetStdHandle takes a plain id and returns a handle value or null/invalid.
+    let out = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
+    if !out.is_null() && out != INVALID_HANDLE_VALUE {
+        return;
+    }
+    // SAFETY: takes a plain process id; without a parent console it fails and changes nothing.
+    unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
 }
 
 /// A job object holding the game and its descendants.
