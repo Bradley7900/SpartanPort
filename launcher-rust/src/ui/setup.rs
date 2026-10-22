@@ -1,6 +1,8 @@
 //! The first-run setup (setup spec): three steps between the splash and the Home, shown while
 //! `State::setup` is `Some`.
 
+use iced::keyboard::key::Named;
+use iced::keyboard::Key;
 use iced::widget::{button, column, container, pick_list, row, space, stack, text};
 use iced::{Background, Center, Element, Fill, Left, Task};
 use serde_json::json;
@@ -190,6 +192,18 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
         }
     }
     Task::none()
+}
+
+/// Enter is Next (when allowed) or Finish on the last step; every other key does nothing.
+pub fn key_pressed(state: &mut State, key: &Key) -> Task<Message> {
+    if !matches!(key, Key::Named(Named::Enter)) {
+        return Task::none();
+    }
+    match state.setup.as_ref().map(|setup| setup.step) {
+        Some(Step::Video) => finish(state),
+        Some(_) if can_advance(state) => update(state, SetupMessage::Next),
+        _ => Task::none(),
+    }
 }
 
 /// Writes the files as Save does; on success the setup closes and the Home shows.

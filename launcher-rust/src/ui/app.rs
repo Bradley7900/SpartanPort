@@ -372,6 +372,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 splash::apply(state, SplashMessage::Skip);
                 return Task::none();
             }
+            // During the setup the keyboard only answers Enter.
+            if state.setup.is_some() {
+                return setup::key_pressed(state, &key);
+            }
             // While a key box of the Controls page waits, the key is its input.
             if state.controls.capturing.is_some() {
                 return controls::key_pressed(state, &key, location);
@@ -463,6 +467,13 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             }
             // Picking a language stores it and rebuilds the window in it, as Save does.
             if picked {
+                // During the setup nothing is written until Finish or Skip.
+                if state.setup.is_some() {
+                    let language =
+                        launcher_language(&state.settings.get_str("ui_language"), system_language);
+                    let scale = state.scale;
+                    return persist::rebuild(state, language, scale);
+                }
                 return persist::save(state);
             }
         }

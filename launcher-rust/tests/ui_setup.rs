@@ -15,7 +15,8 @@ use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::options::DISPLAY_MODES;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
-use spartanport_launcher::ui::pages::performance;
+use spartanport_launcher::ui::lang_menu::LangMessage;
+use spartanport_launcher::ui::pages::{performance, Page};
 use spartanport_launcher::ui::setup::{can_advance, folder_problems, SetupMessage, Step};
 use spartanport_launcher::ui::splash::{Check, SplashMessage};
 use spartanport_launcher::ui::widgets::choice_pairs;
@@ -440,4 +441,53 @@ fn a_failed_finish_keeps_the_setup_open() {
         state.ini.values.get("fps_limit").map(String::as_str),
         Some("60")
     );
+}
+
+fn press(state: &mut State, key: Key) {
+    let _ = app::update(
+        state,
+        Message::Key(key, Modifiers::default(), Location::Standard),
+    );
+}
+
+#[test]
+fn keys_stay_inside_the_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    press(&mut state, Key::Named(Named::ArrowRight));
+    assert_eq!(state.page, Page::Home);
+    press(&mut state, Key::Named(Named::Escape));
+    assert!(state.setup.is_some());
+    press(&mut state, Key::Named(Named::Enter));
+    assert_eq!(
+        state.setup.as_ref().unwrap().step,
+        Step::Folders,
+        "Next not allowed yet"
+    );
+    assert!(matches!(
+        state.game,
+        spartanport_launcher::ui::play::GameState::Idle
+    ));
+
+    let dump = complete_dump(dir.path());
+    browsed(&mut state, "game_dir", &dump);
+    press(&mut state, Key::Named(Named::Enter));
+    assert_eq!(state.setup.as_ref().unwrap().step, Step::Gpu);
+    press(&mut state, Key::Named(Named::Enter));
+    assert_eq!(state.setup.as_ref().unwrap().step, Step::Video);
+    press(&mut state, Key::Named(Named::Enter));
+    assert!(state.setup.is_none(), "Enter on the last step is Finish");
+    assert!(dir.path().join("settings.json").exists());
+}
+
+#[test]
+fn a_language_pick_rebuilds_without_writing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = at_step(dir.path(), Step::Gpu);
+    let _ = app::update(&mut state, Message::Lang(LangMessage::Pick("pt".into())));
+    assert_eq!(state.lang, "pt");
+    assert_eq!(state.setup.as_ref().unwrap().step, Step::Gpu);
+    assert!(!dir.path().join("settings.json").exists());
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Passo 2 de 3 · Placa de vídeo").is_ok());
 }
