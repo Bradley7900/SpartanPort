@@ -5,6 +5,10 @@ mod common;
 
 use std::path::Path;
 
+use iced::keyboard::key::Named;
+use iced::keyboard::{Key, Location, Modifiers};
+use iced::window;
+
 use common::{browsed, dump_with_patches, gpu_rows, messages, ARC_LAPTOP};
 use iced_test::simulator::simulator;
 use spartanport_launcher::core::i18n::tr;
@@ -330,7 +334,7 @@ fn an_ini_without_settings_is_shown_and_kept() {
     let probe = opened(dir.path());
     let ini = probe.paths.ini_path();
     std::fs::write(&ini, "# mine\nfps_limit=60\nextra=kept\n").unwrap();
-    let state = at_step(dir.path(), Step::Video);
+    let mut state = at_step(dir.path(), Step::Video);
     assert!(state.setup.is_some());
     assert_eq!(
         state.ini.values.get("fps_limit").map(String::as_str),
@@ -339,4 +343,101 @@ fn an_ini_without_settings_is_shown_and_kept() {
     assert_eq!(row_shown(&state, "fps_limit").0, "60");
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Frame rate limit").is_ok());
+    drop(ui);
+    setup(&mut state, SetupMessage::Finish);
+    let written = std::fs::read_to_string(&ini).unwrap();
+    assert!(
+        written.starts_with(
+            "# mine
+fps_limit=60
+extra=kept
+"
+        ),
+        "{written}"
+    );
+}
+
+fn settings_file(dir: &Path) -> serde_json::Value {
+    serde_json::from_slice(&std::fs::read(dir.join("settings.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn finish_writes_the_choices_and_shows_the_home() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let dump = complete_dump(dir.path());
+    browsed(&mut state, "game_dir", &dump);
+    let _ = app::update(&mut state, Message::Set("gpu_id".into(), "1".into()));
+    let _ = app::update(&mut state, Message::Set("fps_limit".into(), "60".into()));
+    state.setup.as_mut().unwrap().step = Step::Video;
+    setup(&mut state, SetupMessage::Finish);
+    assert!(state.setup.is_none());
+    let saved = settings_file(dir.path());
+    assert_eq!(saved["game_dir"], dump.display().to_string());
+    assert_eq!(saved["gpu_id"], "1");
+    let ini = std::fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(ini.contains("fps_limit=60"), "{ini}");
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("PLAY").is_ok());
+    assert!(ui.find("Initial setup").is_err());
+    assert!(!spartanport_launcher::ui::persist::dirty(&state));
+}
+
+#[test]
+fn skip_writes_the_defaults_but_keeps_the_language() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let dump = complete_dump(dir.path());
+    browsed(&mut state, "game_dir", &dump);
+    let _ = app::update(&mut state, Message::Set("fps_limit".into(), "60".into()));
+    state.lang = "pt".into();
+    setup(&mut state, SetupMessage::Skip);
+    assert!(state.setup.is_none());
+    let saved = settings_file(dir.path());
+    assert_eq!(saved["game_dir"], "");
+    assert_eq!(saved["ui_language"], "pt");
+    assert_eq!(
+        state.ini.values.get("fps_limit").map(String::as_str),
+        Some("0")
+    );
+    assert!(
+        state.home.info.is_none(),
+        "the Home facts follow the restored folder"
+    );
+}
+
+#[test]
+fn closing_the_window_writes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let _ = app::update(&mut state, Message::Set("fps_limit".into(), "60".into()));
+    let _ = app::update(&mut state, Message::CloseRequested(window::Id::unique()));
+    assert!(!dir.path().join("settings.json").exists());
+    assert!(state.setup.is_some());
+}
+
+#[test]
+fn a_failed_finish_keeps_the_setup_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    // A folder where the file should be: the atomic write cannot rename over it.
+    std::fs::create_dir_all(state.paths.config_file()).unwrap();
+    let _ = app::update(&mut state, Message::Set("fps_limit".into(), "60".into()));
+    setup(&mut state, SetupMessage::Finish);
+    assert!(state.setup.is_some());
+    assert!(state.modal.is_some(), "the SAVE_FAILED dialog");
+    let _ = app::update(
+        &mut state,
+        Message::Key(
+            Key::Named(Named::Escape),
+            Modifiers::default(),
+            Location::Standard,
+        ),
+    );
+    assert!(state.modal.is_none());
+    assert!(state.setup.is_some());
+    assert_eq!(
+        state.ini.values.get("fps_limit").map(String::as_str),
+        Some("60")
+    );
 }

@@ -498,6 +498,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             }
         }
         Message::CloseRequested(id) => {
+            // Closing the window mid-setup saves nothing; the setup returns on the next start.
+            if state.setup.is_some() {
+                return window::close(id);
+            }
             // A running game keeps running, as it does after the Python launcher closes.
             if persist::collect_unless_unreadable(state) {
                 return window::close(id);

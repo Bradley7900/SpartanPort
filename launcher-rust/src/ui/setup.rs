@@ -3,15 +3,17 @@
 
 use iced::widget::{button, column, container, pick_list, row, space, stack, text};
 use iced::{Background, Center, Element, Fill, Left, Task};
+use serde_json::json;
 
 use crate::core::game::{
     missing_game_files, same_folder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::DISPLAY_MODES;
+use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
 use crate::ui::home;
-use crate::ui::pages::game::folder_row;
+use crate::ui::pages::game::{self, folder_row};
 use crate::ui::pages::performance::{aspect_options, select_row};
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::describe_missing;
@@ -168,6 +170,14 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
         return Task::none();
     };
     match message {
+        SetupMessage::Finish => return finish(state),
+        SetupMessage::Skip => {
+            let defaults = setup.defaults.clone();
+            state.settings = Settings(defaults.app);
+            state.ini.values = defaults.ini;
+            state.settings.set("ui_language", json!(state.lang));
+            return Task::batch([game::game_changed(state), finish(state)]);
+        }
         SetupMessage::Next => {
             if let Some(step) = setup.step.next() {
                 setup.step = step;
@@ -178,7 +188,15 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
                 setup.step = step;
             }
         }
-        SetupMessage::Skip | SetupMessage::Finish => {}
+    }
+    Task::none()
+}
+
+/// Writes the files as Save does; on success the setup closes and the Home shows.
+pub fn finish(state: &mut State) -> Task<Message> {
+    // A failed save leaves the setup open under the error dialog.
+    if persist::collect_or_report(state) {
+        state.setup = None;
     }
     Task::none()
 }
