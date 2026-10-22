@@ -22,7 +22,11 @@ fn core_and_runner_never_mention_iced() {
         concat!(env!("CARGO_MANIFEST_DIR"), "/src/runner"),
     ] {
         for entry in walk(root) {
-            let text = std::fs::read_to_string(&entry).unwrap();
+            // `iced_x86` is the x86 decoder of `runner/isa_rewrite.rs`, not the UI toolkit; only
+            // that exact token is allowed.
+            let text = std::fs::read_to_string(&entry)
+                .unwrap()
+                .replace("iced_x86", "");
             assert!(!text.contains("iced"), "{entry:?} imports iced");
         }
     }

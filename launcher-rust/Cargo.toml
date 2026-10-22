@@ -35,6 +35,9 @@ sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rfd = "0.17"
 iced = { version = "0.14", features = ["wgpu", "tiny-skia", "image", "canvas", "advanced", "tokio"] }
+# The x86 decoder of `runner/isa_rewrite.rs`: the engine and version of the Python's binding, so the
+# sites are the same. `instr_info` gives the flow control and the register numbers and sizes.
+iced-x86 = { version = "=1.21.0", default-features = false, features = ["std", "decoder", "instr_info"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
