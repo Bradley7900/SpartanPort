@@ -729,3 +729,176 @@ fn sliding_from_language_to_version_opens_only_version() {
     assert!(state.version_menu.open);
     assert!(!state.lang_menu.open);
 }
+
+fn five_stables_and_ten_prereleases() -> Vec<Release> {
+    let mut list: Vec<Release> = ["2.9.0", "2.8.0", "2.7.0", "2.6.0", "2.5.0"]
+        .into_iter()
+        .map(|v| release(Channel::Release, v, None))
+        .collect();
+    list.extend(
+        (1..=10).map(|n| release(Channel::PreRelease, "2.6.0", Some(format!("t{n}").as_str()))),
+    );
+    list
+}
+
+fn open_menu(state: &mut State) {
+    let _ = version(state, VersionMessage::Toggle);
+    assert!(state.version_menu.open);
+}
+
+#[test]
+fn the_open_menu_lists_three_stables_and_every_prerelease() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    ready_with(&mut state, five_stables_and_ten_prereleases());
+    open_menu(&mut state);
+    let mut ui = simulator(app::view(&state));
+    for label in [
+        "Releases",
+        "Pre-releases",
+        "2.9.0",
+        "2.8.0",
+        "2.7.0",
+        "2.6.0 · t1",
+        "2.6.0 · t10",
+    ] {
+        assert!(ui.find(label).is_ok(), "{label:?} missing");
+    }
+    assert!(ui.find("2.6.0").is_err());
+}
+
+#[test]
+fn the_menu_marks_the_installed_and_the_new() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId {
+        channel: Channel::Release,
+        version: "2.7.0".into(),
+        build: None,
+    };
+    ready_with(
+        &mut state,
+        vec![
+            release(Channel::Release, "2.8.0", None),
+            release(Channel::Release, "2.7.0", None),
+            release(Channel::Release, "2.6.0", None),
+        ],
+    );
+    open_menu(&mut state);
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("✓ 2.7.0").is_ok());
+    assert!(ui.find("2.8.0").is_ok());
+    assert!(ui.find("new").is_ok());
+    assert!(ui.find("2.6.0").is_ok());
+    assert!(ui.find("✓ 2.6.0").is_err());
+    assert!(ui.find("✓ 2.8.0").is_err());
+}
+
+#[test]
+fn an_unmatched_install_has_no_tick_but_still_a_new() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    ready_with(
+        &mut state,
+        vec![
+            release(Channel::Release, "2.8.0", None),
+            release(Channel::Release, "2.7.0", None),
+        ],
+    );
+    open_menu(&mut state);
+    let mut ui = simulator(app::view(&state));
+    for label in ["✓ 2.8.0", "✓ 2.7.0", "✓ 2.6.0"] {
+        assert!(ui.find(label).is_err(), "{label:?} present");
+    }
+    assert!(ui.find("new").is_ok());
+}
+
+fn menu_height(prereleases: usize) -> f32 {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let mut list = vec![release(Channel::Release, "2.7.0", None)];
+    list.extend(
+        (1..=prereleases)
+            .map(|n| release(Channel::PreRelease, "2.6.0", Some(format!("t{n}").as_str()))),
+    );
+    ready_with(&mut state, list);
+    open_menu(&mut state);
+    let mut ui = simulator(app::view(&state));
+    ui.find(iced_test::selector::id(
+        spartanport_launcher::ui::version_menu::MENU_ID,
+    ))
+    .unwrap()
+    .bounds()
+    .height
+}
+
+#[test]
+fn the_prerelease_list_scrolls_after_eight_rows() {
+    // A row is about 28.25 pt against ROW_HEIGHT's 29, so eight rows sit just under the cap:
+    // the card stops growing once the ninth arrives.
+    let capped = menu_height(20);
+    assert_eq!(capped, menu_height(9));
+    assert!(menu_height(8) <= capped);
+    assert!(menu_height(3) < menu_height(8));
+}
+
+#[test]
+fn the_menu_says_when_there_are_no_test_builds() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
+    open_menu(&mut state);
+    let expected = if cfg!(windows) {
+        "No test builds"
+    } else {
+        "No test builds for Linux"
+    };
+    assert!(simulator(app::view(&state)).find(expected).is_ok());
+}
+
+#[test]
+fn the_menu_says_fetching_and_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.version_menu.open = true;
+    state.update = UpdateState::None;
+    assert!(simulator(app::view(&state)).find("Fetching…").is_ok());
+    state.update = UpdateState::Failed("offline".into());
+    assert!(simulator(app::view(&state))
+        .find("Could not fetch the versions")
+        .is_ok());
+}
+
+#[test]
+fn picking_a_row_closes_and_installs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    ready_with(&mut state, five_stables_and_ten_prereleases());
+    open_menu(&mut state);
+    let sent = click(&state, "2.8.0");
+    let picked = match sent.as_slice() {
+        [Message::VersionMenu(VersionMessage::Pick(r))] => r.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(picked.id.version, "2.8.0");
+    let task = version(&mut state, VersionMessage::Pick(picked));
+    assert!(!state.version_menu.open);
+    if cfg!(windows) {
+        assert!(task.units() > 0 || state.modal.is_some());
+    }
+
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    ready_with(&mut state, five_stables_and_ten_prereleases());
+    open_menu(&mut state);
+    let installed = Release {
+        id: state.installed.clone(),
+        ..release(Channel::Release, "2.6.0", None)
+    };
+    let task = version(&mut state, VersionMessage::Pick(installed));
+    assert!(!state.version_menu.open);
+    assert_eq!(task.units(), 0);
+    assert!(state.modal.is_none());
+}

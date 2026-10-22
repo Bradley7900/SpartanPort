@@ -14,12 +14,12 @@ use crate::ui::theme::{
 };
 
 /// Distance of the button from the top and right edges (mockup `#topright`).
-const EDGE_TOP: f32 = 22.0;
-const EDGE_RIGHT: f32 = 24.0;
+pub(crate) const EDGE_TOP: f32 = 22.0;
+pub(crate) const EDGE_RIGHT: f32 = 24.0;
 /// The list hangs this far below the top edge (mockup `#langmenu`, `top:30px`).
-const MENU_DROP: f32 = 30.0;
+pub(crate) const MENU_DROP: f32 = 30.0;
 /// Minimum list width (mockup `#langmenu`).
-const MENU_WIDTH: f32 = 200.0;
+pub(crate) const MENU_WIDTH: f32 = 200.0;
 
 /// Open state and hover timers.
 pub type LangMenu = HoverMenu;

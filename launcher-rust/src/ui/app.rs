@@ -613,6 +613,9 @@ pub fn view(state: &State) -> Element<'_, Message> {
     if state.lang_menu.open {
         scene = scene.push(lang_menu::menu(state));
     }
+    if state.version_menu.open {
+        scene = scene.push(version_menu::menu(state));
+    }
     if !state.splash.done {
         scene = scene.push(splash::view(state, &state.lang));
     }
