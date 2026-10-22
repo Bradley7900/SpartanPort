@@ -1349,7 +1349,8 @@ fn conflict_summary_names_the_winner() {
         &state.mods.order,
         None,
     );
-    mods_update(&mut state, ModsMessage::Conflicts(found));
+    let names = state.mods.order.clone();
+    mods_update(&mut state, ModsMessage::Conflicts(names, found));
     open(&mut state, Page::Mods);
     assert!(tall_has(
         &state,
@@ -1363,7 +1364,8 @@ fn conflict_summary_names_the_winner() {
         &state.mods.order,
         None,
     );
-    mods_update(&mut state, ModsMessage::Conflicts(found));
+    let names = state.mods.order.clone();
+    mods_update(&mut state, ModsMessage::Conflicts(names, found));
     assert!(tall_has(
         &state,
         "⚠ 1 file is changed by two mods. alpha wins."
@@ -1594,4 +1596,37 @@ fn steam_answers_become_the_python_texts() {
         .starts_with("The game folder has no sce_sys/pic1.png"));
     let other = advanced::steam_outcome("en", false, "", "Traceback\nImportError: nope\n");
     assert_eq!(other.unwrap_err(), "ImportError: nope");
+}
+
+#[test]
+fn stale_conflicts_are_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    make_mod(&state, "alpha", "same.bin");
+    make_mod(&state, "beta", "same.bin");
+    load_mods(&mut state);
+    let root = state.paths.mods_dir("");
+    let old_names = state.mods.order.clone();
+    let old = spartanport_launcher::core::mods::conflicts(&root, &old_names, None);
+    assert_eq!(old[0].1.last().unwrap(), "beta");
+    // An edit lands before the older result does.
+    mods_update(&mut state, ModsMessage::Move(1, -1));
+    let new_names = state.mods.order.clone();
+    assert_eq!(new_names, ["beta", "alpha"]);
+    mods_update(&mut state, ModsMessage::Conflicts(old_names, Vec::new()));
+    assert_eq!(state.mods.conflicts, old);
+    let current = spartanport_launcher::core::mods::conflicts(&root, &new_names, None);
+    assert_eq!(current[0].1.last().unwrap(), "alpha");
+    // The stale result changed nothing; the matching one applies.
+    mods_update(
+        &mut state,
+        ModsMessage::Conflicts(new_names.clone(), current.clone()),
+    );
+    assert_eq!(state.mods.conflicts, current);
+    // And a stale one after it is still dropped.
+    mods_update(
+        &mut state,
+        ModsMessage::Conflicts(vec!["alpha".into(), "beta".into()], old),
+    );
+    assert_eq!(state.mods.conflicts, current);
 }

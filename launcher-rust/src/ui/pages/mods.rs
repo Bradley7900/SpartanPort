@@ -80,7 +80,8 @@ pub enum ModsMessage {
     /// A read of the folders finished.
     Loaded(Box<ModsView>),
     /// The conflicts of the enabled mods were worked out again.
-    Conflicts(Vec<(String, Vec<String>)>),
+    /// The enabled mods in load order the result was worked out for, and the result.
+    Conflicts(Vec<String>, Vec<(String, Vec<String>)>),
 }
 
 fn game_path(settings: &Settings) -> Option<PathBuf> {
@@ -189,8 +190,11 @@ fn refresh_conflicts(state: &State) -> Task<Message> {
     let root = mods_root(state);
     let game = game_path(&state.settings);
     let names = active(&state.mods);
-    blocking(move || conflicts(&root, &names, game.as_deref()))
-        .map(|found| Message::Mods(ModsMessage::Conflicts(found)))
+    blocking(move || {
+        let found = conflicts(&root, &names, game.as_deref());
+        (names, found)
+    })
+    .map(|(names, found)| Message::Mods(ModsMessage::Conflicts(names, found)))
 }
 
 fn set_picture(state: &mut State) {
@@ -326,7 +330,12 @@ pub fn update(state: &mut State, message: ModsMessage) -> Task<Message> {
     match message {
         ModsMessage::Refresh => return refresh(state),
         ModsMessage::Loaded(view) => return loaded(state, *view),
-        ModsMessage::Conflicts(found) => state.mods.conflicts = found,
+        // A result for an older order or set of switches is dropped: threads finish out of order.
+        ModsMessage::Conflicts(names, found) => {
+            if names == active(&state.mods) {
+                state.mods.conflicts = found;
+            }
+        }
         ModsMessage::Toggle(name) => {
             if let Some(on) = state.mods.enabled.get_mut(&name) {
                 *on = !*on;
