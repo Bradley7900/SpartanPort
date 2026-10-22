@@ -35,7 +35,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 8  # of the patch: a change rebuilds the cached copy
+VERSION = 14  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABELS = {
     'en': b'Exit to Desktop',
@@ -334,6 +334,497 @@ def blank_line(s, record, local):
     return s.base + s.lit + entry_ref + found[0] + 1
 
 
+def display_health_bar(data, spans):
+    """A fourth Display row, using PauseText's existing line3 and menuItem3Select animation."""
+    base = next(offset + 0x40 for offset, _size, name in entries(data) if name == 'SMI_R_UI')
+    s = Script(data, base)
+    display, y, brightness, template = (s.one(n) for n in
+                                       ('PauseDisplay', 'HLScreenLocY', 'HLBrightness', 'HLSubtitleDis'))
+    insert = display['at'] + display['size']
+    if y['at'] + y['size'] != insert:
+        raise ValueError('Display does not end with Screen Location Y')
+    row_size = 0x44
+    final = lambda at: at + (row_size if at >= insert else 0)
+    row_ref = insert - 4
+    append = bytearray()
+    start = s.symtab - s.lit
+
+    def text(value):
+        ref = start + len(append)
+        if ref > 0xffff:
+            raise ValueError('Display text exceeds the script literal range')
+        append.extend(value + b'\0')
+        return b'\x16' + be(ref, 2)
+
+    label = text(b'Enemy Health Bar')
+    off, on, unavailable = (text(v) for v in (b'Off', b'On', b'Unavailable'))
+    selected = text(b'[ArrowSelectionL][PauseMenu:optSet3][ArrowSelectionR]')
+    unselected = text(b'[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]')
+    assign = b'\x09\xe0\x14\x43'  # PauseMenu.optSet3
+    # A subroutine used on entry and after an edit. Query again so the Insert menu stays in sync.
+    refresh = start + len(append)
+    enabled = b'\x13\x0f\xfe\x17' + be(len(on + assign + b'\x4b'), 2) + on + assign + b'\x4b' + off + assign + b'\x4b'
+    unsupported = unavailable + assign + b'\x4b'
+    append += (b'\x13\x0f\xfe\x01' + be(2) + b'\x3f\x17' + be(len(unsupported), 2)
+               + unsupported + enabled)
+
+    def call(target, at):
+        return b'\x4a' + struct.pack('>i', target - at - 5)
+
+    def add(body):
+        ref = start + len(append)
+        append.extend(body)
+        return ref
+
+    # Display clears its rows whenever it opens, before any individual row gets focus.
+    entry_item = next(i for i, (kind, _ref) in enumerate(display['items']) if kind == 1)
+    entry_ref = display['items'][entry_item][1]
+    at = start + len(append)
+    body = moved_copy(s, entry_ref, at + 5, final)
+    for local, value in ((4, label), (12, unselected)):
+        operand = blank_line(s, display, local)
+        empty = b'\x16' + bytes(data[operand:operand + 2])
+        setter = b'\x09\xe0' + bytes([local]) + b'\x43'
+        body = body.replace(empty + setter, value + setter)
+    display_entry = add(call(refresh, at) + body)
+
+    pieces = {}
+    for kind, name in ((1, 'entry'), (2, 'update')):
+        old = next(v for k, v, _t in s.blocks(template) if k == kind)
+        at = start + len(append)
+        prefix = call(refresh, at) if kind == 1 else b''
+        body = moved_copy(s, old, at + len(prefix), final)
+        old_value = b'\x16' + be(s.literal(b'[ArrowSelectionL][PauseMenu:optSet1][ArrowSelectionR]'
+                                           if kind == 1 else b'[ArrowSpacer][PauseMenu:optSet1][ArrowSpacer]'), 2)
+        body = body.replace(old_value, selected if kind == 1 else unselected)
+        body = body.replace(b'\x09\xe0\x0a\x43', b'\x09\xe0\x0c\x43')  # line3 value
+        body = body.replace(b'\x16' + be(s.literal(b'menuItem1Select'), 2),
+                            b'\x16' + be(s.literal(b'menuItem3Select'), 2))
+        pieces[name] = add(prefix + body)
+    old = transition(s, template, [0xe6, 0xe2, 0xee, 0xf2])
+    at = start + len(append)
+    debounce = moved_copy(s, old, at, final)[:5]  # the native left/right repeat gate
+    body = debounce + b'\x13\x0f\xfd\x43'
+    body += call(refresh, at + len(body)) + selected + b'\x09\xe0\x0c\x43'
+    body += b'\x16' + be(s.literal(b'SND_MM_NAV_LR'), 2) + b'\x13\x00\x5c\x43\x49'
+    pieces['toggle'] = add(body)
+    for name, trigger, target in (('up', UP, y['at'] - 4), ('down', DOWN, brightness['at'] - 4)):
+        at = start + len(append)
+        old = transition(s, y, trigger)
+        body = moved_copy(s, old, at, final)
+        body = body[:5] + b'\x47' + be(target) + b'\x49'
+        pieces[name] = add(body)
+
+    # Rebase existing states once; code/string offsets do not move relative to the code base.
+    edits = []
+    for a, b in spans:
+        for at, op, arg in decode(data, base + s.lit + a, base + s.lit + b):
+            if op == 0x47 and int.from_bytes(arg, 'big') + 4 >= insert:
+                edits.append((at + 1, be(final(int.from_bytes(arg, 'big') + 4) - 4)))
+    edits += [retarget(s, y, DOWN, brightness['at'] - 4, row_ref),
+              retarget(s, brightness, UP, y['at'] - 4, row_ref),
+              (blank_line(s, display, 4), label[1:]),
+              (base + display['at'] + 12 + 4 * entry_item, be(0x01000000 | display_entry))]
+    parents = {r['at'] - 4: r for r in s.records}
+    ancestor = display
+    while ancestor:
+        edits.append((base + ancestor['at'], be(0x04000000 | (ancestor['size'] + row_size))))
+        ancestor = parents.get(ancestor['parent'])
+    for record in s.records:
+        if record['parent'] + 4 >= insert:
+            edits.append((base + record['at'] + 4, be(final(record['parent'] + 4) - 4)))
+    for at, value in edits:
+        data[at:at + len(value)] = value
+
+    def event(name, triggers):
+        return (be(0x03000000 | pieces[name])
+                + b''.join(be(t | (0x80000000 if i + 1 < len(triggers) else 0)) for i, t in enumerate(triggers)))
+
+    record = (be(0x04000000 | row_size) + be(display['at'] - 4) + be(template['id'])
+              + be(0x01000000 | pieces['entry']) + be(0x02000000 | pieces['update'])
+              + event('toggle', [0xe6, 0xe2, 0xee, 0xf2, 0xe9]) + event('up', UP) + event('down', DOWN))
+    if len(record) != row_size:
+        raise ValueError('Display row size mismatch')
+    old_size = struct.unpack_from('<I', data, base - 0x40 + 4)[0]
+    data[base + s.symtab:base + s.symtab] = append
+    data[base + insert:base + insert] = record
+    grown = row_size + len(append)
+    for offset, delta in ((0x08, grown), (0x0c, row_size), (0x10, grown)):
+        struct.pack_into('<I', data, base + offset, struct.unpack_from('<I', data, base + offset)[0] + delta)
+    struct.pack_into('<I', data, base - 0x40 + 4, old_size + grown)
+    data[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)
+    return spans + [(refresh, start + len(append))]
+
+
+def native_cheats(data, spans):
+    """Native Options > Cheats > Multipliers, sharing the port's existing settings."""
+    base = next(o + 64 for o, size, name in entries(data) if name == 'SMI_R_UI')
+    s = Script(data, base)
+    options, game, audio = (s.one(n) for n in ('PauseOptions', 'HLGSettings', 'HLAudio'))
+    enter = s.one('EnterPause')
+    opt_at, pages_at = options['at'] + options['size'], enter['at'] + enter['size']
+    left, right = [0xe6, 0xf2], [0xe2, 0xee]
+    toggle = [0xe6, 0xe2, 0xee, 0xf2, 0xe9]
+    specs = [('HLNativeCheats', 'options', [UP, DOWN, CONFIRM]),
+             ('NativeCheats', 'pause', [[0xeb]])]
+    specs += [(f'NativeCheat{i}', 'NativeCheats', [toggle, UP, DOWN]) for i in range(8)]
+    specs += [('NativeMultipliersLink', 'NativeCheats', [UP, DOWN, CONFIRM]),
+              ('NativeMultipliers', 'pause', [[0xeb]])]
+    specs += [(f'NativeMultiplier{i}', 'NativeMultipliers', [left, right, UP, DOWN]) for i in range(6)]
+    specs += [('NativeMultiplierReset', 'NativeMultipliers', [UP, DOWN, CONFIRM])]
+    sizes = {name: 20 + sum(4 + 4 * len(t) for t in events) for name, parent, events in specs}
+    option_size = sizes['HLNativeCheats']
+    pages_size = sum(sizes.values()) - option_size
+    final = lambda at: at + (option_size if at >= opt_at else 0) + (pages_size if at >= pages_at else 0)
+    refs = {'options': final(options['at']) - 4, 'pause': final(enter['at']) - 4}
+    refs['HLNativeCheats'] = opt_at - 4
+    at = pages_at + option_size
+    for name, parent, events in specs[1:]:
+        refs[name] = at - 4
+        at += sizes[name]
+
+    # New symbol records go before the old name pool; existing symbol ids stay valid.
+    old_size = struct.unpack_from('<I', data, base - 60)[0]
+    symbols = bytearray(data[base + s.symtab:base + old_size])
+    pool, pos = None, 8
+    while pool is None or pos < pool:
+        offset = struct.unpack_from('>I', symbols, pos + 4)[0] + 4
+        pool = offset if pool is None else min(pool, offset)
+        pos += 8
+    symbol_ids = {name: pool - 4 + i * 8 for i, (name, parent, events) in enumerate(specs)}
+    delta = len(specs) * 8
+    for pos in range(8, pool, 8):
+        struct.pack_into('>I', symbols, pos + 4, struct.unpack_from('>I', symbols, pos + 4)[0] + delta)
+    new_symbols, names = bytearray(), bytearray()
+    for name, parent, events in specs:
+        new_symbols += struct.pack('>HHI', 0, 0, len(symbols) + delta + len(names) - 4)
+        names += name.encode('ascii') + b'\0'
+    symbols[pool:pool] = new_symbols
+    symbols += names
+
+    strings, code, labels, fixups = bytearray(), bytearray(), {}, []
+    string_refs = {}
+    start = s.symtab - s.lit
+
+    def emit(value):
+        code.extend(value)
+
+    def string(value):
+        value = value.encode('ascii') if isinstance(value, str) else value
+        if value not in string_refs:
+            try:
+                string_refs[value] = s.literal(value)
+            except ValueError:
+                ref = start + len(strings)
+                if ref > 0xffff:
+                    raise ValueError('Native menu text exceeds the script literal range')
+                string_refs[value] = ref
+                strings.extend(value + b'\0')
+        emit(b'\x16' + be(string_refs[value], 2))
+
+    def integer(value):
+        emit(b'\x01' + be(value))
+
+    def builtin(function, pop=True):
+        emit(b'\x13' + be(function, 2) + (b'\x43' if pop else b''))
+
+    def assign(local):
+        emit(b'\x09\xe0' + bytes([local]) + b'\x43')
+
+    def call(target):
+        fixups.append((len(code), target))
+        emit(b'\x4a' + bytes(4))
+
+    def goto(target):
+        emit(b'\x47' + be(refs[target] if isinstance(target, str) else final(target + 4) - 4))
+
+    def sound(name):
+        string(name)
+        builtin(0x5c)
+
+    def animation(index, layer):
+        string('PauseText')
+        integer(layer)
+        string(f'menuItem{index}Select')
+        integer(3)
+        builtin(0x5a)
+
+    def value(index, selected=False):
+        edge = ('ArrowSelectionL', 'ArrowSelectionR') if selected else ('ArrowSpacer', 'ArrowSpacer')
+        string(f'[{edge[0]}][PauseMenu:optSet{index}][{edge[1]}]')
+        assign(9 + index)
+
+    def query(index, function, selected=False):
+        builtin(function, pop=False)
+        assign(0x11 + index)
+        value(index, selected)
+
+    def slider(index):
+        string(f'sliderBar{index + 4}')
+        integer(64)
+        string('')
+        emit(b'\x00' + struct.pack('>f', 0.0))
+        builtin(0xf50 + index, pop=False)
+        emit(b'\x2b\x00' + struct.pack('>f', 30.0) + b'\x24')  # timeline seconds = percent / 30
+        integer(5)
+        builtin(0x5a)
+
+    def bars(show):
+        for index in range(6):
+            string(f'sliderBar{index + 4}')
+        integer(6)
+        builtin(0x58 if show else 0x59)
+
+    # Reuse the native repeat gate used by the subtitle toggle and volume sliders.
+    template = s.by_name['HLSubtitleDis'][0]
+    ref = transition(s, template, [0xe6, 0xe2, 0xee, 0xf2])
+    body = s.block_bytes(ref)
+    if body[0] != 0x4a:
+        raise ValueError('Native repeat gate not found')
+    repeat = ref + 5 + struct.unpack('>i', body[1:5])[0]
+    cheat_names = ['Infinite Health', 'Infinite Magic', 'Infinite Item Meter', 'Infinite Rage of Sparta',
+                   'Max Red Orbs', 'Unlock Very Hard', 'Infinite Double Jumps', 'Automatic QTE', 'Multipliers']
+    multiplier_names = ['Red Orbs', 'Green Orbs (Health)', 'Blue Orbs (Magic)', 'Gold Orbs (Rage)',
+                        'Damage Dealt', 'Damage Taken', 'Reset All to 1x']
+    handlers = {}
+
+    def begin(name, kind):
+        key = (name, kind)
+        handlers[key] = len(code)
+        labels[key] = len(code)
+
+    def end():
+        emit(b'\x49')
+
+    def cheat_window(first):
+        for slot in range(8):
+            row = first + slot if slot < 7 else 8
+            string(cheat_names[row])
+            assign(1 + slot)
+            if row < 8:
+                query(slot, 0xf00 + row)
+            else:
+                string('')
+                assign(9 + slot)
+
+    def selection(name, index, function=None, selected=True, cheat=False):
+        begin(name, 1 if selected else 2)
+        if selected:
+            builtin(0x6b)
+            if cheat:
+                cheat_window(1 if name == 'NativeMultipliersLink' or int(name[-1]) >= 6 else 0)
+            if function is not None:
+                query(index, function, True)
+        elif function is not None:
+            value(index)
+        animation(index, 8 if selected else 9)
+        end()
+
+    def navigation(name, index, rows):
+        for kind, target in (('up', rows[(index - 1) % len(rows)]), ('down', rows[(index + 1) % len(rows)])):
+            begin(name, kind)
+            sound('SND_MM_NAV_UPDN')
+            goto(target)
+            end()
+
+    selection('HLNativeCheats', 2)
+    selection('HLNativeCheats', 2, selected=False)
+    for kind, target in (('up', game['at'] - 4), ('down', audio['at'] - 4)):
+        begin('HLNativeCheats', kind)
+        sound('SND_MM_NAV_UPDN')
+        goto(target)
+        end()
+    begin('HLNativeCheats', 'confirm')
+    sound('SND_MM_SELECT')
+    goto('NativeCheats')
+    end()
+
+    cheat_rows = [f'NativeCheat{i}' for i in range(8)] + ['NativeMultipliersLink']
+    multiplier_rows = [f'NativeMultiplier{i}' for i in range(6)] + ['NativeMultiplierReset']
+    for page, title, row_names, rows, is_multiplier in (
+            ('NativeCheats', 'Cheats', cheat_names, cheat_rows, False),
+            ('NativeMultipliers', 'Multipliers', multiplier_names, multiplier_rows, True)):
+        begin(page, 1)
+        string(title)
+        assign(0)
+        for index in range(8):
+            string(row_names[index] if index < len(row_names) else '')
+            assign(1 + index)
+            string('')
+            assign(9 + index)
+        for local in range(0x19, 0x1d):
+            string('')
+            assign(local)
+        for index in range(6 if is_multiplier else 8):
+            query(index, (0xf20 if is_multiplier else 0xf00) + index)
+            if is_multiplier:
+                slider(index)
+        if is_multiplier:
+            bars(True)
+        else:
+            cheat_window(0)
+        goto(rows[0])
+        end()
+        begin(page, 2)
+        if is_multiplier:
+            bars(False)
+        end()
+        begin(page, 'back')
+        sound('SND_MM_BACK')
+        goto('NativeCheats' if is_multiplier else options['at'] - 4)
+        end()
+        for index, name in enumerate(rows):
+            function = ((0xf20 if is_multiplier else 0xf00) + index) if index + 1 < len(rows) else None
+            slot = index - (not is_multiplier and 6 <= index < 8)
+            if not is_multiplier and index == 8:
+                slot = 7
+            selection(name, slot, function, cheat=not is_multiplier)
+            selection(name, slot, function, False)
+            navigation(name, index, rows)
+            if function is None:
+                begin(name, 'confirm')
+                sound('SND_MM_SELECT')
+                if is_multiplier:
+                    builtin(0xf60)
+                    for i in range(6):
+                        query(i, 0xf20 + i)
+                        slider(i)
+                else:
+                    goto('NativeMultipliers')
+                end()
+            elif is_multiplier:
+                for kind, function in (('left', 0xf30 + index), ('right', 0xf40 + index)):
+                    begin(name, kind)
+                    call(repeat)
+                    query(index, function, True)
+                    slider(index)
+                    sound('SND_MM_NAV_LR')
+                    end()
+            else:
+                begin(name, 'toggle')
+                call(repeat)
+                query(slot, 0xf10 + index, True)
+                sound('SND_MM_NAV_LR')
+                end()
+
+    # Clone Options' entry, adding Cheats at line2 and shifting Audio/Display/Exit down one row.
+    old_entry = next(v for k, v, t in s.blocks(options) if k == 1)
+    original_entry = s.block_bytes(old_entry)
+    replacements = {3: 'Cheats'}
+    for old_local in (3, 4, 5):
+        setter = b'\x09\xe0' + bytes([old_local]) + b'\x43'
+        at = original_entry.index(setter)
+        value_ref = int.from_bytes(original_entry[at - 2:at], 'big')
+        replacements[old_local + 1] = s.string(s.lit + value_ref).encode('utf-8')
+    # Keep existing non-ASCII Exit labels as bytes (their source encoding is UTF-8).
+    exit_at = original_entry.index(b'\x09\xe0\x05\x43')
+    exit_ref = int.from_bytes(original_entry[exit_at - 2:exit_at], 'big')
+    raw = bytes(data[base + s.lit + exit_ref:]).split(b'\0', 1)[0]
+    replacements[6] = raw
+    labels['options_entry'] = len(code)
+    for at, op, arg in decode(data, base + s.lit + old_entry, base + s.lit + old_entry + len(original_entry)):
+        relative = at - base - s.lit
+        if op == 0x16 and data[at + 3:at + 5] == b'\x09\xe0' and data[at + 5] in replacements:
+            string(replacements[data[at + 5]])
+        elif op == 0x47:
+            goto(int.from_bytes(arg, 'big'))
+        elif op == 0x4a:
+            call(relative + 5 + struct.unpack('>i', arg)[0])
+        else:
+            emit(bytes([op]) + arg)
+
+    code_start = start + len(strings)
+    for at, target in fixups:
+        destination = code_start + labels[target] if target in labels else target
+        struct.pack_into('>i', code, at + 1, destination - (code_start + at + 5))
+    edits = []
+    for a, b in spans:
+        for at, op, arg in decode(data, base + s.lit + a, base + s.lit + b):
+            if op == 0x47 and int.from_bytes(arg, 'big') + 4 >= opt_at:
+                edits.append((at + 1, be(final(int.from_bytes(arg, 'big') + 4) - 4)))
+    edits += [retarget(s, game, DOWN, audio['at'] - 4, refs['HLNativeCheats']),
+              retarget(s, audio, UP, game['at'] - 4, refs['HLNativeCheats'])]
+    entry_item = next(i for i, (k, v) in enumerate(options['items']) if k == 1)
+    edits.append((base + options['at'] + 12 + 4 * entry_item, be(0x01000000 | (code_start + labels['options_entry']))))
+    for record, old_index in ((audio, 2), (s.by_name['HLDisplay'][0], 3), (s.by_name['HLDisplay'][1], 4)):
+        for kind, ref, triggers in s.blocks(record):
+            if kind in (1, 2):
+                block = s.block_bytes(ref)
+                source = b'\x16' + be(s.literal(f'menuItem{old_index}Select'.encode()), 2)
+                destination = b'\x16' + be(s.literal(f'menuItem{old_index + 1}Select'.encode()), 2)
+                if block.count(source) != 1:
+                    raise ValueError('Options selection animation not found')
+                edits.append((base + s.lit + ref + block.index(source), destination))
+    ancestors = {r['at'] - 4: r for r in s.records}
+    growth = {}
+    for record, amount in ((options, option_size), (enter, pages_size)):
+        while record:
+            growth[record['at']] = growth.get(record['at'], 0) + amount
+            record = ancestors.get(record['parent'])
+    for record in s.records:
+        if record['at'] in growth:
+            edits.append((base + record['at'], be(0x04000000 | (record['size'] + growth[record['at']]))))
+        if record['parent'] + 4 >= opt_at:
+            edits.append((base + record['at'] + 4, be(final(record['parent'] + 4) - 4)))
+    for at, value in edits:
+        data[at:at + len(value)] = value
+
+    records = bytearray()
+    for name, parent, events in specs:
+        size = sizes[name]
+        if name in ('NativeCheats', 'NativeMultipliers'):
+            size += sum(sizes[n] for n, p, e in specs if p == name)
+        record = bytearray(be(0x04000000 | size) + be(refs[parent]) + be(symbol_ids[name]))
+        for kind in (1, 2):
+            record += be((kind << 24) | (code_start + handlers[name, kind]))
+        event_names = ['back'] if parent == 'pause' else (
+            ['left', 'right', 'up', 'down'] if name.startswith('NativeMultiplier') and name[-1:].isdigit()
+            else ['toggle', 'up', 'down'] if name.startswith('NativeCheat') and name[-1:].isdigit()
+            else ['up', 'down', 'confirm'])
+        for event_name, triggers in zip(event_names, events):
+            record += be(0x03000000 | (code_start + handlers[name, event_name]))
+            record += b''.join(be(t | (0x80000000 if i + 1 < len(triggers) else 0)) for i, t in enumerate(triggers))
+        if len(record) != sizes[name]:
+            raise ValueError(f'{name}: native record size mismatch')
+        records += record
+    data[base + s.symtab:base + old_size] = strings + code + symbols
+    data[base + pages_at:base + pages_at] = records[option_size:]
+    data[base + opt_at:base + opt_at] = records[:option_size]
+    grown = option_size + pages_size + len(strings) + len(code) + len(symbols) - (old_size - s.symtab)
+    for offset, amount in ((8, grown), (12, option_size + pages_size), (16, option_size + pages_size + len(strings) + len(code))):
+        struct.pack_into('<I', data, base + offset, struct.unpack_from('<I', data, base + offset)[0] + amount)
+    struct.pack_into('<I', data, base - 60, old_size + grown)
+    data[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)
+    native_multiplier_bars(data)
+
+
+def native_multiplier_bars(data):
+    """Dedicated sliders left of the values, preserving the original audio/display controls."""
+    all_entries = list(entries(data))
+    source, size, _ = next(e for e in all_entries if e[2] == 'gosliderbar3' and e[1])
+    if size != 148 or struct.unpack_from('<H', data, source + 64 + 0x76)[0] != 3:
+        raise ValueError('Native slider template not recognized')
+    group = bytes(data[source - 64:source + 64 + 160 + 64])
+    reference, _, _ = next(e for e in all_entries if e[2] == 'gosliderbar3' and not e[1])
+    instance_ids = [struct.unpack_from('<I', data, o + 64 + 0x3c)[0] for o, n, name in all_entries
+                    if n == 148 and struct.unpack_from('<I', data, o)[0] == 0x1f0001]
+    last = max(value for value in instance_ids if value >> 16 == 1)
+    groups, references = bytearray(), bytearray()
+    for index in range(4, 10):
+        name = f'gosliderbar{index}'.encode().ljust(56, b'\0')
+        copy = bytearray(group)
+        copy[72:128] = name
+        struct.pack_into('<I', copy, 128 + 0x3c, last + index - 3)
+        struct.pack_into('<f', copy, 128 + 0x40, 0.75)
+        struct.pack_into('<f', copy, 128 + 0x64, 399.5)
+        struct.pack_into('<f', copy, 128 + 0x68, 2.95 - 0.75 * (index - 4))
+        struct.pack_into('<H', copy, 128 + 0x76, index)
+        groups += copy
+        references += bytes(data[reference:reference + 8]) + name
+    data[reference + 64:reference + 64] = references
+    data[source + 64 + 160 + 64:source + 64 + 160 + 64] = groups
+
+
 def patch(data, language=None):
     """Adds the rows to the R_UI.WAD in `data` (a bytearray); ValueError when this is not the
     script the patch was made for (nothing is changed then).
@@ -396,7 +887,8 @@ def patch(data, language=None):
     # Edits in the layout as it is now. First every goto to a state that moves (or to WadChoose,
     # which the pause row replaces), then the rows' own wiring.
     edits = []
-    for a, b in s.spans():
+    spans = s.spans()
+    for a, b in spans:
         if start <= a < end:  # WadChoose's dead code: the new code goes over it
             continue
         for at, op, arg in decode(work, base + s.lit + a, base + s.lit + b):
@@ -439,6 +931,9 @@ def patch(data, language=None):
         struct.pack_into('<I', work, base + offset, struct.unpack_from('<I', work, base + offset)[0] + grown)
     struct.pack_into('<I', work, base - 0x40 + 4, old_size + grown)
     work[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)
+    spans = display_health_bar(work, [(a, b) for a, b in spans if not start <= a < end]
+                              + [(pause_pieces['entry'], failsafe_start + len(failsafe))])
+    native_cheats(work, spans)
     data[:] = work
 
 
