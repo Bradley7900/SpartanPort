@@ -89,6 +89,18 @@ fn the_home_art_falls_back_to_the_base_game() {
 }
 
 #[test]
+fn the_rust_only_home_and_splash_texts_have_portuguese() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.lang = "pt".into();
+    // The wording of the Python's "• No saves yet: the game creates them in {}".
+    assert_eq!(home::chips(&state)[2], "• Nenhum save ainda");
+    state.splash.done = false;
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("qualquer tecla pula").is_ok());
+}
+
+#[test]
 fn saves_chip_follows_the_savedata_folder() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
