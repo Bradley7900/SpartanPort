@@ -277,7 +277,7 @@ fn ini_on(state: &State, key: &str) -> bool {
 }
 
 /// A folder row with its note under it.
-fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Element<'a, Message> {
+pub fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Element<'a, Message> {
     let value = state.settings.get_str(key);
     // Python `open_path`: an empty saves folder opens `DATA_DIR/user`; an unset game or update
     // folder has nothing to open.

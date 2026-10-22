@@ -88,6 +88,10 @@ fn lookup(lang: &str, en: &str) -> Option<String> {
 /// languages fall back to English: a translator gap to fill.
 static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
     (
+        "Missing or empty files:",
+        &[("pt", "Arquivos ausentes ou vazios:")],
+    ),
+    (
         "Initial setup",
         &[("pt", "Configuração inicial")],
     ),
