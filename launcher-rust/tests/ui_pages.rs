@@ -1630,3 +1630,64 @@ fn stale_conflicts_are_dropped() {
     );
     assert_eq!(state.mods.conflicts, current);
 }
+
+// --- Log page (Task 31) ---
+
+use spartanport_launcher::ui::pages::log::{self, LogMessage};
+
+#[test]
+fn log_page_shows_buffer_lines_and_clears() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    state.log.push_text("line one\nline two\n");
+    open(&mut state, Page::Log);
+    let mut ui = iced_test::simulator::simulator(app::view(&state));
+    // The body is one text widget, so it is found by its whole text.
+    assert!(ui
+        .find(
+            "line one
+line two"
+        )
+        .is_ok());
+    drop(ui);
+
+    // Copy hands the text to the clipboard; the buffer stays as it was.
+    click(&mut state, "Copy");
+    assert_eq!(state.log.len(), 2);
+
+    // Open last_run.log targets <user_dir>/last_run.log.
+    let expected = state
+        .paths
+        .run_log_path(&state.settings.get_str("user_dir"));
+    assert!(matches!(
+        log::open_last_run_message(&state),
+        Message::OpenPath(path) if path == expected
+    ));
+    let sent = messages(&state, "Open last_run.log");
+    assert!(matches!(
+        sent.as_slice(),
+        [Message::Log(LogMessage::OpenLastRun)]
+    ));
+    let _ = app::update(&mut state, Message::Log(LogMessage::OpenLastRun));
+
+    click(&mut state, "Clear");
+    assert_eq!(state.log.len(), 0);
+    let mut ui = iced_test::simulator::simulator(app::view(&state));
+    assert!(ui
+        .find(
+            "line one
+line two"
+        )
+        .is_err());
+}
+
+#[test]
+fn log_header_translates() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "pt".into();
+    open(&mut state, Page::Log);
+    let mut ui = iced_test::simulator::simulator(app::view(&state));
+    assert!(ui.find("6 000 linhas mantidas").is_ok());
+}

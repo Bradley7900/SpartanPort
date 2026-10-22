@@ -27,6 +27,7 @@ use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::advanced;
 use crate::ui::pages::controls::{self, ControlsMessage, ControlsView};
 use crate::ui::pages::game::{self, BackupMessage, PatchesView};
+use crate::ui::pages::log::{self, LogMessage};
 use crate::ui::pages::mods::{self, ModsMessage, ModsView};
 use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
@@ -221,6 +222,7 @@ pub enum Message {
     Modal(ModalMessage),
     Trophies(TrophiesMessage),
     Mods(ModsMessage),
+    Log(LogMessage),
     Controls(ControlsMessage),
     ToggleDiagnostics,
     DesktopShortcut,
@@ -324,6 +326,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Update(UpdateMessage::Install | UpdateMessage::Check { .. }) => {}
         Message::Trophies(message) => return trophies::update(state, message),
         Message::Mods(message) => return mods::update(state, message),
+        Message::Log(message) => return log::update(state, message),
         Message::Controls(message) => return controls::update(state, message),
         message @ (Message::ToggleDiagnostics
         | Message::DesktopShortcut

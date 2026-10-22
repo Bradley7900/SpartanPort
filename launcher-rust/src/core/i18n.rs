@@ -88,6 +88,22 @@ fn lookup(lang: &str, en: &str) -> Option<String> {
 /// languages fall back to English: a translator gap to fill.
 static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
     (
+        "{} lines kept",
+        &[
+            ("pt", "{} linhas mantidas"),
+            ("es", "{} líneas guardadas"),
+            ("ru", "{} строк хранится"),
+        ],
+    ),
+    (
+        "Open last_run.log",
+        &[
+            ("pt", "Abrir last_run.log"),
+            ("es", "Abrir last_run.log"),
+            ("ru", "Открыть last_run.log"),
+        ],
+    ),
+    (
         "Americas",
         &[("pt", "Américas"), ("es", "América"), ("ru", "Америка")],
     ),
