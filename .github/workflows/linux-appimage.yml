@@ -32,6 +32,17 @@ jobs:
         run: bash packaging/linux/ci-deps.sh
       - name: Build
         run: bash build.sh
+      - name: Stamp
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease 2>/dev/null || echo true)
+          python3 packaging/release_stamp.py "$TAG" --prerelease "$pre" > release.json
+          mkdir -p dist && cp release.json dist/
+          cat release.json
       - name: AppImage
         run: |
           PATH="$PWD/out/venv/bin:$PATH" bash packaging/linux/build.sh
@@ -39,7 +50,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: spartanport-x86_64.AppImage
-          path: dist/spartanport-x86_64.AppImage*
+          path: |
+            dist/spartanport-x86_64.AppImage*
+            dist/release.json
           if-no-files-found: error
 
   smoke:
@@ -58,9 +71,11 @@ jobs:
           name: spartanport-x86_64.AppImage
           path: dist
       - name: Open the launcher on ${{ matrix.image }}
+        env:
+          SPARTAN_RELEASE_TAG: ${{ inputs.tag }}
         run: |
           chmod +x dist/spartanport-x86_64.AppImage
-          docker run --rm -v "$PWD:/w:ro" "${{ matrix.image }}" bash /w/packaging/linux/smoke-test.sh /w/dist/spartanport-x86_64.AppImage
+          docker run --rm -e SPARTAN_RELEASE_TAG -v "$PWD:/w:ro" "${{ matrix.image }}" bash /w/packaging/linux/smoke-test.sh /w/dist/spartanport-x86_64.AppImage
 
   publish:
     needs: smoke
@@ -81,4 +96,4 @@ jobs:
             gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Linux test build $TAG" \
               --notes "Linux test build from \`${GITHUB_SHA::7}\`. Download \`spartanport-x86_64.AppImage\`, then \`chmod +x spartanport-x86_64.AppImage\` and run it. Not a final release: please report in the linked issue whether it opens and runs."
           fi
-          gh release upload "$TAG" dist/spartanport-x86_64.AppImage dist/spartanport-x86_64.AppImage.sha256 --clobber
+          gh release upload "$TAG" dist/spartanport-x86_64.AppImage dist/spartanport-x86_64.AppImage.sha256 dist/release.json --clobber

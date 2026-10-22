@@ -55,6 +55,18 @@ jobs:
         id: python
         with:
           python-version: '3.13'
+      - name: Stamp
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          PYTHON_EXE: ${{ steps.python.outputs.python-path }}
+        run: |
+          pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease 2>/dev/null || echo true)
+          "$(cygpath -u "$PYTHON_EXE")" packaging/release_stamp.py "$TAG" --prerelease "$pre" > release.json
+          mkdir -p dist && cp release.json dist/
+          cat release.json
       - name: Package
         env:
           PYTHON_EXE: ${{ steps.python.outputs.python-path }}
@@ -64,7 +76,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: spartanport-windows.zip
-          path: dist/spartanport-windows.zip*
+          path: |
+            dist/spartanport-windows.zip*
+            dist/release.json
           if-no-files-found: error
 
   smoke:
@@ -78,6 +92,8 @@ jobs:
           path: dist
       - name: Open the package without MSYS2
         shell: powershell
+        env:
+          SPARTAN_RELEASE_TAG: ${{ inputs.tag }}
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging/windows/smoke-test.ps1 dist/spartanport-windows.zip
 
   publish:
@@ -99,4 +115,4 @@ jobs:
             gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title "Windows test build $TAG" \
               --notes "Windows test build from \`${GITHUB_SHA::7}\`. Download \`spartanport-windows.zip\`, extract it and run \`SpartanPort.exe\`. Not a final release: please report in the linked issue whether it opens and runs."
           fi
-          gh release upload "$TAG" dist/spartanport-windows.zip dist/spartanport-windows.zip.sha256 --clobber
+          gh release upload "$TAG" dist/spartanport-windows.zip dist/spartanport-windows.zip.sha256 dist/release.json --clobber

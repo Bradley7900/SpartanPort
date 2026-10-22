@@ -11,6 +11,19 @@ Expand-Archive -LiteralPath $Package -DestinationPath $work
 $tree = Join-Path $work 'spartanport-windows'
 $failed = @()
 
+# A tagged build must carry the stamp the launcher's version menu reads.
+if ($env:SPARTAN_RELEASE_TAG) {
+    $stamp = $null
+    try { $stamp = Get-Content -Raw -LiteralPath (Join-Path $tree 'release.json') | ConvertFrom-Json } catch { }
+    if ($stamp -and $stamp.version) {
+        Write-Host "release.json: $($stamp.version)"
+    } else {
+        $msg = "release.json is missing or invalid in the package (tag $env:SPARTAN_RELEASE_TAG)"
+        Write-Host "FAIL: $msg"
+        $failed += $msg
+    }
+}
+
 # The same names package.sh refuses to ship: game files and anything a player makes.
 $forbidden = 'eboot.bin', 'sce_module', 'sce_sys', 'savedata', 'user', 'cache', '*.log', 'spartanport.ini',
     'settings.json', 'game_icon.ico', 'mods.json', 'patches.json', 'fsr4_shaders', 'nvngx_dlss*.dll', '*.spv', '*.pkg',
