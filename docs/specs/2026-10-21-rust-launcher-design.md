@@ -381,8 +381,9 @@ nativo" da branch `native-renderer` (entra quando essa branch receber o merge do
 
 ## 10. Referências
 
-- Mockup: `docs/specs/assets/rust-launcher/launcher-mockup-v13.html` (a arte do olho não está no
-  repositório; qualquer imagem 16:9 chamada `background.avif` ao lado mostra a Home com arte).
+- Mockup: `docs/specs/assets/rust-launcher/launcher-mockup-v13.html` (a arte do olho é
+  `launcher-rust/assets/background.png`, R72; o mockup a lê como `background.avif` ao lado dele, e
+  qualquer imagem 16:9 com esse nome mostra a Home com arte).
 - Launcher Python de referência: `launcher/spartanport_launcher_win.py` 2.6.0, commit `541739b`.
 - Roadmap do renderer nativo: `docs/plans/2026-10-18-native-renderer-roadmap.md` (regras de
   operação herdadas: spec antes de código, TDD, nunca abrir ou fechar o jogo sem autorização,
