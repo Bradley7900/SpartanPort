@@ -8,6 +8,7 @@
 #include <string>
 #include "spartanport_graphics.h"
 #include "spartanport_settings.h"
+#include "../gpu/spartanportgpu.h"
 
 namespace G = SpartanGraphics;
 
@@ -166,6 +167,68 @@ int main() {
     const std::string cheats = Read(path);
     assert(cheats.find("cheat_double_jumps=1\n") != std::string::npos);
     assert(cheats.find("cheat_very_hard=1\n") != std::string::npos);
+    v.actor_watch_supported = false;
+    v.enemy_health_bar = false;
+    assert(spartanportgpu_enemy_health_bar(0) == 2);
+    assert(spartanportgpu_enemy_health_bar(1) == 2 && !v.enemy_health_bar);
+    v.actor_watch_supported = true;
+    assert(spartanportgpu_enemy_health_bar(0) == 0);
+    assert(spartanportgpu_enemy_health_bar(1) == 1 && v.enemy_health_bar);
+    assert(Read(path).find("enemy_health_bar=1\n") != std::string::npos);
+    v.enemy_health_bar = false;
+    SpartanSettings::Load();
+    assert(spartanportgpu_enemy_health_bar(0) == 1);
+    assert(spartanportgpu_enemy_health_bar(1) == 0 && !v.enemy_health_bar);
+    assert(Read(path).find("enemy_health_bar=0\n") != std::string::npos);
+    const auto text = [](unsigned id) { return reinterpret_cast<const char*>(spartanportgpu_native_setting(id)); };
+    v.cheats_supported = 0;
+    v.cheats[0] = false;
+    assert(std::string(text(0xf10)) == "Unavailable" && !v.cheats[0]);
+    v.cheats_supported = (1u << SPARTAN_CHEAT_COUNT) - 1;
+    for (unsigned i = 0; i < SPARTAN_CHEAT_COUNT; ++i) {
+        v.cheats[i] = false;
+        assert(std::string(text(0xf00 + i)) == "Off");
+        assert(std::string(text(0xf10 + i)) == "On" && v.cheats[i]);
+        assert(std::string(text(0xf10 + i)) == "Off" && !v.cheats[i]);
+    }
+    v.qte_supported = false;
+    v.auto_qte = false;
+    assert(std::string(text(0xf17)) == "Unavailable" && !v.auto_qte);
+    v.qte_supported = true;
+    assert(std::string(text(0xf07)) == "Off");
+    assert(std::string(text(0xf17)) == "On" && v.auto_qte);
+    assert(Read(path).find("auto_qte=1\n") != std::string::npos);
+    v.auto_qte = false;
+    SpartanSettings::Load();
+    assert(std::string(text(0xf07)) == "On");
+    assert(std::string(text(0xf17)) == "Off" && !v.auto_qte);
+    v.red_orbs_supported = true;
+    v.orb_pickup_supported = true;
+    v.damage_supported = true;
+    v.red_orb_multiplier = 1.0f;
+    assert(std::string(text(0xf40)) == "1.10x");
+    assert(std::string(text(0xf30)) == "1.00x");
+    v.red_orb_multiplier = 2.0f;
+    assert(std::string(text(0xf40)) == "2.50x");
+    assert(std::string(text(0xf30)) == "2.00x");
+    v.red_orb_multiplier = 10.0f;
+    assert(std::string(text(0xf40)) == "11.00x");
+    assert(std::string(text(0xf30)) == "10.00x");
+    v.red_orb_multiplier = 1.23f;
+    assert(std::string(text(0xf30)) == "1.20x");
+    v.red_orb_multiplier = 0.1f;
+    assert(std::string(text(0xf30)) == "0.10x" && spartanportgpu_native_setting(0xf50) == 0);
+    v.red_orb_multiplier = 100.0f;
+    assert(std::string(text(0xf40)) == "100.00x" && spartanportgpu_native_setting(0xf50) == 100);
+    v.cheats[SPARTAN_CHEAT_ORBS] = true;
+    assert(std::string(text(0xf30)) == "Disabled" && v.red_orb_multiplier == 100.0f);
+    v.cheats[SPARTAN_CHEAT_ORBS] = false;
+    v.damage_supported = false;
+    const float damage = v.damage_dealt.load();
+    assert(std::string(text(0xf44)) == "Unavailable" && v.damage_dealt == damage);
+    assert(spartanportgpu_native_setting(0xf60) == 0 && v.red_orb_multiplier == 1.0f);
+    assert(Read(path).find("red_orb_multiplier=1.000\n") != std::string::npos);
+    assert(spartanportgpu_native_setting(0xf08) == 0 && spartanportgpu_native_setting(0xf26) == 0);
     std::remove(path);
     std::puts("PASS: graphics settings");
 }
