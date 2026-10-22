@@ -50,14 +50,19 @@ fn click(state: &State, label: &str) -> Vec<Message> {
 }
 
 #[test]
-fn home_shows_play_and_the_four_chips() {
+fn home_shows_play_and_the_three_chips() {
     let dir = tempfile::tempdir().unwrap();
     let state = state_in(dir.path());
+    // Saves, game, graphics card (ruling R77): the settings line replaced the requirements chip.
     let chips = home::chips(&state);
-    assert_eq!(chips[0], "• Graphics card: not checked");
-    assert_eq!(chips[1], "✗ No eboot.bin in the game folder");
-    assert_eq!(chips[2], "• No saves yet");
-    assert_eq!(chips[3], "• Choose the game folder first.");
+    assert_eq!(
+        chips,
+        [
+            "• No saves yet",
+            "✗ No eboot.bin in the game folder",
+            "• Graphics card: not checked",
+        ]
+    );
     assert_eq!(
         home::quick_line(&state),
         "FSR 3.1 · Quality · 1920 × 1080 · Unlimited · Windowed · Monitor 1"
@@ -69,6 +74,22 @@ fn home_shows_play_and_the_four_chips() {
         assert!(ui.find(chip.as_str()).is_ok(), "chip {chip:?} missing");
     }
     assert!(ui.find(iced_test::selector::id(home::QUICK_ID)).is_ok());
+    // The requirements chip at rest, without a game folder.
+    assert!(ui.find("• Choose the game folder first.").is_err());
+}
+
+#[test]
+fn the_chips_read_saves_then_game_then_graphics_card_from_the_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = state_in(dir.path());
+    let mut ui = simulator(app::view(&state));
+    let mut x = |label: &str| ui.find(label).unwrap().bounds().x;
+    let (saves, game, card) = (
+        x("• No saves yet"),
+        x("✗ No eboot.bin in the game folder"),
+        x("• Graphics card: not checked"),
+    );
+    assert!(saves < game && game < card, "{saves}, {game}, {card}");
 }
 
 /// The ini and settings of the mockup's settings line (`launcher-mockup-v13.html`, `#quick`).
@@ -243,7 +264,7 @@ fn the_rust_only_home_and_splash_texts_have_portuguese() {
     let mut state = state_in(dir.path());
     state.lang = "pt".into();
     // The wording of the Python's "• No saves yet: the game creates them in {}".
-    assert_eq!(home::chips(&state)[2], "• Nenhum save ainda");
+    assert_eq!(home::chips(&state)[0], "• Nenhum save ainda");
     state.splash.done = false;
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("qualquer tecla pula").is_ok());
@@ -262,12 +283,12 @@ fn the_graphics_card_chip_uses_the_python_text() {
     }];
     // `✓ Graphics card: {}` of the 2.6.0 tables, not a Vulkan version nobody checked.
     assert_eq!(
-        home::chips(&state)[0],
+        home::chips(&state)[2],
         "✓ Graphics card: NVIDIA GeForce RTX 4060"
     );
     state.lang = "pt".into();
     assert_eq!(
-        home::chips(&state)[0],
+        home::chips(&state)[2],
         "✓ Placa de vídeo: NVIDIA GeForce RTX 4060"
     );
 }
@@ -283,7 +304,7 @@ fn saves_chip_follows_the_savedata_folder() {
     std::fs::create_dir_all(&saves).unwrap();
     std::fs::write(saves.join("slot0"), b"x").unwrap();
     home::refresh_facts(&mut state);
-    assert!(home::chips(&state)[2].starts_with("✓ Saves found in "));
+    assert!(home::chips(&state)[0].starts_with("✓ Saves found in "));
 }
 
 #[test]

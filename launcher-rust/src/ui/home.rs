@@ -23,12 +23,10 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{
     short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS, PRESETS, UPSCALERS,
 };
-use crate::core::patches::patch_status;
 use crate::ui::app::{
     home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
 };
 use crate::ui::lang_menu;
-use crate::ui::pages::performance;
 use crate::ui::play::GameState;
 use crate::ui::splash;
 use crate::ui::theme::{
@@ -141,11 +139,9 @@ pub struct HomeFacts {
     pub title_id: Option<String>,
     pub patchable: bool,
     pub saves: bool,
-    /// Patches the last start left out (`patch_status.json`).
-    pub skipped: usize,
 }
 
-/// Re-reads the game folder, the saves folder and the patch report for the chips.
+/// Re-reads the game folder and the saves folder for the chips.
 pub fn refresh_facts(state: &mut State) {
     let meta = meta_folder(
         &state.settings.get_str("game_dir"),
@@ -158,8 +154,6 @@ pub fn refresh_facts(state: &mut State) {
         title_id,
         patchable: game_patchable(&meta),
         saves: has_files(&savedata),
-        skipped: patch_status(&state.paths.data_dir.join("out"))
-            .map_or(0, |status| status.skipped.len()),
     };
 }
 
@@ -458,50 +452,9 @@ fn ini_value<'a>(state: &'a State, key: &str) -> &'a str {
     state.ini.values.get(key).map_or("", String::as_str)
 }
 
-/// The patches line (`summary()` of the 2.6.0 launcher).
-pub fn summary(state: &State) -> String {
-    let lang = state.lang.as_str();
-    // The label of the render resolution list (with its ratio and the `(mod)` mark), as the Python.
-    let current = ini_value(state, "render_resolution");
-    let resolution = performance::resolution_options(state)
-        .into_iter()
-        .find(|(value, _)| value == current)
-        .map_or_else(|| "?".to_string(), |(_, label)| label);
-    if !state.home.patchable {
-        return tr_fmt(
-            lang,
-            "{} · 60 FPS engine · no patches for this game",
-            &[&resolution],
-        );
-    }
-    let count = state
-        .home
-        .title_id
-        .as_deref()
-        .and_then(|id| state.settings.get("game_patches")?.get(id)?.as_array())
-        .map_or(0, Vec::len);
-    let mut line = tr_fmt(
-        lang,
-        "{} · {} FPS engine · {} patches",
-        &[
-            &resolution,
-            ini_value(state, "engine_fps"),
-            &count.to_string(),
-        ],
-    );
-    if state.home.skipped > 0 {
-        line.push_str(" · ");
-        line.push_str(&tr_fmt(
-            lang,
-            "{} not found in this eboot.bin at the last start (see Log)",
-            &[&state.home.skipped.to_string()],
-        ));
-    }
-    line
-}
-
-/// The four chips: graphics card, game, saves, and the status (the patches summary at rest).
-pub fn chips(state: &State) -> [String; 4] {
+/// The three chips, saves, game and graphics card (ruling R77: the settings line replaced the
+/// requirements chip).
+pub fn chips(state: &State) -> [String; 3] {
     let lang = state.lang.as_str();
     let gpu = match chosen_gpu(&state.gpus, &state.settings.get_str("gpu_id")) {
         // The text of the 2.6.0 tables; the probe lists the cards without their Vulkan version.
@@ -521,19 +474,21 @@ pub fn chips(state: &State) -> [String; 4] {
     } else {
         tr(lang, "• No saves yet")
     };
-    [gpu, game, saves, status_text(state)]
+    [saves, game, gpu]
 }
 
-/// The status chip (Python `self.status`): what the game is doing while it starts, runs or its
-/// system files are copied; the patches summary otherwise.
-pub fn status_text(state: &State) -> String {
+/// The line under the settings line (mockup `#status`, Python `self.status`): what the game is
+/// doing while it starts, runs or its system files are copied; the in-game menu hint otherwise.
+pub fn status_line(state: &State) -> String {
     let busy = !matches!(state.game, GameState::Idle);
     if busy && !state.status.is_empty() {
         state.status.clone()
-    } else if state.home.info.is_some() {
-        summary(state)
     } else {
-        format!("• {}", tr(&state.lang, "Choose the game folder first."))
+        tr(
+            &state.lang,
+            "In the game: Insert or R3+L2\nopens the port's menu.",
+        )
+        .replace('\n', " ")
     }
 }
 
@@ -673,11 +628,9 @@ fn play_row(state: &State, enabled: bool) -> Element<'_, Message> {
 }
 
 fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
-    let lang = state.lang.as_str();
     let chips = chips(state).iter().fold(row![].spacing(8), |line, label| {
         line.push(chip(label, chip_kind(label)))
     });
-    let hint = tr(lang, "In the game: Insert or R3+L2\nopens the port's menu.").replace('\n', " ");
     let quick: Vec<Span<'_, (), Font>> = quick_segments(state)
         .into_iter()
         .map(|(piece, bright)| {
@@ -689,7 +642,8 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
         })
         .collect();
     let quick = container(rich_text(quick).size(QUICK_SIZE)).id(QUICK_ID);
-    let lines = column![chips, quick, text(hint).size(HINT_SIZE).style(text_muted)]
+    let status = text(status_line(state)).size(HINT_SIZE).style(text_muted);
+    let lines = column![chips, quick, status]
         .spacing(QUICK_GAP)
         .align_x(mirror_x(Right, state.rtl));
     let content = column![

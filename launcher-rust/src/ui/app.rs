@@ -74,7 +74,7 @@ pub struct State {
     pub splash: SplashState,
     pub game: GameState,
     /// The Home status line while the game starts, runs or its system files are copied; empty
-    /// otherwise, when the chip shows the patches summary.
+    /// otherwise, when the line shows the in-game menu hint.
     pub status: String,
     /// What PLAY starts instead of `python run.py` (tests start the fake game); `None` in use.
     pub launch_command: Option<Vec<String>>,

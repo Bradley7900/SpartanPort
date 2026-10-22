@@ -333,7 +333,6 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     assert_eq!(label.1, "3840 × 1080 · 32:9 (mod)");
     assert_eq!(state.ini.values["render_resolution"], "3840x1080");
     assert_eq!(state.aspect, "32:9");
-    assert!(home::summary(&state).contains("3840 × 1080 · 32:9 (mod)"));
     let listed = performance::aspect_resolution_options(&state);
     let label = listed.iter().find(|(v, _)| v == "3840x1080").unwrap();
     assert_eq!(label.1, "3840 × 1080 (mod)");

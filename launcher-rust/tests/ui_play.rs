@@ -28,6 +28,8 @@ use spartanport_launcher::ui::widgets::modal::{ModalKind, ModalMessage};
 const BOUND: Duration = Duration::from_secs(10);
 
 const PREPARING: &str = "Preparing the game; it opens in its own window…";
+/// The line under the settings line while no game is busy.
+const HINT: &str = "In the game: Insert or R3+L2 opens the port's menu.";
 
 /// A launcher over `dir` only (its port and data folder), with the splash already gone.
 fn state_in(dir: &Path) -> State {
@@ -264,7 +266,10 @@ fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
         state.game
     );
     assert_eq!(state.status, PREPARING);
-    assert_eq!(home::chips(&state)[3], PREPARING);
+    // The status takes the hint's place under the settings line (mockup `#status`).
+    assert_eq!(home::status_line(&state), PREPARING);
+    assert!(shows(&state, PREPARING));
+    assert!(!shows(&state, HINT));
     assert!(state.log.is_empty(), "the log starts empty");
     assert!(state.modal.is_none());
     // PLAY turns into a disabled RUNNING next to STOP.
@@ -311,10 +316,11 @@ fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
         )),
         "{text}"
     );
-    // PLAY is back, with the summary in the status chip.
+    // PLAY is back, with the hint under the settings line.
     assert!(idle(&state));
     assert!(state.status.is_empty());
-    assert_eq!(home::chips(&state)[3], home::summary(&state));
+    assert_eq!(home::status_line(&state), HINT);
+    assert!(shows(&state, HINT));
     assert!(!shows(&state, "RUNNING"));
     assert!(!shows(&state, "STOP"));
     assert!(click(&state, "PLAY")
@@ -536,7 +542,7 @@ fn play_offers_the_system_files_of_a_pkg_extraction() {
     send(&mut state, yes.clone());
     assert!(state.modal.is_none());
     assert!(matches!(state.game, GameState::Copying));
-    assert_eq!(home::chips(&state)[3], "Copying the system files…");
+    assert_eq!(home::status_line(&state), "Copying the system files…");
     assert!(click(&state, "PLAY").is_empty());
     send(&mut state, Message::Play);
     assert!(matches!(state.game, GameState::Copying));
