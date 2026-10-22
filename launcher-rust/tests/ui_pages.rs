@@ -632,3 +632,216 @@ fn the_note_uses_the_game_menu_names_of_each_language() {
         assert!(translated.contains(speech), "{language}: {translated}");
     }
 }
+
+// --- Trophies page (Task 27) ---
+
+use spartanport_launcher::core::i18n::trophy_text;
+use spartanport_launcher::core::trophies::TROPHY_COUNT;
+use spartanport_launcher::ui::pages::trophies::{self, Filter, TrophiesMessage};
+
+/// A 4x4 solid PNG.
+fn tiny_png(shade: u8) -> Vec<u8> {
+    let image = image::RgbaImage::from_pixel(4, 4, image::Rgba([200, shade, 30, 255]));
+    let mut out = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+/// A `trophy00.trp` with `TROP000.PNG`... as the core reader expects it.
+fn trp_package(count: usize) -> Vec<u8> {
+    let element = 0x30;
+    let table_end = 0x60 + element * count;
+    let mut file = vec![0u8; table_end];
+    file[..4].copy_from_slice(&[0xdc, 0xa2, 0x4d, 0x00]);
+    file[0x10..0x14].copy_from_slice(&(count as u32).to_be_bytes());
+    file[0x14..0x18].copy_from_slice(&(element as u32).to_be_bytes());
+    for index in 0..count {
+        let png = tiny_png(index as u8 * 5);
+        let at = 0x60 + index * element;
+        let name = format!("TROP{index:03}.PNG");
+        file[at..at + name.len()].copy_from_slice(name.as_bytes());
+        let offset = file.len() as u64;
+        file[at + 0x20..at + 0x28].copy_from_slice(&offset.to_be_bytes());
+        file[at + 0x28..at + 0x30].copy_from_slice(&(png.len() as u64).to_be_bytes());
+        file.extend(png);
+    }
+    file
+}
+
+/// A state whose game folder holds a 35-trophy package and whose saves unlock trophies 0 and 3.
+fn state_with_trophies(dir: &std::path::Path) -> app::State {
+    let mut state = state(dir);
+    state.lang = "en".into();
+    let game = dir.join("game");
+    std::fs::create_dir_all(game.join("sce_sys/trophy")).unwrap();
+    std::fs::write(
+        game.join("sce_sys/trophy/trophy00.trp"),
+        trp_package(TROPHY_COUNT),
+    )
+    .unwrap();
+    let _ = app::update(
+        &mut state,
+        Message::Set("game_dir".into(), game.display().to_string().into()),
+    );
+    let user = state.paths.user_dir("");
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::write(user.join("trophies.dat"), [0b1001u8, 0, 0, 0]).unwrap();
+    state
+}
+
+fn load_trophies(state: &mut app::State) {
+    let view = trophies::load(&state.paths, &state.settings);
+    let _ = app::update(
+        state,
+        Message::Trophies(TrophiesMessage::Loaded(Box::new(view))),
+    );
+}
+
+fn tall_has(state: &app::State, label: &str) -> bool {
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 6000.0),
+        app::view(state),
+    );
+    ui.find(label).is_ok()
+}
+
+#[test]
+fn trophies_page_lists_35_cards_from_a_test_package() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with_trophies(dir.path());
+    open(&mut state, Page::Trophies);
+    load_trophies(&mut state);
+    assert_eq!(state.trophies.icons.len(), TROPHY_COUNT);
+    assert_eq!(state.trophies.locked_icons.len(), TROPHY_COUNT);
+    assert_eq!(state.trophies.tiers.len(), TROPHY_COUNT);
+    assert_eq!(
+        state.trophies.unlocked.iter().copied().collect::<Vec<_>>(),
+        [0, 3]
+    );
+    assert!(!state.trophies.loading);
+    assert!(tall_has(&state, "2 of 35 unlocked"));
+    assert!(tall_has(&state, &trophy_text("en", 0).0));
+    assert!(tall_has(&state, &trophy_text("en", TROPHY_COUNT - 1).0));
+    assert!(tall_has(
+        &state,
+        "Only trophies unlocked with this port are listed; the ones earned on a PlayStation are not known to it."
+    ));
+}
+
+#[test]
+fn trophies_page_without_a_package_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    open(&mut state, Page::Trophies);
+    load_trophies(&mut state);
+    assert!(state.trophies.icons.is_empty());
+    assert!(tall_has(
+        &state,
+        "No trophy list: choose the game folder on the Game page (its sce_sys/trophy/trophy00.trp is read)."
+    ));
+}
+
+#[test]
+fn filter_unlocked_hides_locked() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with_trophies(dir.path());
+    open(&mut state, Page::Trophies);
+    load_trophies(&mut state);
+    let (first, second, other) = (
+        trophy_text("en", 0).0,
+        trophy_text("en", 3).0,
+        trophy_text("en", 1).0,
+    );
+    let _ = app::update(
+        &mut state,
+        Message::Trophies(TrophiesMessage::Filter(Filter::Unlocked)),
+    );
+    assert!(tall_has(&state, &first) && tall_has(&state, &second));
+    assert!(!tall_has(&state, &other));
+    let _ = app::update(
+        &mut state,
+        Message::Trophies(TrophiesMessage::Filter(Filter::Locked)),
+    );
+    assert!(!tall_has(&state, &first) && !tall_has(&state, &second));
+    assert!(tall_has(&state, &other));
+    // A reload keeps the chosen filter.
+    load_trophies(&mut state);
+    assert_eq!(state.trophies.filter, Filter::Locked);
+}
+
+#[test]
+fn reset_asks_and_relocks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with_trophies(dir.path());
+    open(&mut state, Page::Trophies);
+    // Nothing unlocked is known before the first load.
+    let _ = app::update(&mut state, Message::Trophies(TrophiesMessage::Reset));
+    let none = state.modal.clone().unwrap();
+    assert!(matches!(none.kind, ModalKind::Info));
+    assert_eq!(none.text, "No trophy is unlocked.");
+
+    load_trophies(&mut state);
+    let _ = app::update(&mut state, Message::Trophies(TrophiesMessage::Reset));
+    let asked = state.modal.clone().unwrap();
+    assert!(matches!(
+        &asked.kind,
+        ModalKind::YesNo {
+            yes: Message::Trophies(TrophiesMessage::ResetConfirmed),
+            no: Message::Modal(ModalMessage::Dismiss)
+        }
+    ));
+    assert_eq!(
+        asked.text,
+        "Lock all 2 unlocked trophies again? A copy is kept as trophies.dat.bak."
+    );
+    let dat = state.paths.user_dir("").join("trophies.dat");
+    assert!(dat.is_file());
+
+    let _ = app::update(
+        &mut state,
+        Message::Trophies(TrophiesMessage::ResetConfirmed),
+    );
+    assert!(state.modal.is_none());
+    // The reset runs on its own thread: wait for the file to move.
+    for _ in 0..200 {
+        if !dat.exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(!dat.exists());
+    assert!(dat.with_file_name("trophies.dat.bak").is_file());
+    let _ = app::update(
+        &mut state,
+        Message::Trophies(TrophiesMessage::ResetDone(Ok(2))),
+    );
+    load_trophies(&mut state);
+    assert!(state.trophies.unlocked.is_empty());
+    assert!(tall_has(&state, "0 of 35 unlocked"));
+
+    let _ = app::update(
+        &mut state,
+        Message::Trophies(TrophiesMessage::ResetDone(Err("disk full".into()))),
+    );
+    let failed = state.modal.clone().unwrap();
+    assert!(matches!(failed.kind, ModalKind::Error));
+    assert_eq!(failed.text, "Could not reset the trophies: disk full");
+}
+
+#[test]
+fn opening_the_page_and_the_buttons_start_a_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    open(&mut state, Page::Trophies);
+    assert!(state.trophies.loading);
+    load_trophies(&mut state);
+    assert!(!state.trophies.loading);
+    click(&mut state, "Refresh");
+    assert!(state.trophies.loading);
+    assert!(messages(&state, "Reset trophies")
+        .iter()
+        .any(|m| matches!(m, Message::Trophies(TrophiesMessage::Reset))));
+}

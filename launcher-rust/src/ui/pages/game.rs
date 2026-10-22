@@ -17,7 +17,7 @@ use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta}
 use crate::core::save_backup::{list_backups, restore, KEEP};
 use crate::ui::app::{Message, State};
 use crate::ui::home;
-use crate::ui::pages::performance;
+use crate::ui::pages::{performance, trophies};
 use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
@@ -71,26 +71,30 @@ fn user_dir(state: &State) -> PathBuf {
 // --- Folders ---
 
 /// A folder was chosen in the dialog: store it and refresh what depends on it.
-pub fn folder_chosen(state: &mut State, key: &str, path: &Path) {
+pub fn folder_chosen(state: &mut State, key: &str, path: &Path) -> Task<Message> {
     crate::ui::app::apply_set(state, key, Value::String(path.display().to_string()));
     match key {
-        "game_dir" | "update_dir" => game_changed(state),
+        "game_dir" | "update_dir" => return game_changed(state),
         "user_dir" => {
             home::refresh_facts(state);
             refresh_backups(state);
+            // The saves folder holds trophies.dat.
+            return trophies::refresh(state);
         }
         _ => {}
     }
+    Task::none()
 }
 
 /// The game or update folder changed: the title, the art, the patches and the lists follow.
-pub fn game_changed(state: &mut State) {
+pub fn game_changed(state: &mut State) -> Task<Message> {
     home::refresh_facts(state);
     home::load_home_art(state);
     performance::refresh_mod_resolutions(state);
     refresh_game_patches(state);
-    // Task 27: refresh trophies
     refresh_backups(state);
+    // Task 33: also call this when the game exits.
+    trophies::refresh(state)
 }
 
 // --- Save backups ---

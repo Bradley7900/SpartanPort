@@ -27,7 +27,7 @@ use crate::ui::pages::controls::ControlsMessage;
 use crate::ui::pages::game::{self, BackupMessage, PatchesView};
 use crate::ui::pages::mods::{ModsMessage, ModsView};
 use crate::ui::pages::performance;
-use crate::ui::pages::trophies::{TrophiesMessage, TrophiesView};
+use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
 use crate::ui::persist::Persisted;
 use crate::ui::play::{GameMessage, GameState};
@@ -222,11 +222,11 @@ pub fn key_message(state: &State, key: &Key) -> Option<Message> {
 /// The only place the state changes.
 pub fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
-        Message::ShowPage(page) => show_page(state, page),
+        Message::ShowPage(page) => return show_page(state, page),
         // A closed drawer shows Home, so the Home tab is the active one again.
-        Message::CloseDrawer => show_page(state, Page::Home),
-        Message::NextPage => show_page(state, state.page.next()),
-        Message::PreviousPage => show_page(state, state.page.previous()),
+        Message::CloseDrawer => return show_page(state, Page::Home),
+        Message::NextPage => return show_page(state, state.page.next()),
+        Message::PreviousPage => return show_page(state, state.page.previous()),
         Message::Key(key, _modifiers) => {
             // While the splash shows, any key only skips it.
             if !state.splash.done {
@@ -270,7 +270,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         Message::Browse(key) => return browse(state, key),
-        Message::Browsed(key, Some(path)) => game::folder_chosen(state, &key, &path),
+        Message::Browsed(key, Some(path)) => return game::folder_chosen(state, &key, &path),
         Message::Browsed(_, None) => {}
         Message::PatchToggled(name, on) => game::patch_toggled(state, &name, on),
         Message::Backup(message) => return game::backup_update(state, message),
@@ -281,8 +281,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Game(message) => match message {},
         // Task 34
         Message::Update(UpdateMessage::Install) => {}
-        // Task 27
-        Message::Trophies(message) => match message {},
+        Message::Trophies(message) => return trophies::update(state, message),
         // Task 29
         Message::Mods(message) => match message {},
         // Task 28
@@ -354,8 +353,9 @@ fn tick(state: &mut State, at: Instant) {
     state.splash.advance(at);
 }
 
-/// Home closes the drawer; any other page opens it, sliding in when it was closed.
-fn show_page(state: &mut State, page: Page) {
+/// Home closes the drawer; any other page opens it, sliding in when it was closed. The Trophies
+/// page reloads its list each time it opens.
+fn show_page(state: &mut State, page: Page) -> Task<Message> {
     let now = Instant::now();
     state.now = now;
     state.page = page;
@@ -366,6 +366,11 @@ fn show_page(state: &mut State, page: Page) {
         DrawerState::Closed
     };
     state.drawer_progress.go_mut(open, now);
+    if page == Page::Trophies {
+        trophies::refresh(state)
+    } else {
+        Task::none()
+    }
 }
 
 /// Whether the Home block (PLAY, chips, language, update pill) responds: not behind a wide drawer.
