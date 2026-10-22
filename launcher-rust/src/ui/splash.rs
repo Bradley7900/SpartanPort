@@ -46,9 +46,10 @@ const BIG: f32 = 200.0;
 const SMALL: f32 = 60.0;
 const CORNER: f32 = 24.0;
 /// The red halo behind the monogram (ruling R80, mockup `#slogo` drop shadow
-/// `rgba(200, 30, 37, .35)`): the Home glows' soft sprite, its radius a multiple of the monogram's
-/// size and its alpha in the middle.
-const HALO_RADIUS: f32 = 1.6;
+/// `0 0 26px rgba(200, 30, 37, .35)`): the Home glows' soft sprite, its radius a multiple of the
+/// monogram's size and its alpha in the middle. Ruling R87: 0.7 × 200 px ends the glow 40 px past
+/// the monogram's edge, where 26 px of blur fades out (about 3 standard deviations of 13 px).
+const HALO_RADIUS: f32 = 0.7;
 const HALO_PEAK: f32 = 0.35;
 
 /// What a finished start-up check found.

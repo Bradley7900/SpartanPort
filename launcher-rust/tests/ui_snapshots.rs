@@ -372,32 +372,40 @@ fn the_home_glows_fall_off_without_bands() {
 }
 
 #[test]
-fn the_splash_halo_fades_out_from_the_monogram() {
-    // Ruling R80: the halo is the glows' soft sprite. A flat disc showed as a ball: one red up to
-    // its edge, then a step down to the background.
+fn the_splash_halo_hugs_the_monogram() {
+    // Ruling R80: the halo is the glows' soft sprite, which falls off without a step (a flat disc
+    // showed as a ball). Ruling R87: like the mockup's `#slogo` drop shadow (26 px of blur), it
+    // ends within 40 px of the 200 px monogram instead of reaching hundreds of pixels out.
     let (width, height) = (1280, 800);
     let dir = tempfile::tempdir().unwrap();
     let size = Size::new(width as f32, height as f32);
     let state = fixture(dir.path(), Shot::Splash, size, "en");
     let image = render(&state, width, height);
     // The monogram is 200 px, centred 30 px above the middle of the scene (the window less the
-    // 52 px bar); the row through its centre, from just right of it outwards.
+    // 52 px bar); the row through its centre, outwards from beside its letters.
     let (centre_x, centre_y) = (width / 2, (height - 52) / 2 - 30);
-    let reds: Vec<u8> = (centre_x + 110..centre_x + 460)
-        .map(|x| image.get_pixel(x, centre_y)[0])
-        .collect();
-    let first = reds[0];
-    let last = *reds.last().unwrap();
+    let red = |dx: u32| image.get_pixel(centre_x + dx, centre_y)[0];
+    let far = red(460);
     assert!(
-        first > last + 20,
-        "no halo: {first} beside the monogram, {last} far out"
+        red(90) > far + 15,
+        "no halo: {} beside the letters, {far} far out",
+        red(90)
     );
-    for (inner, outer) in reds.iter().zip(&reds[1..]) {
+    let falloff: Vec<u8> = (101..141).map(red).collect();
+    for (inner, outer) in falloff.iter().zip(&falloff[1..]) {
         assert!(
             *outer <= inner + 1 && inner.saturating_sub(*outer) <= 2,
-            "not a smooth falloff: {reds:?}"
+            "not a smooth falloff: {falloff:?}"
         );
     }
+    let beyond: Vec<(u32, u8)> = (141..460)
+        .map(|dx| (dx, red(dx)))
+        .filter(|(_, value)| value.abs_diff(far) > 1)
+        .collect();
+    assert!(
+        beyond.is_empty(),
+        "the halo reaches past 40 px from the monogram (dx, red): {beyond:?}"
+    );
 }
 
 #[test]
