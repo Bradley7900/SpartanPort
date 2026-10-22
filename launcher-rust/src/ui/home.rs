@@ -414,6 +414,9 @@ pub fn background(state: &State) -> Element<'_, Message> {
     ]
     .width(Fill)
     .height(Fill)
+    // The renderers clip an image only to its layer: `cover` around the crop draws the whole
+    // picture, which would run over the tab bar when the scene is wider than the art.
+    .clip(true)
     .push(layer(Layer::Veil))
     .push(layer(Layer::Fog))
     .push(layer(Layer::Heat(elapsed)));
