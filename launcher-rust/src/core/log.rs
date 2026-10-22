@@ -116,7 +116,10 @@ impl RunLog {
 /// Why the game closed, when an output line says so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitHint {
+    /// Windows could not reserve the guest memory: the page file.
     GuestMemory,
+    /// Linux could not allocate the guest memory: RAM, swap or /dev/shm.
+    LinuxMemory,
     DumpIncomplete,
 }
 
@@ -128,6 +131,10 @@ impl ExitHint {
                 "Windows could not reserve the memory the game needs. Close other programs, or let the \
                  Windows page file grow (for example 16384 MB initial, 32768 MB maximum), and start again."
             }
+            ExitHint::LinuxMemory => {
+                "Linux could not allocate the memory the game needs. Close other programs, check available \
+                 RAM, swap space, or /dev/shm, and start again."
+            }
             ExitHint::DumpIncomplete => {
                 "The game stopped while reading its files: the game dump may be incomplete. Extract the pkg \
                  again and check that the game folder is about 40 GB."
@@ -136,9 +143,23 @@ impl ExitHint {
     }
 }
 
+/// The advice for an output line, for the system the launcher runs on.
 pub fn exit_hint(line: &str) -> Option<ExitHint> {
-    if line.contains("of guest memory (error ") {
-        Some(ExitHint::GuestMemory)
+    exit_hint_on(line, cfg!(windows))
+}
+
+/// `exit_hint` with the system given: a guest memory line that names the page file is Windows
+/// advice anywhere, one that names /dev/shm is Linux advice anywhere, and any other follows
+/// `windows` (the Python's `WINDOWS`).
+pub fn exit_hint_on(line: &str, windows: bool) -> Option<ExitHint> {
+    if line.contains("of guest memory") {
+        let page_file = line.contains("is the page file large enough?")
+            || (!line.contains("is /dev/shm or RAM large enough?") && windows);
+        Some(if page_file {
+            ExitHint::GuestMemory
+        } else {
+            ExitHint::LinuxMemory
+        })
     } else if line.contains("guest raised debug exception code=0xa0020001") {
         Some(ExitHint::DumpIncomplete)
     } else {
@@ -237,10 +258,68 @@ mod tests {
     }
 
     #[test]
+    fn guest_memory_failure_points_to_the_page_file_on_windows() {
+        let line = "Runtime: cannot create 8128 MiB of guest memory (error 1450); is the page file large enough?\n";
+        // The line names the page file: Windows advice wherever the launcher runs.
+        for windows in [true, false] {
+            let hint = exit_hint_on(line, windows).unwrap();
+            assert!(hint.text_en().contains("page file"), "{windows}");
+            assert!(hint.text_en().contains("Windows could not reserve"));
+        }
+    }
+
+    #[test]
+    fn guest_memory_failure_points_to_linux_memory_on_linux() {
+        let line = "Runtime: cannot create 6080 MiB of guest memory (error 12); is /dev/shm or RAM large enough?\n";
+        for windows in [true, false] {
+            let hint = exit_hint_on(line, windows).unwrap();
+            assert!(
+                hint.text_en().contains("Linux could not allocate"),
+                "{windows}"
+            );
+            assert!(hint.text_en().contains("/dev/shm"));
+            assert!(!hint.text_en().contains("page file"));
+        }
+        // The Python tables translate it.
+        assert_eq!(
+            crate::core::i18n::tr("pt", ExitHint::LinuxMemory.text_en()),
+            "O Linux não conseguiu alocar a memória que o jogo precisa. Feche outros programas, verifique a memória RAM disponível, swap ou /dev/shm, e inicie de novo."
+        );
+    }
+
+    #[test]
+    fn guest_memory_mapping_failure_on_linux() {
+        let line = "Runtime: cannot map 6080 MiB of guest memory (error 12)\n";
+        let hint = exit_hint_on(line, false).unwrap();
+        assert!(hint.text_en().contains("Linux could not allocate"));
+        assert!(hint.text_en().contains("RAM, swap space, or /dev/shm"));
+    }
+
+    #[test]
+    fn windows_environment_uses_windows_advice_for_generic_error() {
+        let line = "Runtime: cannot create 6080 MiB of guest memory (error 1450)\n";
+        let hint = exit_hint_on(line, true).unwrap();
+        assert!(hint.text_en().contains("Windows could not reserve"));
+        assert!(hint.text_en().contains("page file"));
+    }
+
+    #[test]
+    fn linux_environment_uses_linux_advice_for_generic_error() {
+        let line = "Runtime: cannot create 6080 MiB of guest memory (error 12)\n";
+        let hint = exit_hint_on(line, false).unwrap();
+        assert!(hint.text_en().contains("Linux could not allocate"));
+        assert!(hint.text_en().contains("/dev/shm"));
+    }
+
+    #[test]
     fn hints_and_statuses_match_the_python_strings() {
         assert_eq!(
-            exit_hint("mmap failed of guest memory (error 1455)"),
+            exit_hint_on("mmap failed of guest memory (error 1455)", true),
             Some(ExitHint::GuestMemory)
+        );
+        assert_eq!(
+            exit_hint_on("mmap failed of guest memory (error 1455)", false),
+            Some(ExitHint::LinuxMemory)
         );
         assert_eq!(
             exit_hint("guest raised debug exception code=0xa0020001 at rip"),
