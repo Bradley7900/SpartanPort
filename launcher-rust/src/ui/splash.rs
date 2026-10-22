@@ -20,7 +20,7 @@ use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
 use crate::core::release::Release;
 use crate::core::update::{can_self_update, list_releases};
-use crate::ui::app::{Message, State, BAR_HEIGHT};
+use crate::ui::app::{scene_size, Message, State};
 use crate::ui::home;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::palette;
@@ -249,7 +249,7 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
     let t = splash.fly.interpolate(0.0, 1.0, state.now);
     let fade = 1.0 - t;
     let width = state.window_size.width;
-    let height = (state.window_size.height - BAR_HEIGHT).max(0.0);
+    let height = scene_size(state).height;
 
     let size = lerp(BIG, SMALL, t);
     let corner_x = if state.rtl {

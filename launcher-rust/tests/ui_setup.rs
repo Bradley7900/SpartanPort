@@ -4,17 +4,19 @@
 mod common;
 
 use std::path::Path;
+use std::time::Duration;
 
 use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Location, Modifiers};
 use iced::window;
+use iced::Size;
 
 use common::{browsed, dump_with_patches, gpu_rows, messages, ARC_LAPTOP};
 use iced_test::simulator::simulator;
 use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::options::DISPLAY_MODES;
 use spartanport_launcher::core::paths::Paths;
-use spartanport_launcher::ui::app::{self, Message, State};
+use spartanport_launcher::ui::app::{self, scene_size, Message, State, BAR_HEIGHT};
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::{performance, Page};
 use spartanport_launcher::ui::setup::{can_advance, folder_problems, SetupMessage, Step};
@@ -490,4 +492,32 @@ fn a_language_pick_rebuilds_without_writing() {
     assert!(!dir.path().join("settings.json").exists());
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Passo 2 de 3 · Placa de vídeo").is_ok());
+}
+
+#[test]
+fn the_setup_scene_is_the_whole_window() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let _ = app::update(&mut state, Message::Resized(Size::new(1280.0, 800.0)));
+    assert_eq!(scene_size(&state), Size::new(1280.0, 800.0));
+    state.setup = None;
+    assert_eq!(scene_size(&state), Size::new(1280.0, 800.0 - BAR_HEIGHT));
+}
+
+#[test]
+fn the_fire_burns_at_splash_strength_under_the_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let start = state.now;
+    let _ = app::update(
+        &mut state,
+        Message::Tick(start + Duration::from_millis(200)),
+    );
+    assert_eq!(state.fire.intensity(), 1.0);
+    state.setup = None;
+    let _ = app::update(
+        &mut state,
+        Message::Tick(start + Duration::from_millis(400)),
+    );
+    assert_eq!(state.fire.intensity(), 0.8);
 }

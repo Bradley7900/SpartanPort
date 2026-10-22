@@ -135,14 +135,23 @@ fn adapter_found() -> bool {
 }
 
 /// How much fire there is: none while the splash covers the window (`splash`; R96), 0.8 on a
-/// focused Home, 0.3 unfocused, none when hidden or when effects are off.
-pub fn intensity_for(splash: bool, focused: bool, visible: bool, effects: bool) -> f32 {
+/// focused Home, 1.0 under the first-run setup, 0.3 unfocused, none when hidden or when effects
+/// are off.
+pub fn intensity_for(
+    splash: bool,
+    setup: bool,
+    focused: bool,
+    visible: bool,
+    effects: bool,
+) -> f32 {
     if !effects || !visible || splash {
         0.0
-    } else if focused {
-        0.8
-    } else {
+    } else if !focused {
         0.3
+    } else if setup {
+        1.0
+    } else {
+        0.8
     }
 }
 
@@ -396,12 +405,14 @@ mod tests {
     #[test]
     fn intensity_rules() {
         // R96: no fire while the splash covers the window.
-        assert_eq!(intensity_for(true, true, true, true), 0.0);
-        assert_eq!(intensity_for(true, false, true, true), 0.0);
-        assert_eq!(intensity_for(false, true, true, true), 0.8);
-        assert_eq!(intensity_for(false, false, true, true), 0.3);
-        assert_eq!(intensity_for(true, true, false, true), 0.0);
-        assert_eq!(intensity_for(true, true, true, false), 0.0);
+        assert_eq!(intensity_for(true, false, true, true, true), 0.0);
+        assert_eq!(intensity_for(true, false, false, true, true), 0.0);
+        assert_eq!(intensity_for(false, false, true, true, true), 0.8);
+        assert_eq!(intensity_for(false, false, false, true, true), 0.3);
+        assert_eq!(intensity_for(true, false, true, false, true), 0.0);
+        assert_eq!(intensity_for(true, false, true, true, false), 0.0);
+        assert_eq!(intensity_for(false, true, true, true, true), 1.0);
+        assert_eq!(intensity_for(false, true, false, true, true), 0.3);
     }
 
     #[test]

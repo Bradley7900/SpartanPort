@@ -580,6 +580,7 @@ fn tick(state: &mut State, at: Instant) {
     // No fire while the splash covers the window; it fills in during the flight to the corner.
     state.fire.set_intensity(intensity_for(
         !state.splash.done && !state.splash.flying(),
+        state.setup.is_some(),
         state.focused,
         state.visible,
         state.effects,
@@ -588,11 +589,16 @@ fn tick(state: &mut State, at: Instant) {
     state.splash.advance(at);
 }
 
-/// The scene: the window minus the tab bar.
+/// The scene: the window minus the tab bar; the whole window under the setup, which has no bar.
 pub fn scene_size(state: &State) -> Size {
+    let bar = if state.setup.is_none() {
+        BAR_HEIGHT
+    } else {
+        0.0
+    };
     Size::new(
         state.window_size.width,
-        (state.window_size.height - BAR_HEIGHT).max(0.0),
+        (state.window_size.height - bar).max(0.0),
     )
 }
 
