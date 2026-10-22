@@ -2314,6 +2314,25 @@ mod update_flow {
     }
 
     #[test]
+    fn a_failed_check_keeps_a_ready_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        let list = vec![release("2.7.0", None, false)];
+        state.update = UpdateState::Ready(list.clone());
+        let _ = app::update(&mut state, checked(true, Err("offline".into())));
+        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert_eq!(modal_text(&state), "Could not check for updates: offline");
+        assert!(matches!(
+            state.modal.as_ref().map(|m| &m.kind),
+            Some(ModalKind::Error)
+        ));
+        state.modal = None;
+        let _ = app::update(&mut state, checked(false, Err("offline".into())));
+        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert!(state.modal.is_none());
+    }
+
+    #[test]
     fn offer_decision_follows_newer_and_manual() {
         assert_eq!(offer_decision(true, true), Decision::Offer);
         assert_eq!(offer_decision(true, false), Decision::Offer);

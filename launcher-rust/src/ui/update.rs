@@ -224,7 +224,11 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                     }
                 }
                 Err(error) => {
-                    if !matches!(state.update, UpdateState::Downloading { .. }) {
+                    // A list already shown and a running download stay.
+                    if matches!(
+                        state.update,
+                        UpdateState::None | UpdateState::Checking | UpdateState::Failed(_)
+                    ) {
                         state.update = UpdateState::Failed(error.clone());
                     }
                     if manual {

@@ -168,7 +168,10 @@ impl State {
         let displays_backend = settings.get_str("video_backend");
         let installed = installed_release(&stamp_path(
             &paths.port_dir,
-            std::env::var_os("APPDIR").map(PathBuf::from).as_deref(),
+            std::env::var_os("APPDIR")
+                .filter(|dir| !dir.is_empty())
+                .map(PathBuf::from)
+                .as_deref(),
             cfg!(windows),
         ));
         let mut state = State {
