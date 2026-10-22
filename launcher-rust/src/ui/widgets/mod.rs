@@ -12,7 +12,7 @@ pub mod select;
 pub mod slider;
 
 pub use button_icon::{button_icon, spec, IconKind, IconSpec};
-pub use checkbox::{checkbox, checkbox_ini, toggle_row};
+pub use checkbox::{checkbox, checkbox_beside, checkbox_ini, toggle_row};
 pub use chip::{chip, ChipKind};
 pub use folder::folder;
 pub use hairline::{hairline, hairline_style, HAIRLINE};

@@ -74,16 +74,48 @@ fn lay_out<'a>(
 ) -> Element<'a, Message> {
     // The row lays the control out first, against its width less the gap; the name gets the rest.
     let control = leave_room(room, container(control).id(control_id(label)));
-    let mut body = if rtl {
+    let line = if rtl {
         // The text keeps its own alignment: an explicit one hides Arabic text in iced 0.14.
         let name = container(name).width(Fill).align_x(Right);
-        column![layout![control, name].spacing(GAP).align_y(Center)]
-            .spacing(2)
-            .align_x(Right)
+        layout![control, name]
     } else {
-        let name = container(name).width(Fill);
-        column![layout![name, control].spacing(GAP).align_y(Center)].spacing(2)
+        layout![container(name).width(Fill), control]
     };
+    with_note(rtl, line.spacing(GAP).align_y(Center).into(), hint)
+}
+
+/// A row whose control sits beside its name, with `action` at the row's end (R94): a check box
+/// that also has a button, as "Load mods" and "Open folder" on the Mods page. Right to left the
+/// row is mirrored. `label` names the control's box.
+pub fn beside<'a>(
+    rtl: bool,
+    name: Element<'a, Message>,
+    label: &str,
+    control: Element<'a, Message>,
+    action: Element<'a, Message>,
+    hint: Option<&str>,
+) -> Element<'a, Message> {
+    let control = container(control).id(control_id(label));
+    let line = if rtl {
+        let named = layout![control, name].spacing(GAP).align_y(Center);
+        layout![action, space::horizontal(), named]
+    } else {
+        let named = layout![name, control].spacing(GAP).align_y(Center);
+        layout![named, space::horizontal(), action]
+    };
+    with_note(rtl, line.spacing(GAP).align_y(Center).into(), hint)
+}
+
+/// `line` with the note under it across the row, and the rows' padding.
+fn with_note<'a>(
+    rtl: bool,
+    line: Element<'a, Message>,
+    hint: Option<&str>,
+) -> Element<'a, Message> {
+    let mut body = column![line].spacing(2);
+    if rtl {
+        body = body.align_x(Right);
+    }
     if let Some(hint) = hint.filter(|hint| !hint.is_empty()) {
         let note = text(hint.to_string()).size(13).style(theme::text_muted);
         // Left to right the note spans the row from the name's edge.

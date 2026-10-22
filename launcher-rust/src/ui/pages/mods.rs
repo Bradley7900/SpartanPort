@@ -30,7 +30,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::pages::performance;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
-use crate::ui::widgets::{checkbox, folder, section, toggle_row, Modal, ModalKind};
+use crate::ui::widgets::{checkbox_beside, folder, section, toggle_row, Modal, ModalKind};
 use crate::APP_NAME;
 
 /// Width of the details card picture, in logical pixels; it is at most 4:3.
@@ -791,20 +791,20 @@ pub fn view(state: &State) -> Element<'_, Message> {
             &[&on, &view.order.len().to_string()],
         )
     };
-    let top = row![
-        checkbox(
-            state.rtl,
-            "mods_enabled",
-            &tr(lang, "Load mods"),
-            state.settings.get_bool("mods_enabled"),
-            None,
-        ),
-        text(count).style(theme::text_muted),
-        space::horizontal(),
-        flat(tr(lang, "Open folder"), ModsMessage::OpenFolder),
-    ]
-    .spacing(18)
-    .align_y(Center);
+    // R94: the box beside "Load mods", the count and Open folder at the row's end.
+    let top = checkbox_beside(
+        state.rtl,
+        "mods_enabled",
+        &tr(lang, "Load mods"),
+        state.settings.get_bool("mods_enabled"),
+        row![
+            text(count).style(theme::text_muted),
+            flat(tr(lang, "Open folder"), ModsMessage::OpenFolder),
+        ]
+        .spacing(18)
+        .align_y(Center)
+        .into(),
+    );
     let head = row![
         container(section(state.rtl, &tr(lang, "Load order"))).width(Fill),
         muted(tr(lang, "Lower in the list wins")),

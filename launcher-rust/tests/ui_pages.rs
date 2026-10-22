@@ -1409,6 +1409,44 @@ fn mods_list_follows_the_folder_and_saved_order() {
 }
 
 #[test]
+fn the_load_mods_box_sits_beside_its_name() {
+    // The user's screenshot (R94): the box of "Load mods" sat in the middle of the row. A row with a
+    // check box and an action keeps the box beside its name and the button at the row's end.
+    for lang in ["en", "pt", "ar"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = mods_state(dir.path());
+        state.lang = lang.into();
+        state.rtl = lang == "ar";
+        make_mod(&state, "a", "a.bin");
+        load_mods(&mut state);
+        let name = tr(lang, "Load mods");
+        let mut ui = settled(&mut state, Page::Mods, 1280.0, 800.0);
+        let boxed = control(&mut ui, &name);
+        let label = ui.find(name.as_str()).unwrap().bounds();
+        let open = ui.find(tr(lang, "Open folder").as_str()).unwrap().bounds();
+        let gap = if lang == "ar" {
+            label.x - (boxed.x + boxed.width)
+        } else {
+            boxed.x - (label.x + label.width)
+        };
+        assert!(
+            (0.0..=16.0).contains(&gap),
+            "{lang}: the box {boxed:?} is {gap} from its name {label:?}"
+        );
+        if lang == "ar" {
+            assert!(open.x < boxed.x, "{lang}: {open:?} vs {boxed:?}");
+        } else {
+            // Refresh ends the Load order heading at the page's edge; both pad their label by 10.
+            let refresh = ui.find(tr(lang, "Refresh").as_str()).unwrap().bounds();
+            assert!(
+                (open.x + open.width - (refresh.x + refresh.width)).abs() < 0.5,
+                "{lang}: Open folder {open:?}, Refresh {refresh:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn moving_a_mod_changes_the_order() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = mods_state(dir.path());
