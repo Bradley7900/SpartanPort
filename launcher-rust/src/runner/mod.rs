@@ -1,5 +1,7 @@
 //! The runner (Python `run.py`): starts the game under the probe and reports what it saw.
 
+pub mod prepare;
+
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
