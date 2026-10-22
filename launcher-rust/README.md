@@ -18,4 +18,5 @@ cargo test
 
 ## Environment
 
+- `SPARTAN_PORT_DIR`: the port folder (with `run.py`, `bin/` and `scripts/`) and, unless `SPARTAN_DATA_DIR` is set, the data folder. Defaults to the executable's folder; point it at the repository root to run a `cargo` build.
 - `SPARTANPORT_PYTHON`: path of the Python interpreter used to start `run.py` until the Rust runner exists. Defaults to `py -3` on Windows and `python3` elsewhere.

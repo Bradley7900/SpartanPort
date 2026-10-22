@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 /// Folder name of the previous launcher's settings (`scripts/legacy.py`).
 const LEGACY_CONFIG_DIR: &str = "gow3-launcher";
 
-/// Every launcher folder and file, derived from the executable's folder and the environment.
+/// Every launcher folder and file, derived from the executable's folder and the environment:
+/// `SPARTAN_PORT_DIR` names the port folder (default: the executable's), whose `run.py`, `bin/`
+/// and `scripts/` the launcher uses; `SPARTAN_DATA_DIR` the data folder (default: the port
+/// folder, as the Python's `DATA_DIR = PORT_DIR`); `SPARTAN_CONFIG` the ini.
 #[derive(Debug, Clone)]
 pub struct Paths {
     pub port_dir: PathBuf,
@@ -17,9 +20,12 @@ pub struct Paths {
 impl Paths {
     /// `env` reads one environment variable; nothing else touches the OS.
     pub fn from_env(exe_dir: &Path, env: &dyn Fn(&str) -> Option<String>) -> Paths {
+        let port_dir = env("SPARTAN_PORT_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map_or_else(|| exe_dir.to_path_buf(), PathBuf::from);
         let data_dir = env("SPARTAN_DATA_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| exe_dir.to_path_buf());
+            .unwrap_or_else(|| port_dir.clone());
         let ini = env("SPARTAN_CONFIG")
             .map(PathBuf::from)
             .unwrap_or_else(|| data_dir.join("spartanport.ini"));
@@ -38,7 +44,7 @@ impl Paths {
                 .unwrap_or_else(|| home().join(".config"))
         };
         Paths {
-            port_dir: exe_dir.to_path_buf(),
+            port_dir,
             data_dir,
             ini,
             legacy_config_dir: base.join(LEGACY_CONFIG_DIR),
@@ -147,6 +153,25 @@ mod tests {
             paths.mod_presets(),
             Path::new("exe").join("mods_presets.json")
         );
+    }
+
+    #[test]
+    fn the_port_folder_follows_spartan_port_dir() {
+        // A cargo build runs from target/: the variable points it at the repository.
+        let paths = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_PORT_DIR", "repo")]));
+        assert_eq!(paths.port_dir, Path::new("repo"));
+        // Python `DATA_DIR = PORT_DIR` unless `SPARTAN_DATA_DIR` says otherwise.
+        assert_eq!(paths.data_dir, Path::new("repo"));
+        assert_eq!(paths.ini_path(), Path::new("repo").join("spartanport.ini"));
+        let both = Paths::from_env(
+            Path::new("exe"),
+            &env_of(&[("SPARTAN_PORT_DIR", "repo"), ("SPARTAN_DATA_DIR", "data")]),
+        );
+        assert_eq!(both.port_dir, Path::new("repo"));
+        assert_eq!(both.data_dir, Path::new("data"));
+        // An empty value counts as unset.
+        let empty = Paths::from_env(Path::new("exe"), &env_of(&[("SPARTAN_PORT_DIR", "")]));
+        assert_eq!(empty.port_dir, Path::new("exe"));
     }
 
     #[test]
