@@ -193,8 +193,9 @@ copia os arquivos de sistema.
 
 Barra inferior de 52 px com as abas Home, Graphics, Performance, Game, Trophies, Controls, Mods,
 Advanced, Log em Cinzel Bold; aba ativa com fundo `card` e sublinhado `red_hi`; à direita, a
-versão e o sistema (`v2.6.0 · Windows` ou `· Linux`). A gaveta desliza da esquerda em 220 ms (`cubic-bezier(.2,.8,.2,1)`), largura 46 % ou 72 %,
-cabeçalho com título em Cinzel Black e subtítulo, corpo com rolagem. Abrir a gaveta desfoca e
+versão e o sistema (`v2.6.0 · Windows` ou `· Linux`). A gaveta desliza da esquerda em 220 ms
+(`cubic-bezier(.2,.8,.2,1)`), largura 46 % ou 72 % (a troca de uma para a outra desliza com o mesmo
+tempo e curva), cabeçalho com título em Cinzel Black e subtítulo, corpo com rolagem. Abrir a gaveta desfoca e
 escurece o fundo; com 72 % o bloco do PLAY esmaece a 35 % e para de responder. Clicar no fundo,
 Esc ou a aba Home fecham.
 

@@ -1,11 +1,12 @@
 //! The drawer: the panel that slides in from the left (from the right in a right-to-left
 //! language) with the open page.
 
+use iced::animation::{Animation, Easing};
 use iced::widget::{button, column, container, opaque, pin, row, scrollable, text, Id};
 use iced::{Center, Element, Fill, Right};
 
 use crate::core::i18n::tr;
-use crate::ui::app::{Message, State};
+use crate::ui::app::{Message, State, DRAWER_SLIDE};
 use crate::ui::pages::{self, Page};
 use crate::ui::persist::dirty;
 use crate::ui::theme::{button_play, container_panel, text_muted, CINZEL_BLACK, CINZEL_BOLD};
@@ -30,9 +31,21 @@ pub fn drawer_fraction(page: Page) -> f32 {
     }
 }
 
-/// Drawer width in logical pixels for the current page and window.
+/// The drawer's share of the window, standing at `fraction`; it moves with the slide's duration
+/// and easing.
+pub fn fraction_animation(fraction: f32) -> Animation<f32> {
+    Animation::new(fraction)
+        .duration(DRAWER_SLIDE)
+        .easing(Easing::EaseOutQuint)
+}
+
+/// Drawer width in logical pixels for the window, at the share `state.drawer_fraction` reaches at
+/// `state.now`.
 pub fn drawer_width(state: &State) -> f32 {
-    state.window_size.width * drawer_fraction(state.page)
+    state.window_size.width
+        * state
+            .drawer_fraction
+            .interpolate_with(|fraction| fraction, state.now)
 }
 
 /// Horizontal shift of the drawer: `-width` when hidden (`progress` 0), none when open (1).

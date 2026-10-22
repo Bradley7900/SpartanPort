@@ -102,6 +102,9 @@ fn every_tab_opens_its_drawer_with_the_right_width() {
         assert_eq!(state.page, page);
         let wide = WIDE.contains(&page);
         assert_eq!(page.wide(), wide, "{page:?}");
+        // Once the width has slid to the page's size.
+        let settled = state.now + Duration::from_millis(300);
+        let _ = app::update(&mut state, Message::Tick(settled));
         let expected = 1280.0 * if wide { 0.72 } else { 0.46 };
         let width = drawer_width(&state);
         assert!((width - expected).abs() < 0.01, "{page:?}: {width}");
@@ -110,6 +113,36 @@ fn every_tab_opens_its_drawer_with_the_right_width() {
         let opacity = if wide { 0.35 } else { 1.0 };
         assert_eq!(home_interactive_opacity(&state), opacity, "{page:?}");
     }
+}
+
+#[test]
+fn the_drawer_width_slides_between_the_two_sizes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let tick = |state: &mut State, at| {
+        let _ = app::update(state, Message::Tick(at));
+    };
+    let _ = app::update(&mut state, Message::ShowPage(Page::Graphics));
+    // Opening from closed slides in at the page's own width.
+    assert!((drawer_width(&state) - 0.46 * 1280.0).abs() < 0.01);
+    let opened = state.now;
+    tick(&mut state, opened + Duration::from_secs(1));
+    assert!(!app::drawer_animating(&state));
+
+    // Ruling R81: Graphics (46 %) to Log (72 %) in the slide's 220 ms.
+    let _ = app::update(&mut state, Message::ShowPage(Page::Log));
+    let switched = state.now;
+    tick(&mut state, switched + Duration::from_millis(110));
+    let width = drawer_width(&state);
+    assert!(
+        0.46 * 1280.0 < width && width < 0.72 * 1280.0,
+        "width {width} at 110 ms"
+    );
+    // The frames keep coming while the width moves.
+    assert!(app::drawer_animating(&state));
+    tick(&mut state, switched + Duration::from_millis(220));
+    assert!((drawer_width(&state) - 0.72 * 1280.0).abs() < 0.01);
+    assert!(!app::drawer_animating(&state));
 }
 
 #[test]

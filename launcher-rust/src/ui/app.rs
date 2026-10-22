@@ -64,6 +64,9 @@ pub struct State {
     pub page: Page,
     pub drawer: DrawerState,
     pub drawer_progress: Animation<bool>,
+    /// The share of the window the drawer takes, sliding between the narrow and the wide size
+    /// when the open page changes (ruling R81).
+    pub drawer_fraction: Animation<f32>,
     pub lang: String,
     /// Whether the interface language reads right to left (Arabic).
     pub rtl: bool,
@@ -173,6 +176,7 @@ impl State {
             drawer_progress: Animation::new(false)
                 .duration(DRAWER_SLIDE)
                 .easing(Easing::EaseOutQuint),
+            drawer_fraction: drawer::fraction_animation(drawer::drawer_fraction(Page::Home)),
             lang,
             rtl,
             scale,
@@ -532,6 +536,13 @@ pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
     state.now = now;
     state.page = page;
     let open = page != Page::Home;
+    // A drawer that opens comes in at its page's width; an open one slides to the new width.
+    let fraction = drawer::drawer_fraction(page);
+    match state.drawer {
+        DrawerState::Open(_) if open => state.drawer_fraction.go_mut(fraction, now),
+        DrawerState::Closed if open => state.drawer_fraction = drawer::fraction_animation(fraction),
+        _ => {}
+    }
     state.drawer = if open {
         DrawerState::Open(page)
     } else {
@@ -688,7 +699,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     let window_events = window::events().filter_map(window_message);
     // The close button is ours: the window closes once the settings are saved.
     let close = window::close_requests().map(Message::CloseRequested);
-    let frames = if state.drawer_progress.is_animating(state.now) {
+    let frames = if drawer_animating(state) {
         window::frames().map(Message::Tick)
     } else {
         Subscription::none()
@@ -712,6 +723,11 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         clock,
         controls::subscription(state),
     ])
+}
+
+/// Whether the drawer moves: it slides in or out, or its width changes.
+pub fn drawer_animating(state: &State) -> bool {
+    state.drawer_progress.is_animating(state.now) || state.drawer_fraction.is_animating(state.now)
 }
 
 /// What a window event means here: the window opened, changed size or desktop scale, or gained
