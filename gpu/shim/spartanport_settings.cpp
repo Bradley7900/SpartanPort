@@ -2,8 +2,10 @@
 #include "spartanport_settings.h"
 #include "spartanport_orbs.h"
 #include "spartanport_graphics.h"
+#include "../spartanportgpu.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -396,3 +398,71 @@ const char* UpscalerName(int upscaler) {
 }
 
 } // namespace SpartanSettings
+
+extern "C" int spartanportgpu_enemy_health_bar(int toggle) {
+    auto& v = SpartanSettings::Get();
+    if (!v.actor_watch_supported.load()) return 2;
+    if (toggle) {
+        v.enemy_health_bar = !v.enemy_health_bar.load();
+        SpartanSettings::Save();
+    }
+    return v.enemy_health_bar.load();
+}
+
+extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
+    auto& v = SpartanSettings::Get();
+    const unsigned group = function & ~0xfu, index = function & 0xfu;
+    const auto text = [](const char* value) { return reinterpret_cast<uint64_t>(value); };
+    if ((group == 0xf00 || group == 0xf10) && index == SPARTAN_CHEAT_COUNT) {
+        if (!v.qte_supported.load()) return text("Unavailable");
+        if (group == 0xf10) {
+            v.auto_qte = !v.auto_qte.load();
+            SpartanSettings::Save();
+        }
+        return text(v.auto_qte ? "On" : "Off");
+    }
+    if ((group == 0xf00 || group == 0xf10) && index < SPARTAN_CHEAT_COUNT) {
+        if (!(v.cheats_supported.load() & (1u << index))) return text("Unavailable");
+        if (group == 0xf10) {
+            v.cheats[index] = !v.cheats[index].load();
+            SpartanSettings::Save();
+        }
+        return text(v.cheats[index] ? "On" : "Off");
+    }
+    std::atomic<float>* const multipliers[] = {&v.red_orb_multiplier, &v.green_orb_multiplier,
+        &v.blue_orb_multiplier, &v.gold_orb_multiplier, &v.damage_dealt, &v.damage_taken};
+    if (function == 0xf60) {
+        for (auto* value : multipliers) *value = 1.0f;
+        SpartanSettings::Save();
+        return 0;
+    }
+    if (group < 0xf20 || group > 0xf50 || index >= 6) return 0;
+    const bool supported = index == 0 ? v.red_orbs_supported.load()
+        : index < 4 ? v.orb_pickup_supported.load() : v.damage_supported.load();
+    const bool blocked = index == 0 && (v.cheats_supported.load() & (1u << SPARTAN_CHEAT_ORBS))
+        && v.cheats[SPARTAN_CHEAT_ORBS].load();
+    if (!supported || blocked) return group == 0xf50 ? 0 : text(supported ? "Disabled" : "Unavailable");
+    auto& setting = *multipliers[index];
+    float value = SpartanOrbs::ClampMultiplier(setting.load());
+    if (group == 0xf30 || group == 0xf40) {
+        // Snap arbitrary GUI values onto the native control's grid in the requested direction.
+        const double units = std::round(value * 100.0) / 10.0;
+        const bool increase = group == 0xf40;
+        const int step = (increase ? units < 20 : units <= 20) ? 1
+            : (increase ? units < 100 : units <= 100) ? 5 : 10;
+        const double next = increase ? std::floor(units / step + 0.00001) + 1
+                                     : std::ceil(units / step - 0.00001) - 1;
+        value = SpartanOrbs::ClampMultiplier(float(next * step / 10.0));
+        setting = value;
+        SpartanSettings::Save();
+    }
+    if (group == 0xf50) {
+        const float position = value <= 2 ? (value - 0.1f) * 10
+            : value <= 10 ? 19 + (value - 2) * 2 : 35 + value - 10;
+        return static_cast<uint64_t>(std::lround(position * 100 / 125));
+    }
+    // Each row owns its buffer: assigning another row must not change an earlier label.
+    static thread_local char labels[6][24];
+    std::snprintf(labels[index], sizeof(labels[index]), "%.2fx", value);
+    return text(labels[index]);
+}
