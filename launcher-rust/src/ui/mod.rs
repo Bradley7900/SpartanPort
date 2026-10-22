@@ -8,6 +8,7 @@ pub mod lang_menu;
 pub mod pages;
 pub mod persist;
 pub mod play;
+pub mod setup;
 pub mod splash;
 pub mod tasks;
 pub mod theme;

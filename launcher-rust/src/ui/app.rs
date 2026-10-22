@@ -38,6 +38,7 @@ use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::{self, GameMessage, GameState};
+use crate::ui::setup::{self, SetupMessage, SetupState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, window_zoom, CINZEL_BOLD};
@@ -121,6 +122,8 @@ pub struct State {
     pub settings_unreadable: bool,
     /// What `settings.json` was at the start; `State::open` opens the setup on `Missing`.
     pub settings_file: SettingsFile,
+    /// The first-run setup while it is open; `None` on every other start.
+    pub setup: Option<SetupState>,
     /// Whether the Home fire burns (the `launcher_effects` setting).
     pub effects: bool,
 
@@ -144,6 +147,16 @@ pub struct State {
 }
 
 impl State {
+    /// The state the program starts with: `new`, plus the first-run setup when there is no
+    /// `settings.json` yet.
+    pub fn open(paths: Paths) -> State {
+        let mut state = State::new(paths);
+        if state.settings_file == SettingsFile::Missing {
+            state.setup = Some(SetupState::new(&state));
+        }
+        state
+    }
+
     /// Reads `settings.json` and the ini (one warning when either is there but unreadable);
     /// everything else starts empty.
     pub fn new(paths: Paths) -> State {
@@ -223,6 +236,7 @@ impl State {
             modal: None,
             settings_unreadable: !unreadable.is_empty(),
             settings_file,
+            setup: None,
             effects,
 
             linux_tools: if cfg!(windows) {
@@ -299,6 +313,7 @@ pub enum Message {
     Lang(LangMessage),
     VersionMenu(VersionMessage),
     Game(GameMessage),
+    Setup(SetupMessage),
     Update(UpdateMessage),
     Modal(ModalMessage),
     Trophies(TrophiesMessage),
@@ -456,6 +471,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             return task;
         }
         Message::Game(message) => return play::update(state, message),
+        Message::Setup(message) => return setup::update(state, message),
         Message::Update(message) => return update::update(state, message),
         Message::Trophies(message) => return trophies::update(state, message),
         Message::Mods(message) => return mods::update(state, message),
@@ -865,7 +881,7 @@ pub fn run(paths: Paths) -> iced::Result {
     // Asked once, before the window: the shader fire needs iced to render with wgpu.
     let shader_fire = probe_gpu();
     let boot = move || {
-        let mut state = State::new(paths.clone());
+        let mut state = State::open(paths.clone());
         state.fire = Fire::new(shader_fire);
         let checks = splash::start_checks(&state);
         let monitors = start_monitor_listing(&state);
