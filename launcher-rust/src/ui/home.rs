@@ -59,7 +59,7 @@ const GREY_GLOW_RADII: (f32, f32) = (0.25, 0.32);
 const GLOW_STEPS: u32 = 10;
 /// Layer 2: the launcher's key art (`assets/background.png`, mockup `#photo`): its size in pixels,
 /// its opacity, and the point `cover` keeps in place (CSS `background-position: 70% 30%`).
-const ART_SIZE: (u32, u32) = (1920, 1080);
+pub const ART_SIZE: (u32, u32) = (1920, 1080);
 const ART_OPACITY: f32 = 0.7;
 const ART_ANCHOR: (f32, f32) = (0.70, 0.30);
 /// The id of the container that holds the key art.
@@ -364,6 +364,13 @@ fn layer<'a>(which: Layer) -> Element<'a, Message> {
         .into()
 }
 
+/// A picture for the Home art layer and its size in pixels.
+#[derive(Debug, Clone)]
+pub struct Art {
+    pub handle: Handle,
+    pub size: (u32, u32),
+}
+
 /// The launcher's key art, one handle per process.
 pub fn art() -> Handle {
     static ART: OnceLock<Handle> = OnceLock::new();
@@ -371,17 +378,27 @@ pub fn art() -> Handle {
         .clone()
 }
 
-/// The part of the key art that a `cover` fit shows in `scene`: the picture scaled to cover the
-/// scene, cut to its shape around `ART_ANCHOR`. An empty scene shows the whole picture.
-pub fn art_crop(scene: Size) -> Rectangle<u32> {
-    let full = Size::new(ART_SIZE.0 as f32, ART_SIZE.1 as f32);
+/// What the Home art layer draws: the key art, unless `state.art_override` holds another picture
+/// (the snapshot tests' small placeholder).
+pub fn shown_art(state: &State) -> Art {
+    state.art_override.clone().unwrap_or_else(|| Art {
+        handle: art(),
+        size: ART_SIZE,
+    })
+}
+
+/// The part of a `picture` (its size in pixels) that a `cover` fit shows in `scene`: the picture
+/// scaled to cover the scene, cut to its shape around `ART_ANCHOR`. An empty scene shows the whole
+/// picture.
+pub fn art_crop(picture: (u32, u32), scene: Size) -> Rectangle<u32> {
+    let full = Size::new(picture.0 as f32, picture.1 as f32);
     let scale = (scene.width / full.width).max(scene.height / full.height);
     if !scale.is_finite() || scale <= 0.0 {
         return Rectangle {
             x: 0,
             y: 0,
-            width: ART_SIZE.0,
-            height: ART_SIZE.1,
+            width: picture.0,
+            height: picture.1,
         };
     }
     let shown = Size::new(
@@ -402,11 +419,12 @@ pub fn background(state: &State) -> Element<'_, Message> {
         .now
         .saturating_duration_since(state.splash.started)
         .as_secs_f32();
-    let art = image(art())
+    let shown = shown_art(state);
+    let art = image(shown.handle)
         .width(Fill)
         .height(Fill)
         .content_fit(ContentFit::Cover)
-        .crop(art_crop(scene_size(state)))
+        .crop(art_crop(shown.size, scene_size(state)))
         .opacity(ART_OPACITY);
     let mut layers = stack![
         layer(Layer::Base),

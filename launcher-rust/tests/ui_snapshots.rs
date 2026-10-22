@@ -8,6 +8,9 @@
 //! rendering differences. A missing reference is written and fails the test, so the first run
 //! creates them all.
 //!
+//! The Home art layer shows a small solid placeholder instead of the key art (`placeholder_art`),
+//! which keeps the references small.
+//!
 //! The snapshots are drawn by tiny-skia, which gives the same pixels on any machine and loads the
 //! images before it draws. wgpu depends on the graphics card, and decodes images on a worker thread
 //! whose result a headless snapshot does not wait for.
@@ -28,6 +31,7 @@ use common::{
     add_trophies, browsed, dump_with_patches, gpu_rows, load_mods, load_trophies, make_mod, open,
     two_displays, write_mod_patch, ARC_LAPTOP,
 };
+use iced::widget::image::Handle;
 use iced::Size;
 use iced_test::core::Settings;
 use iced_test::simulator::Simulator;
@@ -35,6 +39,7 @@ use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, RgbaImage};
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
+use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::persist;
@@ -121,7 +126,20 @@ fn fixture(dir: &Path, shot: Shot, size: Size, lang: &str) -> State {
     }
     state.now = state.splash.started + CLOCK;
     show_fixed_paths(&mut state);
+    state.art_override = Some(placeholder_art());
     state
+}
+
+/// The Home art of the references: a 32 × 18 dark warm grey (`#2a1f1f`) instead of the key art,
+/// whose photograph would make every reference several times larger. It goes through the same
+/// layer: cover, 70 %, the 70 % / 30 % anchor and the clip above the tab bar.
+fn placeholder_art() -> home::Art {
+    const SIZE: (u32, u32) = (32, 18);
+    let pixels = [0x2a, 0x1f, 0x1f, 0xff].repeat((SIZE.0 * SIZE.1) as usize);
+    home::Art {
+        handle: Handle::from_rgba(SIZE.0, SIZE.1, pixels),
+        size: SIZE,
+    }
 }
 
 /// Shows `SHOWN_PORT` (and its `dump` as the game folder) instead of the temporary folder; what
@@ -336,7 +354,9 @@ fn the_key_art_stays_above_the_tab_bar() {
     let (width, height) = (1920, 1080);
     let dir = tempfile::tempdir().unwrap();
     let size = Size::new(width as f32, height as f32);
-    let state = fixture(dir.path(), Shot::Page(Page::Home), size, "en");
+    let mut state = fixture(dir.path(), Shot::Page(Page::Home), size, "en");
+    // The real key art: this test writes no reference.
+    state.art_override = None;
     let image = render(&state, width, height);
     let panel = theme::palette::PANEL.into_rgba8();
     for (x, y) in [(1000, 1032), (1500, 1040), (1500, 1060), (1000, 1075)] {

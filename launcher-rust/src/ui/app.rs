@@ -103,6 +103,9 @@ pub struct State {
     pub lang_menu: LangMenu,
     /// What the Home chips read from the disk.
     pub home: HomeFacts,
+    /// Another picture for the Home art layer instead of the key art; only the snapshot tests set
+    /// it, to keep the reference images small.
+    pub art_override: Option<home::Art>,
     pub modal: Option<Modal>,
     /// Whether `settings.json` or the ini could not be read at start and nothing was saved since:
     /// only Save and PLAY write then (spec §6), not closing, opening the ini or Add to Steam.
@@ -195,6 +198,7 @@ impl State {
             update_progress: None,
             lang_menu: Default::default(),
             home: Default::default(),
+            art_override: None,
             modal: None,
             settings_unreadable: !unreadable.is_empty(),
             effects,

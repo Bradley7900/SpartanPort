@@ -176,11 +176,27 @@ fn the_key_art_is_the_embedded_1920_by_1080_picture() {
     };
     let picture = image::load_from_memory(&bytes).unwrap();
     assert_eq!((picture.width(), picture.height()), (1920, 1080));
+    assert_eq!(home::ART_SIZE, (1920, 1080));
     // A scene of the picture's own size shows all of it.
     assert_eq!(
-        home::art_crop(Size::new(1920.0, 1080.0)),
+        home::art_crop(home::ART_SIZE, Size::new(1920.0, 1080.0)),
         crop(0, 0, 1920, 1080)
     );
+}
+
+#[test]
+fn the_home_draws_the_key_art_unless_a_test_sets_another_picture() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let shown = home::shown_art(&state);
+    assert_eq!(shown.handle.id(), home::art().id());
+    assert_eq!(shown.size, home::ART_SIZE);
+    // The snapshots draw a small placeholder through the same layer.
+    state.art_override = Some(home::Art {
+        handle: Handle::from_rgba(2, 1, vec![0x2a; 8]),
+        size: (2, 1),
+    });
+    assert_eq!(home::shown_art(&state).size, (2, 1));
 }
 
 fn crop(x: u32, y: u32, width: u32, height: u32) -> Rectangle<u32> {
@@ -196,21 +212,29 @@ fn crop(x: u32, y: u32, width: u32, height: u32) -> Rectangle<u32> {
 fn the_key_art_covers_the_scene_anchored_at_70_and_30_percent() {
     // A narrow scene shows a slice 70 % of the way across the picture.
     assert_eq!(
-        home::art_crop(Size::new(960.0, 1080.0)),
+        home::art_crop(home::ART_SIZE, Size::new(960.0, 1080.0)),
         crop(672, 0, 960, 1080)
     );
     // A wide scene shows a band 30 % of the way down.
     assert_eq!(
-        home::art_crop(Size::new(1920.0, 540.0)),
+        home::art_crop(home::ART_SIZE, Size::new(1920.0, 540.0)),
         crop(0, 162, 1920, 540)
     );
     // A larger scene of the same shape scales the whole picture up.
     assert_eq!(
-        home::art_crop(Size::new(3840.0, 2160.0)),
+        home::art_crop(home::ART_SIZE, Size::new(3840.0, 2160.0)),
         crop(0, 0, 1920, 1080)
     );
+    // Any picture size: a 32 x 18 placeholder in a half-width scene.
+    assert_eq!(
+        home::art_crop((32, 18), Size::new(16.0, 18.0)),
+        crop(11, 0, 16, 18)
+    );
     // A minimised window has no scene: the whole picture, no division by zero.
-    assert_eq!(home::art_crop(Size::ZERO), crop(0, 0, 1920, 1080));
+    assert_eq!(
+        home::art_crop(home::ART_SIZE, Size::ZERO),
+        crop(0, 0, 1920, 1080)
+    );
 }
 
 #[test]
