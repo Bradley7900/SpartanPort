@@ -38,8 +38,15 @@ pub enum VersionMessage {
 }
 
 /// Applies the hover timers; when the menu just opened over `UpdateState::None` or `Failed`,
-/// returns the task of a silent check.
+/// returns the task of a silent check. While a download runs the menu stays closed (spec 4.2).
 pub fn update(state: &mut State, message: VersionMessage) -> Task<Message> {
+    if matches!(state.update, UpdateState::Downloading { .. }) {
+        let menu = &mut state.version_menu;
+        menu.open = false;
+        menu.hover_since = None;
+        menu.leave_since = None;
+        return Task::none();
+    }
     let hover = match message {
         // Not a hover event: closes the menu and installs unless it is the running release.
         VersionMessage::Pick(release) => {
@@ -107,7 +114,7 @@ pub fn button_view(state: &State) -> Element<'_, Message> {
         );
     // The id sits on a container: iced's button has none.
     let pressed = container(pressed).id(BUTTON_ID);
-    if !enabled {
+    if !enabled || downloading {
         return pressed.into();
     }
     mouse_area(pressed)

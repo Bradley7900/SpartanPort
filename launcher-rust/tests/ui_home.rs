@@ -656,7 +656,6 @@ fn the_version_button_is_not_pressable_while_downloading_or_dimmed() {
     };
     let label = "Downloading version 2.7.0… 42%";
     assert!(simulator(app::view(&state)).find(label).is_ok());
-    // Hovering still reports; only the press is withheld.
     assert!(!click(&state, label)
         .iter()
         .any(|message| matches!(message, Message::VersionMenu(VersionMessage::Toggle))));
@@ -683,6 +682,47 @@ fn the_version_button_is_not_pressable_while_downloading_or_dimmed() {
             .any(|message| matches!(message, Message::VersionMenu(_))),
         "{sent:?}"
     );
+}
+
+#[test]
+fn the_version_menu_stays_closed_while_downloading() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    let newest = release(Channel::Release, "2.7.0", None);
+    let downloading = UpdateState::Downloading {
+        releases: vec![newest.clone()],
+        release: newest.clone(),
+        percent: 42,
+    };
+    state.update = downloading.clone();
+    let t0 = Instant::now();
+    state.now = t0;
+    for message in [
+        VersionMessage::Enter,
+        VersionMessage::Tick(t0 + Duration::from_millis(450)),
+        VersionMessage::Toggle,
+    ] {
+        let task = version(&mut state, message.clone());
+        assert!(!state.version_menu.open, "{message:?}");
+        assert!(state.version_menu.hover_since.is_none(), "{message:?}");
+        assert_eq!(task.units(), 0, "{message:?}");
+    }
+    // The bare button: neither the pointer nor a press reaches the menu.
+    let sent = click(&state, "Downloading version 2.7.0… 42%");
+    assert!(
+        !sent
+            .iter()
+            .any(|message| matches!(message, Message::VersionMenu(_))),
+        "{sent:?}"
+    );
+
+    // A download that starts closes an open list.
+    ready_with(&mut state, vec![newest]);
+    open_menu(&mut state);
+    state.update = downloading;
+    tick(&mut state, t0 + Duration::from_millis(500));
+    assert!(!state.version_menu.open);
 }
 
 #[test]
