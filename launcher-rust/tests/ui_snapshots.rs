@@ -425,8 +425,9 @@ fn the_home_block_behind_a_wide_drawer_has_no_shade_box() {
         .find(iced_test::selector::id(home::BLOCK_ID))
         .unwrap()
         .bounds();
-    // Just right of the drawer, above and below the block's top edge, left of the logotype.
-    let x = (0.72 * width as f32).ceil() + 8.0;
+    // Right of the drawer and inside the block (whose width follows its chips), above and below
+    // its top edge, left of the logotype.
+    let x = ((0.72 * width as f32).ceil() + 8.0).max(block.x + 8.0);
     assert!(block.x < x && x < block.x + block.width, "{block:?}");
     let above = image.get_pixel(x as u32, block.y as u32 - 4).0;
     let inside = image.get_pixel(x as u32, block.y as u32 + 4).0;
