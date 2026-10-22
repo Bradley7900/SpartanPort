@@ -509,31 +509,64 @@ fn choosing_the_game_folder_refreshes_title_and_patches() {
 }
 
 #[test]
-fn a_folder_too_long_for_its_field_wraps_inside_it() {
+fn a_long_folder_stays_on_one_line_in_its_field() {
+    // The user's screenshot: the path broke into five lines. Ruling R89: an editable one-line
+    // field holds it (the Python's Entry) and scrolls a long one, between the name and the buttons.
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
     state.lang = "en".into();
-    // One word, with no place for a line break.
-    let folder = "AFolderNameFarTooLongForTheFieldOfTheGamePage";
+    let folder = r"C:\Users\Someone\Documents\My Games\GOW III\God.of.War.III.Remastered.PS4-CUSA01623\CUSA01623";
     state.settings.set("game_dir", folder.into());
-    open(&mut state, Page::Game);
-    let mut ui = iced_test::simulator::Simulator::with_size(
-        iced::Settings::default(),
-        iced::Size::new(1280.0, 4000.0),
-        app::view(&state),
-    );
-    let field = ui.find(folder).unwrap().bounds();
-    let alone = common::natural_size(folder, None, 16.0);
+    let mut ui = settled(&mut state, Page::Game, 1280.0, 800.0);
+    let field = ui.find(folder).unwrap();
     assert!(
-        alone.width > field.width,
+        matches!(field, iced_test::selector::Text::Input { .. }),
+        "{field:?}"
+    );
+    let field = field.bounds();
+    let line = common::natural_size(folder, None, 16.0);
+    assert!(
+        line.width > field.width,
         "the field is {} wide",
         field.width
     );
-    // Kept on one line, the name would run under the Browse and Open buttons.
+    assert!(field.height < 2.0 * line.height, "{} high", field.height);
+    // Mockup `.folder { grid-template-columns: 150px 1fr auto auto; gap: 8px }`.
+    let name = ui.find("Game folder").unwrap().bounds();
+    let browse = ui.find("Browse…").unwrap().bounds();
     assert!(
-        field.height > 1.5 * alone.height,
-        "{} high: not wrapped",
-        field.height
+        (field.x - (name.x + 150.0 + 8.0)).abs() < 0.5,
+        "name {name:?}, field {field:?}"
+    );
+    // Browse pads its label by 10.
+    assert!(
+        (browse.x - 10.0 - (field.x + field.width + 8.0)).abs() < 0.5,
+        "field {field:?}, Browse {browse:?}"
+    );
+}
+
+#[test]
+fn typing_a_folder_sets_it_like_browse() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    let dump = dump_with_patches(dir.path()).display().to_string();
+    let mut ui = settled(&mut state, Page::Game, 1280.0, 800.0);
+    ui.click(iced_test::selector::id(widgets::folder::input_id(
+        "game_dir",
+    )))
+    .unwrap();
+    ui.typewrite(&dump);
+    let sent: Vec<Message> = ui.into_messages().collect();
+    assert!(!sent.is_empty());
+    for message in sent {
+        let _ = app::update(&mut state, message);
+    }
+    assert_eq!(state.settings.get_str("game_dir"), dump);
+    // The refresh of a browsed folder: the Home reads the dump.
+    assert_eq!(
+        spartanport_launcher::ui::home::chips(&state)[1],
+        "✓ CUSA01623 · v01.02"
     );
 }
 

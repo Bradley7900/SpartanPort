@@ -207,7 +207,9 @@ textos e chaves de settings de `build_graphics`, `build_display`, `build_perform
 `build_trophies`, `build_controls`, `build_mods_page`, `build_linux_options`, `build_advanced` e
 `build_log`. Advanced ganha uma linha nova, "Efeitos" (fogo ligado ou desligado). Cada ajuste é uma
 linha do mockup (`.row`): o nome à esquerda e o controle (lista, caixa de seleção, botão) na ponta
-direita, com a dica embaixo; a caixa de seleção vem depois do nome, que também a alterna.
+direita, com a dica embaixo; a caixa de seleção vem depois do nome, que também a alterna. Uma
+pasta é um campo editável de uma linha entre o nome e os botões Procurar e Abrir (mockup
+`.folder`, R89): digitar tem o mesmo efeito de escolher no diálogo.
 
 ### 4.5 Seletor de idioma
 

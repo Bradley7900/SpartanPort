@@ -246,6 +246,7 @@ pub enum Message {
     /// The Aspect ratio box of the Performance page.
     Aspect(String),
     Browse(String),
+    /// The folder of a folder setting: the dialog's answer, or the path typed into its field.
     Browsed(String, Option<PathBuf>),
     /// A game patch check box of the Game page.
     PatchToggled(String, bool),

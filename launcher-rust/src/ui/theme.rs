@@ -2,7 +2,7 @@
 
 use iced::alignment::Horizontal;
 use iced::font::{Family, Weight};
-use iced::widget::{button, checkbox, container, pick_list, text};
+use iced::widget::{button, checkbox, container, pick_list, text, text_input};
 use iced::{Background, Border, Color, Font, Padding, Theme};
 
 /// Colours of the launcher (spec section 3.3).
@@ -22,6 +22,13 @@ pub mod palette {
 }
 
 use palette::{BG, CARD, GOLD, LINE, MUTED, PANEL, RED, RED_HI, TEXT};
+
+/// Mockup `.input`: its background, its edge, and the text of an empty field (`#5a5250`).
+const INPUT_BG: Color = Color::from_rgb8(0x12, 0x0f, 0x0f);
+const INPUT_LINE: Color = Color::from_rgb8(0x2e, 0x26, 0x26);
+const INPUT_PLACEHOLDER: Color = Color::from_rgb8(0x5a, 0x52, 0x50);
+/// A hovered field's edge (mockup `#langbtn:hover`).
+const LINE_HOVER: Color = Color::from_rgb8(0x4a, 0x3a, 0x3a);
 
 /// Page titles and the PLAY button.
 pub const CINZEL_BLACK: Font = Font {
@@ -189,6 +196,27 @@ pub fn pick_list_dark(_theme: &Theme, status: pick_list::Status) -> pick_list::S
         handle_color: MUTED,
         background: Background::Color(CARD),
         border: border(edge),
+    }
+}
+
+/// Mockup `.input`: the folder fields.
+pub fn text_input_dark(_theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let edge = match status {
+        text_input::Status::Focused { .. } => RED_HI,
+        text_input::Status::Hovered => LINE_HOVER,
+        _ => INPUT_LINE,
+    };
+    text_input::Style {
+        background: Background::Color(INPUT_BG),
+        border: Border {
+            color: edge,
+            width: 1.0,
+            radius: 3.0.into(),
+        },
+        icon: MUTED,
+        placeholder: INPUT_PLACEHOLDER,
+        value: palette::SILVER,
+        selection: RED,
     }
 }
 

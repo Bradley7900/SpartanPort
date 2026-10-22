@@ -97,6 +97,34 @@ fn folder_browse_emits_browse_with_the_key() {
 }
 
 #[test]
+fn a_folder_field_holds_the_path_and_sends_what_is_typed() {
+    let view = widgets::folder(
+        false,
+        "mods_dir",
+        "Mods folder",
+        r"D:\Mods",
+        "Empty: mods/",
+        None,
+        "en",
+    );
+    let mut ui = simulator(view);
+    let field = ui.find(r"D:\Mods").unwrap();
+    assert!(
+        matches!(field, iced_test::selector::Text::Input { .. }),
+        "{field:?}"
+    );
+    // The click lands after the short path, so the typing goes at its end.
+    ui.click(r"D:\Mods").unwrap();
+    ui.typewrite("2");
+    let messages: Vec<Message> = ui.into_messages().collect();
+    assert!(
+        matches!(messages.last(), Some(Message::Browsed(key, Some(path)))
+            if key == "mods_dir" && path.as_path() == std::path::Path::new(r"D:\Mods2")),
+        "{messages:?}"
+    );
+}
+
+#[test]
 fn folder_open_targets_the_folder_it_is_given() {
     let target = std::path::PathBuf::from("data").join("user");
     let view = widgets::folder(
