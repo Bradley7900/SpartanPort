@@ -3,7 +3,7 @@
 //! (spec 4.5): the control at the left end, the name against the right edge.
 
 use iced::widget::text::Wrapping;
-use iced::widget::{column, container, row as layout, text, Id, Text};
+use iced::widget::{column, container, row as layout, space, text, Id, Text};
 use iced::{Center, Element, Fill, Right};
 
 use crate::ui::app::Message;
@@ -49,8 +49,31 @@ pub fn line<'a>(
     control: Element<'a, Message>,
     hint: Option<&str>,
 ) -> Element<'a, Message> {
+    lay_out(rtl, name, label, control, hint, NAME_MIN)
+}
+
+/// A row without a name (R93): `control` (a group of buttons) at the row's end, with the whole
+/// row for itself, and the note under it; `label` names the control's box.
+pub fn actions<'a>(
+    rtl: bool,
+    label: &str,
+    control: Element<'a, Message>,
+    hint: Option<&str>,
+) -> Element<'a, Message> {
+    lay_out(rtl, space().into(), label, control, hint, 0.0)
+}
+
+/// `name`, `control` and the note as a row; the control keeps `room` free for the name.
+fn lay_out<'a>(
+    rtl: bool,
+    name: Element<'a, Message>,
+    label: &str,
+    control: Element<'a, Message>,
+    hint: Option<&str>,
+    room: f32,
+) -> Element<'a, Message> {
     // The row lays the control out first, against its width less the gap; the name gets the rest.
-    let control = leave_room(NAME_MIN, container(control).id(control_id(label)));
+    let control = leave_room(room, container(control).id(control_id(label)));
     let mut body = if rtl {
         // The text keeps its own alignment: an explicit one hides Arabic text in iced 0.14.
         let name = container(name).width(Fill).align_x(Right);

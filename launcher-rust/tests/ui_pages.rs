@@ -1678,6 +1678,61 @@ fn the_launcher_buttons_wrap_instead_of_squeezing() {
 }
 
 #[test]
+fn the_files_buttons_share_one_row_at_its_end() {
+    // R93: "Port folder", "spartanport.ini" and "Clear shader cache" on one line, ending where
+    // every row's control ends (starting there right to left), each label on one line.
+    for lang in [
+        "en", "pt", "es", "fr", "de", "it", "pl", "ru", "tr", "ar", "zh", "ja", "ko", "id",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = state(dir.path());
+        state.lang = lang.into();
+        state.rtl = lang == "ar";
+        let labels = [
+            tr(lang, "Port folder"),
+            "spartanport.ini".to_string(),
+            tr(lang, "Clear shader cache"),
+        ];
+        let mut ui = settled(&mut state, Page::Advanced, 1280.0, 4000.0);
+        let scale = control(&mut ui, &tr(lang, "GUI Scale"));
+        let files = control(&mut ui, advanced::FILES_ROW);
+        let shown: Vec<iced::Rectangle> = labels
+            .iter()
+            .map(|label| ui.find(label.as_str()).unwrap().bounds())
+            .collect();
+        for (label, bounds) in labels.iter().zip(&shown) {
+            let alone = common::natural_size(label, None, 16.0);
+            assert!(
+                (bounds.y - shown[0].y).abs() < 0.5 && bounds.height < alone.height * 1.5,
+                "{lang}: {label} at {bounds:?}, the first at {:?}",
+                shown[0]
+            );
+            assert!(
+                bounds.x >= files.x && bounds.x + bounds.width <= files.x + files.width + 0.5,
+                "{lang}: {label} {bounds:?} outside {files:?}"
+            );
+        }
+        let (edge, row_edge) = if lang == "ar" {
+            (files.x, scale.x)
+        } else {
+            (files.x + files.width, scale.x + scale.width)
+        };
+        assert!(
+            (edge - row_edge).abs() < 0.5,
+            "{lang}: {files:?} vs {scale:?}"
+        );
+        // The last button pads its label by 10 to the box's end.
+        let last = shown[2];
+        if lang != "ar" {
+            assert!(
+                (last.x + last.width + 10.0 - edge).abs() < 0.5,
+                "{lang}: {last:?} vs {edge}"
+            );
+        }
+    }
+}
+
+#[test]
 fn diagnostics_is_a_plain_section_after_the_others() {
     // R93: no fold; the Diagnostics heading and its rows are always shown, last on the page.
     let dir = tempfile::tempdir().unwrap();

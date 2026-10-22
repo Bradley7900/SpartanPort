@@ -25,11 +25,15 @@ use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::update::UpdateMessage;
+use crate::ui::widgets::row::actions;
 use crate::ui::widgets::{
     checkbox, choice_pairs, row, section, select_pairs, select_pairs_small, toggle_row, Modal,
     ModalKind,
 };
 use crate::{APP_NAME, VERSION};
+
+/// What names the box of the Files row's buttons (`row::control_id`).
+pub const FILES_ROW: &str = "files";
 
 /// One check box of the page.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,34 +358,33 @@ pub fn view(state: &State) -> Element<'_, Message> {
         }
     }
 
-    let files = layout![
-        flat(
-            tr(lang, "Port folder"),
-            Message::OpenFolder(state.paths.data_dir.clone())
-        ),
-        flat("spartanport.ini".to_string(), Message::OpenIni),
-    ]
-    .spacing(6);
     let clear = button(text(tr(lang, "Clear shader cache"))).style(theme::button_flat);
     let clear = if clear_cache_blocked(state) {
         clear
     } else {
         clear.on_press(Message::ClearShaderCache)
     };
+    // One row (R93): the three buttons where every row's control ends, the note under them.
+    let files = layout![
+        flat(
+            tr(lang, "Port folder"),
+            Message::OpenFolder(state.paths.data_dir.clone())
+        ),
+        flat("spartanport.ini".to_string(), Message::OpenIni),
+        clear,
+    ]
+    .spacing(6)
+    .align_y(Center);
     page = page
         .push(section(state.rtl, &tr(lang, "Files")))
-        .push(files)
-        .push(
-            layout![
-                clear,
-                text(hint(
-                    "If the game only shows a black screen, this usually helps."
-                ))
-                .style(theme::text_muted)
-            ]
-            .spacing(10)
-            .align_y(Center),
-        );
+        .push(actions(
+            state.rtl,
+            FILES_ROW,
+            files.into(),
+            Some(&hint(
+                "If the game only shows a black screen, this usually helps.",
+            )),
+        ));
 
     // A plain section, last on the page (R93; the Python folded it away).
     page = page.push(section(
