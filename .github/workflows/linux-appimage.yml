@@ -39,7 +39,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
         run: |
-          pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease 2>/dev/null || echo true)
+          pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease) || { echo "::warning::gh release view failed for $TAG; stamping it as a pre-release"; pre=true; }
           python3 packaging/release_stamp.py "$TAG" --prerelease "$pre" > release.json
           mkdir -p dist && cp release.json dist/
           cat release.json

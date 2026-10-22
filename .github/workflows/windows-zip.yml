@@ -57,14 +57,14 @@ jobs:
           python-version: '3.13'
       - name: Stamp
         if: inputs.tag != ''
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ inputs.tag }}
-          PYTHON_EXE: ${{ steps.python.outputs.python-path }}
         run: |
-          pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease 2>/dev/null || echo true)
-          "$(cygpath -u "$PYTHON_EXE")" packaging/release_stamp.py "$TAG" --prerelease "$pre" > release.json
+          pre=$(gh release view "$TAG" --json isPrerelease -q .isPrerelease) || { echo "::warning::gh release view failed for $TAG; stamping it as a pre-release"; pre=true; }
+          python packaging/release_stamp.py "$TAG" --prerelease "$pre" > release.json
           mkdir -p dist && cp release.json dist/
           cat release.json
       - name: Package
