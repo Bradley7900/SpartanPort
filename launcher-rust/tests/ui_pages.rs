@@ -1737,6 +1737,50 @@ fn the_list_follows_the_mods() {
     assert_eq!(performance::resolution_options(&state).len(), builtin);
 }
 
+/// Copies the folder `from` to `to`, files and subfolders.
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn the_bundled_ultrawide_mod_lists_with_its_patches() {
+    // Item 7 (adjustments 4): the repo's `extras/mods/Ultrawide`, put in the mods folder as its
+    // README says, lists on the Mods page with its game patches, and its patch file is the one the
+    // game merges (Python `enabled_patch_files`). Its sizes are built in since 2.4.0, so the
+    // Render resolution list gets no "(mod)" entry from it.
+    use spartanport_launcher::core::{mods as core_mods, patches::resolution_names};
+    let bundled = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../extras/mods/Ultrawide");
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    let root = state.paths.mods_dir("");
+    copy_tree(&bundled, &root.join("Ultrawide"));
+    performance::refresh_mod_resolutions(&mut state);
+    let builtin = performance::resolution_options(&state).len();
+    load_mods(&mut state);
+    assert_eq!(state.mods.order, ["Ultrawide"]);
+    assert!(state.mods.enabled["Ultrawide"]);
+    assert_eq!(state.mods.facts["Ultrawide"], (0, true));
+    let names = core_mods::selected(&root, Some(&state.paths.mods_json()), None).unwrap();
+    assert_eq!(names, ["Ultrawide"]);
+    let files = core_mods::patch_files(&root.join("Ultrawide"));
+    assert_eq!(
+        files,
+        [root.join("Ultrawide").join("patches").join("Ultrawide.xml")]
+    );
+    let sizes = resolution_names(&files);
+    assert!(sizes.contains(&"3440x1440".to_string()), "{sizes:?}");
+    assert_eq!(performance::resolution_options(&state).len(), builtin);
+}
+
 // --- Advanced page (Task 30) ---
 
 use spartanport_launcher::core::options::{UI_LANGUAGES, UI_SCALES};
