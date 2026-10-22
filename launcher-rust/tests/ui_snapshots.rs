@@ -348,6 +348,34 @@ fn log() {
 }
 
 #[test]
+fn the_home_block_behind_a_wide_drawer_has_no_shade_box() {
+    // Ruling R79: the block fades through its own colours. A shade over its bounds, darker than
+    // the dim layer around it, showed as a black box.
+    let (width, height) = (1920, 1080);
+    let dir = tempfile::tempdir().unwrap();
+    let size = Size::new(width as f32, height as f32);
+    let state = fixture(dir.path(), Shot::Page(Page::Log), size, "en");
+    let image = render(&state, width, height);
+    let settings = Settings {
+        fonts: theme::font_bytes().map(Cow::Borrowed).to_vec(),
+        ..Settings::default()
+    };
+    let block = Simulator::with_size(settings, size, app::view(&state))
+        .find(iced_test::selector::id(home::BLOCK_ID))
+        .unwrap()
+        .bounds();
+    // Just right of the drawer, above and below the block's top edge, left of the logotype.
+    let x = (0.72 * width as f32).ceil() + 8.0;
+    assert!(block.x < x && x < block.x + block.width, "{block:?}");
+    let above = image.get_pixel(x as u32, block.y as u32 - 4).0;
+    let inside = image.get_pixel(x as u32, block.y as u32 + 4).0;
+    assert!(
+        above.iter().zip(inside).all(|(a, b)| a.abs_diff(b) <= 3),
+        "above the block {above:?}, inside it {inside:?}"
+    );
+}
+
+#[test]
 fn the_key_art_stays_above_the_tab_bar() {
     // At 1920 × 1080 the scene is wider than the art, so `cover` overflows it by 36 px; the bar
     // below keeps its own colour where it has no text.

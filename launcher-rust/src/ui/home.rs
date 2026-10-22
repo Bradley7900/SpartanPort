@@ -9,12 +9,11 @@ use iced::widget::canvas::{self, gradient, Geometry, Path as Shape};
 use iced::widget::image::Handle;
 use iced::widget::text::Span;
 use iced::widget::{
-    button, canvas as canvas_widget, column, container, image, rich_text, row, space, span, stack,
-    text,
+    button, canvas as canvas_widget, column, container, image, rich_text, row, span, stack, text,
 };
 use iced::{
-    Background, Bottom, Center, Color, ContentFit, Element, Fill, Font, Left, Padding, Point,
-    Radians, Rectangle, Renderer, Right, Size, Theme, Top, Vector,
+    Bottom, Center, Color, ContentFit, Element, Fill, Font, Left, Padding, Point, Radians,
+    Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
 use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
@@ -28,7 +27,7 @@ use crate::ui::lang_menu;
 use crate::ui::play::GameState;
 use crate::ui::splash;
 use crate::ui::theme::{
-    button_flat, button_play, mirror_padding, mirror_x, palette, text_muted, CINZEL_BLACK,
+    button_flat, button_play, faded, faded_button, mirror_padding, mirror_x, palette, CINZEL_BLACK,
 };
 use crate::ui::update::{UpdateMessage, UpdateState};
 use crate::ui::widgets::{chip, ChipKind};
@@ -66,6 +65,9 @@ const HINT_SIZE: f32 = 12.0;
 const QUICK_GAP: f32 = 10.0;
 /// The id of the container that holds the settings line.
 pub const QUICK_ID: &str = "home-quick";
+/// The id of the container that holds the block under the logotype's right edge: logotype, PLAY,
+/// chips, settings line and status line.
+pub const BLOCK_ID: &str = "home-block";
 /// Layer 3: uniform dark veil, left-hand darkening and its reach, red rising from the floor.
 const VEIL_ALPHA: f32 = 0.32;
 const LEFT_VEIL_REACH: f32 = 0.58;
@@ -576,23 +578,9 @@ pub fn monogram() -> Handle {
         .clone()
 }
 
-/// Fades `content` to the Home opacity (35 % behind a wide drawer) by darkening it.
-fn dimmed<'a>(content: Element<'a, Message>, state: &State) -> Element<'a, Message> {
-    let opacity = home_interactive_opacity(state);
-    if opacity >= 1.0 {
-        return content;
-    }
-    let shade = container(space())
-        .width(Fill)
-        .height(Fill)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(bg(1.0 - opacity))),
-            ..container::Style::default()
-        });
-    stack![content, shade].into()
-}
-
-fn play_row(state: &State, enabled: bool) -> Element<'_, Message> {
+/// PLAY and STOP at `opacity`: the Home block fades through its own colours behind a wide drawer
+/// (ruling R79), never through a shade over its bounds.
+fn play_row(state: &State, enabled: bool, opacity: f32) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     // PLAY waits while the system files are copied; a started game turns it into RUNNING and STOP.
     let (running, copying) = match state.game {
@@ -610,14 +598,14 @@ fn play_row(state: &State, enabled: bool) -> Element<'_, Message> {
     };
     let play = button(text(label).font(CINZEL_BLACK).size(PLAY_SIZE))
         .padding(PLAY_PADDING)
-        .style(button_play)
+        .style(move |theme, status| faded_button(button_play(theme, status), opacity))
         .on_press_maybe(press);
     let mut line = row![].spacing(12).align_y(Center);
     if running {
         line = line.push(
             button(text(tr(lang, "Stop").to_uppercase()).size(14))
                 .padding([14, 22])
-                .style(button_flat)
+                .style(move |theme, status| faded_button(button_flat(theme, status), opacity))
                 .on_press_maybe(enabled.then_some(Message::Stop)),
         );
     }
@@ -625,32 +613,36 @@ fn play_row(state: &State, enabled: bool) -> Element<'_, Message> {
 }
 
 fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
+    let opacity = home_interactive_opacity(state);
     let chips = chips(state).iter().fold(row![].spacing(8), |line, label| {
-        line.push(chip(label, chip_kind(label)))
+        line.push(chip(label, chip_kind(label), opacity))
     });
     let quick: Vec<Span<'_, (), Font>> = quick_segments(state)
         .into_iter()
         .map(|(piece, bright)| {
-            span(piece).color(if bright {
+            let colour = if bright {
                 palette::TEXT
             } else {
                 palette::MUTED
-            })
+            };
+            span(piece).color(faded(colour, opacity))
         })
         .collect();
     let quick = container(rich_text(quick).size(QUICK_SIZE)).id(QUICK_ID);
-    let status = text(status_line(state)).size(HINT_SIZE).style(text_muted);
+    let status = text(status_line(state))
+        .size(HINT_SIZE)
+        .color(faded(palette::MUTED, opacity));
     let lines = column![chips, quick, status]
         .spacing(QUICK_GAP)
         .align_x(mirror_x(Right, state.rtl));
     let content = column![
-        image(logo()).height(LOGO_HEIGHT),
-        play_row(state, enabled),
+        image(logo()).height(LOGO_HEIGHT).opacity(opacity),
+        play_row(state, enabled, opacity),
         lines,
     ]
     .spacing(14)
     .align_x(mirror_x(Right, state.rtl));
-    let placed = container(dimmed(content.into(), state))
+    let placed = container(container(content).id(BLOCK_ID))
         .width(Fill)
         .height(Fill)
         .align_x(mirror_x(Right, state.rtl))
@@ -667,6 +659,8 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
 }
 
 fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
+    let opacity = home_interactive_opacity(state);
+    let pill_style = move |theme: &Theme, status| faded_button(button_flat(theme, status), opacity);
     let mut line = row![].spacing(10).align_y(Center);
     // Right to left, the line is mirrored: the language button keeps the outer corner.
     if state.rtl {
@@ -678,7 +672,7 @@ fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
             line = line.push(
                 button(pill)
                     .padding([3, 10])
-                    .style(button_flat)
+                    .style(pill_style)
                     .on_press_maybe(enabled.then_some(Message::Update(UpdateMessage::Install))),
             );
         }
@@ -692,7 +686,7 @@ fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
             line = line.push(
                 button(text(shown).size(11))
                     .padding([3, 10])
-                    .style(button_flat),
+                    .style(pill_style),
             );
         }
         _ => {}
@@ -700,7 +694,7 @@ fn top_right(state: &State, enabled: bool) -> Element<'_, Message> {
     if !state.rtl {
         line = line.push(lang_menu::button_view(state));
     }
-    container(dimmed(line.into(), state))
+    container(line)
         .width(Fill)
         .height(Fill)
         .align_x(mirror_x(Right, state.rtl))

@@ -95,6 +95,26 @@ pub fn button_play(_theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+/// `color` at `opacity` of its own alpha (the Home block behind a wide drawer).
+pub fn faded(color: Color, opacity: f32) -> Color {
+    color.scale_alpha(opacity)
+}
+
+/// `style` with its fill, text and border at `opacity` of their own alpha.
+pub fn faded_button(style: button::Style, opacity: f32) -> button::Style {
+    button::Style {
+        background: style
+            .background
+            .map(|background| background.scale_alpha(opacity)),
+        text_color: faded(style.text_color, opacity),
+        border: Border {
+            color: faded(style.border.color, opacity),
+            ..style.border
+        },
+        ..style
+    }
+}
+
 pub fn button_flat(_theme: &Theme, status: button::Status) -> button::Style {
     let edge = match status {
         button::Status::Hovered | button::Status::Pressed => RED_HI,
@@ -242,6 +262,18 @@ mod tests {
         for (color, spec) in expected {
             assert_eq!(hex(color), spec);
         }
+    }
+
+    #[test]
+    fn a_faded_button_keeps_its_colours_at_the_opacity() {
+        let style = faded_button(button_flat(&theme(), button::Status::Active), 0.35);
+        assert_eq!(
+            style.background,
+            Some(Background::Color(CARD.scale_alpha(0.35)))
+        );
+        assert_eq!(style.text_color, TEXT.scale_alpha(0.35));
+        assert_eq!(style.border.color, LINE.scale_alpha(0.35));
+        assert_eq!(faded(MUTED, 0.35), MUTED.scale_alpha(0.35));
     }
 
     #[test]

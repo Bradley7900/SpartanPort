@@ -8,9 +8,9 @@ use iced::{Element, Fill, Padding, Right, Top};
 use serde_json::json;
 
 use crate::core::i18n::{native_name, region_of, tr, Region, LANGS};
-use crate::ui::app::{home_interactive_enabled, Message, State};
+use crate::ui::app::{home_interactive_enabled, home_interactive_opacity, Message, State};
 use crate::ui::theme::{
-    button_flat, container_card, mirror_padding, mirror_x, palette, CINZEL_BOLD,
+    button_flat, container_card, faded_button, mirror_padding, mirror_x, palette, CINZEL_BOLD,
 };
 
 /// Hovering the button this long opens the list (spec 4.5).
@@ -94,10 +94,12 @@ pub fn timing(state: &State) -> bool {
 /// The button with the current language's own name.
 pub fn button_view(state: &State) -> Element<'_, Message> {
     let enabled = home_interactive_enabled(state);
+    // Faded with the rest of the Home behind a wide drawer (ruling R79).
+    let opacity = home_interactive_opacity(state);
     let label = text(format!("{} ▾", native_name(&state.lang))).size(12);
     let pressed = button(label)
         .padding([3, 10])
-        .style(button_flat)
+        .style(move |theme, status| faded_button(button_flat(theme, status), opacity))
         .on_press_maybe(enabled.then_some(Message::Lang(LangMessage::Toggle)));
     if !enabled {
         return pressed.into();
