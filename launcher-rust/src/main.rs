@@ -5,7 +5,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use spartanport_launcher::core::paths::Paths;
+use spartanport_launcher::core::paths::{default_port_dir, Paths};
 use spartanport_launcher::core::platform;
 use spartanport_launcher::startup::{self, Route};
 use spartanport_launcher::{ui, APP_NAME, VERSION};
@@ -18,17 +18,19 @@ fn main() {
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."));
+    // A packaged port, or the checkout a cargo build sits in (`launcher-rust/target/…`).
+    let port_dir = default_port_dir(&exe_dir);
     match startup::route(&args) {
         Route::Version => println!("{APP_NAME} {VERSION}"),
         Route::Python => {
             // The Python launcher of the port folder (`SPARTAN_PORT_DIR` included).
-            let paths = Paths::from_env(&exe_dir, &|key| std::env::var(key).ok());
+            let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
             std::process::exit(startup::forward_to_python(&paths.port_dir, &args))
         }
         Route::Launcher => {
             // Before the folders below are read from the environment.
             startup::forward_environment();
-            let paths = Paths::from_env(&exe_dir, &|key| std::env::var(key).ok());
+            let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
             startup::prepare(&paths);
             if let Err(error) = ui::app::run(paths) {
                 eprintln!("{APP_NAME}: {error}");

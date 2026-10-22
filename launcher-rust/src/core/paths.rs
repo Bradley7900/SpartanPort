@@ -18,6 +18,22 @@ pub struct Paths {
     legacy_config_dir: PathBuf,
 }
 
+/// The port folder of a launcher started without `SPARTAN_PORT_DIR`: the exe's folder when
+/// `run.py` is beside it (a packaged port); else the nearest folder above holding `run.py` and
+/// `launcher/` (a cargo build in `launcher-rust/target/<profile>/`, as the Python launcher run
+/// from source takes `launcher/..`); else the exe's folder, whose missing `run.py` PLAY reports.
+pub fn default_port_dir(exe_dir: &Path) -> PathBuf {
+    let is_port = |dir: &Path| dir.join("run.py").is_file();
+    if is_port(exe_dir) {
+        return exe_dir.to_path_buf();
+    }
+    exe_dir
+        .ancestors()
+        .skip(1)
+        .find(|dir| is_port(dir) && dir.join("launcher").is_dir())
+        .map_or_else(|| exe_dir.to_path_buf(), Path::to_path_buf)
+}
+
 impl Paths {
     /// `env` reads one environment variable; a relative `SPARTAN_PORT_DIR` is also joined to the
     /// current folder. Nothing else touches the OS.
@@ -159,6 +175,42 @@ mod tests {
             paths.mod_presets(),
             Path::new("exe").join("mods_presets.json")
         );
+    }
+
+    #[test]
+    fn a_cargo_build_runs_from_its_checkout() {
+        // The Python launcher run from source takes `launcher/..`, the checkout, as the port
+        // folder. A cargo build sits in `launcher-rust/target/<profile>/` and climbs to the
+        // checkout the same way: run.py and the Python launcher are not beside the exe.
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = dir.path().join("checkout");
+        let exe_dir = checkout
+            .join("launcher-rust")
+            .join("target")
+            .join("release");
+        std::fs::create_dir_all(&exe_dir).unwrap();
+        std::fs::create_dir_all(checkout.join("launcher")).unwrap();
+        std::fs::write(checkout.join("run.py"), b"").unwrap();
+        assert_eq!(default_port_dir(&exe_dir), checkout);
+        // A packaged port has run.py beside the exe: the exe's folder, as before.
+        let port = dir.path().join("port");
+        std::fs::create_dir_all(port.join("launcher")).unwrap();
+        std::fs::write(port.join("run.py"), b"").unwrap();
+        assert_eq!(default_port_dir(&port), port);
+        // A port extracted inside the checkout is still its own folder.
+        let nested = checkout.join("dist").join("port");
+        std::fs::create_dir_all(nested.join("launcher")).unwrap();
+        std::fs::write(nested.join("run.py"), b"").unwrap();
+        assert_eq!(default_port_dir(&nested), nested);
+        // Nothing above: the exe's folder, and the missing run.py is reported as before.
+        let alone = dir.path().join("alone").join("target").join("debug");
+        std::fs::create_dir_all(&alone).unwrap();
+        assert_eq!(default_port_dir(&alone), alone);
+        // A folder with a run.py but no launcher/ is not the checkout.
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(other.join("x")).unwrap();
+        std::fs::write(other.join("run.py"), b"").unwrap();
+        assert_eq!(default_port_dir(&other.join("x")), other.join("x"));
     }
 
     #[test]
