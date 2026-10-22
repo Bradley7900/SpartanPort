@@ -14,6 +14,7 @@ use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
 use crate::core::update::{can_self_update, latest_release, Release};
 use crate::ui::app::{Message, State, BAR_HEIGHT};
+use crate::ui::home;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::palette;
 use crate::ui::update;
@@ -188,6 +189,12 @@ fn lerp(from: f32, to: f32, t: f32) -> f32 {
     from + (to - from) * t
 }
 
+/// The monogram image: the Home corner's handle, made once per process, so the view rebuilt on
+/// every tick does not ask wgpu to decode the picture again (it draws nothing while it decodes).
+pub fn monogram() -> image::Handle {
+    home::monogram()
+}
+
 /// The splash layer: background, glowing monogram, status text and hint. During the flight the
 /// monogram shrinks to the corner while the background and the texts fade out.
 pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
@@ -218,11 +225,7 @@ pub fn view<'a>(state: &'a State, lang: &str) -> Element<'a, Message> {
             ..container::Style::default()
         });
 
-    let monogram = image(image::Handle::from_bytes(
-        &include_bytes!("../../assets/monogram.png")[..],
-    ))
-    .width(size)
-    .height(size);
+    let monogram = image(monogram()).width(size).height(size);
     let halo = container(monogram)
         .padding(glow)
         .style(move |_| container::Style {
@@ -294,6 +297,12 @@ mod tests {
         state.splash.done = true;
         assert!(!layers(&state).fire_on_top_of_background);
         assert!(layers(&state).home_draws_fire);
+    }
+
+    #[test]
+    fn every_frame_draws_the_same_monogram_image() {
+        // A new handle is a new image to decode: wgpu would draw nothing while it decodes again.
+        assert_eq!(monogram().id(), monogram().id());
     }
 
     #[test]

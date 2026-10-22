@@ -528,7 +528,8 @@ fn logo() -> Handle {
     .clone()
 }
 
-fn monogram() -> Handle {
+/// The monogram image, one handle per process (the splash shows the same one).
+pub fn monogram() -> Handle {
     static MONOGRAM_IMAGE: OnceLock<Handle> = OnceLock::new();
     MONOGRAM_IMAGE
         .get_or_init(|| Handle::from_bytes(&include_bytes!("../../assets/monogram.png")[..]))
