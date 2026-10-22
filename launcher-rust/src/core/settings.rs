@@ -263,7 +263,11 @@ mod tests {
         assert_eq!(read_app_settings(&paths).1, SettingsFile::Missing);
         for broken in ["{not json", "[1, 2]", ""] {
             fs::write(paths.config_file(), broken).unwrap();
-            assert_eq!(read_app_settings(&paths).1, SettingsFile::Unreadable, "{broken:?}");
+            assert_eq!(
+                read_app_settings(&paths).1,
+                SettingsFile::Unreadable,
+                "{broken:?}"
+            );
         }
         fs::write(paths.config_file(), r#"{"ui_language": "pt"}"#).unwrap();
         let (settings, file) = read_app_settings(&paths);
