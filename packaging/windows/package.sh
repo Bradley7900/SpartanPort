@@ -60,6 +60,9 @@ ldd "$dest/bin/spartanport-probe.exe" "$dest/bin/spartanport-gpu-capabilities.ex
         cp -u "$dll" "$dest/bin/"
     done
 cp -r scripts patches "$dest/"
+mkdir -p "$dest/tools" "$dest/docs"
+cp tools/xvag_voice_swap.py "$dest/tools/"
+cp docs/VOICE_REPLACEMENT.md "$dest/docs/"
 cp run.py LICENSE README.md packaging/windows/README-Windows.txt "$dest/"
 find "$dest" -name __pycache__ -prune -exec rm -r {} +
 [[ -f $dest/scripts/discord_presence.py ]] || { echo 'scripts/discord_presence.py is missing from the package' >&2; exit 1; }
