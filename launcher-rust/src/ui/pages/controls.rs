@@ -190,6 +190,8 @@ pub enum ControlsMessage {
     Capture(String),
     /// The input (SDL name) the waiting box of this game button got.
     Captured(String, String),
+    /// The waiting box gives up (Python `finish`): its time ran out, the window lost the focus,
+    /// or a mouse button without an input name was pressed.
     CaptureTimeout,
     /// The arrow of a row: that button back on its default.
     ResetKey(String),
@@ -204,7 +206,7 @@ pub enum ControlsMessage {
 pub fn update(state: &mut State, message: ControlsMessage) -> Task<Message> {
     match message {
         ControlsMessage::Device(device) => {
-            state.controls.device = device;
+            show_device(state, device);
             state.controls.device_chosen = true;
             apply_set(state, "controls_device", Value::from(device.value()));
         }
@@ -253,11 +255,20 @@ pub fn update(state: &mut State, message: ControlsMessage) -> Task<Message> {
         }
         ControlsMessage::GamepadDetected(found) => {
             if found && !state.controls.device_chosen {
-                state.controls.device = Device::Gamepad;
+                show_device(state, Device::Gamepad);
             }
         }
     }
     Task::none()
+}
+
+/// Shows a device's section. The keyboard table's waiting box gives up when it hides, so no
+/// click is bound to a box out of sight.
+fn show_device(state: &mut State, device: Device) {
+    if device != Device::Keyboard {
+        stop_capture(state);
+    }
+    state.controls.device = device;
 }
 
 fn stop_capture(state: &mut State) {
@@ -304,48 +315,64 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         return Subscription::none();
     };
     event::listen_with(
-        |event: Event, _status: event::Status, _window: window::Id| {
-            mouse_input(&event).map(str::to_string)
-        },
+        |event: Event, _status: event::Status, _window: window::Id| mouse_input(&event),
     )
     .with(button)
-    .map(|(button, name)| Message::Controls(ControlsMessage::Captured(button, name)))
+    .map(|(button, input)| {
+        Message::Controls(match input {
+            MouseInput::Bind(name) => ControlsMessage::Captured(button, name.to_string()),
+            MouseInput::GiveUp => ControlsMessage::CaptureTimeout,
+        })
+    })
 }
 
 /// While a box waits, a layer over the whole window takes the clicks and the wheel (the Python's
 /// `grab_set`): they reach the box through `subscription`, and nothing under the layer reacts, so
-/// a click on the box itself does not start it waiting again.
+/// a click on the box itself does not start it waiting again. The idle cursor keeps the hover
+/// look of the widgets under it off.
 pub fn input_catcher<'a>() -> Element<'a, Message> {
     mouse_area(container(space()).width(Fill).height(Fill))
         .on_press(Message::Noop)
         .on_scroll(|_| Message::Noop)
+        .interaction(mouse::Interaction::Idle)
         .into()
 }
 
-/// The input name of a mouse button press or a wheel turn (Python `TK_TO_MOUSE`, `mouse_name`).
-pub fn mouse_input(event: &Event) -> Option<&'static str> {
-    match event {
+/// What a mouse event does to the waiting box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseInput {
+    /// The input it binds.
+    Bind(&'static str),
+    /// A button without an input name: the box gives up (Python `clicked` -> `finish`).
+    GiveUp,
+}
+
+/// A mouse button press or a wheel turn as the waiting box's input (Python `TK_TO_MOUSE`,
+/// `mouse_name`); `None` for any other event.
+pub fn mouse_input(event: &Event) -> Option<MouseInput> {
+    let name = match event {
         Event::Mouse(mouse::Event::ButtonPressed(button)) => match button {
-            mouse::Button::Left => Some("Mouse Left"),
-            mouse::Button::Middle => Some("Mouse Middle"),
-            mouse::Button::Right => Some("Mouse Right"),
-            mouse::Button::Back => Some("Mouse Back"),
-            mouse::Button::Forward => Some("Mouse Forward"),
-            mouse::Button::Other(_) => None,
+            mouse::Button::Left => "Mouse Left",
+            mouse::Button::Middle => "Mouse Middle",
+            mouse::Button::Right => "Mouse Right",
+            mouse::Button::Back => "Mouse Back",
+            mouse::Button::Forward => "Mouse Forward",
+            mouse::Button::Other(_) => return Some(MouseInput::GiveUp),
         },
         Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
             let (mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. }) =
                 delta;
             if *y > 0.0 {
-                Some("Wheel Up")
+                "Wheel Up"
             } else if *y < 0.0 {
-                Some("Wheel Down")
+                "Wheel Down"
             } else {
-                None
+                return None;
             }
         }
-        _ => None,
-    }
+        _ => return None,
+    };
+    Some(MouseInput::Bind(name))
 }
 
 const FUNCTION_KEYS: [Named; 24] = [

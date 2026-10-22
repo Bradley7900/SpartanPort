@@ -853,7 +853,7 @@ use iced::keyboard::{Key, Location, Modifiers};
 use iced::mouse;
 use spartanport_launcher::core::controls::{Kind, PAD_STYLES};
 use spartanport_launcher::ui::pages::controls::{
-    self, ControlsMessage, ControlsView, Device, PadChoice, CAPTURE_SECONDS,
+    self, ControlsMessage, ControlsView, Device, MouseInput, PadChoice, CAPTURE_SECONDS,
 };
 
 fn controls_update(state: &mut app::State, message: ControlsMessage) {
@@ -1118,20 +1118,22 @@ fn nintendo_names_follow_the_button_positions() {
 fn capture_takes_the_mouse_and_gives_up_in_time() {
     let pressed = |button| iced::Event::Mouse(mouse::Event::ButtonPressed(button));
     let wheel = |delta| iced::Event::Mouse(mouse::Event::WheelScrolled { delta });
+    let bind = MouseInput::Bind;
     let inputs = [
-        (pressed(mouse::Button::Left), Some("Mouse Left")),
-        (pressed(mouse::Button::Middle), Some("Mouse Middle")),
-        (pressed(mouse::Button::Right), Some("Mouse Right")),
-        (pressed(mouse::Button::Back), Some("Mouse Back")),
-        (pressed(mouse::Button::Forward), Some("Mouse Forward")),
-        (pressed(mouse::Button::Other(8)), None),
+        (pressed(mouse::Button::Left), Some(bind("Mouse Left"))),
+        (pressed(mouse::Button::Middle), Some(bind("Mouse Middle"))),
+        (pressed(mouse::Button::Right), Some(bind("Mouse Right"))),
+        (pressed(mouse::Button::Back), Some(bind("Mouse Back"))),
+        (pressed(mouse::Button::Forward), Some(bind("Mouse Forward"))),
+        // A button without an input name: the box gives up (Python `clicked` -> `finish`).
+        (pressed(mouse::Button::Other(8)), Some(MouseInput::GiveUp)),
         (
             wheel(mouse::ScrollDelta::Lines { x: 0.0, y: 1.0 }),
-            Some("Wheel Up"),
+            Some(bind("Wheel Up")),
         ),
         (
             wheel(mouse::ScrollDelta::Pixels { x: 0.0, y: -40.0 }),
-            Some("Wheel Down"),
+            Some(bind("Wheel Down")),
         ),
         (
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
@@ -1233,6 +1235,43 @@ fn reset_buttons_and_the_rage_rows() {
     controls_update(&mut state, ControlsMessage::ResetTable(Kind::Pad));
     assert_eq!(state.controls.pad["cross"], "a");
     assert_eq!(state.controls.pad["l2"], "");
+}
+
+#[test]
+fn a_gamepad_found_while_a_box_waits_ends_the_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    let before = state.controls.key.clone();
+    // The player clicks a key box before the first-open probe answers.
+    capture(&mut state, "cross");
+    controls_update(&mut state, ControlsMessage::GamepadDetected(true));
+    assert_eq!(state.controls.device, Device::Gamepad);
+    assert!(state.controls.capturing.is_none());
+    assert!(state.controls.capture_started.is_none());
+    assert_eq!(state.controls.key, before);
+    // No hidden box takes the next click: it reaches the gamepad section.
+    assert!(matches!(
+        tall_messages(&state, "Nintendo").as_slice(),
+        [Message::Controls(ControlsMessage::PadStyle(style))] if style == "nintendo"
+    ));
+}
+
+#[test]
+fn losing_the_focus_ends_the_capture() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    let before = state.controls.key.clone();
+    capture(&mut state, "cross");
+    let _ = app::update(&mut state, Message::WindowFocused(false));
+    assert!(!state.focused);
+    assert!(state.controls.capturing.is_none());
+    assert!(state.controls.capture_started.is_none());
+    assert_eq!(state.controls.key, before);
+    // The next key navigates again instead of binding.
+    let _ = app::update(&mut state, Message::WindowFocused(true));
+    press_key(&mut state, Key::Named(Named::ArrowLeft), Location::Standard);
+    assert_eq!(state.page, Page::Trophies);
+    assert_eq!(state.controls.key, before);
 }
 
 // --- Mods page (Task 29) ---

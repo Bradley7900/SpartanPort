@@ -309,7 +309,13 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Browsed(_, None) => {}
         Message::PatchToggled(name, on) => game::patch_toggled(state, &name, on),
         Message::Backup(message) => return game::backup_update(state, message),
-        Message::WindowFocused(focused) => state.focused = focused,
+        Message::WindowFocused(focused) => {
+            state.focused = focused;
+            // As the Python's <FocusOut>: a key box of the Controls page gives up.
+            if !focused {
+                return controls::update(state, ControlsMessage::CaptureTimeout);
+            }
+        }
         Message::Splash(message) => splash::apply(state, message),
         Message::Lang(message) => lang_menu::update(state, message),
         // Task 33
