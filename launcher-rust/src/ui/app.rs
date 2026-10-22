@@ -587,27 +587,22 @@ pub fn view(state: &State) -> Element<'_, Message> {
     if let DrawerState::Open(page) = state.drawer {
         scene = scene.push(drawer::view(state, page));
     }
-    let page = column![scene, bar(state)];
-    let mut layers = Vec::new();
+    // Always a stack with the page first, layers or not: a root that changed kind with them would
+    // drop the state of the whole page (the drawer's scroll position) each time one comes or goes.
+    let mut window = stack![column![scene, bar(state)]];
     // While a key box of the Controls page waits, a click anywhere is its input.
     if state.controls.capturing.is_some() {
-        layers.push(controls::input_catcher());
+        window = window.push(controls::input_catcher());
     }
     if let Some(open) = &state.modal {
-        layers.push(widgets::modal(
+        window = window.push(widgets::modal(
             open.kind.clone(),
             &open.title,
             &open.text,
             &state.lang,
         ));
     }
-    if layers.is_empty() {
-        return page.into();
-    }
-    layers
-        .into_iter()
-        .fold(stack![page], |layered, layer| layered.push(layer))
-        .into()
+    window.into()
 }
 
 /// Darkens the Home view behind an open drawer; a press on it closes the drawer. The spec also

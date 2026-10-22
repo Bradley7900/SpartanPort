@@ -204,6 +204,15 @@ pub fn default_input(row: &ControlRow, kind: Kind) -> Option<&'static str> {
     Some(default)
 }
 
+/// Whether every row of the `kind` table in `values` holds its default (an input without a
+/// default holds nothing); case and outer spaces aside, as `control_changes` compares.
+pub fn at_defaults(values: &IndexMap<String, String>, kind: Kind) -> bool {
+    table_rows(kind).into_iter().all(|row| {
+        let value = values.get(row.button).map_or("", |value| value.trim());
+        value.eq_ignore_ascii_case(default_input(row, kind).unwrap_or_default())
+    })
+}
+
 /// SDL name of a pressed key, from the neutral key names the keyboard layer reports, or `None`
 /// when the key cannot be bound.
 pub fn sdl_key_name(key: &str) -> Option<String> {

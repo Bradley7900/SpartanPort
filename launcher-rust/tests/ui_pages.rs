@@ -1336,6 +1336,150 @@ fn reset_buttons_and_the_rage_rows() {
     assert_eq!(state.controls.pad["l2"], "");
 }
 
+/// `state` on the Controls page once the drawer has stopped (a key box's click restarts the clock).
+fn settle(state: &mut app::State) {
+    let _ = app::update(
+        state,
+        Message::Tick(iced::time::Instant::now() + std::time::Duration::from_secs(1)),
+    );
+}
+
+#[test]
+fn the_keyboard_reset_works_in_the_window_as_it_opens() {
+    // Item 8 (adjustments 4): "Reset keyboard & mouse to defaults does nothing". At 1280 × 800,
+    // with the page scrolled down to the button, a click puts a saved change back on its default
+    // and Save turns on (the user's own files held no changed key: nothing to reset there).
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"controls": {"key": {"cross": "H"}}}"#,
+    )
+    .unwrap();
+    let mut state = controls_state(dir.path());
+    settle(&mut state);
+    assert_eq!(state.controls.key["cross"], "H");
+    assert!(!spartanport_launcher::ui::persist::dirty(&state));
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 800.0),
+        app::view(&state),
+    );
+    ui.point_at(iced::Point::new(300.0, 500.0));
+    let _ = ui.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled {
+        delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -700.0 },
+    })]);
+    ui.click("Reset keyboard & mouse to defaults").unwrap();
+    let sent: Vec<Message> = ui.into_messages().collect();
+    for message in sent {
+        let _ = app::update(&mut state, message);
+    }
+    assert_eq!(state.controls.key["cross"], "Space");
+    assert!(spartanport_launcher::ui::persist::dirty(&state));
+}
+
+#[test]
+fn the_reset_buttons_are_active_only_off_the_defaults() {
+    // On the defaults a reset has nothing to change: its button is off, as Save is with nothing
+    // to save, so a click that changes rows out of sight still shows that it acted.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    let resets = |state: &app::State, label: &str| {
+        tall_messages(state, label)
+            .into_iter()
+            .filter(|message| matches!(message, Message::Controls(ControlsMessage::ResetTable(_))))
+            .count()
+    };
+    assert_eq!(resets(&state, "Reset keyboard & mouse to defaults"), 0);
+    capture(&mut state, "cross");
+    press_key(&mut state, char_key("h"), Location::Standard);
+    assert_eq!(resets(&state, "Reset keyboard & mouse to defaults"), 1);
+    click_tall(&mut state, "Reset keyboard & mouse to defaults");
+    assert_eq!(resets(&state, "Reset keyboard & mouse to defaults"), 0);
+
+    controls_update(&mut state, ControlsMessage::Device(Device::Gamepad));
+    assert_eq!(resets(&state, "Reset gamepad to defaults"), 0);
+    controls_update(
+        &mut state,
+        ControlsMessage::PadPick("cross".into(), "y".into()),
+    );
+    assert_eq!(resets(&state, "Reset gamepad to defaults"), 1);
+}
+
+/// The vertical offsets of the scrollables of `ui`.
+fn scroll_offsets(
+    ui: &mut iced_test::runtime::UserInterface<'_, Message, iced::Theme, iced::Renderer>,
+    renderer: &iced::Renderer,
+) -> Vec<f32> {
+    use iced::advanced::widget::operation::{Operation, Scrollable};
+    struct Offsets(Vec<f32>);
+    impl Operation for Offsets {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn scrollable(
+            &mut self,
+            _id: Option<&iced::widget::Id>,
+            _bounds: iced::Rectangle,
+            _content_bounds: iced::Rectangle,
+            translation: iced::Vector,
+            _state: &mut dyn Scrollable,
+        ) {
+            self.0.push(translation.y);
+        }
+    }
+    let mut offsets = Offsets(Vec::new());
+    ui.operate(renderer, &mut offsets);
+    offsets.0
+}
+
+#[test]
+fn a_waiting_key_box_keeps_the_page_where_it_was_scrolled() {
+    // Found while looking at item 8: clicking a key box low on the page threw the page back to
+    // its top (the waiting layer changed the window's root from a column to a stack, which drops
+    // the state of everything under it), so the waiting box and the reset button went out of
+    // sight; the end of the wait threw it to the top again.
+    use iced::advanced::renderer::Headless;
+    use iced_test::runtime::user_interface::{Cache, UserInterface};
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    settle(&mut state);
+    let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+        iced::Font::with_name("Fira Sans"),
+        iced::Pixels(16.0),
+        Some("tiny-skia"),
+    ))
+    .unwrap();
+    let size = iced::Size::new(1280.0, 800.0);
+    let cursor = mouse::Cursor::Available(iced::Point::new(300.0, 500.0));
+    let wheel = iced::Event::Mouse(mouse::Event::WheelScrolled {
+        delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -600.0 },
+    });
+    let mut ui = UserInterface::build(app::view(&state), size, Cache::default(), &mut renderer);
+    let mut sent = Vec::new();
+    let _ = ui.update(
+        &[wheel],
+        cursor,
+        &mut renderer,
+        &mut iced::advanced::clipboard::Null,
+        &mut sent,
+    );
+    let scrolled = scroll_offsets(&mut ui, &renderer);
+    assert!(scrolled.iter().any(|y| *y > 100.0), "{scrolled:?}");
+    let mut cache = ui.into_cache();
+    // The box waits, then gets its key.
+    for step in 0..2 {
+        if step == 0 {
+            capture(&mut state, "dodge");
+        } else {
+            press_key(&mut state, char_key("h"), Location::Standard);
+        }
+        settle(&mut state);
+        let mut ui = UserInterface::build(app::view(&state), size, cache, &mut renderer);
+        assert_eq!(scroll_offsets(&mut ui, &renderer), scrolled, "step {step}");
+        cache = ui.into_cache();
+    }
+}
+
 #[test]
 fn a_gamepad_found_while_a_box_waits_ends_the_capture() {
     let dir = tempfile::tempdir().unwrap();

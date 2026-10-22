@@ -17,8 +17,8 @@ use indexmap::IndexMap;
 use serde_json::Value;
 
 use crate::core::controls::{
-    bind_key, control_values, default_input, sdl_key_name, table_rows, Kind, CONTROLS, PAD_STYLES,
-    RAGE_BUTTONS,
+    at_defaults, bind_key, control_values, default_input, sdl_key_name, table_rows, Kind, CONTROLS,
+    PAD_STYLES, RAGE_BUTTONS,
 };
 use crate::core::gpu::connected_gamepad;
 use crate::core::i18n::{tr, tr_fmt};
@@ -694,11 +694,19 @@ fn radio<'a>(label: String, active: bool, message: Message) -> Element<'a, Messa
         .into()
 }
 
-fn reset_button<'a>(label: String, kind: Kind) -> Element<'a, Message> {
+/// The reset of the `kind` table: off while the table already holds the defaults, so a click,
+/// whose rows may be out of sight, still shows that it acted.
+fn reset_button<'a>(state: &State, label: String, kind: Kind) -> Element<'a, Message> {
+    let values = match kind {
+        Kind::Key => &state.controls.key,
+        Kind::Pad => &state.controls.pad,
+    };
+    let reset = (!at_defaults(values, kind))
+        .then_some(Message::Controls(ControlsMessage::ResetTable(kind)));
     container(
         button(text(label))
             .style(theme::button_flat)
-            .on_press(Message::Controls(ControlsMessage::ResetTable(kind))),
+            .on_press_maybe(reset),
     )
     .padding(Padding::ZERO.top(14))
     .into()
@@ -785,7 +793,11 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
         )),
         container(lines).padding(Padding::ZERO.top(12)),
         note(tr_fmt(lang, KEY_NOTE, &[&CAPTURE_SECONDS.to_string()])),
-        reset_button(tr(lang, "Reset keyboard & mouse to defaults"), Kind::Key),
+        reset_button(
+            state,
+            tr(lang, "Reset keyboard & mouse to defaults"),
+            Kind::Key
+        ),
         row(
             state.rtl,
             &tr(lang, "Joystick prompts"),
@@ -869,7 +881,7 @@ fn gamepad_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
         ),
         container(lines).padding(Padding::ZERO.top(12)),
         note(tr(lang, PAD_NOTE)),
-        reset_button(tr(lang, "Reset gamepad to defaults"), Kind::Pad),
+        reset_button(state, tr(lang, "Reset gamepad to defaults"), Kind::Pad),
     ]
     .spacing(2)
     .into()
