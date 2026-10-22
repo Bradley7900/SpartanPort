@@ -20,7 +20,11 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("."));
     match startup::route(&args) {
         Route::Version => println!("{APP_NAME} {VERSION}"),
-        Route::Python => std::process::exit(startup::forward_to_python(&exe_dir, &args)),
+        Route::Python => {
+            // The Python launcher of the port folder (`SPARTAN_PORT_DIR` included).
+            let paths = Paths::from_env(&exe_dir, &|key| std::env::var(key).ok());
+            std::process::exit(startup::forward_to_python(&paths.port_dir, &args))
+        }
         Route::Launcher => {
             // Before the folders below are read from the environment.
             startup::forward_environment();
