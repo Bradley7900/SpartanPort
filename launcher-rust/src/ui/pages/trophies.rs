@@ -122,8 +122,8 @@ pub fn refresh(state: &mut State) -> Task<Message> {
 /// Whether the game is running, which blocks a reset.
 fn game_running(state: &State) -> bool {
     match state.game {
-        GameState::Idle => false,
-        // Task 33: every running state blocks the reset.
+        GameState::Idle | GameState::Copying => false,
+        GameState::Preparing { .. } | GameState::Running { .. } => true,
     }
 }
 

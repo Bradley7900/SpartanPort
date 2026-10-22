@@ -49,9 +49,10 @@ pub fn effects_enabled(settings: &Settings) -> bool {
 
 /// Whether the game runs, which blocks clearing its shader cache.
 pub fn clear_cache_blocked(state: &State) -> bool {
+    // As `if self.process: return` does.
     match state.game {
-        GameState::Idle => false,
-        // Task 33: every running state blocks it, as `if self.process: return` does.
+        GameState::Idle | GameState::Copying => false,
+        GameState::Preparing { .. } | GameState::Running { .. } => true,
     }
 }
 

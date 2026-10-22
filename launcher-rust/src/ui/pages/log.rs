@@ -95,7 +95,6 @@ pub fn update(state: &mut State, message: LogMessage) -> Task<Message> {
         LogMessage::Copy => iced::clipboard::write(state.log.text()),
         LogMessage::Clear => {
             state.log.clear();
-            // Task 33: call log::scroll_to_end() after GameMessage::Output
             scroll_to_end()
         }
         LogMessage::OpenLastRun => Task::done(open_last_run_message(state)),

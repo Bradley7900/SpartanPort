@@ -96,7 +96,6 @@ pub fn game_changed(state: &mut State) -> Task<Message> {
     performance::refresh_mod_resolutions(state);
     refresh_game_patches(state);
     refresh_backups(state);
-    // Task 33: also call this when the game exits.
     Task::batch([trophies::refresh(state), mods::refresh(state)])
 }
 
@@ -111,8 +110,8 @@ pub fn refresh_backups(state: &mut State) {
 /// Whether the game is running, which blocks a restore of the saves.
 pub fn restore_blocked(state: &State) -> bool {
     match state.game {
-        GameState::Idle => false,
-        // Task 33: every running state blocks the restore.
+        GameState::Idle | GameState::Copying => false,
+        GameState::Preparing { .. } | GameState::Running { .. } => true,
     }
 }
 

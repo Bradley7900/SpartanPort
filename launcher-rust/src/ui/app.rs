@@ -33,7 +33,7 @@ use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
 use crate::ui::persist::{self, Persisted};
-use crate::ui::play::{GameMessage, GameState};
+use crate::ui::play::{self, GameMessage, GameState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, CINZEL_BOLD};
@@ -68,6 +68,11 @@ pub struct State {
     pub scale: f32,
     pub splash: SplashState,
     pub game: GameState,
+    /// The Home status line while the game starts, runs or its system files are copied; empty
+    /// otherwise, when the chip shows the patches summary.
+    pub status: String,
+    /// What PLAY starts instead of `python run.py` (tests start the fake game); `None` in use.
+    pub launch_command: Option<Vec<String>>,
     pub log: LogBuffer,
     pub gpus: Vec<GpuRow>,
     /// The Aspect ratio filter of the Performance page: not saved, it follows the render resolution.
@@ -103,7 +108,7 @@ pub struct State {
     /// Whether this install can replace itself (Windows, or an AppImage).
     pub self_update: bool,
     pub fire: Fire,
-    /// Whether the window is shown (Task 33 clears it while hidden to the tray).
+    /// Whether the window is shown; `close_on_play` hides it while the game runs.
     pub visible: bool,
     /// Whether the window has the focus.
     pub focused: bool,
@@ -154,6 +159,8 @@ impl State {
             scale,
             splash: SplashState::new(now),
             game: Default::default(),
+            status: String::new(),
+            launch_command: None,
             log: LogBuffer::new(MAX_LOG_LINES),
             gpus: Vec::new(),
             aspect,
@@ -293,9 +300,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             tick(state, at);
             lang_menu::update(state, LangMessage::Tick(at));
             controls::tick(state, at);
+            // The game's output arrives with the clock.
+            return play::drain(state);
         }
-        // Task 33
-        Message::Play | Message::Stop => {}
+        Message::Play => return play::play(state),
+        Message::Stop => play::stop(state),
         Message::Save => return persist::save(state),
         // Save persists what `Set` stored.
         Message::Set(key, value) => apply_set(state, &key, value),
@@ -341,8 +350,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 return persist::save(state);
             }
         }
-        // Task 33
-        Message::Game(message) => match message {},
+        Message::Game(message) => return play::update(state, message),
         // Task 34
         Message::Update(UpdateMessage::Install | UpdateMessage::Check { .. }) => {}
         Message::Trophies(message) => return trophies::update(state, message),
@@ -432,7 +440,7 @@ fn tick(state: &mut State, at: Instant) {
 
 /// Home closes the drawer; any other page opens it, sliding in when it was closed. The Trophies
 /// page reloads its list each time it opens; the first open of Controls looks for a gamepad.
-fn show_page(state: &mut State, page: Page) -> Task<Message> {
+pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
     let now = Instant::now();
     state.now = now;
     state.page = page;
@@ -567,7 +575,8 @@ fn tab(state: &State, page: Page) -> Element<'_, Message> {
 }
 
 /// Keys and window size; animation frames while the drawer slides; the mouse while a key box of
-/// the Controls page waits.
+/// the Controls page waits. The clock also carries the game's output, so it keeps running while
+/// a game is live, even with the window hidden.
 pub fn subscription(state: &State) -> Subscription<Message> {
     let keys = keyboard::listen().filter_map(|event| match event {
         keyboard::Event::KeyPressed {
@@ -590,7 +599,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     let clock =
         if (state.effects && state.visible) || !state.splash.done || lang_menu::timing(state) {
             iced::time::every(Duration::from_millis(33)).map(Message::Tick)
-        } else if state.visible {
+        } else if state.visible || play::game_live(state) {
             iced::time::every(IDLE_CLOCK).map(Message::Tick)
         } else {
             Subscription::none()

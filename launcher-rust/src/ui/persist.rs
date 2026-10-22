@@ -298,15 +298,20 @@ fn write_files(
     Ok(())
 }
 
+/// The error dialog of a failed `collect` (Save and PLAY).
+pub fn show_save_failed(state: &mut State) {
+    state.modal = Some(Modal {
+        kind: ModalKind::Error,
+        title: APP_NAME.to_string(),
+        text: tr(&state.lang, SAVE_FAILED),
+    });
+}
+
 /// The Save button (Python `save`): the files, without starting the game. A new launcher language
 /// or zoom rebuilds the window in it; a failed save shows the error dialog and keeps the edits.
 pub fn save(state: &mut State) -> Task<Message> {
     if collect(state).is_err() {
-        state.modal = Some(Modal {
-            kind: ModalKind::Error,
-            title: APP_NAME.to_string(),
-            text: tr(&state.lang, SAVE_FAILED),
-        });
+        show_save_failed(state);
         return Task::none();
     }
     let language = match state.settings.get_str("ui_language") {

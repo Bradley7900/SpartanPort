@@ -441,7 +441,7 @@ pub fn summary(state: &State) -> String {
     line
 }
 
-/// The four chips: graphics card, game, saves, patches.
+/// The four chips: graphics card, game, saves, and the status (the patches summary at rest).
 pub fn chips(state: &State) -> [String; 4] {
     let lang = state.lang.as_str();
     let gpu = match chosen_gpu(&state.gpus, &state.settings.get_str("gpu_id")) {
@@ -461,12 +461,20 @@ pub fn chips(state: &State) -> [String; 4] {
     } else {
         tr(lang, "• No saves yet")
     };
-    let patches = if state.home.info.is_some() {
+    [gpu, game, saves, status_text(state)]
+}
+
+/// The status chip (Python `self.status`): what the game is doing while it starts, runs or its
+/// system files are copied; the patches summary otherwise.
+pub fn status_text(state: &State) -> String {
+    let busy = !matches!(state.game, GameState::Idle);
+    if busy && !state.status.is_empty() {
+        state.status.clone()
+    } else if state.home.info.is_some() {
         summary(state)
     } else {
-        format!("• {}", tr(lang, "Choose the game folder first."))
-    };
-    [gpu, game, saves, patches]
+        format!("• {}", tr(&state.lang, "Choose the game folder first."))
+    }
 }
 
 /// The settings line: upscaler, preset, output, FPS limit, window mode and monitor.
@@ -547,14 +555,19 @@ fn dimmed<'a>(content: Element<'a, Message>, state: &State) -> Element<'a, Messa
 
 fn play_row(state: &State, enabled: bool) -> Element<'_, Message> {
     let lang = state.lang.as_str();
-    let running = match state.game {
-        GameState::Idle => false,
-        // Task 33: the running and stopping states
+    // PLAY waits while the system files are copied; a started game turns it into RUNNING and STOP.
+    let (running, copying) = match state.game {
+        GameState::Idle => (false, false),
+        GameState::Copying => (false, true),
+        GameState::Preparing { .. } | GameState::Running { .. } => (true, false),
     };
     let (label, press) = if running {
         (tr(lang, "RUNNING"), None)
     } else {
-        (tr(lang, "PLAY"), enabled.then_some(Message::Play))
+        (
+            tr(lang, "PLAY"),
+            (enabled && !copying).then_some(Message::Play),
+        )
     };
     let play = button(text(label).font(CINZEL_BLACK).size(PLAY_SIZE))
         .padding(PLAY_PADDING)

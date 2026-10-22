@@ -525,7 +525,7 @@ fn restore_asks_first_and_is_blocked_while_running() {
     let _ = app::update(&mut state, Message::Backup(BackupMessage::Refresh));
     assert_eq!(state.backups, ["20261009-180000"]);
     assert_eq!(state.backup_choice, "20261009-180000");
-    // Task 33 adds the running states; until then only an idle game exists.
+    // An idle game does not block it; `ui_play.rs` covers a running one.
     assert!(!game::restore_blocked(&state));
 
     let _ = app::update(&mut state, Message::Backup(BackupMessage::Restore));
@@ -1481,7 +1481,7 @@ fn language_and_scale_rows_change_settings() {
 fn clear_cache_is_blocked_while_running() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
-    // Task 33: GameState has only Idle until then; every running state must make this true.
+    // An idle game does not block it; `ui_play.rs` covers a running one.
     assert!(!advanced::clear_cache_blocked(&state));
     state.game = GameState::Idle;
     let cache = dir.path().join("user").join("cache");

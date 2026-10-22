@@ -179,7 +179,7 @@ fn saving_a_new_launcher_language_rebuilds_the_window_in_it() {
 
 #[test]
 fn rebuilding_keeps_the_status_of_a_running_game() {
-    // Task 33 adds the running states; the game state, the log and a pending update offer stay.
+    // The game state, the log and a pending update offer stay.
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     state.log.push_text("The game is running.\n");

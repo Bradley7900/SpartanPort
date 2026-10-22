@@ -220,10 +220,13 @@ fn play_gets_the_click_under_the_narrow_drawer() {
     assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
     let messages = click(&state, "PLAY");
     assert!(messages.iter().any(|m| matches!(m, Message::Play)));
+    // The dim layer under the drawer does not take the click too.
+    assert!(!messages.iter().any(|m| matches!(m, Message::CloseDrawer)));
     for message in messages {
         let _ = app::update(&mut state, message);
     }
-    assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
+    // Without a game folder PLAY refuses and opens the Game page in the drawer.
+    assert_eq!(state.drawer, DrawerState::Open(Page::Game));
 }
 
 #[test]
