@@ -17,6 +17,7 @@ use iced::time::Instant;
 use iced::{Point, Size};
 use iced_test::core::Settings;
 use iced_test::simulator::{self, simulator, Simulator};
+use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{
     self, home_interactive_enabled, home_interactive_opacity, key_message, Message, State,
@@ -280,6 +281,54 @@ fn rtl_puts_the_drawer_on_the_right() {
         iced::widget::text::Shaping::default(),
         iced::widget::text::Shaping::Auto | iced::widget::text::Shaping::Advanced
     ));
+}
+
+/// The drawer subtitles of the mockup (`launcher-mockup-v13.html`), without its sample counts.
+const SUBTITLES: [(Page, &str); 8] = [
+    (
+        Page::Graphics,
+        "Stored in spartanport.ini; the in-game menu (Insert or R3+L2) changes the same values.",
+    ),
+    (
+        Page::Performance,
+        "Frame rate, shaders and GPU data paths. Applied when the game starts.",
+    ),
+    (Page::Game, "Your game dump, saves and the game patches."),
+    (
+        Page::Trophies,
+        "The trophies this port recorded while you played.",
+    ),
+    (Page::Controls, "Keyboard, mouse and gamepad mapping."),
+    (
+        Page::Mods,
+        "Change textures, sounds and text. Your game files stay untouched.",
+    ),
+    (
+        Page::Advanced,
+        "Launcher options, diagnostics and system tools.",
+    ),
+    (
+        Page::Log,
+        "Output of the last start. last_run.log holds the same text.",
+    ),
+];
+
+#[test]
+fn every_drawer_has_its_subtitle() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    for (page, english) in SUBTITLES {
+        for lang in ["en", "pt"] {
+            state.lang = lang.into();
+            let shown = tr(lang, english);
+            if lang == "pt" {
+                assert_ne!(shown, english, "{page:?} has no Portuguese subtitle");
+            }
+            let _ = app::update(&mut state, Message::ShowPage(page));
+            let mut ui = settled_ui(&mut state);
+            assert!(ui.find(shown.as_str()).is_ok(), "{page:?} {lang}: {shown}");
+        }
+    }
 }
 
 /// The window of `state` at 1280 × 800, once the drawer has finished sliding.

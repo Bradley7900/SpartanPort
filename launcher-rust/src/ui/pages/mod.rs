@@ -58,6 +58,26 @@ impl Page {
         }
     }
 
+    /// The English subtitle under the drawer's title (the mockup's, without its sample counts),
+    /// which is also the translation key; Home has no drawer.
+    pub fn subtitle_en(self) -> &'static str {
+        match self {
+            Page::Home => "",
+            Page::Graphics => {
+                "Stored in spartanport.ini; the in-game menu (Insert or R3+L2) changes the same values."
+            }
+            Page::Performance => {
+                "Frame rate, shaders and GPU data paths. Applied when the game starts."
+            }
+            Page::Game => "Your game dump, saves and the game patches.",
+            Page::Trophies => "The trophies this port recorded while you played.",
+            Page::Controls => "Keyboard, mouse and gamepad mapping.",
+            Page::Mods => "Change textures, sounds and text. Your game files stay untouched.",
+            Page::Advanced => "Launcher options, diagnostics and system tools.",
+            Page::Log => "Output of the last start. last_run.log holds the same text.",
+        }
+    }
+
     /// Pages whose drawer takes 72 % of the window instead of 46 %.
     pub fn wide(self) -> bool {
         matches!(

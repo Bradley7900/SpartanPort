@@ -137,6 +137,57 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
             "Não foi possível ler mods_presets.json; nenhum preset é listado e o arquivo fica como está. Corrija ou apague o arquivo para voltar a salvar presets.",
         )],
     ),
+    // The drawer subtitles (ruling R56: the mockup's English and Portuguese).
+    (
+        "Stored in spartanport.ini; the in-game menu (Insert or R3+L2) changes the same values.",
+        &[(
+            "pt",
+            "Guardado em spartanport.ini; o menu do jogo (Insert ou R3+L2) muda os mesmos valores.",
+        )],
+    ),
+    (
+        "Frame rate, shaders and GPU data paths. Applied when the game starts.",
+        &[(
+            "pt",
+            "Taxa de quadros, shaders e caminhos de dados da GPU. Aplicado ao iniciar o jogo.",
+        )],
+    ),
+    (
+        "Your game dump, saves and the game patches.",
+        &[("pt", "Seu dump do jogo, os saves e os patches do jogo.")],
+    ),
+    (
+        "The trophies this port recorded while you played.",
+        &[(
+            "pt",
+            "Os troféus que este port registrou enquanto você jogava.",
+        )],
+    ),
+    (
+        "Keyboard, mouse and gamepad mapping.",
+        &[("pt", "Mapeamento de teclado, mouse e controle.")],
+    ),
+    (
+        "Change textures, sounds and text. Your game files stay untouched.",
+        &[(
+            "pt",
+            "Troque texturas, sons e textos. Os arquivos do jogo não são alterados.",
+        )],
+    ),
+    (
+        "Launcher options, diagnostics and system tools.",
+        &[(
+            "pt",
+            "Opções do launcher, diagnóstico e ferramentas do sistema.",
+        )],
+    ),
+    (
+        "Output of the last start. last_run.log holds the same text.",
+        &[(
+            "pt",
+            "Saída da última execução. last_run.log tem o mesmo texto.",
+        )],
+    ),
     (
         "Effects",
         &[("pt", "Efeitos"), ("es", "Efectos"), ("ru", "Эффекты")],

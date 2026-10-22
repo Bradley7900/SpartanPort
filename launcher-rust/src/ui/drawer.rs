@@ -54,8 +54,9 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
         text(tr(&state.lang, page.label_en()))
             .font(CINZEL_BLACK)
             .size(30),
-        // Subtitle placeholder; each page task supplies its own.
-        text("…").style(text_muted),
+        text(tr(&state.lang, page.subtitle_en()))
+            .size(12)
+            .style(text_muted),
     ]
     .spacing(4);
     let header = row![title, space::horizontal(), save_button(state)].align_y(Center);
