@@ -120,10 +120,10 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
-        "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read, and saving (Save or PLAY) writes what it shows.",
+        "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read. The files stay as they are until you save (Save or PLAY), which writes what it shows.",
         &[(
             "pt",
-            "Não foi possível ler estes arquivos:\n\n{}\n\nO launcher mostra valores padrão no lugar do que não conseguiu ler, e salvar (Salvar ou JOGAR) grava o que ele mostra.",
+            "Não foi possível ler estes arquivos:\n\n{}\n\nO launcher mostra valores padrão no lugar do que não conseguiu ler. Os arquivos ficam como estão até você salvar (Salvar ou JOGAR), o que grava o que ele mostra.",
         )],
     ),
     (
@@ -133,24 +133,14 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
             "Não foi possível ler mods_presets.json; nenhum preset é listado e o arquivo fica como está. Corrija ou apague o arquivo para voltar a salvar presets.",
         )],
     ),
-    // The drawer subtitles (ruling R56: the mockup's English and Portuguese).
-    (
-        "Stored in spartanport.ini; the in-game menu (Insert or R3+L2) changes the same values.",
-        &[(
-            "pt",
-            "Guardado em spartanport.ini; o menu do jogo (Insert ou R3+L2) muda os mesmos valores.",
-        )],
-    ),
+    // The drawer subtitles (ruling R56: the mockup's English and Portuguese). The Graphics and
+    // Game ones are keys of the JSON table, which `tr` reads first.
     (
         "Frame rate, shaders and GPU data paths. Applied when the game starts.",
         &[(
             "pt",
             "Taxa de quadros, shaders e caminhos de dados da GPU. Aplicado ao iniciar o jogo.",
         )],
-    ),
-    (
-        "Your game dump, saves and the game patches.",
-        &[("pt", "Seu dump do jogo, os saves e os patches do jogo.")],
     ),
     (
         "The trophies this port recorded while you played.",
@@ -372,6 +362,18 @@ mod tests {
             let pt = tr("pt", en);
             assert!(!pt.is_empty() && pt != *en, "no pt for {en:?}");
         }
+    }
+
+    #[test]
+    fn no_rust_only_string_is_a_key_of_the_table() {
+        // `tr` reads the JSON table first: such an entry would never show.
+        let table = table();
+        let shadowed: Vec<&str> = UI_EXTRA
+            .iter()
+            .map(|(en, _)| *en)
+            .filter(|en| table.keys.iter().any(|key| key == en))
+            .collect();
+        assert!(shadowed.is_empty(), "in assets/i18n.json: {shadowed:#?}");
     }
 
     #[test]

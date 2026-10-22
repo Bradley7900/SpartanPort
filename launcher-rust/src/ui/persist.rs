@@ -57,7 +57,7 @@ const SAVE_FAILED: &str =
     "Could not save all settings. Check write permissions and free disk space, then try again.";
 
 /// The start-up warning about settings files that are there but could not be read (spec §6).
-const UNREADABLE: &str = "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read, and saving (Save or PLAY) writes what it shows.";
+const UNREADABLE: &str = "These files could not be read:\n\n{}\n\nThe launcher shows default values for what it could not read. The files stay as they are until you save (Save or PLAY), which writes what it shows.";
 
 /// The one dialog naming every settings file that could not be read at start; none when all
 /// were read (or are missing). The files stay as they are until a save.
@@ -273,6 +273,8 @@ pub fn collect(state: &mut State) -> Result<(), PersistError> {
         performance::resolution_chosen(state);
     }
     state.saved = Some(gather(state));
+    // The files now hold what the window shows.
+    state.settings_unreadable = false;
     Ok(())
 }
 
@@ -334,6 +336,13 @@ pub fn collect_or_report(state: &mut State) -> bool {
         return false;
     }
     true
+}
+
+/// `collect_or_report` for the saves the player did not ask for (closing the window, opening the
+/// ini, Add to Steam): while a settings file that could not be read at start is unsaved, nothing is
+/// written (spec §6: it stays as it is until Save or PLAY) and the action goes on.
+pub fn collect_unless_unreadable(state: &mut State) -> bool {
+    state.settings_unreadable || collect_or_report(state)
 }
 
 /// The Save button (Python `save`): the files, without starting the game. A new launcher language

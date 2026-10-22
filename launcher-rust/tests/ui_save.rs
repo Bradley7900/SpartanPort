@@ -664,6 +664,13 @@ fn unreadable_settings_files_warn_once_at_start() {
             shown.text
         );
     }
+    assert!(
+        shown
+            .text
+            .contains("The files stay as they are until you save"),
+        "{}",
+        shown.text
+    );
     // The defaults are shown and nothing is written before a save.
     assert_eq!(state.settings.get_str("ui_language"), "en");
     assert_eq!(fs::read(state.paths.config_file()).unwrap(), b"{not json");
@@ -675,6 +682,62 @@ fn unreadable_settings_files_warn_once_at_start() {
         state_in(dir.path()).modal.is_none(),
         "missing files are fine"
     );
+}
+
+/// A state over a corrupt `settings.json` and an ini that is not UTF-8, its warning dismissed.
+fn state_over_unreadable_files(dir: &Path) -> State {
+    fs::write(dir.join("settings.json"), "{not json").unwrap();
+    fs::write(dir.join("spartanport.ini"), LATIN1_INI).unwrap();
+    let mut state = state_in(dir);
+    assert!(state.modal.take().is_some(), "the start-up warning");
+    state
+}
+
+fn files_untouched(state: &State) {
+    let read = |file| String::from_utf8_lossy(&fs::read(file).unwrap()).into_owned();
+    assert_eq!(read(state.paths.config_file()), "{not json");
+    assert_eq!(
+        read(state.paths.ini_path()),
+        String::from_utf8_lossy(LATIN1_INI)
+    );
+}
+
+#[test]
+fn closing_keeps_an_unreadable_file_until_a_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_over_unreadable_files(dir.path());
+    set(&mut state, "vsync", json!(false));
+    // Spec §6: the file stays as it is until the user saves.
+    let task = app::update(
+        &mut state,
+        Message::CloseRequested(iced::window::Id::unique()),
+    );
+    assert_eq!(task.units(), 1, "the window closes");
+    assert!(state.modal.is_none());
+    files_untouched(&state);
+
+    // Once saved, the files hold what the window shows, and closing saves again (Python `close`).
+    save(&mut state);
+    set(&mut state, "vsync", json!(true));
+    let _ = app::update(
+        &mut state,
+        Message::CloseRequested(iced::window::Id::unique()),
+    );
+    let ini = fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(ini.lines().any(|line| line == "vsync=1"), "{ini}");
+}
+
+#[test]
+fn opening_the_ini_or_adding_to_steam_keeps_an_unreadable_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_over_unreadable_files(dir.path());
+    set(&mut state, "vsync", json!(false));
+    let task = app::update(&mut state, Message::OpenIni);
+    assert_eq!(task.units(), 1, "the ini opens");
+    let task = app::update(&mut state, Message::AddToSteam);
+    assert_eq!(task.units(), 1, "the bridge starts");
+    assert!(state.modal.is_none());
+    files_untouched(&state);
 }
 
 #[test]

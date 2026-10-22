@@ -104,6 +104,9 @@ pub struct State {
     /// What the Home chips read from the disk.
     pub home: HomeFacts,
     pub modal: Option<Modal>,
+    /// Whether `settings.json` or the ini could not be read at start and nothing was saved since:
+    /// only Save and PLAY write then (spec §6), not closing, opening the ini or Add to Steam.
+    pub settings_unreadable: bool,
     /// Whether the Home fire burns (the `launcher_effects` setting).
     pub effects: bool,
     /// Whether the Diagnostics block of the Advanced page is unfolded; it starts folded.
@@ -193,6 +196,7 @@ impl State {
             lang_menu: Default::default(),
             home: Default::default(),
             modal: None,
+            settings_unreadable: !unreadable.is_empty(),
             effects,
             diagnostics_open: false,
             linux_tools: if cfg!(windows) {
@@ -430,13 +434,13 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             return Task::done(Message::OpenPath(folder));
         }
         Message::OpenIni => {
-            if persist::collect_or_report(state) {
+            if persist::collect_unless_unreadable(state) {
                 return Task::done(Message::OpenPath(state.paths.ini_path()));
             }
         }
         Message::CloseRequested(id) => {
             // A running game keeps running, as it does after the Python launcher closes.
-            if persist::collect_or_report(state) {
+            if persist::collect_unless_unreadable(state) {
                 return window::close(id);
             }
         }

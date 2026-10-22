@@ -618,7 +618,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::AddToSteam => {
             // The shortcut starts `--play`, which reads the files: they get the window's settings
             // first (Python `add_to_steam`).
-            if !persist::collect_or_report(state) {
+            if !persist::collect_unless_unreadable(state) {
                 return Task::none();
             }
             let (paths, settings) = (state.paths.clone(), state.settings.clone());
