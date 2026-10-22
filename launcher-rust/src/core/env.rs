@@ -9,10 +9,29 @@ use serde_json::Value;
 use crate::core::controls::{control_map, keyboard_map, Kind};
 use crate::core::game::{game_profile_of, meta_folder};
 use crate::core::i18n::{tr, trophy_text};
+use crate::core::legacy::forward_environment;
 use crate::core::paths::Paths;
 use crate::core::settings::Settings;
 
 const TROPHY_COUNT: usize = 35;
+
+/// AMD hybrid laptops: this Vulkan layer hides the NVIDIA GPU and the game stays black (#263).
+const VULKAN_LAYERS_DISABLE: (&str, &str) = (
+    "VK_LOADER_LAYERS_DISABLE",
+    "VK_LAYER_AMD_switchable_graphics",
+);
+
+/// What the launcher changes in its own environment before anything reads it, as the Python does
+/// on import: the old `GOW3_*` names are forwarded and, on Windows, the AMD switchable-graphics
+/// layer is disabled unless the player set the variable. The game and the probes inherit it.
+pub fn start_up_environment(env: &mut IndexMap<String, String>, windows: bool) {
+    if windows {
+        let (key, value) = VULKAN_LAYERS_DISABLE;
+        env.entry(key.to_string())
+            .or_insert_with(|| value.to_string());
+    }
+    forward_environment(env);
+}
 
 /// Python truthiness of a saved value.
 fn truthy(value: &Value) -> bool {
@@ -256,6 +275,50 @@ mod tests {
     use super::*;
     use crate::core::settings::app_defaults;
     use serde_json::json;
+
+    fn variables(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn windows_hides_the_amd_switchable_layer() {
+        let mut env = variables(&[("GOW3_DATA_DIR", "/old")]);
+        start_up_environment(&mut env, true);
+        assert_eq!(
+            env.get("VK_LOADER_LAYERS_DISABLE").map(String::as_str),
+            Some("VK_LAYER_AMD_switchable_graphics")
+        );
+        // The old names are forwarded in the same step.
+        assert_eq!(
+            env.get("SPARTAN_DATA_DIR").map(String::as_str),
+            Some("/old")
+        );
+        let mut env = IndexMap::new();
+        start_up_environment(&mut env, false);
+        assert!(!env.contains_key("VK_LOADER_LAYERS_DISABLE"));
+    }
+
+    #[test]
+    fn a_value_set_by_the_player_is_kept() {
+        let mut env = variables(&[("VK_LOADER_LAYERS_DISABLE", "VK_LAYER_custom")]);
+        start_up_environment(&mut env, true);
+        assert_eq!(env["VK_LOADER_LAYERS_DISABLE"], "VK_LAYER_custom");
+    }
+
+    #[test]
+    fn the_game_gets_the_vulkan_layer_setting() {
+        let (settings, paths, _dir) = setup(json!({}));
+        let mut base = IndexMap::new();
+        start_up_environment(&mut base, true);
+        let env = game_environment(&settings, &paths, "en", &base, true);
+        assert_eq!(
+            env.get("VK_LOADER_LAYERS_DISABLE").map(String::as_str),
+            Some("VK_LAYER_AMD_switchable_graphics")
+        );
+    }
 
     fn setup(edits: Value) -> (Settings, Paths, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

@@ -7,6 +7,7 @@ use std::process::Command;
 
 use indexmap::IndexMap;
 
+use crate::core::env::start_up_environment;
 use crate::core::launch::python_command;
 use crate::core::paths::Paths;
 use crate::core::settings::load_app_settings;
@@ -79,14 +80,14 @@ pub fn forward_to_python<S: AsRef<OsStr>>(port_dir: &Path, args: &[S]) -> i32 {
     }
 }
 
-/// `legacy::forward_environment` on this process's environment, before anything reads it (the
+/// `env::start_up_environment` on this process's environment, before anything reads it (the
 /// Python does it on import). Runs while the program has a single thread.
 pub fn forward_environment() {
     let mut env: IndexMap<String, String> = std::env::vars_os()
         .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
         .collect();
     let before = env.clone();
-    legacy::forward_environment(&mut env);
+    start_up_environment(&mut env, cfg!(windows));
     for (key, value) in env {
         if before.get(&key) != Some(&value) {
             std::env::set_var(key, value);
