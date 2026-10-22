@@ -70,6 +70,13 @@ impl ReleaseId {
         }
     }
 
+    /// Whether `other` is the same package: same version and build, whatever the channel. The
+    /// stamp's channel is frozen when the package is built, while the list's follows the API's
+    /// `prerelease`, which changes when a release is promoted or demoted.
+    pub fn same_build(&self, other: &ReleaseId) -> bool {
+        self.version == other.version && self.build == other.build
+    }
+
     /// `Release · VERSION`, no build.
     pub fn fallback() -> ReleaseId {
         ReleaseId {
@@ -272,6 +279,16 @@ mod tests {
         assert!(test.label("pt").starts_with("Pré-lançamento · "));
         assert_eq!(stable.short(), "2.6.0");
         assert_eq!(test.short(), "2.6.0 · issue209-test1");
+    }
+
+    #[test]
+    fn same_build_ignores_the_channel() {
+        let parse = |tag: &str, prerelease: bool| ReleaseId::parse(tag, prerelease).unwrap();
+        assert!(parse("windows-v2.7.0", true).same_build(&parse("windows-v2.7.0", false)));
+        assert!(!parse("windows-v2.7.0", false).same_build(&parse("windows-v2.7.1", false)));
+        let test = parse("windows-v2.6.0-issue209-test1", true);
+        assert!(!test.same_build(&parse("windows-v2.6.0", true)));
+        assert!(test.same_build(&parse("windows-v2.6.0-issue209-test1", true)));
     }
 
     #[test]

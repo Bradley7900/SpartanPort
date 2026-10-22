@@ -241,7 +241,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
         }
         UpdateMessage::Install(release) => {
             if matches!(state.update, UpdateState::Downloading { .. })
-                || release.id == state.installed
+                || release.id.same_build(&state.installed)
             {
                 return Task::none();
             }

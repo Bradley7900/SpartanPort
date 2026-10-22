@@ -832,6 +832,12 @@ fn the_menu_marks_the_installed_and_the_new() {
     assert!(ui.find("2.6.0").is_ok());
     assert!(ui.find("✓ 2.6.0").is_err());
     assert!(ui.find("✓ 2.8.0").is_err());
+    drop(ui);
+
+    // A stamp that says pre-release still matches the stable row of its version.
+    state.installed.channel = Channel::PreRelease;
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("✓ 2.7.0").is_ok());
 }
 
 #[test]
@@ -933,10 +939,8 @@ fn picking_a_row_closes_and_installs() {
     state.installed = ReleaseId::fallback();
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
-    let installed = Release {
-        id: state.installed.clone(),
-        ..release(Channel::Release, "2.6.0", None)
-    };
+    // The row's channel differs from the stamp's: still the installed release.
+    let installed = release(Channel::PreRelease, &state.installed.version, None);
     let task = version(&mut state, VersionMessage::Pick(installed));
     assert!(!state.version_menu.open);
     assert_eq!(task.units(), 0);

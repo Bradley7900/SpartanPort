@@ -2369,6 +2369,15 @@ mod update_flow {
         );
         assert!(state.modal.is_none());
         assert_eq!(task.units(), 0);
+
+        // The stamp's channel is frozen at build time; the list's follows the API.
+        state.installed = release("2.7.0", None, true).id;
+        let task = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Install(release("2.7.0", None, false))),
+        );
+        assert!(state.modal.is_none());
+        assert_eq!(task.units(), 0);
     }
 
     #[test]

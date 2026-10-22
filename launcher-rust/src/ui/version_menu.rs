@@ -54,7 +54,7 @@ pub fn update(state: &mut State, message: VersionMessage) -> Task<Message> {
             menu.open = false;
             menu.hover_since = None;
             menu.leave_since = None;
-            if release.id == state.installed {
+            if release.id.same_build(&state.installed) {
                 return Task::none();
             }
             return update::update(state, UpdateMessage::Install(release));
@@ -187,7 +187,7 @@ pub fn menu(state: &State) -> Element<'_, Message> {
             for r in stables(releases) {
                 list = list.push(release_row(
                     r,
-                    r.id == state.installed,
+                    r.id.same_build(&state.installed),
                     newer == Some(&r.id),
                     lang,
                 ));
@@ -204,7 +204,7 @@ pub fn menu(state: &State) -> Element<'_, Message> {
             } else {
                 let rows = column(
                     pre.into_iter()
-                        .map(|r| release_row(r, r.id == state.installed, false, lang)),
+                        .map(|r| release_row(r, r.id.same_build(&state.installed), false, lang)),
                 )
                 .spacing(2);
                 list = list.push(
