@@ -34,7 +34,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 6  # of the patch: a change rebuilds the cached copy
+VERSION = 8  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABEL = b'Exit to Desktop'
 EXIT_CALL = b'\x13\x0f\xff\x43'  # builtin 0xfff (src/menu_hook.h), then pop
@@ -280,6 +280,130 @@ def blank_line(s, record, local):
     return s.base + s.lit + entry_ref + found[0] + 1
 
 
+def display_health_bar(data, spans):
+    """A fourth Display row, using PauseText's existing line3 and menuItem3Select animation."""
+    base = next(offset + 0x40 for offset, _size, name in entries(data) if name == 'SMI_R_UI')
+    s = Script(data, base)
+    display, y, brightness, template = (s.one(n) for n in
+                                       ('PauseDisplay', 'HLScreenLocY', 'HLBrightness', 'HLSubtitleDis'))
+    insert = display['at'] + display['size']
+    if y['at'] + y['size'] != insert:
+        raise ValueError('Display does not end with Screen Location Y')
+    row_size = 0x44
+    final = lambda at: at + (row_size if at >= insert else 0)
+    row_ref = insert - 4
+    append = bytearray()
+    start = s.symtab - s.lit
+
+    def text(value):
+        ref = start + len(append)
+        if ref > 0xffff:
+            raise ValueError('Display text exceeds the script literal range')
+        append.extend(value + b'\0')
+        return b'\x16' + be(ref, 2)
+
+    label = text(b'Enemy Health Bar')
+    off, on, unavailable = (text(v) for v in (b'Off', b'On', b'Unavailable'))
+    selected = text(b'[ArrowSelectionL][PauseMenu:optSet3][ArrowSelectionR]')
+    unselected = text(b'[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]')
+    help_text = text(b'Show the health of the last enemy hit.')
+    assign = b'\x09\xe0\x14\x43'  # PauseMenu.optSet3
+    # A subroutine used on entry and after an edit. Query again so the Insert menu stays in sync.
+    refresh = start + len(append)
+    enabled = b'\x13\x0f\xfe\x17' + be(len(on + assign + b'\x4b'), 2) + on + assign + b'\x4b' + off + assign + b'\x4b'
+    unsupported = unavailable + assign + b'\x4b'
+    append += (b'\x13\x0f\xfe\x01' + be(2) + b'\x3f\x17' + be(len(unsupported), 2)
+               + unsupported + enabled)
+
+    def call(target, at):
+        return b'\x4a' + struct.pack('>i', target - at - 5)
+
+    def add(body):
+        ref = start + len(append)
+        append.extend(body)
+        return ref
+
+    # Display clears its rows whenever it opens, before any individual row gets focus.
+    entry_item = next(i for i, (kind, _ref) in enumerate(display['items']) if kind == 1)
+    entry_ref = display['items'][entry_item][1]
+    at = start + len(append)
+    body = moved_copy(s, entry_ref, at + 5, final)
+    for local, value in ((4, label), (12, unselected)):
+        operand = blank_line(s, display, local)
+        empty = b'\x16' + bytes(data[operand:operand + 2])
+        setter = b'\x09\xe0' + bytes([local]) + b'\x43'
+        body = body.replace(empty + setter, value + setter)
+    display_entry = add(call(refresh, at) + body)
+
+    pieces = {}
+    for kind, name in ((1, 'entry'), (2, 'update')):
+        old = next(v for k, v, _t in s.blocks(template) if k == kind)
+        at = start + len(append)
+        prefix = call(refresh, at) if kind == 1 else b''
+        body = moved_copy(s, old, at + len(prefix), final)
+        old_value = b'\x16' + be(s.literal(b'[ArrowSelectionL][PauseMenu:optSet1][ArrowSelectionR]'
+                                           if kind == 1 else b'[ArrowSpacer][PauseMenu:optSet1][ArrowSpacer]'), 2)
+        body = body.replace(old_value, selected if kind == 1 else unselected)
+        body = body.replace(b'\x09\xe0\x0a\x43', b'\x09\xe0\x0c\x43')  # line3 value
+        body = body.replace(b'\x16' + be(s.literal(b'menuItem1Select'), 2),
+                            b'\x16' + be(s.literal(b'menuItem3Select'), 2))
+        if kind == 1:
+            body = body.replace(b'\x16' + be(s.literal(b'[msg_D[4000]]'), 2), help_text)
+        pieces[name] = add(prefix + body)
+    old = transition(s, template, [0xe6, 0xe2, 0xee, 0xf2])
+    at = start + len(append)
+    debounce = moved_copy(s, old, at, final)[:5]  # the native left/right repeat gate
+    body = debounce + b'\x13\x0f\xfd\x43'
+    body += call(refresh, at + len(body)) + selected + b'\x09\xe0\x0c\x43'
+    body += b'\x16' + be(s.literal(b'SND_MM_NAV_LR'), 2) + b'\x13\x00\x5c\x43\x49'
+    pieces['toggle'] = add(body)
+    for name, trigger, target in (('up', UP, y['at'] - 4), ('down', DOWN, brightness['at'] - 4)):
+        at = start + len(append)
+        old = transition(s, y, trigger)
+        body = moved_copy(s, old, at, final)
+        body = body[:5] + b'\x47' + be(target) + b'\x49'
+        pieces[name] = add(body)
+
+    # Rebase existing states once; code/string offsets do not move relative to the code base.
+    edits = []
+    for a, b in spans:
+        for at, op, arg in decode(data, base + s.lit + a, base + s.lit + b):
+            if op == 0x47 and int.from_bytes(arg, 'big') + 4 >= insert:
+                edits.append((at + 1, be(final(int.from_bytes(arg, 'big') + 4) - 4)))
+    edits += [retarget(s, y, DOWN, brightness['at'] - 4, row_ref),
+              retarget(s, brightness, UP, y['at'] - 4, row_ref),
+              (blank_line(s, display, 4), label[1:]),
+              (base + display['at'] + 12 + 4 * entry_item, be(0x01000000 | display_entry))]
+    parents = {r['at'] - 4: r for r in s.records}
+    ancestor = display
+    while ancestor:
+        edits.append((base + ancestor['at'], be(0x04000000 | (ancestor['size'] + row_size))))
+        ancestor = parents.get(ancestor['parent'])
+    for record in s.records:
+        if record['parent'] + 4 >= insert:
+            edits.append((base + record['at'] + 4, be(final(record['parent'] + 4) - 4)))
+    for at, value in edits:
+        data[at:at + len(value)] = value
+
+    def event(name, triggers):
+        return (be(0x03000000 | pieces[name])
+                + b''.join(be(t | (0x80000000 if i + 1 < len(triggers) else 0)) for i, t in enumerate(triggers)))
+
+    record = (be(0x04000000 | row_size) + be(display['at'] - 4) + be(template['id'])
+              + be(0x01000000 | pieces['entry']) + be(0x02000000 | pieces['update'])
+              + event('toggle', [0xe6, 0xe2, 0xee, 0xf2, 0xe9]) + event('up', UP) + event('down', DOWN))
+    if len(record) != row_size:
+        raise ValueError('Display row size mismatch')
+    old_size = struct.unpack_from('<I', data, base - 0x40 + 4)[0]
+    data[base + s.symtab:base + s.symtab] = append
+    data[base + insert:base + insert] = record
+    grown = row_size + len(append)
+    for offset, delta in ((0x08, grown), (0x0c, row_size), (0x10, grown)):
+        struct.pack_into('<I', data, base + offset, struct.unpack_from('<I', data, base + offset)[0] + delta)
+    struct.pack_into('<I', data, base - 0x40 + 4, old_size + grown)
+    data[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)
+
+
 def patch(data):
     """Adds the rows to the R_UI.WAD in `data` (a bytearray); ValueError when this is not the
     script the patch was made for (nothing is changed then).
@@ -340,7 +464,8 @@ def patch(data):
     # Edits in the layout as it is now. First every goto to a state that moves (or to WadChoose,
     # which the pause row replaces), then the rows' own wiring.
     edits = []
-    for a, b in s.spans():
+    spans = s.spans()
+    for a, b in spans:
         if start <= a < end:  # WadChoose's dead code: the new code goes over it
             continue
         for at, op, arg in decode(work, base + s.lit + a, base + s.lit + b):
@@ -383,6 +508,8 @@ def patch(data):
         struct.pack_into('<I', work, base + offset, struct.unpack_from('<I', work, base + offset)[0] + grown)
     struct.pack_into('<I', work, base - 0x40 + 4, old_size + grown)
     work[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)
+    display_health_bar(work, [(a, b) for a, b in spans if not start <= a < end]
+                       + [(pause_pieces['entry'], failsafe_start + len(failsafe))])
     data[:] = work
 
 

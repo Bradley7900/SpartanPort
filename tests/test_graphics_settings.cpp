@@ -7,6 +7,7 @@
 #include <string>
 #include "spartanport_graphics.h"
 #include "spartanport_settings.h"
+#include "../gpu/spartanportgpu.h"
 
 namespace G = SpartanGraphics;
 
@@ -142,6 +143,19 @@ int main() {
     const std::string cheats = Read(path);
     assert(cheats.find("cheat_double_jumps=1\n") != std::string::npos);
     assert(cheats.find("cheat_very_hard=1\n") != std::string::npos);
+    v.actor_watch_supported = false;
+    v.enemy_health_bar = false;
+    assert(spartanportgpu_enemy_health_bar(0) == 2);
+    assert(spartanportgpu_enemy_health_bar(1) == 2 && !v.enemy_health_bar);
+    v.actor_watch_supported = true;
+    assert(spartanportgpu_enemy_health_bar(0) == 0);
+    assert(spartanportgpu_enemy_health_bar(1) == 1 && v.enemy_health_bar);
+    assert(Read(path).find("enemy_health_bar=1\n") != std::string::npos);
+    v.enemy_health_bar = false;
+    SpartanSettings::Load();
+    assert(spartanportgpu_enemy_health_bar(0) == 1);
+    assert(spartanportgpu_enemy_health_bar(1) == 0 && !v.enemy_health_bar);
+    assert(Read(path).find("enemy_health_bar=0\n") != std::string::npos);
     std::remove(path);
     std::puts("PASS: graphics settings");
 }

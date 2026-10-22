@@ -2,6 +2,7 @@
 #include "spartanport_settings.h"
 #include "spartanport_orbs.h"
 #include "spartanport_graphics.h"
+#include "../spartanportgpu.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -392,3 +393,13 @@ const char* UpscalerName(int upscaler) {
 }
 
 } // namespace SpartanSettings
+
+extern "C" int spartanportgpu_enemy_health_bar(int toggle) {
+    auto& v = SpartanSettings::Get();
+    if (!v.actor_watch_supported.load()) return 2;
+    if (toggle) {
+        v.enemy_health_bar = !v.enemy_health_bar.load();
+        SpartanSettings::Save();
+    }
+    return v.enemy_health_bar.load();
+}

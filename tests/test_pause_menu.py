@@ -50,6 +50,36 @@ class GameScript(unittest.TestCase):
         self.base, self.old_base = entry(self.data), entry(self.original)
         self.old, self.new = Script(self.original, self.old_base), Script(self.data, self.base)
 
+    def test_enemy_health_bar_follows_screen_y_with_native_animation(self):
+        display = self.new.one('PauseDisplay')
+        row = next(r for r in self.new.by_name['HLSubtitleDis'] if r['parent'] == display['at'] - 4)
+        y = self.new.one('HLScreenLocY')
+        self.assertEqual(row['at'], y['at'] + y['size'])
+        self.assertEqual(row['at'] + row['size'], display['at'] + display['size'])
+        for kind, layer in ((1, 8), (2, 9)):
+            ref = next(v for k, v, _ in self.new.blocks(row) if k == kind)
+            code = self.new.block_bytes(ref)
+            clip = b'\x16' + pause_menu.be(self.new.literal(b'menuItem3Select'), 2)
+            self.assertIn(b'\x01' + pause_menu.be(layer) + clip, code)
+        arrows = next(v for k, v, t in self.new.blocks(row) if k == 3 and 0xe9 in t)
+        self.assertIn(b'\x13\x0f\xfd\x43', self.new.block_bytes(arrows))
+        self.assertIn(b'Enemy Health Bar\0', self.data)
+
+    def test_display_initializes_health_value_before_the_row_is_selected(self):
+        display = self.new.one('PauseDisplay')
+        ref = next(v for k, v, _ in self.new.blocks(display) if k == 1)
+        code = self.new.block_bytes(ref)
+        self.assertEqual(code[0], 0x4a)  # refresh the setting on every entry to Display
+        refresh = ref + 5 + struct.unpack('>i', code[1:5])[0]
+        at = self.base + self.new.lit + refresh
+        self.assertEqual(self.data[at:at + 3], b'\x13\x0f\xfe')
+        assignments = []
+        for pos, op, arg in decode(self.data, self.base + self.new.lit + ref,
+                                   self.base + self.new.lit + ref + len(code)):
+            if op == 0x16 and self.data[pos + 3:pos + 7] == b'\x09\xe0\x0c\x43':
+                assignments.append(self.new.string(self.new.lit + int.from_bytes(arg, 'big')))
+        self.assertEqual(assignments, ['[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]'])
+
     def test_pause_row(self):
         main, row = self.new.one('PauseMain'), self.new.one('WadChoose')
         self.assertEqual(row['parent'], main['at'] - 4)
@@ -94,7 +124,7 @@ class GameScript(unittest.TestCase):
 
     def test_options_row(self):
         options, row = self.new.one('PauseOptions'), self.new.by_name['HLDisplay'][1]
-        self.assertEqual(len(self.new.records), len(self.old.records) + 1)
+        self.assertEqual(len(self.new.records), len(self.old.records) + 2)
         self.assertEqual(row['parent'], options['at'] - 4)
         self.assertEqual(options['size'], self.old.one('PauseOptions')['size'] + pause_menu.ROW_SIZE)
         self.assertEqual(row['at'], options['at'] + options['size'] - pause_menu.ROW_SIZE)
@@ -114,11 +144,14 @@ class GameScript(unittest.TestCase):
         after = gotos(self.data, self.base, spans)
         options = self.new.one('PauseOptions')
         inserted = next(i for i, r in enumerate(self.new.records) if r['at'] == options['at'] + options['size'] - pause_menu.ROW_SIZE)
-        moved = lambda i: i + (i >= inserted)  # noqa: E731  (states after the new record shift by one)
+        display = self.new.one('PauseDisplay')
+        health = next(i for i, r in enumerate(self.new.records)
+                      if r['at'] == display['at'] + display['size'] - 0x44)
+        moved = lambda i: i + (i >= inserted) + (i + (i >= inserted) >= health)  # noqa: E731
         changed = {at: after[at] for at, b in before.items() if after[at] != moved(b)}
         wad_choose = moved(next(i for i, r in enumerate(self.old.records) if r['at'] == dead['at']))
-        # Continue up and Quit Game down go to the pause row; Controls up and Display down to the options row.
-        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted]))
+        # Only the neighbors of the three added rows change destinations.
+        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, health]))
 
 
 if __name__ == '__main__':
