@@ -222,6 +222,37 @@ fn the_update_folder_must_differ_from_the_game_folder() {
     assert!(!can_advance(&state));
 }
 
+#[test]
+fn the_folders_are_checked_again_on_a_change_or_the_focus() {
+    // Files copied into the game folder from a file manager: the red list stays until the window
+    // gets the focus back, and a redraw reads nothing from the disk.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    let dump = dir.path().join("dump");
+    std::fs::create_dir_all(&dump).unwrap();
+    browsed(&mut state, "game_dir", &dump);
+    assert!(!can_advance(&state));
+    complete_dump(dir.path());
+    assert!(
+        !can_advance(&state),
+        "nothing told the setup the files arrived"
+    );
+    let _ = app::update(&mut state, Message::WindowFocused(true));
+    assert!(can_advance(&state));
+    assert!(folder_problems(&state, "game_dir").is_empty());
+
+    // A path typed into the update field is checked at once.
+    let _ = app::update(
+        &mut state,
+        Message::Set("update_dir".into(), dump.display().to_string().into()),
+    );
+    assert_eq!(
+        folder_problems(&state, "update_dir"),
+        ["Choose two separate folders for the game and its update, or leave the update folder empty."]
+    );
+    assert!(!can_advance(&state));
+}
+
 /// The labels of the graphics card drop-down, in order.
 fn gpu_labels(state: &State) -> Vec<String> {
     let rows = performance::rows(state, "en");

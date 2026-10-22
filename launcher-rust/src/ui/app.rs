@@ -457,6 +457,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             if !focused {
                 return controls::update(state, ControlsMessage::CaptureTimeout);
             }
+            // The player may have copied the game files in a file manager meanwhile.
+            setup::refresh_folders(state);
         }
         Message::Splash(message) => splash::apply(state, message),
         Message::Lang(message) => {
@@ -531,6 +533,10 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
         }
         if key == "mods_enabled" {
             performance::refresh_mod_resolutions(state);
+        }
+        // The setup checks a folder chosen in the dialog or typed into its field.
+        if key == "game_dir" || key == "update_dir" {
+            setup::refresh_folders(state);
         }
         return;
     }

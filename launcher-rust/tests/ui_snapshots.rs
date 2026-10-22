@@ -131,10 +131,9 @@ fn fixture(dir: &Path, shot: Shot, size: Size, lang: &str) -> State {
     state.now = state.splash.started + CLOCK;
     show_fixed_paths(&mut state);
     if let Shot::Setup(step) = shot {
-        state.setup = Some(SetupState {
-            step,
-            defaults: persist::gather(&state),
-        });
+        let mut setup = SetupState::new(&state);
+        setup.step = step;
+        state.setup = Some(setup);
     }
     state.art_override = Some(placeholder_art());
     state

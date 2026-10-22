@@ -8,7 +8,7 @@ use iced::{Background, Center, Element, Fill, Left, Task};
 use serde_json::json;
 
 use crate::core::game::{
-    missing_game_files, same_folder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
+    missing_game_files, same_folder, FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{launcher_language, system_language, tr, tr_fmt};
 use crate::core::options::DISPLAY_MODES;
@@ -90,15 +90,55 @@ pub struct SetupState {
     pub step: Step,
     /// What the launcher would save as it stands when the setup opened.
     pub defaults: Persisted,
+    /// The required files the game folder lacks. The two folders are read from the disk when the
+    /// setup opens, when either of them changes and when the window gets the focus back, never
+    /// on a redraw.
+    game_missing: Vec<(String, FileState)>,
+    /// The required files the update folder lacks; none while it is unset or is the game folder.
+    update_missing: Vec<(String, FileState)>,
+    /// Whether the update folder is the game folder.
+    same_folders: bool,
 }
 
 impl SetupState {
-    /// A setup on its first step, with the current values of `state` as the defaults.
+    /// A setup on its first step, with the current values of `state` as the defaults and its
+    /// folders checked.
     pub fn new(state: &State) -> SetupState {
-        SetupState {
+        let mut setup = SetupState {
             step: Step::Folders,
             defaults: persist::gather(state),
-        }
+            game_missing: Vec::new(),
+            update_missing: Vec::new(),
+            same_folders: false,
+        };
+        setup.check_folders(&state.settings);
+        setup
+    }
+
+    /// Reads the game and update folders of `settings` from the disk.
+    fn check_folders(&mut self, settings: &Settings) {
+        let game_dir = settings.get_str("game_dir");
+        let update_dir = settings.get_str("update_dir");
+        self.game_missing = missing_game_files(&game_dir, REQUIRED_GAME_FILES);
+        self.same_folders =
+            !update_dir.is_empty() && !game_dir.is_empty() && same_folder(&update_dir, &game_dir);
+        self.update_missing = if update_dir.is_empty() || self.same_folders {
+            Vec::new()
+        } else {
+            missing_game_files(&update_dir, REQUIRED_UPDATE_FILES)
+        };
+    }
+
+    /// Whether both folders passed their last check.
+    fn folders_pass(&self) -> bool {
+        self.game_missing.is_empty() && self.update_missing.is_empty() && !self.same_folders
+    }
+}
+
+/// Checks the game and update folders again while the setup is open; does nothing otherwise.
+pub fn refresh_folders(state: &mut State) {
+    if let Some(setup) = state.setup.as_mut() {
+        setup.check_folders(&state.settings);
     }
 }
 
@@ -111,54 +151,37 @@ pub enum SetupMessage {
     Finish,
 }
 
-/// The red lines under the folder `key` (`game_dir` or `update_dir`); empty when the folder passes.
+/// The red lines under the folder `key` (`game_dir` or `update_dir`) from the last check of the
+/// folders; empty when the folder passes or the setup is closed.
 pub fn folder_problems(state: &State, key: &str) -> Vec<String> {
     let lang = state.lang.as_str();
-    let game_dir = state.settings.get_str("game_dir");
-    let heading = |missing: &[_]| {
-        let mut lines = vec![tr(lang, "Missing or empty files:")];
-        lines.extend(describe_missing(lang, missing));
-        lines
+    let Some(setup) = state.setup.as_ref() else {
+        return Vec::new();
     };
-    match key {
-        "game_dir" => {
-            let missing = missing_game_files(&game_dir, REQUIRED_GAME_FILES);
-            if missing.is_empty() {
-                Vec::new()
-            } else {
-                heading(&missing)
-            }
+    let missing = match key {
+        "game_dir" => &setup.game_missing,
+        "update_dir" if setup.same_folders => {
+            return vec![tr(
+                lang,
+                "Choose two separate folders for the game and its update, or leave the update folder empty.",
+            )];
         }
-        "update_dir" => {
-            let update_dir = state.settings.get_str("update_dir");
-            if update_dir.is_empty() {
-                return Vec::new();
-            }
-            if !game_dir.is_empty() && same_folder(&update_dir, &game_dir) {
-                return vec![tr(
-                    lang,
-                    "Choose two separate folders for the game and its update, or leave the update folder empty.",
-                )];
-            }
-            let missing = missing_game_files(&update_dir, REQUIRED_UPDATE_FILES);
-            if missing.is_empty() {
-                Vec::new()
-            } else {
-                heading(&missing)
-            }
-        }
-        _ => Vec::new(),
+        "update_dir" => &setup.update_missing,
+        _ => return Vec::new(),
+    };
+    if missing.is_empty() {
+        return Vec::new();
     }
+    let mut lines = vec![tr(lang, "Missing or empty files:")];
+    lines.extend(describe_missing(lang, missing));
+    lines
 }
 
 /// Whether Next may leave the current step: both folders pass on Folders, always on the others.
 pub fn can_advance(state: &State) -> bool {
-    match state.setup.as_ref().map(|setup| setup.step) {
+    match state.setup.as_ref() {
         None => false,
-        Some(Step::Folders) => {
-            folder_problems(state, "game_dir").is_empty()
-                && folder_problems(state, "update_dir").is_empty()
-        }
+        Some(setup) if setup.step == Step::Folders => setup.folders_pass(),
         Some(_) => true,
     }
 }
@@ -178,6 +201,8 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
             state.settings = Settings(defaults.app);
             state.ini.values = defaults.ini;
             state.settings.set("ui_language", json!(state.lang));
+            // A failed save leaves the setup open over the restored folders.
+            refresh_folders(state);
             return Task::batch([game::game_changed(state), finish(state)]);
         }
         SetupMessage::Next => {
