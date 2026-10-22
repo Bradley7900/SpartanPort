@@ -22,6 +22,15 @@ class LauncherGeneratorOutput(unittest.TestCase):
             for name in ('input.json', 'settings.json', 'spartanport.ini', 'environment.json'):
                 self.assertTrue((folder / name).is_file(), f'{case}/{name}')
 
+    def test_collected_case_holds_what_collect_wrote(self):
+        folder = ROOT / 'launcher-rust/fixtures/collected'
+        for name in ('input.json', 'settings.json', 'spartanport.ini'):
+            self.assertTrue((folder / name).is_file(), f'collected/{name}')
+        # collect() writes every ini key the window shows that the file lacked, not only the edits.
+        lines = (folder / 'spartanport.ini').read_text(encoding='utf-8').splitlines()
+        self.assertIn('vibration=100', lines)
+        self.assertNotIn('preset=1', lines)
+
 
 if __name__ == '__main__':
     unittest.main()
