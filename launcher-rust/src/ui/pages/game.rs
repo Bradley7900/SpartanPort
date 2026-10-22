@@ -279,8 +279,15 @@ fn ini_on(state: &State, key: &str) -> bool {
 /// A folder row with its note under it.
 fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Element<'a, Message> {
     let value = state.settings.get_str(key);
+    // Python `open_path`: an empty saves folder opens `DATA_DIR/user`; an unset game or update
+    // folder has nothing to open.
+    let open = if key == "user_dir" {
+        Some(state.paths.user_dir(&value))
+    } else {
+        (!value.is_empty()).then(|| PathBuf::from(&value))
+    };
     column![
-        folder(state.rtl, key, label, &value, "", &state.lang),
+        folder(state.rtl, key, label, &value, "", open, &state.lang),
         text(note.to_string()).size(13).style(theme::text_muted)
     ]
     .spacing(2)

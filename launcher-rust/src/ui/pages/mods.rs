@@ -803,13 +803,21 @@ pub fn view(state: &State) -> Element<'_, Message> {
     if let Some(card) = details(state) {
         body = body.push(container(card).align_y(iced::alignment::Vertical::Top));
     }
+    // Open opens the setting, or the data folder's one when it is empty (Python `open_path`).
     let folder_row = |key: &str, label: &str, default: &Path| {
+        let value = state.settings.get_str(key);
+        let open = if value.is_empty() {
+            default.to_path_buf()
+        } else {
+            PathBuf::from(&value)
+        };
         folder(
             state.rtl,
             key,
             &tr(lang, label),
-            &state.settings.get_str(key),
+            &value,
             &default.display().to_string(),
+            Some(open),
             lang,
         )
     };

@@ -50,7 +50,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
     let shots = button(text(tr(lang, "Open the screenshots folder")))
         .style(theme::button_flat)
-        .on_press(Message::OpenPath(
+        .on_press(Message::OpenFolder(
             state
                 .paths
                 .user_dir(&state.settings.get_str("user_dir"))

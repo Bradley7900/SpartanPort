@@ -354,7 +354,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     let files = layout![
         flat(
             tr(lang, "Port folder"),
-            Message::OpenPath(state.paths.data_dir.clone())
+            Message::OpenFolder(state.paths.data_dir.clone())
         ),
         flat("spartanport.ini".to_string(), Message::OpenIni),
     ]

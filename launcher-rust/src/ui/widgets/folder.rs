@@ -1,4 +1,5 @@
-//! A folder setting: the current path, `Browse…` and `Open`.
+//! A folder setting: the current path, `Browse…` and `Open`. `Open` opens the folder it is given
+//! (the setting, or the data folder's default for an empty one), made first when missing.
 
 use std::path::PathBuf;
 
@@ -17,6 +18,7 @@ pub fn folder<'a>(
     label: &str,
     value: &str,
     empty_hint: &str,
+    open: Option<PathBuf>,
     lang: &str,
 ) -> Element<'a, Message> {
     let shown = if value.is_empty() {
@@ -29,12 +31,9 @@ pub fn folder<'a>(
     let browse = button(text(tr(lang, "Browse…")))
         .style(theme::button_flat)
         .on_press(Message::Browse(key.to_string()));
-    let open = button(text(tr(lang, "Open"))).style(theme::button_flat);
-    let open = if value.is_empty() {
-        open
-    } else {
-        open.on_press(Message::OpenPath(PathBuf::from(value)))
-    };
+    let open = button(text(tr(lang, "Open")))
+        .style(theme::button_flat)
+        .on_press_maybe(open.map(Message::OpenFolder));
     // Right to left the path sits next to the name, the buttons before it.
     let control = if rtl {
         let path = container(shown).width(Fill).align_x(Right);

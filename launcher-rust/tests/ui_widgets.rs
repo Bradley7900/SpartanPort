@@ -62,12 +62,34 @@ fn checkbox_ini_emits_one_and_zero() {
 
 #[test]
 fn folder_browse_emits_browse_with_the_key() {
-    let view = widgets::folder(false, "game_dir", "Game folder", "", "Not set", "en");
+    let view = widgets::folder(false, "game_dir", "Game folder", "", "Not set", None, "en");
     let messages = click(view, "Browse…");
     assert!(
         matches!(&messages[0], Message::Browse(key) if key == "game_dir"),
         "{messages:?}"
     );
+}
+
+#[test]
+fn folder_open_targets_the_folder_it_is_given() {
+    let target = std::path::PathBuf::from("data").join("user");
+    let view = widgets::folder(
+        false,
+        "user_dir",
+        "Saves folder",
+        "",
+        "",
+        Some(target.clone()),
+        "en",
+    );
+    let messages = click(view, "Open");
+    assert!(
+        matches!(messages.as_slice(), [Message::OpenFolder(path)] if *path == target),
+        "{messages:?}"
+    );
+    // Without one (an unset game folder) Open does nothing.
+    let view = widgets::folder(false, "game_dir", "Game folder", "", "", None, "en");
+    assert!(click(view, "Open").is_empty());
 }
 
 #[test]

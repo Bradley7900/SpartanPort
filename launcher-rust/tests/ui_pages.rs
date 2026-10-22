@@ -87,10 +87,37 @@ fn graphics_page_offers_the_choice() {
     assert_eq!(state.monitor_pairs.len(), 1);
     assert_eq!(state.settings.get_str("monitor"), "");
 
-    // The screenshots button opens <saves>/screenshots.
+    // The screenshots button opens <saves>/screenshots, made first when missing.
     let sent = messages(&state, "Open the screenshots folder");
     let expected = state.paths.user_dir("").join("screenshots");
-    assert!(matches!(sent.as_slice(), [Message::OpenPath(path)] if *path == expected));
+    assert!(matches!(sent.as_slice(), [Message::OpenFolder(path)] if *path == expected));
+}
+
+#[test]
+fn open_makes_a_missing_folder_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    // Python `open_path`: `mkdir` before the file manager opens it.
+    let missing = dir.path().join("user").join("screenshots");
+    let task = app::update(&mut state, Message::OpenFolder(missing.clone()));
+    assert!(missing.is_dir());
+    assert_eq!(task.units(), 1, "then it opens");
+}
+
+#[test]
+fn an_empty_folder_setting_opens_the_data_folder_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    state.lang = "en".into();
+    let _ = app::update(&mut state, Message::ShowPage(Page::Mods));
+    // The Mods folder row comes first; its setting is empty.
+    assert_eq!(state.settings.get_str("mods_dir"), "");
+    let sent = tall_messages(&state, "Open");
+    let expected = state.paths.mods_dir("");
+    assert!(
+        matches!(sent.as_slice(), [Message::OpenFolder(path)] if *path == expected),
+        "{sent:?}"
+    );
 }
 
 fn set(state: &mut app::State, key: &str, value: &str) {

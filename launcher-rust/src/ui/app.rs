@@ -244,8 +244,10 @@ pub enum Message {
     Backup(BackupMessage),
     /// The monitors the probe listed, in the background.
     MonitorsListed(Vec<Display>),
-    /// Opens a folder in the desktop's file manager.
+    /// Opens a file or folder with the desktop's program for it.
     OpenPath(PathBuf),
+    /// Makes the folder when it is missing, then opens it (Python `open_path`).
+    OpenFolder(PathBuf),
     /// Saves, then opens `spartanport.ini` (Python `open_path` of an `.ini`).
     OpenIni,
     /// The window's close button: saves first (Python `close`).
@@ -425,6 +427,12 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         | Message::SteamDone(_)
         | Message::ClearShaderCache
         | Message::ShaderCacheCleared(_)) => return advanced::update(state, message),
+        Message::OpenFolder(folder) => {
+            // As the Python's `mkdir`: Explorer would open Documents instead, and `xdg-open`
+            // would fail without a word. A folder that cannot be made is opened all the same.
+            let _ = std::fs::create_dir_all(&folder);
+            return Task::done(Message::OpenPath(folder));
+        }
         Message::OpenIni => {
             if persist::collect_or_report(state) {
                 return Task::done(Message::OpenPath(state.paths.ini_path()));
