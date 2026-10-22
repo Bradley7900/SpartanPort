@@ -12,4 +12,5 @@ pub mod splash;
 pub mod tasks;
 pub mod theme;
 pub mod update;
+pub mod version_menu;
 pub mod widgets;

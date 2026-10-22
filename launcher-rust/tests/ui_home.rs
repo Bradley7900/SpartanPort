@@ -8,16 +8,20 @@ use std::time::Duration;
 
 use iced::time::Instant;
 use iced::widget::image::Handle;
-use iced::{Rectangle, Size};
+use iced::{Rectangle, Size, Task};
 use iced_test::simulator::simulator;
 use serde_json::json;
 use spartanport_launcher::core::gpu::GpuRow;
 use spartanport_launcher::core::i18n::tr;
+use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::drawer::DrawerState;
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::Page;
+use spartanport_launcher::ui::update::UpdateState;
+use spartanport_launcher::ui::version_menu::VersionMessage;
+use spartanport_launcher::ui::widgets::modal::{Modal, ModalKind};
 
 /// A state over `dir` only, with the splash already gone.
 fn state_in(dir: &Path) -> State {
@@ -560,4 +564,168 @@ fn play_is_disabled_behind_the_wide_drawer() {
     assert!(!ui
         .into_messages()
         .any(|message| matches!(message, Message::Play)));
+}
+
+fn version(state: &mut State, message: VersionMessage) -> Task<Message> {
+    app::update(state, Message::VersionMenu(message))
+}
+
+fn release(channel: Channel, version: &str, build: Option<&str>) -> Release {
+    Release {
+        id: ReleaseId {
+            channel,
+            version: version.to_string(),
+            build: build.map(str::to_string),
+        },
+        published: "2026-10-01".to_string(),
+        url: "https://example.test/pkg".to_string(),
+        page: "https://example.test/page".to_string(),
+    }
+}
+
+fn ready_with(state: &mut State, releases: Vec<Release>) {
+    state.update = UpdateState::Ready(releases);
+}
+
+#[test]
+fn the_version_button_names_the_installed_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    let mut ui = simulator(app::view(&state));
+    assert!(ui
+        .find(format!("Release · {} ▾", spartanport_launcher::VERSION).as_str())
+        .is_ok());
+    drop(ui);
+    state.installed = ReleaseId {
+        channel: Channel::PreRelease,
+        version: "2.6.0".into(),
+        build: Some("issue209-test1".into()),
+    };
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Pre-release · 2.6.0 · issue209-test1 ▾").is_ok());
+}
+
+#[test]
+fn the_version_button_offers_a_newer_stable() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Release · 2.6.0 · 2.7.0 available ▾").is_ok());
+    drop(ui);
+    state.lang = "pt".into();
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Lançamento · 2.6.0 · 2.7.0 disponível ▾").is_ok());
+    drop(ui);
+    state.lang = "en".into();
+    ready_with(
+        &mut state,
+        vec![release(Channel::PreRelease, "2.6.0", Some("x"))],
+    );
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Release · 2.6.0 ▾").is_ok());
+}
+
+#[test]
+fn the_version_button_sits_before_the_language_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    let label = "Release · 2.6.0 ▾";
+    let x = |state: &State, label: &str| {
+        let mut ui = simulator(app::view(state));
+        ui.find(label).unwrap().bounds().x
+    };
+    assert!(x(&state, label) < x(&state, "English ▾"));
+    state.rtl = true;
+    assert!(x(&state, label) > x(&state, "English ▾"));
+}
+
+#[test]
+fn the_version_button_is_not_pressable_while_downloading_or_dimmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    state.installed = ReleaseId::fallback();
+    let newest = release(Channel::Release, "2.7.0", None);
+    state.update = UpdateState::Downloading {
+        releases: vec![newest.clone()],
+        release: newest.clone(),
+        percent: 42,
+    };
+    let label = "Downloading version 2.7.0… 42%";
+    assert!(simulator(app::view(&state)).find(label).is_ok());
+    // Hovering still reports; only the press is withheld.
+    assert!(!click(&state, label)
+        .iter()
+        .any(|message| matches!(message, Message::VersionMenu(VersionMessage::Toggle))));
+
+    state.update = UpdateState::None;
+    state.modal = Some(Modal {
+        kind: ModalKind::Info,
+        title: "T".into(),
+        text: "X".into(),
+    });
+    // The dialog's backdrop takes the press.
+    let sent = click(&state, "Release · 2.6.0 ▾");
+    assert!(!sent
+        .iter()
+        .any(|message| matches!(message, Message::VersionMenu(VersionMessage::Toggle))));
+
+    // Dimmed behind a wide drawer: the dim layer takes the click, the button hears nothing.
+    state.modal = None;
+    state.drawer = DrawerState::Open(Page::Log);
+    let sent = click(&state, "Release · 2.6.0 ▾");
+    assert!(
+        !sent
+            .iter()
+            .any(|message| matches!(message, Message::VersionMenu(_))),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn hovering_the_version_button_opens_and_fetches() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let t0 = Instant::now();
+    state.now = t0;
+    assert!(matches!(state.update, UpdateState::None));
+    let _ = version(&mut state, VersionMessage::Enter);
+    tick(&mut state, t0 + Duration::from_millis(450));
+    assert!(state.version_menu.open);
+    assert!(matches!(state.update, UpdateState::Checking));
+
+    let mut state = state_in(dir.path());
+    ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
+    let _ = version(&mut state, VersionMessage::Toggle);
+    assert!(state.version_menu.open);
+    assert!(matches!(state.update, UpdateState::Ready(_)));
+}
+
+#[test]
+fn opening_one_menu_closes_the_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    lang(&mut state, LangMessage::Toggle);
+    let _ = version(&mut state, VersionMessage::Toggle);
+    assert!(state.version_menu.open && !state.lang_menu.open);
+    lang(&mut state, LangMessage::Toggle);
+    assert!(state.lang_menu.open && !state.version_menu.open);
+}
+
+#[test]
+fn sliding_from_language_to_version_opens_only_version() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    let t0 = Instant::now();
+    state.now = t0;
+    lang(&mut state, LangMessage::Toggle);
+    assert!(state.lang_menu.open);
+    lang(&mut state, LangMessage::Leave);
+    let _ = version(&mut state, VersionMessage::Enter);
+    tick(&mut state, t0 + Duration::from_millis(450));
+    assert!(state.version_menu.open);
+    assert!(!state.lang_menu.open);
 }

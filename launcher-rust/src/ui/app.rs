@@ -26,6 +26,7 @@ use crate::core::update::{can_self_update, installed_release, stamp_path};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
 use crate::ui::home::{self, HomeFacts};
+use crate::ui::hover_menu::HoverMenu;
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::advanced;
 use crate::ui::pages::controls::{self, ControlsMessage, ControlsView};
@@ -41,6 +42,7 @@ use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, window_zoom, CINZEL_BOLD};
 use crate::ui::update::{self, UpdateMessage, UpdateState};
+use crate::ui::version_menu::{self, VersionMessage};
 use crate::ui::widgets;
 use crate::ui::widgets::modal::{Modal, ModalKind, ModalMessage};
 use crate::VERSION;
@@ -107,6 +109,7 @@ pub struct State {
     /// The percentages the update worker sends; `update::drain` empties it on each clock tick.
     pub update_progress: Option<std::sync::mpsc::Receiver<u8>>,
     pub lang_menu: LangMenu,
+    pub version_menu: HoverMenu,
     /// What the Home chips read from the disk.
     pub home: HomeFacts,
     /// Another picture for the Home art layer instead of the key art; only the snapshot tests set
@@ -212,6 +215,7 @@ impl State {
             installed,
             update_progress: None,
             lang_menu: Default::default(),
+            version_menu: Default::default(),
             home: Default::default(),
             art_override: None,
             modal: None,
@@ -290,6 +294,7 @@ pub enum Message {
     MonitorSize(Option<Size>),
     Splash(SplashMessage),
     Lang(LangMessage),
+    VersionMenu(VersionMessage),
     Game(GameMessage),
     Update(UpdateMessage),
     Modal(ModalMessage),
@@ -381,10 +386,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Tick(at) => {
             tick(state, at);
             lang_menu::update(state, LangMessage::Tick(at));
+            let check = version_menu::update(state, VersionMessage::Tick(at));
+            if state.version_menu.open {
+                state.lang_menu.open = false;
+            }
             controls::tick(state, at);
             update::drain(state);
             // The game's output arrives with the clock.
-            return play::drain(state);
+            return Task::batch([check, play::drain(state)]);
         }
         Message::Play => return play::play(state),
         Message::Stop => play::stop(state),
@@ -428,10 +437,20 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Lang(message) => {
             let picked = matches!(message, LangMessage::Pick(_));
             lang_menu::update(state, message);
+            if state.lang_menu.open {
+                state.version_menu.open = false;
+            }
             // Picking a language stores it and rebuilds the window in it, as Save does.
             if picked {
                 return persist::save(state);
             }
+        }
+        Message::VersionMenu(message) => {
+            let task = version_menu::update(state, message);
+            if state.version_menu.open {
+                state.lang_menu.open = false;
+            }
+            return task;
         }
         Message::Game(message) => return play::update(state, message),
         Message::Update(message) => return update::update(state, message),
@@ -717,14 +736,17 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     // The splash needs the clock even when the fire is off.
     // The hover timers of the language menu need it too, and a slow clock keeps `now` fresh for
     // their stamps while the fire is off.
-    let clock =
-        if (state.effects && state.visible) || !state.splash.done || lang_menu::timing(state) {
-            iced::time::every(Duration::from_millis(33)).map(Message::Tick)
-        } else if state.visible || play::game_live(state) {
-            iced::time::every(IDLE_CLOCK).map(Message::Tick)
-        } else {
-            Subscription::none()
-        };
+    let clock = if (state.effects && state.visible)
+        || !state.splash.done
+        || lang_menu::timing(state)
+        || version_menu::timing(state)
+    {
+        iced::time::every(Duration::from_millis(33)).map(Message::Tick)
+    } else if state.visible || play::game_live(state) {
+        iced::time::every(IDLE_CLOCK).map(Message::Tick)
+    } else {
+        Subscription::none()
+    };
     Subscription::batch([
         keys,
         window_events,

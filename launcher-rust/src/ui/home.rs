@@ -26,6 +26,7 @@ use crate::ui::app::{
 };
 use crate::ui::lang_menu;
 use crate::ui::play::GameState;
+use crate::ui::version_menu;
 
 use crate::ui::theme::{
     button_flat, button_play, faded, faded_button, mirror_padding, mirror_x, palette, CINZEL_BLACK,
@@ -703,7 +704,15 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
 }
 
 fn top_right(state: &State) -> Element<'_, Message> {
-    container(lang_menu::button_view(state))
+    // The language button keeps the corner; mirrored, the version button reads on its right.
+    let version = version_menu::button_view(state);
+    let language = lang_menu::button_view(state);
+    let buttons = if state.rtl {
+        row![language, version]
+    } else {
+        row![version, language]
+    };
+    container(buttons.spacing(8).wrap())
         .width(Fill)
         .height(Fill)
         .align_x(mirror_x(Right, state.rtl))
