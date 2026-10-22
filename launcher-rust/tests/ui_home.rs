@@ -587,6 +587,15 @@ fn ready_with(state: &mut State, releases: Vec<Release>) {
     state.update = UpdateState::Ready(releases);
 }
 
+/// The installed release the labels below name, whatever `VERSION` is.
+fn stable_2_6_0() -> ReleaseId {
+    ReleaseId {
+        channel: Channel::Release,
+        version: "2.6.0".into(),
+        build: None,
+    }
+}
+
 #[test]
 fn the_version_button_names_the_installed_release() {
     let dir = tempfile::tempdir().unwrap();
@@ -610,7 +619,7 @@ fn the_version_button_names_the_installed_release() {
 fn the_version_button_offers_a_newer_stable() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
+    state.installed = stable_2_6_0();
     ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Release · 2.6.0 · 2.7.0 available ▾").is_ok());
@@ -632,7 +641,7 @@ fn the_version_button_offers_a_newer_stable() {
 fn the_version_button_sits_before_the_language_one() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
+    state.installed = stable_2_6_0();
     let label = "Release · 2.6.0 ▾";
     let x = |state: &State, label: &str| {
         let mut ui = simulator(app::view(state));
@@ -647,7 +656,7 @@ fn the_version_button_sits_before_the_language_one() {
 fn the_version_button_is_not_pressable_while_downloading_or_dimmed() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
+    state.installed = stable_2_6_0();
     let newest = release(Channel::Release, "2.7.0", None);
     state.update = UpdateState::Downloading {
         releases: vec![newest.clone()],
@@ -844,7 +853,7 @@ fn the_menu_marks_the_installed_and_the_new() {
 fn an_unmatched_install_has_no_tick_but_still_a_new() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
+    state.installed = stable_2_6_0();
     ready_with(
         &mut state,
         vec![
@@ -920,7 +929,7 @@ fn the_menu_says_fetching_and_failed() {
 fn picking_a_row_closes_and_installs() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
+    state.installed = stable_2_6_0();
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
     let sent = click(&state, "2.8.0");
