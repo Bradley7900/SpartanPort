@@ -92,6 +92,14 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         &[("pt", "Placa de vídeo não verificada: o jogo escolhe uma.")],
     ),
     (
+        "The port folder is incomplete. Missing from {}:\n\n{}\n\nDownload the package again from the releases page and extract all of it; the launcher must stay inside that folder.",
+        &[("pt", "A pasta do port está incompleta. Faltando em {}:\n\n{}\n\nBaixe o pacote de novo na página de releases e extraia tudo; o launcher precisa ficar dentro dessa pasta.")],
+    ),
+    (
+        "From a source checkout, build.sh builds them.",
+        &[("pt", "Num checkout do código-fonte, o build.sh gera esses arquivos.")],
+    ),
+    (
         "Missing or empty files:",
         &[("pt", "Arquivos ausentes ou vazios:")],
     ),

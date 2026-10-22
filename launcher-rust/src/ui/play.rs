@@ -21,6 +21,7 @@ use crate::core::game::{
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::launch::{run_py_command, spawn_game, GameEvent, GameHandle, LaunchError};
 use crate::core::log::{exit_hint, line_status, ExitHint, LineStatus, RunLog};
+use crate::core::paths::Paths;
 use crate::ui::app::{show_page, Message, State};
 use crate::ui::home;
 use crate::ui::pages::game::game_changed;
@@ -273,7 +274,47 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
         );
         return refuse(state, text);
     }
+    // An explicit command (the tests' fake game) replaces run.py and needs none of its files.
+    if state.launch_command.is_none() {
+        let missing = missing_port_files(&state.paths);
+        if !missing.is_empty() {
+            let mut text = tr_fmt(
+                &lang,
+                "The port folder is incomplete. Missing from {}:\n\n{}\n\nDownload the package \
+                 again from the releases page and extract all of it; the launcher must stay \
+                 inside that folder.",
+                &[
+                    &state.paths.port_dir.display().to_string(),
+                    &missing.join("\n"),
+                ],
+            );
+            if state.paths.port_dir.join("build.sh").is_file() {
+                text.push_str("\n\n");
+                text.push_str(&tr(&lang, "From a source checkout, build.sh builds them."));
+            }
+            return refuse(state, text);
+        }
+    }
     start(state)
+}
+
+/// What `run.py` needs from the port folder and does not find: the script itself and the probe
+/// it starts (`bin/` in a package, `out/` in a checkout). An exe moved out of its package or a
+/// package half extracted lack them; PLAY says so instead of running into run.py's message.
+pub fn missing_port_files(paths: &Paths) -> Vec<String> {
+    let mut missing = Vec::new();
+    if !paths.port_dir.join("run.py").is_file() {
+        missing.push("run.py".to_string());
+    }
+    if paths.find_tool("spartanport-probe").is_none() {
+        let file = if cfg!(windows) {
+            "spartanport-probe.exe"
+        } else {
+            "spartanport-probe"
+        };
+        missing.push(Path::new("bin").join(file).display().to_string());
+    }
+    missing
 }
 
 /// The text of a failed start, as Python prints the `OSError`.

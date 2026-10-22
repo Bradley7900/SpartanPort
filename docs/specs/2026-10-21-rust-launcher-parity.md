@@ -418,6 +418,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 15. GUI Scale offers 1x (the default) and 1.5x, both absolute on any desktop (R90; the Python offered Auto, the default, 1x and 2x). A stored "auto" loads as 1x and a stored "2" as 1.5x; `tests/fixtures.rs` expects `"ui_scale": "1"` where the Python's fixtures hold its default.
 16. Discord Rich Presence is on by default (R91; the Python's default was off): a new `settings.json` holds `"discord_rpc": true`, and the game gets `SPARTAN_DISCORD=1` unless the player switches it off. `tests/fixtures.rs` lists it with `ui_scale` in `DECIDED_DEFAULTS`, the only defaults allowed to differ from the Python's fixtures.
 17. When the game exits with advice the Rust opens the Log page and scrolls to its end (the 2.7.0 Python scrolls the Advanced page to its log section). The Delete shader cache button of Performance and the Clear shader cache button of Advanced ask the same question, as the Python's two buttons do.
+18. PLAY checks the port folder for `run.py` and `bin/spartanport-probe` (or `out/`) before starting and names what is missing, with the releases page as the fix (the Python lets run.py fail with its developer message). The Windows exe links the C runtime statically (`.cargo/config.toml`), so it needs no VCRUNTIME140.dll.
 
 ## Partly covered
 
