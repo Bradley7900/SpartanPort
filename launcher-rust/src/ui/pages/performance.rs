@@ -60,11 +60,22 @@ fn mod_sizes(state: &State) -> Vec<String> {
         .collect()
 }
 
+/// A built-in render resolution's label in `lang`, as the Python's `_()` of it: the whole label
+/// when the tables have it, else the English label with its "Native" word translated.
+fn shown_label(lang: &str, name: &str, aspect: bool) -> String {
+    let english = resolution_label(name, aspect);
+    let whole = tr(lang, &english);
+    if whole != english || name != "native" {
+        return whole;
+    }
+    english.replacen("Native", &tr(lang, "Native"), 1)
+}
+
 /// The render resolutions to choose from: the built-in ones and those of the enabled mods.
 pub fn resolution_options(state: &State) -> Vec<(String, String)> {
     let builtin = RESOLUTIONS
         .iter()
-        .map(|name| (name.to_string(), resolution_label(name, true)));
+        .map(|name| (name.to_string(), shown_label(&state.lang, name, true)));
     let mods = state
         .mod_resolutions
         .iter()
@@ -93,7 +104,11 @@ pub fn aspect_resolution_options(state: &State) -> Vec<(String, String)> {
             let is_mod = options
                 .iter()
                 .any(|(value, label)| *value == name && label.ends_with(MOD_SUFFIX));
-            let label = resolution_label(&name, false) + if is_mod { MOD_SUFFIX } else { "" };
+            let label = if is_mod {
+                resolution_label(&name, false) + MOD_SUFFIX
+            } else {
+                shown_label(&state.lang, &name, false)
+            };
             (name, label)
         })
         .collect()

@@ -123,6 +123,44 @@ fn aspect_follows_and_filters_the_render_resolution() {
 }
 
 #[test]
+fn native_is_translated_in_the_resolution_lists() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state(dir.path());
+    let native = |pairs: Vec<(String, String)>| {
+        pairs
+            .into_iter()
+            .find(|(value, _)| value == "native")
+            .unwrap()
+            .1
+    };
+    state.lang = "en".into();
+    assert_eq!(
+        native(performance::resolution_options(&state)),
+        "Native · 1920 × 1080 · 16:9"
+    );
+    assert_eq!(
+        native(performance::aspect_resolution_options(&state)),
+        "Native · 1920 × 1080"
+    );
+    // The Python passes the labels through `_()`; the word alone has its Portuguese too.
+    state.lang = "pt".into();
+    assert_eq!(
+        native(performance::resolution_options(&state)),
+        "Nativa · 1920 × 1080 · 16:9"
+    );
+    assert_eq!(
+        native(performance::aspect_resolution_options(&state)),
+        "Nativa · 1920 × 1080"
+    );
+    // A whole label of the Python's tables still wins.
+    state.lang = "zh".into();
+    assert_eq!(
+        native(performance::resolution_options(&state)),
+        "原生 · 1920 × 1080 · 16:9"
+    );
+}
+
+#[test]
 fn no_msaa_auto_label_names_the_card_and_the_decision() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());

@@ -188,6 +188,8 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
             "Saída da última execução. last_run.log tem o mesmo texto.",
         )],
     ),
+    // The word of the native render resolution's label, when the tables have no whole label.
+    ("Native", &[("pt", "Nativa")]),
     (
         "Effects",
         &[("pt", "Efeitos"), ("es", "Efectos"), ("ru", "Эффекты")],
