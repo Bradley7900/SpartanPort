@@ -360,7 +360,10 @@ fn saves_chip_follows_the_savedata_folder() {
     std::fs::create_dir_all(&saves).unwrap();
     std::fs::write(saves.join("slot0"), b"x").unwrap();
     home::refresh_facts(&mut state);
-    assert!(home::chips(&state)[0].starts_with("✓ Saves found in "));
+    // Only that saves exist: the folder is on the Game page.
+    assert_eq!(home::chips(&state)[0], "✓ Saves found");
+    state.lang = "pt".into();
+    assert_eq!(home::chips(&state)[0], "✓ Saves encontrados");
 }
 
 #[test]

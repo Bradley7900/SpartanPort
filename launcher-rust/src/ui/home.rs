@@ -508,9 +508,9 @@ pub fn chips(state: &State) -> [String; 3] {
         }
         None => tr(lang, "✗ No eboot.bin in the game folder"),
     };
+    // Only whether saves exist: the folder is on the Game page.
     let saves = if state.home.saves {
-        let dir = user_dir(state).display().to_string();
-        tr_fmt(lang, "✓ Saves found in {}", &[&dir])
+        tr(lang, "✓ Saves found")
     } else {
         tr(lang, "• No saves yet")
     };

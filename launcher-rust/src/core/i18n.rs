@@ -163,9 +163,13 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
     ),
     // The word of the native render resolution's label, when the tables have no whole label.
     ("Native", &[("pt", "Nativa")]),
-    // The Home saves chip (the Python's "• No saves yet: the game creates them in {}" wording)
-    // and the splash hint.
+    // The Home saves chip (the Python's "• No saves yet: the game creates them in {}" and
+    // "✓ Saves found in {}" without the folder) and the splash hint.
     ("• No saves yet", &[("pt", "• Nenhum save ainda")]),
+    (
+        "✓ Saves found",
+        &[("pt", "✓ Saves encontrados"), ("es", "✓ Partidas guardadas")],
+    ),
     ("any key skips", &[("pt", "qualquer tecla pula")]),
     (
         "Effects",
