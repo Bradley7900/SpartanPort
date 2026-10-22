@@ -134,7 +134,8 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         )],
     ),
     // The drawer subtitles (ruling R56: the mockup's English and Portuguese). The Graphics and
-    // Game ones are keys of the JSON table, which `tr` reads first.
+    // Game ones are keys of the JSON table, and the Trophies and Mods ones are among its extra
+    // texts in Portuguese, which `tr` reads first (the Trophies one in the 2.6.0 wording).
     (
         "Frame rate, shaders and GPU data paths. Applied when the game starts.",
         &[(
@@ -143,22 +144,8 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         )],
     ),
     (
-        "The trophies this port recorded while you played.",
-        &[(
-            "pt",
-            "Os troféus que este port registrou enquanto você jogava.",
-        )],
-    ),
-    (
         "Keyboard, mouse and gamepad mapping.",
         &[("pt", "Mapeamento de teclado, mouse e controle.")],
-    ),
-    (
-        "Change textures, sounds and text. Your game files stay untouched.",
-        &[(
-            "pt",
-            "Troque texturas, sons e textos. Os arquivos do jogo não são alterados.",
-        )],
     ),
     (
         "Launcher options, diagnostics and system tools.",
@@ -372,6 +359,18 @@ mod tests {
             .iter()
             .map(|(en, _)| *en)
             .filter(|en| table.keys.iter().any(|key| key == en))
+            .collect();
+        assert!(shadowed.is_empty(), "in assets/i18n.json: {shadowed:#?}");
+    }
+
+    #[test]
+    fn no_rust_only_translation_is_shadowed_by_the_table() {
+        // `lookup` reads the JSON's extra texts and positional table (and the Russian pairs)
+        // before `UI_EXTRA`: a translation it already finds would never show.
+        let shadowed: Vec<(&str, &str)> = UI_EXTRA
+            .iter()
+            .flat_map(|(en, texts)| texts.iter().map(move |(lang, _)| (*lang, *en)))
+            .filter(|(lang, en)| lookup(lang, en).is_some_and(|text| !text.is_empty()))
             .collect();
         assert!(shadowed.is_empty(), "in assets/i18n.json: {shadowed:#?}");
     }
