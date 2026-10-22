@@ -703,14 +703,17 @@ fn bottom_block(state: &State, enabled: bool) -> Element<'_, Message> {
     placed.into()
 }
 
-fn top_right(state: &State) -> Element<'_, Message> {
+/// The buttons in the top-right corner: the version menu's and the language's with `version`, the
+/// language's alone without it (the setup has no versions to pick).
+pub fn top_right(state: &State, version: bool) -> Element<'_, Message> {
     // The language button keeps the corner; mirrored, the version button reads on its right.
-    let version = version_menu::button_view(state);
     let language = lang_menu::button_view(state);
-    let buttons = if state.rtl {
-        row![language, version]
+    let buttons = if !version {
+        row![language]
+    } else if state.rtl {
+        row![language, version_menu::button_view(state)]
     } else {
-        row![version, language]
+        row![version_menu::button_view(state), language]
     };
     container(buttons.spacing(8).wrap())
         .width(Fill)
@@ -728,6 +731,16 @@ fn top_right(state: &State) -> Element<'_, Message> {
         .into()
 }
 
+/// The monogram in the top corner, drawn once the splash is gone.
+pub fn corner_monogram(state: &State) -> Element<'_, Message> {
+    container(image(monogram()).width(MONOGRAM).height(MONOGRAM))
+        .width(Fill)
+        .height(Fill)
+        .align_x(mirror_x(Left, state.rtl))
+        .padding(MONOGRAM_EDGE)
+        .into()
+}
+
 /// The interactive Home layer: corner monogram, version and language buttons, and the block
 /// with the logotype, PLAY, chips, settings line and hint. Each part is sized to its content, so
 /// the empty space between them lets clicks through to the layers below.
@@ -735,16 +748,10 @@ pub fn block(state: &State) -> Element<'_, Message> {
     let enabled = home_interactive_enabled(state);
     let mut layers = stack![].width(Fill).height(Fill);
     if state.splash.done {
-        layers = layers.push(
-            container(image(monogram()).width(MONOGRAM).height(MONOGRAM))
-                .width(Fill)
-                .height(Fill)
-                .align_x(mirror_x(Left, state.rtl))
-                .padding(MONOGRAM_EDGE),
-        );
+        layers = layers.push(corner_monogram(state));
     }
     layers
-        .push(top_right(state))
+        .push(top_right(state, true))
         .push(bottom_block(state, enabled))
         .into()
 }

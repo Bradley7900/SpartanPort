@@ -163,7 +163,10 @@ impl State {
         let (settings, settings_file) = read_app_settings(&paths);
         let (ini, ini_unreadable) = read_ini(&paths.ini_path());
         let unreadable: Vec<PathBuf> = [
-            (settings_file == SettingsFile::Unreadable, paths.config_file()),
+            (
+                settings_file == SettingsFile::Unreadable,
+                paths.config_file(),
+            ),
             (ini_unreadable, paths.ini_path()),
         ]
         .into_iter()
@@ -625,26 +628,44 @@ pub fn home_interactive_opacity(state: &State) -> f32 {
 /// the drawer when clicked (only while it is open), the Home block, and the drawer. The Home
 /// block sits above the dim layer so it stays clickable next to a 46 % drawer.
 pub fn view(state: &State) -> Element<'_, Message> {
-    let mut scene = stack![home::background(state)].width(Fill).height(Fill);
-    if let DrawerState::Open(_) = state.drawer {
-        scene = scene.push(dim_close_catcher());
+    let setup = state.setup.is_some();
+    let base = if setup {
+        setup::background(state)
+    } else {
+        home::background(state)
+    };
+    let mut scene = stack![base].width(Fill).height(Fill);
+    if setup {
+        if state.splash.done {
+            scene = scene.push(setup::view(state));
+        }
+    } else {
+        if let DrawerState::Open(_) = state.drawer {
+            scene = scene.push(dim_close_catcher());
+        }
+        scene = scene.push(home::block(state));
     }
-    scene = scene.push(home::block(state));
     if state.lang_menu.open {
         scene = scene.push(lang_menu::menu(state));
     }
-    if state.version_menu.open {
+    if state.version_menu.open && !setup {
         scene = scene.push(version_menu::menu(state));
     }
     if !state.splash.done {
         scene = scene.push(splash::view(state, &state.lang));
     }
-    if let DrawerState::Open(page) = state.drawer {
-        scene = scene.push(drawer::view(state, page));
+    if !setup {
+        if let DrawerState::Open(page) = state.drawer {
+            scene = scene.push(drawer::view(state, page));
+        }
     }
     // Always a stack with the page first, layers or not: a root that changed kind with them would
     // drop the state of the whole page (the drawer's scroll position) each time one comes or goes.
-    let mut window = stack![column![scene, bar(state)]];
+    let mut window = if setup {
+        stack![column![scene]]
+    } else {
+        stack![column![scene, bar(state)]]
+    };
     // While a key box of the Controls page waits, a click anywhere is its input.
     if state.controls.capturing.is_some() {
         window = window.push(controls::input_catcher());

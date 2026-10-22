@@ -1,10 +1,15 @@
 //! The first-run setup (setup spec): three steps between the splash and the Home, shown while
 //! `State::setup` is `Some`.
 
-use iced::Task;
+use iced::widget::{button, column, container, row, space, stack, text};
+use iced::{Background, Center, Element, Fill, Task};
 
+use crate::core::i18n::{tr, tr_fmt};
 use crate::ui::app::{Message, State};
+use crate::ui::home;
 use crate::ui::persist::{self, Persisted};
+use crate::ui::splash::SPLASH_BG;
+use crate::ui::theme::{self, CINZEL_BOLD};
 
 /// One step of the setup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,4 +118,97 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
         SetupMessage::Skip | SetupMessage::Finish => {}
     }
     Task::none()
+}
+
+/// Width of the card.
+const CARD_WIDTH: f32 = 640.0;
+
+/// The splash's dark background, with the fire over it once the splash is gone.
+pub fn background(state: &State) -> Element<'_, Message> {
+    stack![
+        container(space())
+            .width(Fill)
+            .height(Fill)
+            .style(|_| container::Style {
+                background: Some(Background::Color(SPLASH_BG)),
+                ..container::Style::default()
+            }),
+        state.fire.view(),
+    ]
+    .width(Fill)
+    .height(Fill)
+    .into()
+}
+
+/// Corner monogram, language button and the centred card of the current step.
+pub fn view(state: &State) -> Element<'_, Message> {
+    let centred = container(card(state))
+        .width(Fill)
+        .height(Fill)
+        .align_x(Center)
+        .align_y(Center);
+    stack![
+        home::corner_monogram(state),
+        home::top_right(state, false),
+        centred
+    ]
+    .width(Fill)
+    .height(Fill)
+    .into()
+}
+
+/// The card of the step on screen: title, step line, intro, body and footer.
+fn card(state: &State) -> Element<'_, Message> {
+    let lang = state.lang.as_str();
+    let step = state
+        .setup
+        .as_ref()
+        .map_or(Step::Folders, |setup| setup.step);
+    let number = step.number().to_string();
+    let step_line = format!(
+        "{} · {}",
+        tr_fmt(lang, "Step {} of {}", &[&number, "3"]),
+        tr(lang, step.title_en())
+    );
+    let body = column![];
+    let mut footer = row![button(text(tr(lang, "Skip")).style(theme::text_muted))
+        .style(theme::button_flat)
+        .on_press(Message::Setup(SetupMessage::Skip))]
+    .push(space().width(Fill))
+    .spacing(8);
+    if step.previous().is_some() {
+        footer = footer.push(
+            button(text(tr(lang, "Back")))
+                .style(theme::button_flat)
+                .on_press(Message::Setup(SetupMessage::Back)),
+        );
+    }
+    footer = footer.push(if step.next().is_some() {
+        button(text(tr(lang, "Next")))
+            .style(theme::button_flat)
+            .on_press(Message::Setup(SetupMessage::Next))
+    } else {
+        button(text(tr(lang, "Finish")))
+            .style(theme::button_play)
+            .on_press(Message::Setup(SetupMessage::Finish))
+    });
+    container(
+        column![
+            text(tr(lang, "Initial setup")).font(CINZEL_BOLD).size(22),
+            text(step_line).style(theme::text_muted),
+            text(tr(lang, step.intro_en())).style(theme::text_muted),
+            body,
+            footer,
+            text(tr(
+                lang,
+                "You can change all of this later in the Graphics, Performance and Game tabs."
+            ))
+            .style(theme::text_muted),
+        ]
+        .spacing(14),
+    )
+    .padding(24)
+    .width(CARD_WIDTH)
+    .style(theme::container_card)
+    .into()
 }

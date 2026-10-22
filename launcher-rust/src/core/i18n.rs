@@ -88,6 +88,50 @@ fn lookup(lang: &str, en: &str) -> Option<String> {
 /// languages fall back to English: a translator gap to fill.
 static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
     (
+        "Initial setup",
+        &[("pt", "Configuração inicial")],
+    ),
+    (
+        "Step {} of {}",
+        &[("pt", "Passo {} de {}")],
+    ),
+    (
+        "Video",
+        &[("pt", "Vídeo")],
+    ),
+    (
+        "Skip",
+        &[("pt", "Pular")],
+    ),
+    (
+        "Back",
+        &[("pt", "Voltar")],
+    ),
+    (
+        "Next",
+        &[("pt", "Avançar")],
+    ),
+    (
+        "Finish",
+        &[("pt", "Concluir")],
+    ),
+    (
+        "Choose the folder of your game dump. The update folder is optional.",
+        &[("pt", "Escolha a pasta do dump do jogo. A pasta da atualização é opcional.")],
+    ),
+    (
+        "The game runs on this graphics card.",
+        &[("pt", "O jogo roda nesta placa de vídeo.")],
+    ),
+    (
+        "Resolution and frame rate. The in-game menu (Insert or R3+L2) changes the same values.",
+        &[("pt", "Resolução e taxa de quadros. O menu do jogo (Insert ou R3+L2) muda os mesmos valores.")],
+    ),
+    (
+        "You can change all of this later in the Graphics, Performance and Game tabs.",
+        &[("pt", "Tudo isso pode ser mudado depois nas abas Graphics, Performance e Game.")],
+    ),
+    (
         "{} lines kept",
         &[
             ("pt", "{} linhas mantidas"),

@@ -5,6 +5,7 @@ mod common;
 
 use std::path::Path;
 
+use iced_test::simulator::simulator;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::setup::{SetupMessage, Step};
@@ -55,4 +56,47 @@ fn next_and_back_walk_the_three_steps() {
     assert_eq!(state.setup.as_ref().unwrap().step, Step::Video);
     setup(&mut state, SetupMessage::Back);
     assert_eq!(state.setup.as_ref().unwrap().step, Step::Gpu);
+}
+
+#[test]
+fn the_setup_replaces_the_home_and_the_bar() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = opened(dir.path());
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Initial setup").is_ok());
+    assert!(ui.find("Step 1 of 3 · Folders").is_ok());
+    assert!(ui.find("Skip").is_ok());
+    assert!(ui.find("Next").is_ok());
+    assert!(ui.find("Back").is_err());
+    assert!(ui.find("PLAY").is_err());
+    assert!(ui.find("Graphics").is_err(), "the tab bar is not drawn");
+    assert!(ui.find("English ▾").is_ok(), "the language button stays");
+}
+
+#[test]
+fn the_last_step_offers_finish_and_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    state.setup.as_mut().unwrap().step = Step::Video;
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Step 3 of 3 · Video").is_ok());
+    assert!(ui.find("Finish").is_ok());
+    assert!(ui.find("Back").is_ok());
+    assert!(ui.find("Next").is_err());
+    assert!(matches!(
+        common::messages(&state, "Back").as_slice(),
+        [Message::Setup(SetupMessage::Back)]
+    ));
+}
+
+#[test]
+fn the_setup_reads_in_portuguese() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = opened(dir.path());
+    state.lang = "pt".into();
+    let mut ui = simulator(app::view(&state));
+    assert!(ui.find("Configuração inicial").is_ok());
+    assert!(ui.find("Passo 1 de 3 · Pastas").is_ok());
+    assert!(ui.find("Pular").is_ok());
+    assert!(ui.find("Avançar").is_ok());
 }
