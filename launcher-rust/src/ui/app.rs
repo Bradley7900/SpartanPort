@@ -16,6 +16,7 @@ use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Displa
 use crate::core::i18n::{is_rtl, system_language, tr};
 use crate::core::ini::{load_ini, Ini, INI_DEFAULTS, INI_FLAGS};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
+use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
 use crate::core::settings::{load_app_settings, Settings};
 use crate::ui::drawer::{self, DrawerState};
@@ -25,6 +26,7 @@ use crate::ui::lang_menu::{self, LangMenu, LangMessage};
 use crate::ui::pages::controls::ControlsMessage;
 use crate::ui::pages::game::PatchesView;
 use crate::ui::pages::mods::{ModsMessage, ModsView};
+use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{TrophiesMessage, TrophiesView};
 use crate::ui::pages::Page;
 use crate::ui::persist::Persisted;
@@ -63,6 +65,10 @@ pub struct State {
     pub game: GameState,
     pub log: LogBuffer,
     pub gpus: Vec<GpuRow>,
+    /// The Aspect ratio filter of the Performance page: not saved, it follows the render resolution.
+    pub aspect: String,
+    /// Sizes the enabled mods add to the render resolutions; see `performance::refresh_mod_resolutions`.
+    pub mod_resolutions: Vec<String>,
     pub displays: Vec<Display>,
     pub monitor_pairs: Vec<(String, String)>,
     pub trophies: TrophiesView,
@@ -101,6 +107,12 @@ impl State {
         let scale = theme::ui_scale(&settings.get_str("ui_scale"), 1.0);
         let now = Instant::now();
         let rtl = is_rtl(&lang);
+        let aspect = aspect_of(
+            ini.values
+                .get("render_resolution")
+                .map_or("", String::as_str),
+        )
+        .unwrap_or_else(|| "16:9".to_string());
         let mut state = State {
             paths,
             settings,
@@ -120,6 +132,8 @@ impl State {
             game: Default::default(),
             log: LogBuffer::new(MAX_LOG_LINES),
             gpus: Vec::new(),
+            aspect,
+            mod_resolutions: Vec::new(),
             displays: Vec::new(),
             monitor_pairs: Vec::new(),
             trophies: Default::default(),
@@ -140,6 +154,7 @@ impl State {
         };
         home::load_home_art(&mut state);
         home::refresh_facts(&mut state);
+        performance::refresh_mod_resolutions(&mut state);
         state
     }
 }
@@ -152,6 +167,8 @@ pub enum Message {
     NextPage,
     PreviousPage,
     Set(String, Value),
+    /// The Aspect ratio box of the Performance page.
+    Aspect(String),
     Browse(String),
     Browsed(String, Option<PathBuf>),
     /// The monitors the probe listed, in the background.
@@ -222,6 +239,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Save => {}
         // Task 32 persists what `Set` stored.
         Message::Set(key, value) => apply_set(state, &key, value),
+        Message::Aspect(aspect) => performance::choose_aspect(state, &aspect),
         Message::MonitorsListed(displays) => {
             let saved = state.settings.get_str("monitor");
             state.monitor_pairs = monitor_options(&displays);
@@ -273,6 +291,9 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
         other => other.to_string(),
     };
     state.ini.values.insert(key.to_string(), text);
+    if key == "render_resolution" {
+        performance::resolution_chosen(state);
+    }
 }
 
 /// Lists the monitors in the background; the splash does not wait for it.

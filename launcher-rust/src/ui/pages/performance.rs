@@ -1,11 +1,313 @@
-//! The Performance page.
+//! The Performance page: frame rate, shaders and GPU data.
+//!
+//! The Aspect ratio box is not saved: it follows the render resolution, and choosing another
+//! aspect moves the resolution to that aspect's closest size.
 
-use iced::widget::text;
+use std::path::PathBuf;
+
+use iced::widget::{column, pick_list};
 use iced::Element;
 
+use crate::core::gpu::{no_msaa_decision, MsaaDecision};
+use crate::core::i18n::{tr, tr_fmt};
+use crate::core::mods::{patch_files, selected};
+use crate::core::options::{
+    aspect_of, aspects, closest_resolution, resolution_label, resolutions_for, DRAW_PIPE,
+    ENGINE_FPS_CHOICES, FPS_LIMITS, FRAMES_QUEUED, NO_MSAA, READBACKS, RESOLUTIONS, STREAM_MEMORY,
+};
+use crate::core::patches::resolution_names;
 use crate::ui::app::{Message, State};
+use crate::ui::theme;
+use crate::ui::widgets::{checkbox, checkbox_ini, row, section, select, select_pairs};
 
-/// Placeholder body; Task 25 builds the page.
-pub fn view(_state: &State) -> Element<'_, Message> {
-    text("Performance").into()
+/// Suffix of the labels of the sizes a mod adds.
+const MOD_SUFFIX: &str = " (mod)";
+
+const NO_MSAA_HINT: &str = "The game's 2-sample depth buffer, read as a texture by its lighting. AMD's and Intel's Windows drivers read it wrong and the lighting shows black lines, so Automatic turns multisampling off on those cards (Radeon, Arc) and keeps it on elsewhere (NVIDIA). Off and On force the choice on any card.";
+
+/// Reads the sizes the enabled mods add (the "Resolution Patch - <size>" entries of their patch
+/// files) into `state.mod_resolutions`. Task 29 calls it again when a mod is toggled.
+pub fn refresh_mod_resolutions(state: &mut State) {
+    state.mod_resolutions = mod_sizes(state);
+}
+
+fn mod_sizes(state: &State) -> Vec<String> {
+    if !state.settings.get_bool("mods_enabled") {
+        return Vec::new();
+    }
+    let root = state.paths.mods_dir(&state.settings.get_str("mods_dir"));
+    let game = state.settings.get_str("game_dir");
+    let game = (!game.is_empty()).then(|| PathBuf::from(game));
+    let names =
+        selected(&root, Some(&state.paths.mods_json()), game.as_deref()).unwrap_or_default();
+    let files: Vec<PathBuf> = names
+        .iter()
+        .flat_map(|name| patch_files(&root.join(name)))
+        .collect();
+    resolution_names(&files)
+        .into_iter()
+        .filter(|size| !RESOLUTIONS.contains(&size.as_str()))
+        .collect()
+}
+
+/// The render resolutions to choose from: the built-in ones and those of the enabled mods.
+pub fn resolution_options(state: &State) -> Vec<(String, String)> {
+    let builtin = RESOLUTIONS
+        .iter()
+        .map(|name| (name.to_string(), resolution_label(name, true)));
+    let mods = state
+        .mod_resolutions
+        .iter()
+        .map(|name| (name.clone(), resolution_label(name, true) + MOD_SUFFIX));
+    builtin.chain(mods).collect()
+}
+
+fn resolution_values(state: &State) -> Vec<String> {
+    resolution_options(state)
+        .into_iter()
+        .map(|(value, _)| value)
+        .collect()
+}
+
+/// The aspect ratios the render resolutions have (built-in and mods).
+pub fn aspect_options(state: &State) -> Vec<String> {
+    aspects(&resolution_values(state))
+}
+
+/// The render resolutions of the chosen aspect, smallest first, without the ratio in the label.
+pub fn aspect_resolution_options(state: &State) -> Vec<(String, String)> {
+    let options = resolution_options(state);
+    resolutions_for(&state.aspect, &resolution_values(state))
+        .into_iter()
+        .map(|name| {
+            let is_mod = options
+                .iter()
+                .any(|(value, label)| *value == name && label.ends_with(MOD_SUFFIX));
+            let label = resolution_label(&name, false) + if is_mod { MOD_SUFFIX } else { "" };
+            (name, label)
+        })
+        .collect()
+}
+
+fn current_resolution(state: &State) -> String {
+    state
+        .ini
+        .values
+        .get("render_resolution")
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// Chooses an aspect ratio and moves the render resolution to its closest size.
+pub fn choose_aspect(state: &mut State, aspect: &str) {
+    state.aspect = aspect.to_string();
+    let current = current_resolution(state);
+    if let Some(closest) = closest_resolution(aspect, &current, &resolution_values(state)) {
+        if closest != current {
+            state.ini.values.insert("render_resolution".into(), closest);
+        }
+    }
+}
+
+/// After the render resolution changed: the aspect box follows it.
+pub fn resolution_chosen(state: &mut State) {
+    if let Some(aspect) = aspect_of(&current_resolution(state)) {
+        if aspect != state.aspect {
+            state.aspect = aspect;
+        }
+    }
+}
+
+/// `NO_MSAA` with Automatic naming the chosen card and the game's decision for it.
+pub fn no_msaa_label(state: &State, lang: &str) -> Vec<(String, String)> {
+    let decision = no_msaa_decision(&state.gpus, &state.settings.get_str("gpu_id"));
+    NO_MSAA
+        .iter()
+        .map(|choice| {
+            let label = match &decision {
+                MsaaDecision::Known { name, off } if choice.value.is_empty() => {
+                    let english = if *off {
+                        "Automatic ({}: off)"
+                    } else {
+                        "Automatic ({}: on)"
+                    };
+                    tr_fmt(lang, english, &[name])
+                }
+                _ => tr(lang, choice.en),
+            };
+            (choice.value.to_string(), label)
+        })
+        .collect()
+}
+
+/// Automatic, then the cards in the order the game numbers them.
+pub fn gpu_pairs(state: &State) -> Vec<(String, String)> {
+    std::iter::once((String::new(), "Automatic".to_string()))
+        .chain(
+            state
+                .gpus
+                .iter()
+                .map(|gpu| (gpu.index.clone(), gpu.name.clone())),
+        )
+        .collect()
+}
+
+/// An ini flag is on when its value is `"1"`.
+fn ini_on(state: &State, key: &str) -> bool {
+    state.ini.values.get(key).is_some_and(|value| value == "1")
+}
+
+pub fn view(state: &State) -> Element<'_, Message> {
+    let lang = state.lang.as_str();
+    let hint = |english: &str| tr(lang, english);
+    let ini = |key: &str| state.ini.values.get(key).cloned().unwrap_or_default();
+    let app = |key: &str| state.settings.get_str(key);
+    // A row that needs a new start of the game carries a small `restart` note.
+    let restart = |english: &str| format!("{}  ·  {}", tr(lang, english), tr(lang, "restart"));
+
+    let aspect = pick_list(
+        aspect_options(state),
+        Some(state.aspect.clone()),
+        Message::Aspect,
+    )
+    .style(theme::pick_list_dark);
+    let resolutions = aspect_resolution_options(state);
+    let cards: Vec<(String, String)> = gpu_pairs(state)
+        .into_iter()
+        .map(|(value, label)| {
+            let label = if value.is_empty() {
+                tr(lang, &label)
+            } else {
+                label
+            };
+            (value, label)
+        })
+        .collect();
+    let multisampling = no_msaa_label(state, lang);
+
+    column![
+        section(&tr(lang, "Frame rate")),
+        row(
+            &tr(lang, "Frame rate limit"),
+            select("fps_limit", FPS_LIMITS, &ini("fps_limit"), lang),
+            Some(&hint("The engine frame rate (below) is the highest it can go.")),
+        ),
+        row(
+            &tr(lang, "Frames queued"),
+            select("frames_queued", FRAMES_QUEUED, &ini("frames_queued"), lang),
+            Some(&hint(
+                "1 is the lowest input latency; more can raise FPS when the graphics card is the limit."
+            )),
+        ),
+        row(
+            &tr(lang, "Engine frame rate"),
+            select("engine_fps", ENGINE_FPS_CHOICES, &ini("engine_fps"), lang),
+            Some(&hint(
+                "The highest frame rate the game itself runs at (a game patch)."
+            )),
+        ),
+        row(
+            &tr(lang, "Aspect ratio"),
+            aspect.into(),
+            Some(&hint("Shows the render resolutions of this shape only.")),
+        ),
+        row(
+            &restart("Render resolution"),
+            select_pairs("render_resolution", &resolutions, &ini("render_resolution")),
+            Some(&hint(
+                "The size the game draws at; higher is sharper and slower. A resolution patch replaces the texture fix and reserves the memory it needs."
+            )),
+        ),
+        section(&tr(lang, "Shaders")),
+        checkbox(
+            "pipeline_binary_cache",
+            &tr(lang, "Use pipeline binary cache (A/B test)"),
+            state.settings.get_bool("pipeline_binary_cache"),
+            Some(&hint(
+                "Reuse saved Vulkan pipelines. Disable to compare FPS with normal compilation. Takes effect on the next launch; saved caches are preserved."
+            )),
+        ),
+        checkbox(
+            "background_warmup",
+            &tr(lang, "Load shader cache in the background"),
+            state.settings.get_bool("background_warmup"),
+            Some(&hint(
+                "The game opens at once and the saved shaders load while you play; a small note in the corner shows the progress. Switch it off to wait on the loading screen instead."
+            )),
+        ),
+        checkbox_ini(
+            "async_shaders",
+            &tr(lang, "Compile new shaders in the background"),
+            ini_on(state, "async_shaders"),
+            Some(&hint(
+                "Fewer stutters in new areas: the game keeps running while new shaders compile. An object or effect may appear a moment later. Switch it off if something stays missing."
+            )),
+        ),
+        checkbox(
+            "parallel_warmup",
+            &tr(lang, "Fast shader cache loading (parallel)"),
+            state.settings.get_bool("parallel_warmup"),
+            Some(&hint(
+                "Loading screen only: builds the cached pipelines on several CPU threads."
+            )),
+        ),
+        section(&tr(lang, "GPU data")),
+        row(
+            &restart("Graphics card"),
+            select_pairs("gpu_id", &cards, &app("gpu_id")),
+            Some(&hint(
+                "The GPU the game runs on. Choose your dedicated card if the game uses the integrated one."
+            )),
+        ),
+        row(
+            &restart("Stream buffer memory"),
+            select("stream_memory", STREAM_MEMORY, &app("stream_memory"), lang),
+            Some(&hint(
+                "System RAM can improve FPS on NVIDIA laptops. Choose GPU memory to restore the previous behavior. Applies on the next game launch."
+            )),
+        ),
+        checkbox_ini(
+            "stale_readback",
+            &restart("Game reads GPU data without waiting (big FPS gain)"),
+            ini_on(state, "stale_readback"),
+            Some(&hint(
+                "About 40 to 66 FPS in a heavy scene. Needs deferred GPU readbacks. Switch it off if lighting or objects look wrong."
+            )),
+        ),
+        checkbox_ini(
+            "deferred_readback",
+            &restart("Deferred GPU readbacks"),
+            ini_on(state, "deferred_readback"),
+            Some(&hint(
+                "Fewer waits for the GPU. Switch it off if textures or shadows look wrong."
+            )),
+        ),
+        checkbox(
+            "partial_height_views",
+            &restart("Fast screen effects (Rage of Sparta, weapons)"),
+            state.settings.get_bool("partial_height_views"),
+            Some(&hint(
+                "Keeps powers and weapon effects at full FPS. Switch it off if a screen effect (blur, distortion, the color change of a power) looks stretched, shifted or wrong."
+            )),
+        ),
+        row(
+            &tr(lang, "Two-stage GPU pipeline"),
+            select("draw_pipe", DRAW_PIPE, &app("draw_pipe"), lang),
+            Some(&hint("20–30% faster; switch it off if the game is unstable.")),
+        ),
+        row(
+            &tr(lang, "GPU readbacks"),
+            select("readbacks", READBACKS, &app("readbacks"), lang),
+            Some(&hint(
+                "How exactly data the GPU writes is copied back for the game."
+            )),
+        ),
+        row(
+            &restart("Game multisampling"),
+            select_pairs("no_msaa", &multisampling, &app("no_msaa")),
+            Some(&hint(NO_MSAA_HINT)),
+        ),
+    ]
+    .spacing(2)
+    .into()
 }
