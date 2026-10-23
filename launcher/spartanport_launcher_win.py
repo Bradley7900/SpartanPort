@@ -489,7 +489,7 @@ PAGES = ('home', 'graphics', 'performance', 'game', 'controls', 'mods', 'trophie
 PAGE_REFRESH = {'home': ('refresh_status',), 'game': ('refresh_game_patches',), 'mods': ('refresh_lists',),
                 'trophies': ('refresh_trophies',)}
 UI_SCALES = [('auto', ('Auto',)), ('1', ('1x',)), ('2', ('2x',))]
-CONTROLS_LAYOUT = 3  # settings layout: 2 = one keyboard & mouse table, 3 = adds the weapon cycle (migrate_controls)
+CONTROLS_LAYOUT = 4  # settings layout: 4 = remappable keyboard stick directions (migrate_controls)
 APP_DEFAULTS = {'ui_language': 'en', 'ui_scale': 'auto', 'game_dir': os.environ.get('SPARTAN_GAME_DIR', str(PORT_DIR.parent / 'CUSA01623') if WINDOWS else ''), 'update_dir': '', 'experimental_upscaler': False,
                 'video_backend': 'auto', 'gamemode': False, 'mangohud': False, 'desktop_integration': True, 'user_dir': '',
                 'mods_dir': '', 'mods_enabled': True, 'patches_dir': '', 'language': '1',
@@ -622,7 +622,8 @@ def bind_key(bindings, button, name):
     """Gives `name` to `button` in {button: key name}; a button that had it takes the old key of
     `button`, so no key presses two buttons. Returns the button that swapped, or None."""
     old = bindings.get(button, '')
-    other = next((b for b, k in bindings.items() if b != button and k.strip().lower() == name.lower()), None)
+    other = next((b for b, k in bindings.items()
+                  if b != button and name.casefold() != 'none' and k.strip().casefold() == name.casefold()), None)
     bindings[button] = name
     if other:
         bindings[other] = old
@@ -645,9 +646,17 @@ RAGE_ROW, GRAB_ROW, DODGE_ROW = ('rage', 'F', None), ('grab', 'C', None), ('dodg
 # off. A saved table keeps it there (keep_saved_rage): nothing moves for a player who set up keys.
 RAGE_LEGACY_INPUT = 'Mouse Middle'
 WEAPON_ROWS = (('weapon_next', 'Wheel Up', None), ('weapon_prev', 'Wheel Down', None))
-KEY_ACTIONS = [RAGE_ROW, GRAB_ROW, DODGE_ROW, *WEAPON_ROWS]
+STICK_ROWS = (('move_up', 'W', None), ('move_down', 'S', None),
+              ('move_left', 'A', None), ('move_right', 'D', None),
+              ('look_up', 'Up', None), ('look_down', 'Down', None),
+              ('look_left', 'Left', None), ('look_right', 'Right', None))
+KEY_ACTIONS = [*STICK_ROWS, RAGE_ROW, GRAB_ROW, DODGE_ROW, *WEAPON_ROWS]
 ACTION_NAMES = {'rage': 'Rage of Sparta', 'grab': 'Grab', 'dodge': 'Dodge',
-                'weapon_next': 'Next weapon', 'weapon_prev': 'Previous weapon'}
+                'weapon_next': 'Next weapon', 'weapon_prev': 'Previous weapon',
+                'move_up': 'Move forward', 'move_down': 'Move backward',
+                'move_left': 'Move left', 'move_right': 'Move right',
+                'look_up': 'Right stick up', 'look_down': 'Right stick down',
+                'look_left': 'Right stick left', 'look_right': 'Right stick right'}
 RAGE_BUTTONS = ('l3', 'r3')
 
 
@@ -655,7 +664,7 @@ def table_rows(kind):
     """CONTROLS rows of a table, in display order; the keyboard one adds its actions."""
     if kind != 'key':
         return CONTROLS
-    rows = []
+    rows = list(STICK_ROWS)
     for row in CONTROLS:
         rows.append(row)
         if row[0] == 'r3':
@@ -690,7 +699,7 @@ def keyboard_map(controls, rage=True):
             entries.append(f'{button}=None')
             continue
         value = (chosen.get(button) or default_input(row, 'key')).strip()
-        game_default = key if row in CONTROLS else ''  # the game has no key of its own for an action
+        game_default = key if row in CONTROLS or row in STICK_ROWS else ''
         if value.casefold() != game_default.casefold() and not set(value) & set(',='):
             entries.append(f'{button}={value}')
     return ','.join(entries)
@@ -756,20 +765,22 @@ def keep_saved_rage(controls, rage):
 def migrate_controls(saved):
     """Settings saved before the current keyboard & mouse table (CONTROLS_LAYOUT). A player who
     saved keys in Keyboard Mapping keeps the whole layout they had (the game's keys for the rest);
-    one who used Native Translation keeps that table; one on layout 2 keeps theirs and only gets
-    the weapon cycle. A new action whose default input is already taken stays without one, and a
-    saved table keeps Rage of Sparta on the wheel click (keep_saved_rage)."""
+    one who used Native Translation keeps that table; layouts 2 and 3 retain their saved actions.
+    New actions or directions whose default input is already taken stay unbound. Layout 2 keeps
+    Rage of Sparta on the wheel click (keep_saved_rage)."""
     if not isinstance(saved, dict) or not saved or saved.get('controls_layout') == CONTROLS_LAYOUT:
         return saved
-    layout_two = saved.get('controls_layout') == 2
+    previous_layout = saved.get('controls_layout')
+    current_table = previous_layout in (2, 3)
     saved = dict(saved)
     controls = dict(saved['controls']) if isinstance(saved.get('controls'), dict) else {}
     native = controls.pop('native', None)
-    if layout_two:
+    if current_table:
         if isinstance(controls.get('key'), dict):
             controls['key'] = dict(controls['key'])
-            keep_saved_rage(controls, saved.get('rage_one_input', True))
-            claim_new_actions(controls, saved.get('rage_one_input', True), WEAPON_ROWS)
+            if previous_layout == 2:
+                keep_saved_rage(controls, saved.get('rage_one_input', True))
+                claim_new_actions(controls, saved.get('rage_one_input', True), WEAPON_ROWS)
     elif saved.pop('native_input', False) and isinstance(native, dict):
         controls['key'] = dict(native)  # its defaults are the new ones
         keep_saved_rage(controls, saved.get('native_rage', True))
@@ -786,6 +797,7 @@ def migrate_controls(saved):
         controls['key'] = layout
     if 'native_rage' in saved:
         saved['rage_one_input'] = saved.pop('native_rage')
+    claim_new_actions(controls, saved.get('rage_one_input', True), STICK_ROWS)
     saved['controls'] = controls
     saved['controls_layout'] = CONTROLS_LAYOUT
     return saved
@@ -2482,6 +2494,8 @@ class Launcher:
                 button_icons.draw(game_icon, 'label:L3+R3' if button == 'rage' else 'label:L1+O', 'playstation', size)
             elif button in ('weapon_next', 'weapon_prev'):  # a d-pad button, whichever weapon is next
                 button_icons.draw(game_icon, 'label:D-PAD', 'playstation', size)
+            elif button.startswith('move_'):
+                button_icons.draw(game_icon, 'leftstick', 'xbox', size)
             else:  # an action of the right stick (dodge): the stick icon labelled RS
                 button_icons.draw(game_icon, 'rightstick', 'xbox', size)
             title = _(PS_BUTTON_NAMES.get(button) or ACTION_NAMES[button])
@@ -2533,7 +2547,7 @@ class Launcher:
             if button == 'rage':
                 ttk.Checkbutton(table, text=_('Rage of Sparta on one input (L3 + R3 together)'),
                                 variable=self.var('rage_one_input', 'app')).grid(
-                    row=r, column=0, columnspan=4, sticky='w', pady=self.px((6, 6)))
+                    row=r, column=0, columnspan=5, sticky='w', pady=self.px((6, 6)))
                 r += 1
             default = default_input(row, 'key')
             game_button(table, r, button)
@@ -2544,22 +2558,25 @@ class Launcher:
             arrow = ttk.Button(table, text='\u21a9', width=3, takefocus=False,
                                command=lambda b=button, d=default: self.assign_key('key', b, d))
             arrow.grid(row=r, column=3, sticky='w', padx=self.px((6, 0)))
-            self.key_rows[button] = (box, arrow)
+            clear = ttk.Button(table, text=_('Clear input'),
+                               command=lambda b=button: self.assign_key('key', b, 'None'))
+            clear.grid(row=r, column=4, sticky='w', padx=self.px((6, 0)))
+            self.key_rows[button] = (box, arrow, clear)
         self.var('rage_one_input', 'app').trace_add('write', lambda *_a: self.grey_rage_rows())
         self.grey_rage_rows()
         self.note(f, _('Click a box, then press a key, click a mouse button or turn the wheel (it gives up after '
                        '{} seconds). An input already used by another button swaps with it; the arrow puts one '
                        'button back on its default. Rage of Sparta presses L3 and R3 together: tick the box above '
                        'it to use one input instead of two. Grab presses L1 and Circle together. Dodge evades the '
-                       'way you are moving (WASD), or back when standing still. Touchpad right opens the game\'s '
+                       'way you are moving, or back when standing still. Touchpad right opens the game\'s '
                        'pause menu. Insert always opens the port\'s menu and cannot be bound. Applied when the '
                        'game starts.').format(CAPTURE_SECONDS))
         ttk.Button(f, text=_('Reset keyboard & mouse to defaults'), command=lambda: self.reset_controls('key')).grid(
             row=self.next_row(f), column=0, sticky='w', pady=self.px((14, 0)))
         self.row(f, _('Joystick prompts'), self.choice(f, 'stick_prompts', 'app', STICK_PROMPTS),
-                 hint=_('How the stick-rotation prompts are answered. Keyboard: type the turn instead, half turns '
-                        'from the top D S A (clockwise) or A S D, from the bottom A W D or D W A, full turns D S A W '
-                        'or A S D W; a key out of turn starts again. Adaptive mouse: draw the turn with the mouse.'))
+                 hint=_('Keyboard: enter the rotation with your movement inputs. With default keys, the sequences '
+                        'are A W D / D W A, D S A / A S D and D S A W / A S D W. Remapping movement changes these '
+                        'inputs too. Adaptive mouse: draw the turn with the mouse.'))
         self.row(f, _('Mouse prompt distance'), slider('mouse_prompt_distance', 16, 200, ' px'),
                  _('Adaptive mouse: how far the mouse moves for one step of a rotation. Also in the in-game menu.'))
         self.row(f, _('Right stick style'), self.choice(f, 'mouse_aim_style', 'ini', AIM_STYLES),

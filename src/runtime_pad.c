@@ -40,6 +40,9 @@ enum {
      * d-pad button of the next or previous weapon (apply_weapon_cycle). */
     DODGE=0x20000000, RAGE=0x10000000, GRAB=0x08000000,
     WEAPON_NEXT=0x04000000, WEAPON_PREV=0x02000000,
+    MOVE_UP=0x00010000, MOVE_DOWN=0x00020000, MOVE_LEFT=0x00040000, MOVE_RIGHT=0x00080000,
+    LOOK_UP=0x00200000, LOOK_DOWN=0x00400000, LOOK_LEFT=0x00800000, LOOK_RIGHT=0x01000000,
+    STICK_DIRECTIONS=MOVE_UP|MOVE_DOWN|MOVE_LEFT|MOVE_RIGHT|LOOK_UP|LOOK_DOWN|LOOK_LEFT|LOOK_RIGHT,
 };
 typedef struct { uint16_t x, y; uint8_t id, reserve[3]; } PadTouch;
 typedef struct {
@@ -136,14 +139,16 @@ static SDL_Gamepad *current_gamepad(void) {
  * <ps4 button>=None leaves it without any.
  * touchpad_left (alias touchpad) and touchpad_right are the two sides of the touchpad click:
  * photo mode and the pause menu. Back/View (Share on a DualSense) is the right click, and with
- * L1 held the left one. Sticks, triggers, the real touchpad click and the overlay shortcuts are
- * not remapped. */
+ * L1 held the left one. Keyboard stick directions are mapped too; gamepad axes, the real touchpad
+ * click and the overlay shortcuts are unchanged. */
 static const struct { const char *name; uint32_t ps; } ps_names[]={
     {"cross",BTN_CROSS}, {"circle",BTN_CIRCLE}, {"square",BTN_SQUARE}, {"triangle",BTN_TRIANGLE},
     {"l1",BTN_L1}, {"r1",BTN_R1}, {"l2",BTN_L2}, {"r2",BTN_R2}, {"l3",BTN_L3}, {"r3",BTN_R3},
     {"options",BTN_OPTIONS}, {"touchpad",CLICK_LEFT}, {"touchpad_left",CLICK_LEFT}, {"touchpad_right",CLICK_RIGHT},
     {"up",BTN_UP}, {"down",BTN_DOWN}, {"left",BTN_LEFT}, {"right",BTN_RIGHT},
     {"dodge",DODGE}, {"rage",RAGE}, {"grab",GRAB}, {"weapon_next",WEAPON_NEXT}, {"weapon_prev",WEAPON_PREV},
+    {"move_up",MOVE_UP}, {"move_down",MOVE_DOWN}, {"move_left",MOVE_LEFT}, {"move_right",MOVE_RIGHT},
+    {"look_up",LOOK_UP}, {"look_down",LOOK_DOWN}, {"look_left",LOOK_LEFT}, {"look_right",LOOK_RIGHT},
 };
 typedef struct { int source; uint32_t ps; } ButtonSource;
 typedef struct { ButtonSource entries[48]; size_t count; } ButtonMap;
@@ -163,7 +168,10 @@ static ButtonMap key_map={{
     {SDL_SCANCODE_R,BTN_L2}, {SDL_SCANCODE_F,BTN_R2}, {SDL_SCANCODE_Z,BTN_L3}, {SDL_SCANCODE_C,BTN_R3},
     {SDL_SCANCODE_RETURN,BTN_OPTIONS}, {SDL_SCANCODE_TAB,CLICK_LEFT}, {SDL_SCANCODE_BACKSPACE,CLICK_RIGHT},
     {SDL_SCANCODE_I,BTN_UP}, {SDL_SCANCODE_K,BTN_DOWN}, {SDL_SCANCODE_J,BTN_LEFT}, {SDL_SCANCODE_L,BTN_RIGHT},
-},17};
+    {SDL_SCANCODE_W,MOVE_UP}, {SDL_SCANCODE_S,MOVE_DOWN}, {SDL_SCANCODE_A,MOVE_LEFT}, {SDL_SCANCODE_D,MOVE_RIGHT},
+    {SDL_SCANCODE_UP,LOOK_UP}, {SDL_SCANCODE_DOWN,LOOK_DOWN},
+    {SDL_SCANCODE_LEFT,LOOK_LEFT}, {SDL_SCANCODE_RIGHT,LOOK_RIGHT},
+},25};
 
 static char *trim(char *text) {
     while (*text==' ' || *text=='\t') ++text;
@@ -272,6 +280,7 @@ static int apply_button_map(ButtonMap *map, const char *spec, bool keyboard) {
         entry=next;
         uint32_t ps=0;
         for (size_t i=0;i<sizeof(ps_names)/sizeof(*ps_names);++i) if (!SDL_strcasecmp(button,ps_names[i].name)) ps=ps_names[i].ps;
+        if (!keyboard && (ps & STICK_DIRECTIONS)) ps=0;
         if (ps && !SDL_strcasecmp(name,"None")) { /* the button gets no source at all */
             size_t kept=0;
             for (size_t i=0;i<map->count;++i) if (map->entries[i].ps!=ps) map->entries[kept++]=map->entries[i];
@@ -320,7 +329,7 @@ enum { STICK_PROMPTS_OFF, STICK_PROMPTS_KEYBOARD, STICK_PROMPTS_MOUSE };
 static const char *const qte_names[QTE_ROTATIONS]={"up180cw","up180ccw","down180cw","down180ccw","360cw","360ccw"};
 /* As the prompts read in play (the game's Down180CW is typed D S A). */
 static const char *const qte_defaults[QTE_ROTATIONS]={"A>W>D","D>W>A","D>S>A","A>S>D","D>S>A>W","A>S>D>W"};
-static struct { int keys[QTE_KEYS_MAX]; unsigned length; } qte_sequences[QTE_ROTATIONS];
+static struct { int keys[QTE_KEYS_MAX]; unsigned length; bool directions; } qte_sequences[QTE_ROTATIONS];
 static struct {
     int loaded, mode, rotation;
     uint32_t heartbeat;
@@ -356,7 +365,10 @@ static void qte_load(void) {
     const char *mode=getenv("SPARTAN_STICK_PROMPTS");
     qte.mode=!mode ? STICK_PROMPTS_OFF : !strcmp(mode,"keyboard") ? STICK_PROMPTS_KEYBOARD
              : !strcmp(mode,"mouse") ? STICK_PROMPTS_MOUSE : STICK_PROMPTS_OFF;
-    for (unsigned i=0;i<QTE_ROTATIONS;++i) qte_sequences[i].length=qte_parse_sequence(qte_defaults[i],qte_sequences[i].keys);
+    for (unsigned i=0;i<QTE_ROTATIONS;++i) {
+        qte_sequences[i].length=qte_parse_sequence(qte_defaults[i],qte_sequences[i].keys);
+        qte_sequences[i].directions=true;
+    }
     const char *value=getenv("SPARTAN_QTE_SEQUENCES");
     char entries[512];
     if (value && strlen(value)<sizeof(entries)) {
@@ -375,6 +387,7 @@ static void qte_load(void) {
             if (n) {
                 memcpy(qte_sequences[i].keys,parsed,sizeof(parsed));
                 qte_sequences[i].length=n;
+                qte_sequences[i].directions=false;
             } else if (*trim(entry)) {
                 printf("Runtime: stick prompts: ignored '%s'\n",trim(entry));
             }
@@ -428,7 +441,18 @@ static int qte_mouse_key(bool fresh) {
     return key;
 }
 
-/* One read of the stick prompts (keys: SDL's keyboard state); true while they own W/A/S/D. */
+static bool qte_direction_down(int key, const bool *keys) {
+    const uint32_t direction=key==SDL_SCANCODE_W ? MOVE_UP : key==SDL_SCANCODE_S ? MOVE_DOWN
+                             : key==SDL_SCANCODE_A ? MOVE_LEFT : MOVE_RIGHT;
+    const SDL_MouseButtonFlags mouse=SDL_GetMouseState(NULL,NULL);
+    const bool wheel[2]={wheel_pulse[0].phase==1,wheel_pulse[1].phase==1};
+    for (size_t i=0;i<key_map.count;++i)
+        if (key_map.entries[i].ps==direction && source_down(key_map.entries[i].source,keys,mouse,wheel)) return true;
+    return false;
+}
+
+/* Default QTE sequences are directions, so they follow the movement bindings. Explicit sequences
+ * retain their literal keys; mouse gestures keep using the canonical direction tokens. */
 static bool qte_play(const bool *keys, uint64_t now) {
     qte_load();
     if (qte.mode==STICK_PROMPTS_OFF) return false;
@@ -446,13 +470,29 @@ static bool qte_play(const bool *keys, uint64_t now) {
             unsigned first=0;
             while (sequence[first]!=key) ++first;
             if (first<i) continue;  /* a key listed twice is looked at once */
-            const bool pressed=keys[key] && !qte.held[key] && !qte.fresh;
-            qte.held[key]=keys[key];
+            const bool down=qte_sequences[rotation].directions ? qte_direction_down(key,keys) : keys[key];
+            const bool pressed=down && !qte.held[key] && !qte.fresh;
+            qte.held[key]=down;
             if (pressed) qte_advance(key,sequence,length);
         }
     }
     qte.fresh=false;
     return true;
+}
+
+static void sample_keyboard(PadData *d, const bool *keys, SDL_MouseButtonFlags mouse, const bool wheel[2]) {
+    uint32_t pressed=0;
+    for (size_t i=0;i<key_map.count;++i)
+        if (source_down(key_map.entries[i].source,keys,mouse,wheel)) pressed|=key_map.entries[i].ps;
+    d->buttons|=pressed & ~STICK_DIRECTIONS;
+    if (d->buttons & BTN_L2) d->l2=255;
+    if (d->buttons & BTN_R2) d->r2=255;
+    if (!qte_play(keys,d->timestamp)) {
+        key_axis(&d->left_x,pressed & MOVE_LEFT,pressed & MOVE_RIGHT);
+        key_axis(&d->left_y,pressed & MOVE_UP,pressed & MOVE_DOWN);
+    }
+    key_axis(&d->right_x,pressed & LOOK_LEFT,pressed & LOOK_RIGHT);
+    key_axis(&d->right_y,pressed & LOOK_UP,pressed & LOOK_DOWN);
 }
 
 static void sample_host(PadData *d) {
@@ -494,16 +534,7 @@ static void sample_host(PadData *d) {
     if (!k) return;
     const SDL_MouseButtonFlags mouse=SDL_GetMouseState(NULL,NULL);
     const bool wheel[2]={wheel_held(0,d->timestamp),wheel_held(1,d->timestamp)};
-    for (size_t i=0;i<key_map.count;++i)
-        if (source_down(key_map.entries[i].source,k,mouse,wheel)) d->buttons|=key_map.entries[i].ps;
-    if (d->buttons & BTN_L2) d->l2=255;
-    if (d->buttons & BTN_R2) d->r2=255;
-    if (!qte_play(k,d->timestamp)) {
-        key_axis(&d->left_x,k[SDL_SCANCODE_A],k[SDL_SCANCODE_D]);
-        key_axis(&d->left_y,k[SDL_SCANCODE_W],k[SDL_SCANCODE_S]);
-    }
-    key_axis(&d->right_x,k[SDL_SCANCODE_LEFT],k[SDL_SCANCODE_RIGHT]);
-    key_axis(&d->right_y,k[SDL_SCANCODE_UP],k[SDL_SCANCODE_DOWN]);
+    sample_keyboard(d,k,mouse,wheel);
 }
 
 /* SPARTAN_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
