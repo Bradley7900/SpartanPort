@@ -499,7 +499,7 @@ fn an_exit_hint_opens_the_log_and_unhides_the_launcher() {
     assert!(!state.visible);
 }
 
-/// The probe as `run.py` looks for it, with the system's separator.
+/// The probe as PLAY looks for it, with the system's separator.
 fn probe_file() -> String {
     let file = if cfg!(windows) {
         "spartanport-probe.exe"
@@ -512,23 +512,20 @@ fn probe_file() -> String {
 #[test]
 fn play_refuses_an_incomplete_port() {
     // The exe outside its package, or a package half extracted: PLAY names what the port folder
-    // lacks instead of letting run.py fail with a developer's message.
+    // lacks instead of letting the runner fail.
     let dir = tempfile::tempdir().unwrap();
     let dump = dir.path().join("dump");
     full_dump(&dump);
     let mut state = state_in(dir.path());
     set(&mut state, "game_dir", json!(text_of(&dump)));
-    assert_eq!(
-        play::missing_port_files(&state.paths),
-        vec!["run.py".to_string(), probe_file()]
-    );
+    assert_eq!(play::missing_port_files(&state.paths), vec![probe_file()]);
     send(&mut state, Message::Play);
     assert!(idle(&state));
     let shown = state.modal.take().unwrap();
     assert_eq!(
         shown.text,
         format!(
-            "The port folder is incomplete. Missing from {}:\n\nrun.py\n{}\n\nDownload the \
+            "The port folder is incomplete. Missing from {}:\n\n{}\n\nDownload the \
              package again from the releases page and extract all of it; the launcher must stay \
              inside that folder.",
             dir.path().display(),
@@ -556,8 +553,7 @@ fn play_refuses_an_incomplete_port() {
         shown.text
     );
     // With the files there is nothing missing; the other tests start the fake game instead
-    // of run.py, which needs none of them.
-    std::fs::write(dir.path().join("run.py"), b"").unwrap();
+    // of the runner, which needs none of them.
     let probe = dir.path().join(probe_file());
     std::fs::create_dir_all(probe.parent().unwrap()).unwrap();
     std::fs::write(&probe, b"").unwrap();
@@ -960,7 +956,7 @@ fn copy_file(from: &Path, to: &Path) {
 
 #[test]
 fn play_starts_the_launcher_exe_with_run() {
-    // A package in miniature: the launcher exe itself, run.py, the fake probe, the icon, the
+    // A package in miniature: the launcher exe itself, the fake probe, the icon, the
     // built-in patches and a synthetic game. PLAY with no `launch_command` starts `EXE --run`,
     // which prepares the game and starts the probe: no Python, no real game.
     let dir = tempfile::tempdir().unwrap();
@@ -971,7 +967,6 @@ fn play_starts_the_launcher_exe_with_run() {
         "spartanport-launcher"
     });
     copy_file(Path::new(env!("CARGO_BIN_EXE_spartanport-launcher")), &exe);
-    fs::write(port.join("run.py"), b"").unwrap();
     copy_file(
         Path::new(env!("CARGO_BIN_EXE_fake-probe")),
         &port.join(probe_file()),

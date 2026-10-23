@@ -272,6 +272,34 @@ const RETARGET_SCRIPT: &str = concat!(
     "}"
 );
 
+/// An install updated from the Python package keeps the files only that package had. When
+/// `_internal/` shows the Python launcher's runtime was there, removes it, `run.py`, the
+/// scripts (not `scripts/controller_diagrams/`, which the runner reads) and the voice-swap tool,
+/// then `tools/` if that leaves it empty. A source checkout has no `_internal/` and keeps its
+/// Python. Errors are ignored: what stays is tried again at the next start.
+pub fn remove_python_leftovers(port_dir: &Path) {
+    let internal = port_dir.join("_internal");
+    if !internal.is_dir() {
+        return;
+    }
+    let _ = fs::remove_dir_all(&internal);
+    let _ = fs::remove_file(port_dir.join("run.py"));
+    let scripts = port_dir.join("scripts");
+    if let Ok(entries) = fs::read_dir(&scripts) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "py") && path.is_file() {
+                let _ = fs::remove_file(path);
+            }
+        }
+    }
+    let _ = fs::remove_dir_all(scripts.join("__pycache__"));
+    let tools = port_dir.join("tools");
+    let _ = fs::remove_file(tools.join("xvag_voice_swap.py"));
+    // `remove_dir` only removes an empty folder.
+    let _ = fs::remove_dir(&tools);
+}
+
 fn write_marker(data_dir: &Path, marker: &Path) {
     if fs::create_dir_all(data_dir).is_ok() {
         let _ = fs::write(marker, "");
@@ -561,6 +589,75 @@ mod tests {
         put(&port.join("SpartanPort.exe"), b"launcher");
         remove_leftovers(&port);
         assert!(port.join(LEGACY_EXE).exists());
+    }
+
+    fn python_package(port: &Path) {
+        put(&port.join("_internal/base_library.zip"), b"z");
+        put(&port.join("run.py"), b"py");
+        put(&port.join("scripts/glyphs.py"), b"py");
+        put(&port.join("scripts/__pycache__/glyphs.pyc"), b"pyc");
+        put(&port.join("scripts/controller_diagrams/xbox.png"), b"png");
+        put(&port.join("tools/xvag_voice_swap.py"), b"py");
+        put(&port.join("SpartanPort.exe"), b"exe");
+        put(&port.join("user/save"), b"save");
+        put(&port.join("out/x"), b"x");
+        put(&port.join("settings.json"), b"{}");
+        put(&port.join("spartanport.ini"), b"ini");
+    }
+
+    #[test]
+    fn python_leftovers_go_once_the_rust_launcher_is_installed() {
+        let f = fixture();
+        let port = f.root.join("install");
+        python_package(&port);
+        remove_python_leftovers(&port);
+        for gone in [
+            "_internal",
+            "run.py",
+            "scripts/glyphs.py",
+            "scripts/__pycache__",
+            "tools",
+        ] {
+            assert!(!port.join(gone).exists(), "{gone} stays");
+        }
+        for kept in [
+            "scripts/controller_diagrams/xbox.png",
+            "SpartanPort.exe",
+            "user/save",
+            "out/x",
+            "settings.json",
+            "spartanport.ini",
+        ] {
+            assert!(port.join(kept).exists(), "{kept} went");
+        }
+    }
+
+    #[test]
+    fn a_checkout_keeps_its_python() {
+        let f = fixture();
+        let port = f.root.join("checkout");
+        python_package(&port);
+        fs::remove_dir_all(port.join("_internal")).unwrap();
+        remove_python_leftovers(&port);
+        for kept in [
+            "run.py",
+            "scripts/glyphs.py",
+            "scripts/__pycache__/glyphs.pyc",
+            "tools/xvag_voice_swap.py",
+        ] {
+            assert!(port.join(kept).exists(), "{kept} went");
+        }
+    }
+
+    #[test]
+    fn tools_with_other_files_stays() {
+        let f = fixture();
+        let port = f.root.join("install");
+        python_package(&port);
+        put(&port.join("tools/mine.txt"), b"mine");
+        remove_python_leftovers(&port);
+        assert!(!port.join("tools/xvag_voice_swap.py").exists());
+        assert!(port.join("tools/mine.txt").is_file());
     }
 
     #[test]

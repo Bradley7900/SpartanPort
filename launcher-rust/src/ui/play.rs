@@ -274,7 +274,7 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
         );
         return refuse(state, text);
     }
-    // An explicit command (the tests' fake game) replaces run.py and needs none of its files.
+    // An explicit command (the tests' fake game) replaces the runner and needs none of its files.
     if state.launch_command.is_none() {
         let missing = missing_port_files(&state.paths);
         if !missing.is_empty() {
@@ -298,14 +298,11 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
     start(state)
 }
 
-/// What `run.py` needs from the port folder and does not find: the script itself and the probe
-/// it starts (`bin/` in a package, `out/` in a checkout). An exe moved out of its package or a
-/// package half extracted lack them; PLAY says so instead of running into run.py's message.
+/// What the runner needs from the port folder and does not find: the probe it starts (`bin/` in
+/// a package, `out/` in a checkout). An exe moved out of its package or a package half extracted
+/// lack it; PLAY says so instead of failing inside the runner.
 pub fn missing_port_files(paths: &Paths) -> Vec<String> {
     let mut missing = Vec::new();
-    if !paths.port_dir.join("run.py").is_file() {
-        missing.push("run.py".to_string());
-    }
     if paths.find_tool("spartanport-probe").is_none() {
         let file = if cfg!(windows) {
             "spartanport-probe.exe"

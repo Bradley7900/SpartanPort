@@ -150,6 +150,7 @@ fn move_from_legacy_name(paths: &Paths, installed: bool) {
     }
     if installed {
         legacy::remove_leftovers(&paths.port_dir);
+        legacy::remove_python_leftovers(&paths.port_dir);
         legacy::retarget_desktop_shortcut(&paths.port_dir, None, Some(&paths.data_dir));
     }
 }
