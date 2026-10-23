@@ -440,8 +440,10 @@ cargo run --release
 ```
 
 Abierto desde un checkout, encuentra solo el `run.py` del repositorio y las herramientas de `out/`;
-`SPARTAN_PORT_DIR` lo apunta a un port empaquetado (con `run.py` y `bin/`). `SPARTANPORT_PYTHON`
-nombra el Python que inicia `run.py` (por defecto `py -3` en Windows, `python3` en los demás).
+`SPARTAN_PORT_DIR` lo apunta a un port empaquetado (con `run.py` y `bin/`). PLAY inicia el propio
+exe del launcher con `--run`, así que no necesita Python. `SPARTANPORT_PYTHON` nombra el Python de
+los comandos que aún se reenvían al launcher en Python (por defecto `py -3` en Windows, `python3`
+en los demás).
 
 ## Tests
 

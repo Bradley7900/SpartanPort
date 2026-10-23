@@ -83,8 +83,10 @@ pub struct State {
     /// The Home status line while the game starts, runs or its system files are copied; empty
     /// otherwise, when the line shows the in-game menu hint.
     pub status: String,
-    /// What PLAY starts instead of `python run.py` (tests start the fake game); `None` in use.
+    /// What PLAY starts instead of `<exe> --run` (tests start the fake game); `None` in use.
     pub launch_command: Option<Vec<String>>,
+    /// The program PLAY starts with `--run`; `None` is this program (tests name a copy in a port).
+    pub launcher_exe: Option<PathBuf>,
     pub log: LogBuffer,
     pub gpus: Vec<GpuRow>,
     /// The Aspect ratio filter of the Performance page: not saved, it follows the render resolution.
@@ -216,6 +218,7 @@ impl State {
             game: Default::default(),
             status: String::new(),
             launch_command: None,
+            launcher_exe: None,
             log: LogBuffer::new(MAX_LOG_LINES),
             gpus: Vec::new(),
             aspect,

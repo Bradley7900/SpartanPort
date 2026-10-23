@@ -1,8 +1,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use indexmap::IndexMap;
-use spartanport_launcher::core::launch::{python_command, spawn_game, GameEvent, GameHandle};
+use spartanport_launcher::core::launch::{
+    python_command, run_command, spawn_game, GameEvent, GameHandle,
+};
 use spartanport_launcher::core::log::RunLog;
+use std::ffi::OsString;
 use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
@@ -136,4 +139,23 @@ fn python_command_prefers_the_override() {
         vec!["python3".into()]
     };
     assert_eq!(python_command(&empty_path).unwrap(), expected);
+}
+
+#[test]
+fn the_game_command_is_the_exe_with_run() {
+    let exe = Path::new("port").join("spartanport-launcher");
+    assert_eq!(
+        run_command(&exe, &[]),
+        vec![exe.to_string_lossy().into_owned(), "--run".to_string()]
+    );
+    let args = [OsString::from("--fullscreen"), OsString::from("two words")];
+    assert_eq!(
+        run_command(&exe, &args),
+        vec![
+            exe.to_string_lossy().into_owned(),
+            "--run".to_string(),
+            "--fullscreen".to_string(),
+            "two words".to_string(),
+        ]
+    );
 }

@@ -100,19 +100,13 @@ pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> 
     }
 }
 
-/// Copies the previous launcher's `settings.json` and `game_icon.ico` into the data folder, once.
-/// Never overwrites; every error is ignored.
+/// Copies the previous launcher's `settings.json` into the data folder, once. Never overwrites;
+/// every error is ignored. (`game_icon.ico` is not copied: the runner writes the window icon.)
 pub fn migrate_portable_settings(target: &Path, legacy: &Path) {
     if target == legacy {
         return;
     }
     copy_if_missing(legacy, target);
-    if let (Some(target_dir), Some(legacy_dir)) = (target.parent(), legacy.parent()) {
-        copy_if_missing(
-            &legacy_dir.join("game_icon.ico"),
-            &target_dir.join("game_icon.ico"),
-        );
-    }
 }
 
 fn copy_if_missing(from: &Path, to: &Path) {
@@ -321,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn portable_migration_copies_once_and_never_overwrites() {
+    fn portable_migration_copies_only_settings() {
         let dir = tempfile::tempdir().unwrap();
         let legacy_dir = dir.path().join("legacy");
         let target_dir = dir.path().join("data");
@@ -333,19 +327,14 @@ mod tests {
 
         migrate_portable_settings(&target, &legacy);
         assert_eq!(fs::read_to_string(&target).unwrap(), "old");
-        assert_eq!(
-            fs::read_to_string(target_dir.join("game_icon.ico")).unwrap(),
-            "ico"
+        assert!(
+            !target_dir.join("game_icon.ico").exists(),
+            "the runner writes the window icon itself"
         );
 
         fs::write(&legacy, "newer").unwrap();
-        fs::write(target_dir.join("game_icon.ico"), "mine").unwrap();
         migrate_portable_settings(&target, &legacy);
         assert_eq!(fs::read_to_string(&target).unwrap(), "old");
-        assert_eq!(
-            fs::read_to_string(target_dir.join("game_icon.ico")).unwrap(),
-            "mine"
-        );
 
         migrate_portable_settings(&legacy, &legacy);
         assert_eq!(fs::read_to_string(&legacy).unwrap(), "newer");

@@ -1,9 +1,9 @@
 //! Starting the game, reading its merged output and stopping it.
 
 use super::log::RunLog;
-use super::paths::Paths;
 use super::platform;
 use indexmap::IndexMap;
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -50,14 +50,11 @@ pub fn python_command(env: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String
     }
 }
 
-/// The interpreter command followed by `<port_dir>/run.py`.
-pub fn run_py_command(
-    paths: &Paths,
-    env: &dyn Fn(&str) -> Option<String>,
-) -> Result<Vec<String>, LaunchError> {
-    let mut command = python_command(env)?;
-    command.push(paths.port_dir.join("run.py").to_string_lossy().into_owned());
-    Ok(command)
+/// The command that runs the game: the launcher's own `exe` with `--run` and `args`.
+pub fn run_command(exe: &Path, args: &[OsString]) -> Vec<String> {
+    let mut command = vec![exe.to_string_lossy().into_owned(), "--run".to_string()];
+    command.extend(args.iter().map(|arg| arg.to_string_lossy().into_owned()));
+    command
 }
 
 /// A running game: its events and the means to stop it.

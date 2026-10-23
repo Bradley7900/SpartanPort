@@ -939,3 +939,73 @@ fn a_tick_drains_at_most_500_events() {
         1200
     );
 }
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+fn copy_file(from: &Path, to: &Path) {
+    fs::create_dir_all(to.parent().unwrap()).unwrap();
+    fs::copy(from, to).unwrap();
+}
+
+#[test]
+fn play_starts_the_launcher_exe_with_run() {
+    // A package in miniature: the launcher exe itself, run.py, the fake probe, the icon, the
+    // built-in patches and a synthetic game. PLAY with no `launch_command` starts `EXE --run`,
+    // which prepares the game and starts the probe: no Python, no real game.
+    let dir = tempfile::tempdir().unwrap();
+    let port = dir.path();
+    let exe = port.join(if cfg!(windows) {
+        "spartanport-launcher.exe"
+    } else {
+        "spartanport-launcher"
+    });
+    copy_file(Path::new(env!("CARGO_BIN_EXE_spartanport-launcher")), &exe);
+    fs::write(port.join("run.py"), b"").unwrap();
+    copy_file(
+        Path::new(env!("CARGO_BIN_EXE_fake-probe")),
+        &port.join(probe_file()),
+    );
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    copy_file(
+        &repo.join("launcher/spartanport.png"),
+        &port.join("launcher/spartanport.png"),
+    );
+    copy_file(
+        &repo.join("patches/CUSA01623.xml"),
+        &port.join("patches/CUSA01623.xml"),
+    );
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/runner");
+    let game = port.join("game");
+    copy_tree(&fixtures.join("prepare/input"), &game);
+    copy_file(
+        &fixtures.join("link/input/sce_module/libSceFios2.prx"),
+        &game.join("sce_module/libSceFios2.prx"),
+    );
+
+    let mut state = state_in(port);
+    set(&mut state, "game_dir", json!(text_of(&game)));
+    set(&mut state, "discord_rpc", json!(false));
+    assert!(state.launch_command.is_none());
+    state.launcher_exe = Some(exe);
+    send(&mut state, Message::Play);
+    assert!(state.modal.is_none(), "{:?}", state.modal);
+    pump(&mut state, Duration::from_secs(60), idle);
+    let log: Vec<&str> = state.log.lines().collect();
+    assert!(log.contains(&"--app0"), "{log:?}");
+    assert!(
+        state.log.text().ends_with("\nThe game exited (code 0)."),
+        "{}",
+        state.log.text()
+    );
+}

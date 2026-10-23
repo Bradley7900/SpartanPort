@@ -19,7 +19,7 @@ use crate::core::game::{
     FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::launch::{run_py_command, spawn_game, GameEvent, GameHandle, LaunchError};
+use crate::core::launch::{run_command, spawn_game, GameEvent, GameHandle, LaunchError};
 use crate::core::log::{exit_hint, line_status, ExitHint, LineStatus, RunLog};
 use crate::core::paths::Paths;
 use crate::ui::app::{show_page, Message, State};
@@ -349,10 +349,15 @@ fn start(state: &mut State) -> Task<Message> {
     let env = launch_environment(state);
     let command = match &state.launch_command {
         Some(command) => Ok(command.clone()),
-        None => run_py_command(&state.paths, &|key| env.get(key).cloned()),
+        None => state
+            .launcher_exe
+            .clone()
+            .map_or_else(std::env::current_exe, Ok)
+            .map(|exe| run_command(&exe, &[])),
     };
-    let started =
-        command.and_then(|command| spawn_game(&command, &state.paths.port_dir, &env, run_log));
+    let started = command
+        .map_err(LaunchError::from)
+        .and_then(|command| spawn_game(&command, &state.paths.port_dir, &env, run_log));
     let handle = match started {
         Ok(handle) => handle,
         Err(error) => {
