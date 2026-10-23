@@ -22,7 +22,17 @@ fn the_windows_package_ships_the_rust_launcher() {
     ] {
         assert!(package.contains(needed), "package.sh lacks {needed}");
     }
-    for banned in ["PyInstaller", "pyenv", "run.py", "cp -r scripts patches"] {
+    assert!(
+        package.contains("cd launcher-rust && cargo build --release --locked"),
+        "package.sh must tell to build from inside launcher-rust"
+    );
+    for banned in [
+        "PyInstaller",
+        "pyenv",
+        "run.py",
+        "cp -r scripts patches",
+        "--manifest-path launcher-rust/Cargo.toml",
+    ] {
         assert!(!package.contains(banned), "package.sh still has {banned}");
     }
 
@@ -39,6 +49,7 @@ fn the_windows_package_ships_the_rust_launcher() {
     for needed in [
         "dtolnay/rust-toolchain@stable",
         "cargo build --release --locked",
+        "working-directory: launcher-rust",
     ] {
         assert!(workflow.contains(needed), "windows-zip.yml lacks {needed}");
     }

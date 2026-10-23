@@ -30,7 +30,9 @@ bash build.sh                      # out/spartanport-probe.exe, out/spartanport-
 
 ```powershell
 # PowerShell
-cargo build --release --locked --manifest-path launcher-rust/Cargo.toml
+cd launcher-rust
+cargo build --release --locked   # from inside launcher-rust/: it reads .cargo/config.toml (static CRT)
+cd ..
 ```
 
 ```bash
@@ -39,7 +41,7 @@ bash packaging/windows/package.sh  # dist/spartanport-windows/ and .zip: Spartan
 ```
 
 To run the launcher from the source tree, in PowerShell at the repository root:
-`cargo run --release --manifest-path launcher-rust/Cargo.toml`.
+`cd launcher-rust; cargo run --release`.
 
 Choose the game folder in the launcher. For platform-specific tests, see
 [Tests in the root README](https://github.com/FelipePrado0/SpartanPort#tests): Windows uses Ninja

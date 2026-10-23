@@ -57,7 +57,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Build the launcher
         shell: pwsh
-        run: cargo build --release --locked --manifest-path launcher-rust/Cargo.toml
+        # Inside launcher-rust/: cargo reads .cargo/config.toml (static CRT) from the working directory.
+        working-directory: launcher-rust
+        run: cargo build --release --locked
       # Only for the Stamp step (packaging/release_stamp.py is a build tool, not part of the package).
       # Set up after the build so its Python_ROOT_DIR and PKG_CONFIG_PATH do not reach CMake.
       - uses: actions/setup-python@v5

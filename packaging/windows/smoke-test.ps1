@@ -71,6 +71,7 @@ if (-not $voice.WaitForExit(30000)) {
 } elseif ($voice.ExitCode -ne 0) {
     $failed += ('SpartanPort.exe --voice-swap --help exited 0x{0:X}' -f $voice.ExitCode)
 }
+Get-Content (Join-Path $work 'voice.log'), (Join-Path $work 'voice.err')
 
 # No Python ships: the launcher is native.
 $python = Get-ChildItem -LiteralPath $tree -Recurse -Force -Filter '*.py'
