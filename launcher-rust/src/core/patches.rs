@@ -1656,7 +1656,7 @@ impl serde_json::ser::Formatter for PythonCompact {
 
 /// `value` as Python's `json.dumps(value)`: [`PythonCompact`] and `ensure_ascii` (every character
 /// past `~` as `\uXXXX`, outside the BMP as a surrogate pair).
-fn python_json(value: &impl Serialize) -> io::Result<String> {
+pub(crate) fn python_json(value: &impl Serialize) -> io::Result<String> {
     let mut bytes = Vec::new();
     value
         .serialize(&mut serde_json::Serializer::with_formatter(

@@ -8,11 +8,11 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use spartanport_launcher::core::patches::{write_game_patches, PatchJob};
 use spartanport_launcher::runner::content_profile::{self, Sku};
-use spartanport_launcher::runner::dxt;
 use spartanport_launcher::runner::graphics_options;
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::prepare::prepare;
+use spartanport_launcher::runner::{draw, dxt, glyphs};
 use spartanport_launcher::runner::{link_libc, link_modules};
 
 fn fixture_dir(case: &str) -> PathBuf {
@@ -311,4 +311,94 @@ fn dxt5_blocks_match_pillow() {
         let actual = strips(&image, dxt::encode_dxt5);
         assert_same_bytes(&actual, &expected("dxt", &name), &name);
     }
+}
+
+/// A PNG of the fixtures as a picture of its own mode (RGB or RGBA).
+fn picture_of(path: &Path) -> draw::Picture {
+    let image = image::open(path).unwrap();
+    match image {
+        image::DynamicImage::ImageRgb8(rgb) => draw::Picture::from_rgb(&rgb),
+        other => draw::Picture::from_rgba(&other.to_rgba8()),
+    }
+}
+
+/// The peak signal-to-noise ratio of `actual` against `expected` over columns `x0..x1` and rows
+/// `y0..y1`, every band; infinite when they are equal.
+fn psnr(actual: &draw::Picture, expected: &draw::Picture, region: [usize; 4]) -> f64 {
+    assert_eq!(
+        (actual.width, actual.height, actual.mode),
+        (expected.width, expected.height, expected.mode)
+    );
+    let [x0, y0, x1, y1] = region;
+    let (mut sum, mut count) = (0.0f64, 0usize);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            for (a, b) in actual.pixel(x, y).iter().zip(expected.pixel(x, y)) {
+                sum += (f64::from(*a) - f64::from(*b)).powi(2);
+                count += 1;
+            }
+        }
+    }
+    if sum == 0.0 {
+        return f64::INFINITY;
+    }
+    10.0 * (255.0f64 * 255.0 / (sum / count as f64)).log10()
+}
+
+#[test]
+fn painted_textures_match_pillow_within_tolerance() {
+    let port = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let assets = glyphs::Assets::in_port(&port);
+    let painter = glyphs::Painter::new(&assets);
+    let folder = fixture_dir("glyphs");
+    let mut results = Vec::new();
+    for style in ["xbox", "nintendo", "keyboard"] {
+        let mut names: Vec<PathBuf> = fs::read_dir(folder.join("expected").join(style))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        names.sort();
+        let choice = glyphs::Choice {
+            style,
+            faces: None,
+            pad_map: "",
+            key_map: "",
+        };
+        for path in names {
+            let id = path.file_stem().unwrap().to_str().unwrap().to_string();
+            let expected = picture_of(&path);
+            let texture = glyphs::TEXTURES
+                .iter()
+                .chain(glyphs::KEYBOARD_TEXTURES.iter())
+                .find(|(name, _)| *name == id)
+                .map(|(_, texture)| *texture)
+                .unwrap_or(glyphs::Texture {
+                    form: glyphs::Form::Controller,
+                    buttons: &[],
+                });
+            let (painted, region) = if texture.form.is_lyre() {
+                let input = picture_of(&folder.join("input").join(format!("{id}.png")));
+                let painted =
+                    glyphs::lyre_paint(&input, texture.form, texture.buttons[0], &choice, &painter)
+                        .unwrap();
+                let shrink = 2048 / input.width;
+                (painted, glyphs::LYRE_CORNER.map(|v| v / shrink))
+            } else {
+                let (w, h) = (expected.width, expected.height);
+                let painted =
+                    glyphs::render(texture.form, texture.buttons, &choice, w, h, &painter).unwrap();
+                (painted, [0, 0, w, h])
+            };
+            results.push((style, id, psnr(&painted, &expected, region)));
+        }
+    }
+    for (style, id, value) in &results {
+        println!("PSNR {style} {id}: {value:.2} dB");
+    }
+    assert_eq!(results.len(), 25 + 1 + 25 + 1 + 22);
+    let low: Vec<_> = results
+        .iter()
+        .filter(|(_, _, value)| *value < 40.0)
+        .collect();
+    assert!(low.is_empty(), "below 40 dB: {low:?}");
 }

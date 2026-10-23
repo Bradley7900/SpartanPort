@@ -35,10 +35,18 @@ generator stops when one does).
             odd, a 5 x 3 RGBA gradient whose blocks extend past the picture (Pillow's padding).
             expected: <name>.dxt1 and <name>.dxt5, the 4-row strips of glyphs.encode_region concatenated with
             each DDS header (128 bytes) stripped (RGB for DXT1, RGBA for DXT5).
-  icon      expected: window_icon.bmp, launcher/spartanport.png as run.py makes it (RGBA, 64 x 64 LANCZOS, BMP)."""
+  icon      expected: window_icon.bmp, launcher/spartanport.png as run.py makes it (RGBA, 64 x 64 LANCZOS, BMP).
+  glyphs    input: <texture>.png for each lyre and gold texture of glyphs.TEXTURES, a synthetic level texture
+            (1024 px, the glow mask 512) with four discs in the lyre's corner: marble with a bright PlayStation
+            shape, gold with a dark engraved one, domes with a raised ring (normal map), black with a bright
+            shape (glow mask); flat elsewhere. expected: <style>/<texture>.png for the xbox, nintendo and
+            keyboard styles with the default maps, the Python's own drawing: glyphs.render at the sizes of
+            tests/test_glyphs.wad (inline 64, the select icon 64 x 40, QTE 128, atlas 256) and the controller
+            diagram at 512 x 256, glyphs.lyre_paint of the input for the lyre and gold textures."""
 import contextlib
 import io
 import json
+import math
 import os
 import random
 import shutil
@@ -480,6 +488,95 @@ def case_icon():
         icon.convert('RGBA').resize((64, 64), Image.LANCZOS).save(expected / 'window_icon.bmp')
 
 
+GLYPH_STYLES = ('xbox', 'nintendo', 'keyboard')
+# tests/test_glyphs.wad()'s sizes, the select icon's included; the controller diagram at half its picture.
+GLYPH_SIZES = {'inline': (64, 64), 'qte': (128, 128), 'atlas': (256, 256), 'controller': (512, 256)}
+GLYPH_SIZE_OF = {'TXD43D1443': (64, 40)}
+LYRE_SIZE_OF = {'glow': 512}  # the other kinds: 1024
+
+
+def lyre_input(form, kind, size):
+    """A synthetic level texture for glyphs.lyre_paint: four discs in the lyre's corner, each with its
+    PlayStation shape; flat outside the corner."""
+    from PIL import ImageDraw
+    shrink = 2048 // size
+    x0, y0, x1, y1 = (v // shrink for v in glyphs.LYRE_CORNER)
+    radius = glyphs.LYRE_RADIUS // shrink
+    width, height = x1 - x0, y1 - y0
+    normal = kind == 'normal'
+    if normal:
+        corner = Image.new('RGBA', (width, height), (128, 128, 255, 128))
+    elif kind in ('glow', 'decal'):
+        corner = Image.new('RGB', (width, height), (0, 0, 0))
+    else:
+        base = (64, 58, 52) if kind == 'diffuse' else (40, 40, 40)
+        corner = Image.new('RGB', (width, height))
+        corner.putdata([tuple(max(0, min(255, c + int(18 * math.sin(x / 9.0) + 14 * math.cos(y / 13.0 + x / 31.0))))
+                              for c in base) for y in range(height) for x in range(width)])
+    draw = ImageDraw.Draw(corner)
+    line = max(2, radius // 6)
+    for button, (cx, cy) in glyphs.LYRE_DISCS.items():
+        cx, cy = cx // shrink, cy // shrink
+        r = radius * 0.55
+        if normal:
+            pixels = corner.load()
+            for y in range(cy - radius, cy + radius):
+                for x in range(cx - radius, cx + radius):
+                    dx, dy = x + 0.5 - cx, y + 0.5 - cy
+                    distance = math.hypot(dx, dy)
+                    if distance < radius:
+                        tilt = 50 * distance / radius + (25 if abs(distance - r) < line else 0)
+                        pixels[x, y] = (128, 128 + int(tilt * dy / max(distance, 1)), 255,
+                                        128 - int(tilt * dx / max(distance, 1)))
+            continue
+        if form == 'gold':
+            disc, mark = ((156, 116, 60) if kind == 'diffuse' else (120, 120, 120)), (52, 36, 20)
+        elif kind == 'diffuse':
+            disc, mark = (40, 37, 34), (150, 138, 118)
+        elif kind == 'specular':
+            disc, mark = (26, 26, 26), (130, 130, 130)
+        else:
+            disc, mark = (0, 0, 0), (210, 190, 160)
+        draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=disc)
+        for ring in range(radius // 3, radius, max(2, radius // 8)):  # a little texture on the disc
+            shade = tuple(max(0, c - 6) for c in disc)
+            draw.ellipse((cx - ring, cy - ring, cx + ring, cy + ring), outline=shade, width=1)
+        if button == 'cross':
+            draw.line([(cx - r, cy - r), (cx + r, cy + r)], fill=mark, width=line)
+            draw.line([(cx - r, cy + r), (cx + r, cy - r)], fill=mark, width=line)
+        elif button == 'circle':
+            draw.ellipse((cx - r, cy - r, cx + r, cy + r), outline=mark, width=line)
+        elif button == 'square':
+            draw.rectangle((cx - r * 0.8, cy - r * 0.8, cx + r * 0.8, cy + r * 0.8), outline=mark, width=line)
+        else:
+            draw.polygon([(cx, cy - r), (cx - r, cy + r * 0.7), (cx + r, cy + r * 0.7)], outline=mark, width=line)
+    image = Image.new(corner.mode, (size, size), corner.getpixel((0, height - 1)))
+    image.paste(corner, (x0, y0))
+    return image
+
+
+def case_glyphs():
+    inputs, expected = case_folder('glyphs')
+    inputs.mkdir(parents=True)
+    lyre = {}
+    for name, (form, kind) in glyphs.TEXTURES.items():
+        if form in glyphs.LYRE_FORMS:
+            lyre[name] = lyre_input(form, kind, LYRE_SIZE_OF.get(kind, 1024))
+            lyre[name].save(inputs / f'{name}.png')
+    for style in GLYPH_STYLES:
+        drawn = dict(glyphs.textures(style))
+        if style in ('xbox', 'nintendo'):
+            drawn[glyphs.CONTROLLER_TEXTURE] = ('controller', None)
+        (expected / style).mkdir(parents=True)
+        for name, (form, buttons) in drawn.items():
+            if form in glyphs.LYRE_FORMS:
+                picture = glyphs.lyre_paint(lyre[name], form, buttons, style, None, '')
+            else:
+                width, height = GLYPH_SIZE_OF.get(name, GLYPH_SIZES[form])
+                picture = glyphs.render(form, buttons, style, None, '', width, height, '')
+            picture.save(expected / style / f'{name}.png')
+
+
 def check_no_temp_folder():
     for path in FIXTURES.rglob('*'):
         if path.is_file():
@@ -494,7 +591,7 @@ if __name__ == '__main__':
         FIXTURES.mkdir(parents=True, exist_ok=True)
         prepared = case_prepare()
         for case in (lambda: case_link(prepared), case_isa, case_content, case_patches, case_graphics, case_dxt,
-                     case_icon):
+                     case_icon, case_glyphs):
             case()
         check_no_temp_folder()
         for folder in sorted(p for p in FIXTURES.iterdir() if p.is_dir()):

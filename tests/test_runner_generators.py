@@ -23,6 +23,12 @@ CASES = {
     'dxt': ([f'{name}.png' for name in DXT_NAMES],
             [f'{name}.{fmt}' for name in DXT_NAMES for fmt in ('dxt1', 'dxt5')]),
     'icon': ([], ['window_icon.bmp']),
+    'glyphs': ([f'{name}.png' for name in ('TX2CDFA5F8', 'TX4158CBF9', 'TX0C09B6DB', 'TXF489D97F', 'TXEACA5E71',
+                                           'TXBD54B283', 'TXCEE0EE2B')],
+               [f'{style}/{name}.png' for style in ('xbox', 'nintendo', 'keyboard')
+                for name in ('TX1BBACF4D', 'TX7FF61BF7', 'TXFB91136E', 'TXD43D1443')]
+               + [f'{style}/{name}.png' for style in ('xbox', 'nintendo') for name in ('TXCE352DC5', 'TX2CDFA5F8')]
+               + ['keyboard/TXDCA1B818.png', 'keyboard/TX77AAD542.png', 'keyboard/TXBF2035D0.png']),
 }
 
 

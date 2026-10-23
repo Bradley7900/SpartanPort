@@ -12,6 +12,7 @@ use spartanport_launcher::core::launch::python_command;
 use spartanport_launcher::core::patches::{
     compile_patches, eboot_image, eboot_segments, write_game_patches, PatchJob, Write,
 };
+use spartanport_launcher::runner::glyphs;
 use spartanport_launcher::runner::prepare::read_self;
 
 /// The game folder of `SPARTAN_GAME_DIR`, when it holds an `eboot.bin`.
@@ -283,6 +284,131 @@ fn real_patches_bin_matches_python() {
                 ours == theirs.replace("\r\n", "\n"),
                 "{}: patches-merged.xml differs",
                 case.name
+            );
+        }
+    }
+}
+
+/// Runs `glyphs.build(game, out, style)` of `scripts/glyphs.py` (`None` when no interpreter starts).
+fn python_glyphs(game: &Path, out: &Path, style: &str) -> Option<()> {
+    let env = |key: &str| std::env::var(key).ok();
+    let command = python_command(&env).ok()?;
+    let (program, args) = command.split_first()?;
+    let script = "import sys; sys.path.insert(0, sys.argv[1]); import glyphs; glyphs.build(sys.argv[2], sys.argv[3], sys.argv[4])";
+    let output = Command::new(program)
+        .args(args)
+        .args(["-B", "-c", script])
+        .arg(repo("scripts"))
+        .arg(game)
+        .arg(out)
+        .arg(style)
+        .env("PYTHONIOENCODING", "utf-8")
+        .output()
+        .ok()?;
+    assert!(
+        output.status.success(),
+        "glyphs.build failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Some(())
+}
+
+/// The DXT blocks of the texture whose DDS header is at `dds`, level by level: (offset, size).
+fn dxt_blocks(data: &[u8], dds: usize, end: usize) -> Vec<(usize, usize)> {
+    let height = u32::from_le_bytes(data[dds + 12..dds + 16].try_into().unwrap());
+    let width = u32::from_le_bytes(data[dds + 16..dds + 20].try_into().unwrap());
+    let block = if &data[dds + 84..dds + 88] == b"DXT5" {
+        16
+    } else {
+        8
+    };
+    let (mut offset, mut level, mut blocks) = (dds + 128, 0u32, Vec::new());
+    while offset < end {
+        let w = (width.checked_shr(level).unwrap_or(0)).max(1) as usize;
+        let h = (height.checked_shr(level).unwrap_or(0)).max(1) as usize;
+        let size = w.div_ceil(4) * h.div_ceil(4) * block;
+        if offset + size > end {
+            break;
+        }
+        blocks.extend((0..size / block).map(|i| (offset + i * block, block)));
+        offset += size;
+        level += 1;
+        if w == 1 && h == 1 {
+            break;
+        }
+    }
+    blocks
+}
+
+#[test]
+fn real_glyph_wads_match_python_outside_the_painted_blocks() {
+    let Some(game) = dump() else {
+        return;
+    };
+    let assets = glyphs::Assets::in_port(&repo(""));
+    for style in ["xbox", "nintendo", "keyboard"] {
+        let dir = tempfile::tempdir().unwrap();
+        let (python, rust) = (dir.path().join("python"), dir.path().join("rust"));
+        if python_glyphs(&game, &python, style).is_none() {
+            return;
+        }
+        let mounts = glyphs::build(&game, &rust, style, None, "", "", &assets, &mut |line| {
+            println!("{line}")
+        })
+        .unwrap();
+        let theirs = fs::read(python.join("glyphs/stamp.json")).unwrap();
+        assert_eq!(
+            fs::read(rust.join("glyphs/stamp.json")).unwrap(),
+            theirs,
+            "{style}: stamp.json"
+        );
+        for name in glyphs::WADS {
+            let file = Path::new(name).file_name().unwrap();
+            let (ours, theirs) = (
+                rust.join("glyphs").join(file),
+                python.join("glyphs").join(file),
+            );
+            assert_eq!(
+                ours.is_file(),
+                theirs.is_file(),
+                "{style}: {name} made by one side only"
+            );
+            if !theirs.is_file() {
+                continue;
+            }
+            assert!(
+                mounts.contains_key(&format!("/app0/{name}")),
+                "{style}: {name} not mounted"
+            );
+            let original = fs::read(game.join(name)).unwrap();
+            let (ours, theirs) = (fs::read(ours).unwrap(), fs::read(theirs).unwrap());
+            assert_eq!(ours.len(), theirs.len(), "{style}: {name} size");
+            // Every byte outside the DXT blocks of the drawn textures is the Python's.
+            let mut painted = vec![false; ours.len()];
+            for entry in glyphs::entries(&original) {
+                let end = entry.offset + 0x40 + entry.size;
+                let Some(dds) = original[entry.offset + 0x40..end]
+                    .windows(4)
+                    .position(|w| w == b"DDS ")
+                    .map(|i| i + entry.offset + 0x40)
+                else {
+                    continue;
+                };
+                if !matches!(&original[dds + 84..dds + 88], b"DXT1" | b"DXT5") {
+                    continue;
+                }
+                for (at, size) in dxt_blocks(&original, dds, end) {
+                    // A block either side repainted; the others are the game's in both.
+                    let changed = |copy: &[u8]| copy[at..at + size] != original[at..at + size];
+                    if changed(&ours) || changed(&theirs) {
+                        painted[at..at + size].fill(true);
+                    }
+                }
+            }
+            let differing = (0..ours.len()).find(|i| !painted[*i] && ours[*i] != theirs[*i]);
+            assert_eq!(
+                differing, None,
+                "{style}: {name} differs outside the painted blocks"
             );
         }
     }
