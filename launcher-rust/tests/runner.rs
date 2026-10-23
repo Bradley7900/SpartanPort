@@ -788,6 +788,33 @@ fn play_writes_last_run_log_with_the_advice() {
 }
 
 #[test]
+fn play_starts_the_game_with_the_saved_stream_memory() {
+    // The saved choice, whatever the launcher inherited.
+    let port = Port::new();
+    let user = port.root.join("saves");
+    let paths = Paths::from_env(&port.root, &|_| None);
+    for value in ["cached", "host", "device"] {
+        let mut settings = play_settings(&port, &user);
+        settings.0.insert("stream_memory".into(), json!(value));
+        let env = port.environment(&[
+            ("FAKE_PROBE_PRINT", "SPARTAN_STREAM_MEMORY"),
+            ("SPARTAN_STREAM_MEMORY", "inherited"),
+        ]);
+        let mut console = Vec::new();
+        let context = RunContext {
+            port_dir: &port.root,
+            env,
+            args: Vec::new(),
+            out: &mut console,
+        };
+        let code = play_with(context, &settings, &paths, Path::new(LAUNCHER), &mut |_| {});
+        let log = fs::read_to_string(user.join("last_run.log")).unwrap();
+        assert_eq!(code, 0, "{log}");
+        assert_eq!(printed(&log, "SPARTAN_STREAM_MEMORY"), [value], "{log}");
+    }
+}
+
+#[test]
 fn a_hanging_gamepad_probe_keeps_the_game_icons() {
     // run.py: a probe that does not answer within 15 s is a glyph failure; the game starts with
     // its own button icons. This test takes those 15 s.
