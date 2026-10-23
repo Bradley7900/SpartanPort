@@ -45,7 +45,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 |
 | `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 |
 | `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 0 | 4 |
-| `tests/test_launcher_portable_settings.py` | 7 | 0 | 3 | 0 | 0 | 4 |
+| `tests/test_launcher_portable_settings.py` | 7 | 1 | 3 | 0 | 0 | 3 |
 | `tests/test_launcher_run_log.py` | 7 | 4 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_save.py` | 17 | 12 | 2 | 0 | 0 | 3 |
 | `tests/test_launcher_scaling.py` | 17 | 0 | 4 | 9 | 1 | 3 |
@@ -56,7 +56,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **336** | **128** | **87** | **20** | **2** | **99** |
+| **Total** | **336** | **129** | **87** | **20** | **2** | **98** |
 
 ## Map
 
@@ -122,7 +122,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::GpuChoiceTest::test_parse_gpu_list` | `src/core/gpu.rs::tests::parse_gpu_list_reads_rows` | ported |
 | `tests/test_launcher_controls.py::GpuChoiceTest::test_list_gpus_failures_leave_only_automatic` | `src/core/gpu.rs::tests::a_missing_tool_lists_nothing` | replaced by `src/core/gpu.rs::tests::a_missing_tool_lists_nothing` |
 | `tests/test_launcher_controls.py::GpuChoiceTest::test_gpu_choice_reaches_the_game` | `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits` | replaced by `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits` |
-| `tests/test_launcher_controls.py::ReleaseVersionTest::test_port_release_is_newer_than_the_inherited_tags` | `tests/core_boundary.rs::version_is_the_python_launchers`, `src/core/update.rs::tests::versions_are_their_digit_runs` | replaced by `tests/core_boundary.rs::version_is_the_python_launchers`, `src/core/update.rs::tests::versions_are_their_digit_runs` |
+| `tests/test_launcher_controls.py::ReleaseVersionTest::test_port_release_is_newer_than_the_inherited_tags` | `tests/core_boundary.rs::version_is_the_crates`, `src/core/update.rs::tests::versions_are_their_digit_runs` | replaced by `tests/core_boundary.rs::version_is_the_crates`, `src/core/update.rs::tests::versions_are_their_digit_runs` |
 | `tests/test_launcher_controls.py::ReleaseVersionTest::test_first_start_is_in_english` | `tests/startup.rs::first_start_is_in_english_when_the_system_language_is_unknown` | ported |
 | `tests/test_launcher_controls.py::PadStyleTest::test_nintendo_names_follow_the_button_positions` | `tests/ui_pages.rs::nintendo_names_follow_the_button_positions` | ported |
 | `tests/test_launcher_controls.py::PadStyleTest::test_device_is_its_own_choice` | `tests/ui_pages.rs::device_is_its_own_choice` | ported |
@@ -307,7 +307,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_polish_language.py::PolishLanguageTest::test_russian_and_english_fallbacks` | `tests/ui_widgets.rs::select_emits_set_with_the_value_not_the_label`, `src/core/i18n.rs::tests::russian_uses_the_inline_pairs` | replaced by `tests/ui_widgets.rs::select_emits_set_with_the_value_not_the_label`, `src/core/i18n.rs::tests::russian_uses_the_inline_pairs` |
 | `tests/test_launcher_polish_language.py::PolishLanguageTest::test_system_service_contract_maps_parameter_1_to_spartanport_language` | — | dropped: no Rust counterpart — the C runtime answers system parameter 1 with SPARTAN_LANGUAGE (a runtime source check, not launcher code) |
 | `tests/test_launcher_portable_settings.py::PortableSettingsPathsTest::test_config_dir_is_data_dir` | `src/core/paths.rs::tests::data_dir_defaults_to_the_executables_folder` | replaced by `src/core/paths.rs::tests::data_dir_defaults_to_the_executables_folder` |
-| `tests/test_launcher_portable_settings.py::PortableSettingsPathsTest::test_user_files_includes_settings_and_icon` | — | dropped: no Rust counterpart — installing an update keeps settings.json and game_icon.ico (--install-update is forwarded to the Python launcher) |
+| `tests/test_launcher_portable_settings.py::PortableSettingsPathsTest::test_user_files_includes_settings_and_icon` | `src/core/update.rs::tests::user_files_include_settings_and_icon` | ported |
 | `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_copies_legacy_config_and_icon_when_portable_missing` | `src/core/settings.rs::tests::portable_migration_copies_only_settings` | replaced by `src/core/settings.rs::tests::portable_migration_copies_only_settings` |
 | `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_does_not_overwrite_existing_portable_config` | `src/core/settings.rs::tests::portable_migration_copies_only_settings` | replaced by `src/core/settings.rs::tests::portable_migration_copies_only_settings` |
 | `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_missing_legacy_config_is_a_noop` | — | dropped: no Rust counterpart — without a legacy settings.json the migration creates nothing |
@@ -354,7 +354,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_scaling.py::LauncherScalingTest::test_entry_and_combobox_fonts_belong_to_the_launcher` | — | dropped: Tk-only: entries and comboboxes must use the launcher's own Tk named fonts to scale; iced scales every widget with the window |
 | `tests/test_launcher_scaling.py::LauncherScalingTest::test_hint_labels_keep_their_smaller_font` | `tests/ui_snapshots.rs::graphics` | replaced by `tests/ui_snapshots.rs::graphics` |
 | `tests/test_launcher_scaling.py::LauncherScalingTest::test_failed_save_keeps_the_current_scale` | — | dropped: no Rust counterpart — a failed save keeps the current GUI scale |
-| `tests/test_launcher_stdio.py::UnicodePreparationTest::test_frozen_script_prints_unicode_paths_with_gbk_streams` | — | dropped: frozen-Python only: --script runs a script inside the frozen Python with UTF-8 streams; the Rust launcher forwards --script to the Python launcher |
+| `tests/test_launcher_stdio.py::UnicodePreparationTest::test_frozen_script_prints_unicode_paths_with_gbk_streams` | — | dropped: frozen-Python only: --script runs a script inside the frozen Python with UTF-8 streams; the Rust launcher has no --script (it is an ordinary argument that opens the window) |
 | `tests/test_launcher_stdio.py::UnicodePreparationTest::test_captured_preparation_output_uses_utf8_despite_gbk_environment` | — | dropped: Python-only: run.py captures its scripts' output as UTF-8 whatever PYTHONIOENCODING says; run.py stays Python (the Rust launcher passes PYTHONIOENCODING=utf-8, tests/fixtures.rs) |
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_legacy_settings_and_invalid_values_use_cached_memory` | `src/core/env.rs::tests::stream_memory_falls_back_to_cached`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` | replaced by `src/core/env.rs::tests::stream_memory_falls_back_to_cached`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` |
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_every_selection_overrides_inherited_environment_without_changing_it` | `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
@@ -402,7 +402,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 ## Known deviations from the Python
 
 1. Snapshot pixel comparison runs on Windows only; other hosts render and smoke-check (fonts: `Font::MONOSPACE` and Arabic glyphs come from the OS) — spec §7 asked for both CI runners.
-2. `--script` and `--install-update` are forwarded to the Python launcher (transition) until sub-project 4 ports them. `--run` and `--play` start the Rust runner (`src/runner/`, sub-project 2), which no longer needs Python.
+2. `--install-update` is native (`src/core/update.rs`, the 2.8.0 cutover); `--script` no longer exists and is an ordinary argument that opens the window. `--run` and `--play` start the Rust runner (`src/runner/`), which needs no Python.
 3. The Steam Deck `render_resolution` default is not ported.
 4. On Save the Python resets a stored choice that is absent from its option list to the first option and converts value types; the Rust keeps stored values except the monitor.
 5. In Arabic the bar, the drawer side, the drawer header and the setting rows (name, control and note, check boxes, folder rows and section headings) are mirrored (R68). What stays left to right: the bar's tab order inside the right-aligned group and the pages' own layouts (the Trophies list, the Controls mapping table, the Mods list and presets, the Log button row and the order of the Files buttons, whose row is mirrored like the others).
@@ -483,7 +483,7 @@ the Python test:
 
 ## Gaps
 
-The 99 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 98 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_update_artwork_overrides_base_when_present` — the update's pic1.png is the cover when it has one
@@ -560,7 +560,6 @@ The 99 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust
 - `tests/test_launcher_polish_language.py::PolishLanguageTest::test_choosing_polish_starts_the_game_with_id_16` — choosing Polish starts the game with SPARTAN_LANGUAGE=16
 - `tests/test_launcher_polish_language.py::PolishLanguageTest::test_polish_label_is_translated_across_ui_languages` — the Polish label in the twelve translated interface languages
 - `tests/test_launcher_polish_language.py::PolishLanguageTest::test_system_service_contract_maps_parameter_1_to_spartanport_language` — the C runtime answers system parameter 1 with SPARTAN_LANGUAGE (a runtime source check, not launcher code)
-- `tests/test_launcher_portable_settings.py::PortableSettingsPathsTest::test_user_files_includes_settings_and_icon` — installing an update keeps settings.json and game_icon.ico (--install-update is forwarded to the Python launcher)
 - `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_missing_legacy_config_is_a_noop` — without a legacy settings.json the migration creates nothing
 - `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_load_app_settings_migrates_and_merges_defaults` — loading the settings first copies the legacy settings.json, then merges the defaults over it
 - `tests/test_launcher_portable_settings.py::PortableSettingsMigrationTest::test_packaging_scripts_preserve_portable_files` — the Windows package and its smoke test keep settings.json and game_icon.ico (packaging is a later sub-project)

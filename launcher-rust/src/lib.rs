@@ -7,4 +7,4 @@ pub mod startup;
 pub mod ui;
 
 pub const APP_NAME: &str = "SpartanPort";
-pub const VERSION: &str = "2.7.0";
+pub const VERSION: &str = "2.8.0";

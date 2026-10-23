@@ -186,7 +186,7 @@ fn rebuilding_keeps_the_status_of_a_running_game() {
     state.update = UpdateState::Ready(vec![Release {
         id: ReleaseId {
             channel: Channel::Release,
-            version: "2.8.0".to_string(),
+            version: "2.9.0".to_string(),
             build: None,
         },
         published: String::new(),
@@ -199,7 +199,7 @@ fn rebuilding_keeps_the_status_of_a_running_game() {
     assert!(matches!(state.game, GameState::Idle));
     assert!(state.log.text().contains("The game is running."));
     assert!(matches!(state.update, UpdateState::Ready(_)));
-    assert_eq!(newer(&state).map(|r| r.id.version.as_str()), Some("2.8.0"));
+    assert_eq!(newer(&state).map(|r| r.id.version.as_str()), Some("2.9.0"));
 }
 
 #[test]
