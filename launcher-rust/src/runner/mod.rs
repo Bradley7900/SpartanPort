@@ -1,6 +1,7 @@
 //! The runner (Python `run.py`): starts the game under the probe and reports what it saw.
 
 pub mod content_profile;
+pub mod discord;
 pub mod draw;
 pub mod dxt;
 pub mod game_update;

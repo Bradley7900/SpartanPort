@@ -22,6 +22,9 @@ use windows_sys::Win32::System::Ioctl::FSCTL_SET_REPARSE_POINT;
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
 };
+use windows_sys::Win32::System::Pipes::{
+    PeekNamedPipe, SetNamedPipeHandleState, NAMED_PIPE_MODE, PIPE_NOWAIT, PIPE_READMODE_BYTE,
+};
 use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_MOUNT_POINT;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE,
@@ -256,6 +259,50 @@ fn mount_point_buffer(substitute: &[u16], print: &[u16]) -> io::Result<Vec<u8>> 
         buffer[at..at + 2].copy_from_slice(&unit.to_le_bytes());
     }
     Ok(buffer)
+}
+
+/// Puts the client end of a named pipe in non-blocking byte mode (`PIPE_NOWAIT`), as the Python
+/// Discord presence does: a read or a write then returns at once with what the pipe holds or can
+/// take, so a silent or stalled server never holds up the caller.
+pub fn set_pipe_nowait(pipe: &fs::File) -> io::Result<()> {
+    let mode: NAMED_PIPE_MODE = PIPE_NOWAIT | PIPE_READMODE_BYTE;
+    // SAFETY: the handle is the live pipe handle owned by `pipe`, which outlives the call; `mode`
+    // is a valid value to read; the collection count and timeout are not changed (null).
+    let done = unsafe {
+        SetNamedPipeHandleState(
+            pipe.as_raw_handle() as HANDLE,
+            &mode,
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    if done == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// The bytes waiting to be read from a named pipe, without reading them (`PeekNamedPipe`); an
+/// error once the other end is gone.
+pub fn pipe_bytes_available(pipe: &fs::File) -> io::Result<u32> {
+    let mut available = 0u32;
+    // SAFETY: the handle is the live pipe handle owned by `pipe`, which outlives the call; there
+    // is no buffer to copy into (null, 0); `available` is a valid u32 to write and the other two
+    // out pointers are null.
+    let done = unsafe {
+        PeekNamedPipe(
+            pipe.as_raw_handle() as HANDLE,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null_mut(),
+            &mut available,
+            std::ptr::null_mut(),
+        )
+    };
+    if done == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(available)
 }
 
 #[cfg(test)]
