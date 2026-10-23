@@ -125,6 +125,9 @@ impl Psarc {
         }
         let mut out = Vec::with_capacity(size);
         flate2::read::ZlibDecoder::new(data.as_slice()).read_to_end(&mut out)?;
+        if out.len() > size {
+            return Err(invalid("PSARC block larger than expected".to_string()));
+        }
         Ok(out)
     }
 
@@ -300,6 +303,20 @@ mod tests {
                 dir.path().join("a.psarc").display()
             )
         );
+    }
+
+    #[test]
+    fn a_block_that_inflates_past_its_size_is_refused() {
+        let data = b"a".repeat(2000);
+        let mut bytes = build(&[("/S/A.XVAG", &data)], true, 2000);
+        // The header now says 1000-byte blocks: the first block inflates to 2000.
+        bytes[24..28].copy_from_slice(&1000u32.to_be_bytes());
+        let (_dir, psarc) = open_bytes(&bytes);
+        let mut psarc = psarc.unwrap();
+        let index = psarc.names()["A.XVAG"];
+        let error = psarc.read(index).err().unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "PSARC block larger than expected");
     }
 
     #[test]
