@@ -261,10 +261,11 @@ Defaults; change them on the launcher's **Controls** page, under **Keyboard & Mo
 | Q and E | L1 and R1 |
 | R and the mouse's forward button | L2 and R2 |
 | Z and X | L3 and R3 |
-| Wheel click | Rage of Sparta (L3 + R3) |
+| F | Rage of Sparta (L3 + R3) |
 | C | Grab (L1 + Circle) |
 | The mouse's back button | Dodge |
 | 1, 2, 3, 4 | d-pad up, right, down, left (weapons) |
+| Mouse wheel up and down | next and previous weapon (cycles the d-pad weapons); in the game's menus (title, pause and Power Up) it moves the selection up and down, and goes back to the weapons once you walk or dodge |
 | Tab | Options |
 | P | left touchpad click (photo mode) |
 | Esc | right touchpad click (pause menu) |
