@@ -1,5 +1,6 @@
-//! Mods, read side: finding the mods in the mods folder, what they show, the files they replace,
-//! the conflicts between them and the saved presets. Linking them into the game is not here.
+//! Mods (Python `scripts/mods.py`): finding the mods in the mods folder, what they show, the files
+//! they replace, the conflicts between them and the saved presets; and the overlay that lays the
+//! enabled mods over the game through links, the game and mod files left untouched.
 //!
 //! Names are compared with `to_lowercase()` where the Python reference uses `casefold()`; the two
 //! agree for every name a game folder or a mod archive realistically holds.
@@ -7,10 +8,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde_json::Value;
+
+use crate::core::platform;
 
 /// Why a mod could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -97,8 +100,9 @@ fn as_posix(path: &Path) -> String {
     parts_of(path).join("/")
 }
 
-/// A symbolic link, or on Windows any reparse point (a junction is one).
-fn is_link(path: &Path) -> bool {
+/// A symbolic link, or on Windows any reparse point (a junction is one). The hard links and copies
+/// an overlay made are not links on disk: only that overlay knows them (`Linker::is_link`).
+pub fn is_link(path: &Path) -> bool {
     let Ok(meta) = fs::symlink_metadata(path) else {
         return false;
     };
@@ -118,7 +122,7 @@ fn is_link(path: &Path) -> bool {
 
 /// Like Python's `Path.resolve()`: follows links in the part that exists and keeps the rest as
 /// written. A link that cannot be followed is an error.
-fn resolve(path: &Path) -> io::Result<PathBuf> {
+pub(crate) fn resolve(path: &Path) -> io::Result<PathBuf> {
     let mut current = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -691,6 +695,25 @@ pub fn selected(
     ))
 }
 
+/// The patch files of the enabled mods, in load order (a later file wins where patches share a
+/// name); none when mods are off. A selection that cannot be read gives none: building the overlay
+/// from the same selection reports why.
+pub fn enabled_patch_files(
+    root: &Path,
+    config: &Path,
+    enabled: bool,
+    game: Option<&Path>,
+) -> Vec<PathBuf> {
+    if !enabled {
+        return Vec::new();
+    }
+    selected(root, Some(config), game)
+        .unwrap_or_default()
+        .iter()
+        .flat_map(|name| patch_files(&root.join(name)))
+        .collect()
+}
+
 // ---- Files and conflicts ----------------------------------------------------------------------
 
 /// Visits `directory`: refuses links, then collects its files and goes into its folders.
@@ -839,6 +862,456 @@ pub fn apply_preset(preset: &Value, available: &[String]) -> (Vec<String>, Vec<S
     (order, disabled)
 }
 
+// ---- Links ------------------------------------------------------------------------------------
+
+/// How an entry of an overlay reaches its game or mod file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LinkKind {
+    /// A symbolic link (on Windows it needs the privilege Developer Mode gives).
+    Symlink,
+    /// A Windows junction to a folder: no privilege needed, local volumes only.
+    Junction,
+    /// A hard link to a file: same volume only.
+    HardLink,
+    /// No link: a folder mirrored as real folders whose files are linked one by one, or a file
+    /// copied.
+    Mirror,
+}
+
+/// Every way of linking allowed: what runs outside the tests.
+pub(crate) fn every_way(_: LinkKind) -> bool {
+    true
+}
+
+/// What one overlay remembers while it links: the Python's module-level `LINKED`, kept per
+/// overlay. Junctions, hard links and copies are recorded with their targets (a hard link or a copy
+/// cannot be told from a real file afterwards), and a way of linking the volume refused (symlinks
+/// without the privilege, junctions on a network share) is not tried again. Hard links are always
+/// tried: they fail only for the files of another volume.
+pub(crate) struct Linker<'a> {
+    allowed: &'a dyn Fn(LinkKind) -> bool,
+    linked: HashMap<PathBuf, PathBuf>,
+    refused: HashSet<LinkKind>,
+    /// The folders being mirrored, outermost first (resolved): one holding a link back to another
+    /// would be mirrored forever.
+    mirroring: Vec<PathBuf>,
+}
+
+impl<'a> Linker<'a> {
+    /// A linker that tries only the ways `allowed` gives (the tests refuse some to run the others
+    /// where the system would not need them).
+    pub(crate) fn new(allowed: &'a dyn Fn(LinkKind) -> bool) -> Linker<'a> {
+        Linker {
+            allowed,
+            linked: HashMap::new(),
+            refused: HashSet::new(),
+            mirroring: Vec::new(),
+        }
+    }
+
+    fn may(&self, kind: LinkKind) -> bool {
+        (self.allowed)(kind) && !self.refused.contains(&kind)
+    }
+
+    fn refuse(&mut self, kind: LinkKind, error: &io::Error) {
+        // A name already taken or a folder missing says nothing about the volume.
+        if !matches!(
+            error.kind(),
+            io::ErrorKind::AlreadyExists | io::ErrorKind::NotFound
+        ) {
+            self.refused.insert(kind);
+        }
+    }
+
+    /// Links `link` to `target` (the Python's `make_link`): a symlink; on Windows, when that is
+    /// refused, a junction for a folder and a hard link for a file; failing those, a mirrored folder
+    /// or a copied file. Elsewhere than Windows a refused symlink is an error, as in the Python (the
+    /// tests reach the other ways there by not allowing symlinks).
+    pub(crate) fn make(&mut self, link: &Path, target: &Path) -> io::Result<LinkKind> {
+        let is_dir = target.is_dir();
+        if self.may(LinkKind::Symlink) {
+            match symlink_to(link, target, is_dir) {
+                Ok(()) => return Ok(LinkKind::Symlink),
+                Err(error) if !cfg!(windows) => return Err(error),
+                Err(error) => self.refuse(LinkKind::Symlink, &error),
+            }
+        }
+        if is_dir {
+            if self.may(LinkKind::Junction) {
+                match platform::create_junction(link, target) {
+                    Ok(()) => {
+                        self.linked.insert(link.to_path_buf(), target.to_path_buf());
+                        return Ok(LinkKind::Junction);
+                    }
+                    Err(error) => self.refuse(LinkKind::Junction, &error),
+                }
+            }
+            self.mirror(link, target)?;
+            return Ok(LinkKind::Mirror);
+        }
+        let kind = if self.may(LinkKind::HardLink) && fs::hard_link(target, link).is_ok() {
+            LinkKind::HardLink
+        } else if (self.allowed)(LinkKind::Mirror) {
+            copy_new(target, link)?;
+            LinkKind::Mirror
+        } else {
+            return Err(no_way(link));
+        };
+        self.linked.insert(link.to_path_buf(), target.to_path_buf());
+        Ok(kind)
+    }
+
+    /// A folder made of real folders whose files are linked one by one: what a network share, which
+    /// takes neither symlinks nor junctions, can hold. Not recorded: it is the plain folder it looks
+    /// like.
+    fn mirror(&mut self, link: &Path, target: &Path) -> io::Result<()> {
+        if !(self.allowed)(LinkKind::Mirror) {
+            return Err(no_way(link));
+        }
+        let real = fs::canonicalize(target)?;
+        if self.mirroring.contains(&real) {
+            return Err(io::Error::other(format!(
+                "{}: the folder leads back into itself",
+                target.display()
+            )));
+        }
+        match fs::create_dir(link) {
+            Ok(()) => {}
+            // An empty folder a refused junction could not take back.
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists && is_empty_folder(link) => {
+            }
+            Err(error) => return Err(error),
+        }
+        self.mirroring.push(real);
+        let result = self.link_entries(link, target);
+        self.mirroring.pop();
+        result
+    }
+
+    /// Links each entry of the folder `target` into the folder `folder`, under the same name.
+    pub(crate) fn link_entries(&mut self, folder: &Path, target: &Path) -> io::Result<()> {
+        for entry in fs::read_dir(target)? {
+            let entry = entry?;
+            self.make(&folder.join(entry.file_name()), &entry.path())?;
+        }
+        Ok(())
+    }
+
+    /// The Python's `is_link`: a link on disk, or a junction, hard link or copy this overlay made.
+    pub(crate) fn is_link(&self, path: &Path) -> bool {
+        self.linked.contains_key(path) || is_link(path)
+    }
+
+    /// Where `path` leads: what this overlay recorded, else the resolved link.
+    pub(crate) fn target(&self, path: &Path) -> Option<PathBuf> {
+        self.linked.get(path).cloned().or_else(|| link_target(path))
+    }
+
+    /// Removes `path` without following links, and forgets what was recorded there.
+    pub(crate) fn remove(&mut self, path: &Path) -> io::Result<()> {
+        let folder = !self.is_link(path) && fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
+        remove_tree(path)?;
+        if folder {
+            self.linked.retain(|link, _| !link.starts_with(path));
+        } else {
+            self.linked.remove(path);
+        }
+        Ok(())
+    }
+
+    /// Makes the linked folder `directory` a real folder of links to what it held, one level deep,
+    /// so a file inside can be replaced without writing through a link (the Python's `expand`). A
+    /// missing folder is made; a file where a folder is wanted is a conflict.
+    pub(crate) fn expand(&mut self, directory: &Path) -> Result<(), ModsError> {
+        let conflict =
+            || ModsError::Invalid(format!("File/directory conflict at {}", name_of(directory)));
+        if self.is_link(directory) {
+            let target = self.target(directory).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("{}: the link leads nowhere", directory.display()),
+                )
+            })?;
+            if !target.is_dir() {
+                return Err(conflict());
+            }
+            self.remove(directory)?;
+            fs::create_dir(directory)?;
+            self.link_entries(directory, &target)?;
+        } else if directory.exists() && !directory.is_dir() {
+            return Err(conflict());
+        } else if !directory.is_dir() {
+            fs::create_dir(directory)?;
+        }
+        Ok(())
+    }
+}
+
+fn no_way(link: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        format!("{}: no allowed way to link it", link.display()),
+    )
+}
+
+fn is_empty_folder(path: &Path) -> bool {
+    !is_link(path) && fs::read_dir(path).is_ok_and(|mut it| it.next().is_none())
+}
+
+/// `link` made a symbolic link to `target` (Python's `link.symlink_to(target, target_is_directory)`).
+fn symlink_to(link: &Path, target: &Path, is_dir: bool) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        if is_dir {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = is_dir;
+        std::os::unix::fs::symlink(target, link)
+    }
+}
+
+/// Copies the file `target` to the new file `link`, never through an entry already there; the
+/// modification time follows, as `shutil.copy2` keeps it.
+fn copy_new(target: &Path, link: &Path) -> io::Result<()> {
+    let mut source = fs::File::open(target)?;
+    let mut copy = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(link)?;
+    io::copy(&mut source, &mut copy)?;
+    if let Ok(modified) = source.metadata().and_then(|m| m.modified()) {
+        // The contents are what the game reads; a time stamp that cannot be set changes nothing.
+        let _ = copy.set_modified(modified);
+    }
+    Ok(())
+}
+
+/// Links `link` to `target`, trying each way in the Python's order (see `Linker::make`), and
+/// returns the way used.
+pub fn make_link(link: &Path, target: &Path) -> io::Result<LinkKind> {
+    Linker::new(&every_way).make(link, target)
+}
+
+/// Whether a symlink can be made in `directory` (on Windows it needs Developer Mode or an
+/// administrator).
+pub fn symlinks_work(directory: &Path) -> bool {
+    let Ok(probe) = tempfile::Builder::new()
+        .prefix("link-test-")
+        .tempdir_in(directory)
+    else {
+        return false;
+    };
+    symlink_to(&probe.path().join("link"), probe.path(), true).is_ok()
+}
+
+/// Where the link `path` leads, resolved; `None` when it leads nowhere.
+pub fn link_target(path: &Path) -> Option<PathBuf> {
+    fs::canonicalize(path).ok().map(strip_verbatim)
+}
+
+/// Removes the link `path` itself: a junction or a Windows folder symlink with `remove_dir`, which
+/// never empties what it leads to; anything else with `remove_file`.
+pub fn remove_link(path: &Path) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+        if fs::symlink_metadata(path)?.file_attributes() & FILE_ATTRIBUTE_DIRECTORY != 0 {
+            return fs::remove_dir(path);
+        }
+    }
+    fs::remove_file(path)
+}
+
+/// Deletes `path` and what it holds without ever following a link: a link is removed, not what it
+/// leads to, so the game, the mods and the dumps stay whole.
+pub fn remove_tree(path: &Path) -> io::Result<()> {
+    if is_link(path) {
+        return remove_link(path);
+    }
+    if fs::symlink_metadata(path)?.is_dir() {
+        for entry in fs::read_dir(path)? {
+            remove_tree(&entry?.path())?;
+        }
+        fs::remove_dir(path)
+    } else {
+        fs::remove_file(path)
+    }
+}
+
+/// The Python's `expand` on its own (see `Linker::expand`): hard links and copies an overlay made
+/// are known to that overlay only.
+pub fn expand(directory: &Path) -> Result<(), ModsError> {
+    Linker::new(&every_way).expand(directory)
+}
+
+// ---- Overlay ----------------------------------------------------------------------------------
+
+/// The overlay folders `build_overlay` makes in `out`: `mod-game-XXXXXX`.
+const OVERLAY_PREFIX: &str = "mod-game-";
+
+/// The game folder to mount: an overlay of links with the enabled mods laid over the game, or the
+/// game folder itself when no mod replaces a file.
+#[derive(Debug)]
+pub struct Overlay {
+    pub root: PathBuf,
+    /// Whether `root` was made by `build_overlay` (and so goes with `remove`).
+    owned: bool,
+}
+
+impl Overlay {
+    /// Deletes the overlay without following its links (the game and the mods stay whole); the
+    /// game folder itself is left alone.
+    pub fn remove(self) -> io::Result<()> {
+        if self.owned {
+            remove_tree(&self.root)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+/// The game with `mods` laid over it in load order, the last one winning a file: a folder
+/// `mod-game-XXXXXX` in `out` whose entries link to the game's, with the folders on the way to a
+/// replaced file made real and the mod's file linked in its place. Names take the game's spelling
+/// whatever the case a mod uses. Without a file to replace, the game folder itself. The overlays a
+/// crashed run left in `out` are removed first, never through their links. On Windows without the
+/// symlink privilege, an `out` on another volume than the game is traded for the game's parent
+/// folder (hard links reach the same volume only).
+pub fn build_overlay(game: &Path, out: &Path, mods: &[PathBuf]) -> Result<Overlay, ModsError> {
+    build_overlay_with(game, out, mods, &every_way)
+}
+
+/// `build_overlay` trying only the ways of linking `allowed` gives.
+pub(crate) fn build_overlay_with(
+    game: &Path,
+    out: &Path,
+    mods: &[PathBuf],
+    allowed: &dyn Fn(LinkKind) -> bool,
+) -> Result<Overlay, ModsError> {
+    let game = strip_verbatim(fs::canonicalize(game)?);
+    let flat = !child(&game, "dvdroot_ps4").is_dir();
+    let mut replacements = Vec::new();
+    let mut owners: HashMap<String, String> = HashMap::new();
+    for root in mods {
+        let name = name_of(root);
+        let mut count = 0;
+        for (relative, source) in mod_files(root, Some(&game))? {
+            let relative = game_path(&relative, flat)?;
+            let key = as_posix(&relative).to_lowercase();
+            if let Some(before) = owners.insert(key, name.clone()) {
+                eprintln!("Mods: {}: {before} -> {name}", relative.display());
+            }
+            replacements.push((relative, source));
+            count += 1;
+        }
+        eprintln!("Mods: {name}: {count} files");
+    }
+    if replacements.is_empty() {
+        return Ok(Overlay {
+            root: game,
+            owned: false,
+        });
+    }
+    let mut out = resolve(out)?;
+    fs::create_dir_all(&out)?;
+    remove_stale_overlays(&out);
+    if cfg!(windows)
+        && !(allowed(LinkKind::Symlink) && symlinks_work(&out))
+        && drive(&out) != drive(&game)
+    {
+        // Hard links only reach files on the same volume: the overlay goes beside the game.
+        if let Some(parent) = game.parent() {
+            out = parent.to_path_buf();
+        }
+    }
+    let root = tempfile::Builder::new()
+        .prefix(OVERLAY_PREFIX)
+        .tempdir_in(&out)?
+        .keep();
+    let mut linker = Linker::new(allowed);
+    match lay_over(&mut linker, &game, &root, &replacements) {
+        Ok((replaced, added)) => {
+            eprintln!("Mods: {replaced} game files replaced, {added} added");
+            Ok(Overlay { root, owned: true })
+        }
+        Err(error) => {
+            // The links go, never what they lead to; the error reported is the one that stopped
+            // the overlay.
+            let _ = remove_tree(&root);
+            Err(error)
+        }
+    }
+}
+
+/// Fills the new overlay `root`: links to the game's entries, then each replacement in order.
+/// Returns how many game files were replaced and how many files were added.
+fn lay_over(
+    linker: &mut Linker<'_>,
+    game: &Path,
+    root: &Path,
+    replacements: &[(PathBuf, PathBuf)],
+) -> Result<(usize, usize), ModsError> {
+    linker.link_entries(root, game)?;
+    let (mut replaced, mut added) = (0, 0);
+    for (relative, source) in replacements {
+        let parts = parts_of(relative);
+        let Some((name, folders)) = parts.split_last() else {
+            continue;
+        };
+        // Each part takes the game's spelling when it exists in another case.
+        let mut parent = root.to_path_buf();
+        for folder in folders {
+            parent = child(&parent, folder);
+            linker.expand(&parent)?;
+        }
+        let destination = child(&parent, name);
+        if linker.is_link(&destination) {
+            if linker
+                .target(&destination)
+                .is_some_and(|t| t.starts_with(game))
+            {
+                replaced += 1;
+            }
+            linker.remove(&destination)?;
+        } else if fs::symlink_metadata(&destination).is_ok() {
+            return Err(ModsError::Invalid(format!(
+                "File/directory conflict: {}",
+                relative.display()
+            )));
+        } else {
+            added += 1;
+        }
+        linker.make(&destination, source)?;
+    }
+    Ok((replaced, added))
+}
+
+/// Removes the overlays a crashed run left in `out`, never through their links. One that cannot
+/// go is reported and left: the new overlay gets another name.
+fn remove_stale_overlays(out: &Path) {
+    for entry in entries(out) {
+        if name_of(&entry).starts_with(OVERLAY_PREFIX) {
+            if let Err(error) = remove_tree(&entry) {
+                eprintln!("Mods: {}: {error}", entry.display());
+            }
+        }
+    }
+}
+
+/// The drive or share a path starts with, lower case (`c:`); empty without one.
+fn drive(path: &Path) -> String {
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => prefix.as_os_str().to_string_lossy().to_lowercase(),
+        _ => String::new(),
+    }
+}
+
 // ---- Tests ------------------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -857,6 +1330,27 @@ mod tests {
     fn names(files: &[PathBuf]) -> Vec<String> {
         files.iter().map(|f| name_of(f)).collect()
     }
+
+    /// The names in a folder, sorted (empty when it is missing).
+    fn listing(folder: &Path) -> Vec<String> {
+        let mut found = names(&entries(folder));
+        found.sort();
+        found
+    }
+
+    /// The ways of linking the overlay tests force in turn: whatever works here (symlinks, or on
+    /// Windows without the privilege junctions and hard links), no symlinks (junctions and hard
+    /// links on Windows, mirrored folders elsewhere), a network share (no symlinks or junctions:
+    /// mirrored folders of hard links) and copies only.
+    type Way = (&'static str, fn(LinkKind) -> bool);
+    const WAYS: [Way; 4] = [
+        ("any", |_| true),
+        ("no symlinks", |kind| kind != LinkKind::Symlink),
+        ("network share", |kind| {
+            matches!(kind, LinkKind::HardLink | LinkKind::Mirror)
+        }),
+        ("copies", |kind| kind == LinkKind::Mirror),
+    ];
 
     /// A game (dvdroot_ps4 layout) and a mods folder, as `ModTests.setUp` makes them.
     struct Fixture {
@@ -898,6 +1392,14 @@ mod tests {
                 write(&folder.join(file), PATCH.as_bytes());
             }
             self.moddir.join(name)
+        }
+
+        fn overlay(
+            &self,
+            mods: &[PathBuf],
+            allowed: fn(LinkKind) -> bool,
+        ) -> Result<Overlay, ModsError> {
+            build_overlay_with(&self.game, &self.root.join("out"), mods, &allowed)
         }
 
         /// `<mods>/<name>.zip` with the given (path, bytes) entries.
@@ -956,6 +1458,9 @@ mod tests {
             error.to_string(),
             "Mod order must be a list of folder names"
         );
+        // An unreadable selection gives no patch files (the overlay reports the error).
+        f.patch_mod("P", &["mine.xml"], None);
+        assert!(enabled_patch_files(&f.moddir, &config, true, None).is_empty());
     }
 
     #[test]
@@ -965,6 +1470,290 @@ mod tests {
         f.mod_file("Files", b"mod", "a.wad");
         assert_eq!(discover(&f.moddir, None), ["Files", "Only patches"]);
         assert!(mod_files(&folder, None).unwrap().is_empty());
+        let result = build_overlay(&f.game, &f.root.join("out"), &[folder]).unwrap();
+        assert_eq!(result.root, f.game); // nothing to link
+        assert!(!result.owned);
+    }
+
+    #[test]
+    fn enabled_patch_files_follow_the_selection() {
+        let f = Fixture::new();
+        f.patch_mod("A", &["mine.xml"], None);
+        f.patch_mod("B", &["b.xml"], None);
+        f.mod_file("Files only", b"mod", "a.wad");
+        let config = f.root.join("mods.json");
+        fs::write(&config, r#"{"order": ["B", "A"], "disabled": []}"#).unwrap();
+        let names = |enabled: bool| -> Vec<String> {
+            enabled_patch_files(&f.moddir, &config, enabled, None)
+                .iter()
+                .map(|file| {
+                    let owner = file.parent().and_then(Path::parent).unwrap();
+                    format!("{}/{}", name_of(owner), name_of(file))
+                })
+                .collect()
+        };
+        assert_eq!(names(true), ["B/b.xml", "A/mine.xml"]); // load order
+        fs::write(&config, r#"{"order": ["B", "A"], "disabled": ["B"]}"#).unwrap();
+        assert_eq!(names(true), ["A/mine.xml"]);
+        assert!(names(false).is_empty()); // "Load mods" off
+    }
+
+    #[test]
+    fn merge_replacement_new_file_and_directory_listing() {
+        for (way, allowed) in WAYS {
+            let f = Fixture::new();
+            let a = f.mod_file("A", b"mod", "a.wad");
+            f.mod_file("A", b"new", "new.wad");
+            let result = f.overlay(&[a], allowed).unwrap();
+            let folder = result.root.join("dvdroot_ps4/data");
+            let game_data = f.game.join("dvdroot_ps4/data");
+            assert_eq!(fs::read(folder.join("a.wad")).unwrap(), b"mod", "{way}");
+            assert_eq!(
+                fs::read(folder.join("b.wad")).unwrap(),
+                b"untouched",
+                "{way}"
+            );
+            assert_eq!(fs::read(folder.join("new.wad")).unwrap(), b"new", "{way}");
+            assert_eq!(listing(&folder), ["a.wad", "b.wad", "new.wad"], "{way}");
+            assert_eq!(
+                fs::read(game_data.join("a.wad")).unwrap(),
+                b"original",
+                "{way}"
+            );
+            assert!(!game_data.join("new.wad").exists(), "{way}");
+            assert_eq!(
+                fs::read(result.root.join("eboot.bin")).unwrap(),
+                b"original executable",
+                "{way}"
+            );
+            // Removing the overlay leaves the game and the mod whole.
+            let root = result.root.clone();
+            result.remove().unwrap();
+            assert!(fs::symlink_metadata(&root).is_err(), "{way}");
+            assert_eq!(listing(&game_data), ["a.wad", "b.wad"], "{way}");
+            assert_eq!(
+                fs::read(game_data.join("b.wad")).unwrap(),
+                b"untouched",
+                "{way}"
+            );
+            let mod_data = f.moddir.join("A/dvdroot_ps4/data");
+            assert_eq!(fs::read(mod_data.join("a.wad")).unwrap(), b"mod", "{way}");
+        }
+    }
+
+    #[test]
+    fn a_network_share_without_symlinks_or_junctions_still_overlays() {
+        // A network share (SMB) refuses symlinks and junctions alike; only hard links work. The
+        // overlay must still merge the mod and leave the game folder untouched.
+        let f = Fixture::new();
+        let a = f.mod_file("A", b"mod", "a.wad");
+        f.mod_file("A", b"new", "new.wad");
+        let share = |kind| matches!(kind, LinkKind::HardLink | LinkKind::Mirror);
+        let result = f.overlay(&[a], share).unwrap();
+        let folder = result.root.join("dvdroot_ps4/data");
+        assert_eq!(fs::read(folder.join("a.wad")).unwrap(), b"mod");
+        assert_eq!(fs::read(folder.join("b.wad")).unwrap(), b"untouched");
+        assert_eq!(fs::read(folder.join("new.wad")).unwrap(), b"new");
+        assert_eq!(
+            fs::read(f.game.join("dvdroot_ps4/data/a.wad")).unwrap(),
+            b"original"
+        );
+        // Real folders: the game's files are reached through hard links.
+        assert!(!is_link(&result.root.join("dvdroot_ps4")));
+        assert!(!is_link(&folder));
+    }
+
+    #[test]
+    fn last_mod_wins_and_reordering_changes_winner() {
+        for (way, allowed) in WAYS {
+            let f = Fixture::new();
+            let a = f.mod_file("A", b"A", "a.wad");
+            let b = f.mod_file("B", b"B", "a.wad");
+            for (layers, winner) in [([&a, &b], b"B"), ([&b, &a], b"A")] {
+                let layers: Vec<PathBuf> = layers.into_iter().cloned().collect();
+                let result = f.overlay(&layers, allowed).unwrap();
+                let file = result.root.join("dvdroot_ps4/data/a.wad");
+                assert_eq!(fs::read(file).unwrap(), winner, "{way}");
+            }
+        }
+    }
+
+    #[test]
+    fn no_mod_returns_original_game() {
+        let f = Fixture::new();
+        let result = build_overlay(&f.game, &f.root.join("out"), &[]).unwrap();
+        assert_eq!(result.root, f.game);
+        assert!(!f.root.join("out").exists());
+        result.remove().unwrap(); // the game folder itself is never removed
+        assert!(f.game.join("eboot.bin").is_file());
+    }
+
+    #[test]
+    fn directory_conflict_does_not_modify_base() {
+        for (way, allowed) in WAYS {
+            let f = Fixture::new();
+            let a = f.mod_file("A", b"mod", "a.wad");
+            fs::remove_file(a.join("dvdroot_ps4/data/a.wad")).unwrap();
+            write(&a.join("dvdroot_ps4/data/b.wad/child"), b"bad");
+            let error = f.overlay(&[a], allowed).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "File/directory conflict at b.wad",
+                "{way}"
+            );
+            assert_eq!(
+                fs::read(f.game.join("dvdroot_ps4/data/b.wad")).unwrap(),
+                b"untouched",
+                "{way}"
+            );
+            assert!(listing(&f.root.join("out")).is_empty(), "{way}");
+        }
+    }
+
+    #[test]
+    fn other_case_replaces_the_game_file() {
+        for (way, allowed) in WAYS {
+            let f = Fixture::new();
+            let root = f.moddir.join("Upper");
+            write(&root.join("DVDROOT_PS4/Data/A.WAD"), b"upper");
+            let result = f.overlay(&[root], allowed).unwrap();
+            let folder = result.root.join("dvdroot_ps4/data");
+            assert_eq!(fs::read(folder.join("a.wad")).unwrap(), b"upper", "{way}");
+            assert_eq!(listing(&folder), ["a.wad", "b.wad"], "{way}");
+            assert_eq!(listing(&result.root), ["dvdroot_ps4", "eboot.bin"], "{way}");
+        }
+    }
+
+    #[test]
+    fn a_stale_overlay_is_removed_before_a_new_one() {
+        let f = Fixture::new();
+        let out = f.root.join("out");
+        let kept = f.root.join("kept");
+        write(&kept.join("keep.txt"), b"keep");
+        write(&out.join("boot.bin"), b"derived"); // not an overlay: stays
+        let stale = out.join("mod-game-old");
+        write(&stale.join("eboot.bin"), b"left by a crashed run");
+        // The link a crashed run left: a junction on Windows (no privilege needed), a symlink
+        // elsewhere. Removing the overlay must not go through it.
+        #[cfg(windows)]
+        crate::core::platform::create_junction(&stale.join("EXEC"), &kept).unwrap();
+        #[cfg(not(windows))]
+        std::os::unix::fs::symlink(&kept, stale.join("EXEC")).unwrap();
+        assert!(is_link(&stale.join("EXEC")));
+        let a = f.mod_file("A", b"mod", "a.wad");
+        let overlay = build_overlay(&f.game, &out, &[a]).unwrap();
+        assert!(fs::symlink_metadata(&stale).is_err());
+        assert_eq!(fs::read(kept.join("keep.txt")).unwrap(), b"keep");
+        assert_eq!(listing(&kept), ["keep.txt"]);
+        let made = name_of(&overlay.root);
+        assert!(made.starts_with("mod-game-"), "{made}");
+        assert_eq!(listing(&out), ["boot.bin".to_string(), made]);
+        assert_eq!(
+            fs::read(overlay.root.join("dvdroot_ps4/data/a.wad")).unwrap(),
+            b"mod"
+        );
+    }
+
+    #[test]
+    fn each_way_of_linking_is_tried_in_turn() {
+        let f = Fixture::new();
+        let folder = f.game.join("dvdroot_ps4");
+        let file = f.game.join("eboot.bin");
+        let out = f.root.join("links");
+        fs::create_dir(&out).unwrap();
+        let kinds = |way: &str, allowed: fn(LinkKind) -> bool| -> (LinkKind, LinkKind) {
+            let mut linker = Linker::new(&allowed);
+            let (to_folder, to_file) = (out.join(format!("{way} folder")), out.join(way));
+            let made = (
+                linker.make(&to_folder, &folder).unwrap(),
+                linker.make(&to_file, &file).unwrap(),
+            );
+            // The game is reached through the links whatever they are.
+            let inside = fs::read(to_folder.join("data/a.wad")).unwrap();
+            assert_eq!(inside, b"original", "{way}");
+            let through = fs::read(&to_file).unwrap();
+            assert_eq!(through, b"original executable", "{way}");
+            // A refused way is remembered: a junction exists only on Windows.
+            let refused = linker.refused.contains(&LinkKind::Junction);
+            assert_eq!(
+                refused,
+                made.0 == LinkKind::Mirror && allowed(LinkKind::Junction)
+            );
+            made
+        };
+        // Symlinks need a privilege on Windows (Developer Mode): without it, a junction and a hard
+        // link.
+        let any = kinds("any", |_| true);
+        if symlinks_work(&out) {
+            assert_eq!(any, (LinkKind::Symlink, LinkKind::Symlink));
+        } else {
+            assert_eq!(any, (LinkKind::Junction, LinkKind::HardLink));
+        }
+        let folder_kind = if cfg!(windows) {
+            LinkKind::Junction
+        } else {
+            LinkKind::Mirror
+        };
+        assert_eq!(
+            kinds("no symlinks", |kind| kind != LinkKind::Symlink),
+            (folder_kind, LinkKind::HardLink)
+        );
+        assert_eq!(
+            kinds("share", |kind| matches!(
+                kind,
+                LinkKind::HardLink | LinkKind::Mirror
+            )),
+            (LinkKind::Mirror, LinkKind::HardLink)
+        );
+        assert_eq!(
+            kinds("copies", |kind| kind == LinkKind::Mirror),
+            (LinkKind::Mirror, LinkKind::Mirror)
+        );
+        let nothing: fn(LinkKind) -> bool = |_| false;
+        assert!(Linker::new(&nothing)
+            .make(&out.join("none"), &file)
+            .is_err());
+        assert!(fs::symlink_metadata(out.join("none")).is_err());
+        // Removing the links never goes into the game.
+        remove_tree(&out).unwrap();
+        assert_eq!(
+            listing(&f.game.join("dvdroot_ps4/data")),
+            ["a.wad", "b.wad"]
+        );
+        assert_eq!(fs::read(&file).unwrap(), b"original executable");
+    }
+
+    #[test]
+    fn a_hostile_game_folder_gives_errors_not_panics() {
+        for (way, allowed) in WAYS {
+            let f = Fixture::new();
+            let data = f.game.join("dvdroot_ps4/data");
+            let gone = f.root.join("gone");
+            fs::create_dir(&gone).unwrap();
+            // A folder that leads back to its parent, and one whose target is missing.
+            #[cfg(windows)]
+            {
+                use crate::core::platform::create_junction;
+                create_junction(&data.join("loop"), &f.game.join("dvdroot_ps4")).unwrap();
+                create_junction(&data.join("missing"), &gone).unwrap();
+            }
+            #[cfg(not(windows))]
+            {
+                std::os::unix::fs::symlink(f.game.join("dvdroot_ps4"), data.join("loop")).unwrap();
+                std::os::unix::fs::symlink(&gone, data.join("missing")).unwrap();
+            }
+            fs::remove_dir(&gone).unwrap();
+            let a = f.mod_file("A", b"mod", "a.wad");
+            if let Ok(result) = f.overlay(&[a], allowed) {
+                result.remove().unwrap();
+            }
+            assert_eq!(fs::read(data.join("a.wad")).unwrap(), b"original", "{way}");
+            assert_eq!(fs::read(data.join("b.wad")).unwrap(), b"untouched", "{way}");
+            assert!(
+                is_link(&data.join("loop")) && is_link(&data.join("missing")),
+                "{way}"
+            );
+        }
     }
 
     #[test]
@@ -1156,18 +1945,32 @@ mod tests {
         assert_eq!(ZIP_LIMIT, 16 * 1024 * 1024 * 1024);
     }
 
-    #[cfg(unix)]
     #[test]
     fn mod_symlinks_rejected() {
         let f = Fixture::new();
         let a = f.mod_file("A", b"mod", "a.wad");
-        std::os::unix::fs::symlink(
-            f.game.join("dvdroot_ps4/data"),
-            a.join("dvdroot_ps4/escape"),
-        )
-        .unwrap();
+        let link = a.join("dvdroot_ps4/escape");
+        let target = f.game.join("dvdroot_ps4/data");
+        #[cfg(not(windows))]
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        // Without the symlink privilege a junction is the fallback, so it must be rejected just
+        // like a symlink.
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir(&target, &link).is_err() {
+            crate::core::platform::create_junction(&link, &target).unwrap();
+        }
         let error = mod_files(&a, None).unwrap_err();
         assert!(error.to_string().starts_with("Mod links are unsupported"));
+        let error = build_overlay(&f.game, &f.root.join("out"), &[a]).unwrap_err();
+        assert!(error.to_string().starts_with("Mod links are unsupported"));
+        // A junction is refused on Windows even where symlinks work.
+        #[cfg(windows)]
+        {
+            let b = f.mod_file("B", b"mod", "a.wad");
+            crate::core::platform::create_junction(&b.join("dvdroot_ps4/escape"), &target).unwrap();
+            let error = build_overlay(&f.game, &f.root.join("out"), &[b]).unwrap_err();
+            assert!(error.to_string().starts_with("Mod links are unsupported"));
+        }
     }
 
     #[test]
@@ -1176,6 +1979,14 @@ mod tests {
         let a = f.mod_file("A", b"mod", "a.wad");
         write(&a.join("eboot.bin"), b"unsupported");
         assert!(mod_files(&a, None).is_err());
+        let error = build_overlay(&f.game, &f.root.join("out"), &[a]).unwrap_err();
+        assert!(error
+            .to_string()
+            .starts_with("Executable/system replacement is unsupported"));
+        assert_eq!(
+            fs::read(f.game.join("eboot.bin")).unwrap(),
+            b"original executable"
+        );
     }
 
     #[test]
@@ -1230,6 +2041,15 @@ mod tests {
             self.f.moddir.join(name)
         }
 
+        fn overlay(
+            &self,
+            names: &[&str],
+            allowed: fn(LinkKind) -> bool,
+        ) -> Result<Overlay, ModsError> {
+            let mods: Vec<PathBuf> = names.iter().map(|n| self.f.moddir.join(n)).collect();
+            self.f.overlay(&mods, allowed)
+        }
+
         fn game_paths(&self, name: &str) -> Vec<String> {
             let found = mod_files(&self.f.moddir.join(name), Some(&self.f.game)).unwrap();
             found
@@ -1253,6 +2073,53 @@ mod tests {
         assert_eq!(
             fs::read(g.f.game.join("EXEC/WAD/PS4_LE/R_UI.WAD")).unwrap(),
             b"original ui"
+        );
+        for (way, allowed) in WAYS {
+            let view = g.overlay(&["UI"], allowed).unwrap().root;
+            let ui = fs::read(view.join("EXEC/WAD/PS4_LE/R_UI.WAD")).unwrap();
+            assert_eq!(ui, b"mod ui", "{way}");
+            let voice = fs::read(view.join("PORTUGUESE/SOUNDS/X.XVAG")).unwrap();
+            assert_eq!(voice, b"mod voice", "{way}");
+            assert!(!view.join("readme.txt").exists(), "{way}");
+            let original = fs::read(g.f.game.join("EXEC/WAD/PS4_LE/R_UI.WAD")).unwrap();
+            assert_eq!(original, b"original ui", "{way}");
+        }
+    }
+
+    #[test]
+    fn region_folders_are_used_for_discovery_and_overlay() {
+        for (way, allowed) in WAYS {
+            let g = GameLayout::new();
+            let original = g.f.game.join("JAPANESE/text.wad");
+            write(&original, b"original");
+            g.mod_at("JP", "Pack/app0/japanese/text.wad", b"translated");
+            assert_eq!(discover(&g.f.moddir, Some(&g.f.game)), ["JP"], "{way}");
+            let view = g.overlay(&["JP"], allowed).unwrap().root;
+            let text = fs::read(view.join("JAPANESE/text.wad")).unwrap();
+            assert_eq!(text, b"translated", "{way}");
+            assert_eq!(fs::read(&original).unwrap(), b"original", "{way}");
+        }
+    }
+
+    #[test]
+    fn learning_game_folders_does_not_allow_system_replacements() {
+        let g = GameLayout::new();
+        for folder in ["sce_sys", "sce_module", "eboot.bin"] {
+            let bad = g.mod_at("Bad", &format!("{folder}/payload"), b"mod");
+            assert!(
+                discover(&g.f.moddir, Some(&g.f.game)).is_empty(),
+                "{folder}"
+            );
+            let out = g.f.root.join("out");
+            assert!(
+                build_overlay(&g.f.game, &out, std::slice::from_ref(&bad)).is_err(),
+                "{folder}"
+            );
+            fs::remove_dir_all(&bad).unwrap();
+        }
+        assert_eq!(
+            fs::read(g.f.game.join("eboot.bin")).unwrap(),
+            b"original executable"
         );
     }
 
