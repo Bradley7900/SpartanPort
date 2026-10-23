@@ -335,6 +335,51 @@ fn run_writes_every_derived_file_and_starts_the_probe_with_the_python_command_li
 }
 
 #[test]
+fn a_restarted_run_derives_the_inherited_values_again() {
+    // "Apply and restart": the new runner inherits the old one's environment, its derived values
+    // included. The keys SPARTAN_DERIVED lists are derived again from the new options; the same
+    // keys set by the player (not listed) are kept, as run.py's `setdefault`s keep them.
+    let port = Port::new();
+    let names = "SPARTAN_DERIVED,SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,SPARTAN_DMEM_MB,\
+                 SPARTAN_ENGINE_FPS";
+    let first = port.run(&[("FAKE_PROBE_PRINT", names)], &[]);
+    assert_eq!(first.code, Some(0), "{first}");
+    let derived = printed(&first.stdout, "SPARTAN_DERIVED").join("|");
+    assert_eq!(
+        derived,
+        "SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,SPARTAN_ENGINE_FPS"
+    );
+    // What a start with other options left: a mod's size, a patch's memory and VBlank needs and
+    // its frame rate (SPARTAN_DMEM_MB is derived only when a patch needs it).
+    let stale = [
+        ("FAKE_PROBE_PRINT", names),
+        ("SPARTAN_EXTRA_RESOLUTIONS", "3440x1440"),
+        ("SPARTAN_VBLANK_HZ", "144"),
+        ("SPARTAN_DMEM_MB", "12288"),
+        ("SPARTAN_ENGINE_FPS", "120"),
+    ];
+    let listed = format!("{derived},SPARTAN_DMEM_MB");
+    let restarted = port.run(&[&stale[..], &[("SPARTAN_DERIVED", &listed)]].concat(), &[]);
+    assert_eq!(restarted.code, Some(0), "{restarted}");
+    let one = |ran: &Ran, name: &str| printed(&ran.stdout, name).join("|");
+    assert_eq!(one(&restarted, "SPARTAN_DERIVED"), derived);
+    assert_eq!(one(&restarted, "SPARTAN_EXTRA_RESOLUTIONS"), "");
+    assert_eq!(one(&restarted, "SPARTAN_VBLANK_HZ"), "60");
+    assert_eq!(one(&restarted, "SPARTAN_ENGINE_FPS"), "60");
+    assert!(
+        restarted.stdout.contains("SPARTAN_DMEM_MB is unset"),
+        "{restarted}"
+    );
+    // Not listed: the player's own VBlank rate and memory stay.
+    let own = port.run(&stale, &[]);
+    assert_eq!(own.code, Some(0), "{own}");
+    assert_eq!(one(&own, "SPARTAN_VBLANK_HZ"), "144");
+    assert_eq!(one(&own, "SPARTAN_DMEM_MB"), "12288");
+    assert_eq!(one(&own, "SPARTAN_EXTRA_RESOLUTIONS"), "");
+    assert_eq!(one(&own, "SPARTAN_ENGINE_FPS"), "60");
+}
+
+#[test]
 fn the_probes_exit_code_is_returned() {
     // tests/test_mods.py::test_run_uses_overlay_propagates_exit_and_cleans_view: the probe gets
     // the overlay with the mod's file, its exit code is the runner's and the overlay goes after.
