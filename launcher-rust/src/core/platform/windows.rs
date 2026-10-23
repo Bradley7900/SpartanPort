@@ -27,8 +27,8 @@ use windows_sys::Win32::System::JobObjects::{
 use windows_sys::Win32::System::Pipes::{
     PeekNamedPipe, SetNamedPipeHandleState, NAMED_PIPE_MODE, PIPE_NOWAIT, PIPE_READMODE_BYTE,
 };
-use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_MOUNT_POINT;
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_MOUNT_POINT;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE,
 };

@@ -83,10 +83,10 @@ impl Reader<'_> {
             if kind == 8 {
                 return Ok(result);
             }
+            let key = self.text()?;
             if kind > 2 {
                 return Err(format!("unknown VDF type {kind} at {}", self.pos));
             }
-            let key = self.text()?;
             let value = match kind {
                 0 => Vdf::Map(self.entries()?),
                 1 => Vdf::Str(self.text()?),
@@ -281,7 +281,7 @@ mod tests {
     fn broken_files_are_errors() {
         assert_eq!(
             parse_vdf(b"\x05x\x00"),
-            Err("unknown VDF type 5 at 1".to_string())
+            Err("unknown VDF type 5 at 3".to_string())
         );
         let err = parse_vdf(b"\x00shortcuts\x00\x01AppName\x00Spar").unwrap_err();
         assert!(err.contains("truncated"), "{err}");
