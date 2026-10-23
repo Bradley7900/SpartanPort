@@ -319,6 +319,8 @@ struct Runner<'a> {
     out: &'a mut dyn Write,
     env: IndexMap<String, String>,
     derived: Vec<String>,
+    /// Whether Ctrl+C came (`platform::interrupted`; the tests set their own).
+    interrupted: fn() -> bool,
 }
 
 impl<'a> Runner<'a> {
@@ -336,6 +338,7 @@ impl<'a> Runner<'a> {
             out,
             env,
             derived: Vec::new(),
+            interrupted: platform::interrupted,
         }
     }
 
@@ -499,7 +502,7 @@ impl<'a> Runner<'a> {
             return UNSUPPORTED_CPU;
         }
         let missing = parse_cpu_features(&stdout);
-        if platform::interrupted() {
+        if (self.interrupted)() {
             return INTERRUPTED;
         }
         // 8. The game, and the update over it.
@@ -560,7 +563,7 @@ impl<'a> Runner<'a> {
         if let Err(code) = self.content_profile(&game, &out) {
             return code;
         }
-        if platform::interrupted() {
+        if (self.interrupted)() {
             return INTERRUPTED;
         }
         // 10. The window icon (BMP: the format SDL loads without extra libraries); on Linux also
@@ -605,7 +608,7 @@ impl<'a> Runner<'a> {
         ));
         // 13. The controller glyphs and the pause menu's Exit to Desktop row.
         let mount_args = self.mounts(&port, &probe_text, &game, &out);
-        if platform::interrupted() {
+        if (self.interrupted)() {
             return INTERRUPTED;
         }
         // 14. What this run derived; the guest memory check; the saves.
@@ -892,11 +895,16 @@ impl<'a> Runner<'a> {
     }
 
     /// Starts the probe with `command` and waits for it, with the Discord presence while it runs:
-    /// its exit code; 130 when Ctrl+C came first (the game is left to end on its own).
+    /// its exit code; 130 when Ctrl+C came first. A Ctrl+C before the start starts nothing (the
+    /// cleanup would remove the folders under a game that never got it); one while the game runs
+    /// leaves the game to end on its own, as the console gave it the Ctrl+C too.
     fn play_game(&mut self, command: &[OsString]) -> i32 {
         let Some((program, rest)) = command.split_first() else {
             return 1;
         };
+        if (self.interrupted)() {
+            return INTERRUPTED;
+        }
         let started = self.command(program).args(rest).spawn();
         let mut child = match started {
             Ok(child) => child,
@@ -905,12 +913,12 @@ impl<'a> Runner<'a> {
                 return self.fail(&format!("{program}: {error}"));
             }
         };
-        let (env, log) = (&self.env, &mut *self.out);
+        let (env, log, interrupted) = (&self.env, &mut *self.out, self.interrupted);
         let ended = discord::while_running(
             child.id(),
             &|key| env.get(key).cloned(),
             &mut |line| say(log, &line),
-            || wait_or_interrupt(&mut child),
+            || wait_or_interrupt(&mut child, interrupted),
         );
         match ended {
             Ok(Some(code)) => code,
@@ -938,13 +946,13 @@ fn thousands(value: u64) -> String {
     text
 }
 
-/// Waits for the game: its exit code, or `None` once Ctrl+C came.
-fn wait_or_interrupt(child: &mut Child) -> io::Result<Option<i32>> {
+/// Waits for the game: its exit code, or `None` once `interrupted` says Ctrl+C came.
+fn wait_or_interrupt(child: &mut Child, interrupted: fn() -> bool) -> io::Result<Option<i32>> {
     loop {
         if let Some(status) = child.try_wait()? {
             return Ok(Some(exit_code(status)));
         }
-        if platform::interrupted() {
+        if interrupted() {
             return Ok(None);
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -1282,6 +1290,26 @@ mod tests {
             "'/tmp/Spartan \"Port'\"'\"'s\"/spartanport' --run 'a\"b' '' 'it'\"'\"'s' '$HOME' \
              '*' x=y,z:a.b/c-d_e@f%g+h 'café'"
         );
+    }
+
+    /// A Ctrl+C that came before the game started: the game is not started, as run.py's
+    /// `KeyboardInterrupt` before `Popen`, so no game runs on the folders the cleanup removes. The
+    /// program does not exist: any try to start it would print its error and give 1.
+    #[test]
+    fn a_ctrl_c_before_the_start_does_not_start_the_game() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = [dir.path().join("no-such-probe").into_os_string()];
+        let mut out = Vec::new();
+        let mut runner = Runner::new(&mut out, IndexMap::new());
+        runner.interrupted = || true;
+        assert_eq!(runner.play_game(&command), INTERRUPTED);
+        assert!(out.is_empty(), "{}", String::from_utf8_lossy(&out));
+        // Without Ctrl+C the start is tried, and here fails.
+        let mut out = Vec::new();
+        let mut runner = Runner::new(&mut out, IndexMap::new());
+        runner.interrupted = || false;
+        assert_eq!(runner.play_game(&command), 1);
+        assert!(!out.is_empty());
     }
 
     #[test]
