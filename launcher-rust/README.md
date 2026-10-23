@@ -27,5 +27,5 @@ On Windows PowerShell: `$env:SPARTAN_GAME_DIR = "<game folder>"; cargo test --te
 
 ## Environment
 
-- `SPARTAN_PORT_DIR`: the port folder (with `run.py`, `bin/` and `scripts/`) and, unless `SPARTAN_DATA_DIR` is set, the data folder. Defaults to the executable's folder; point it at the repository root to run a `cargo` build.
+- `SPARTAN_PORT_DIR`: the port folder (with `bin/`) and, unless `SPARTAN_DATA_DIR` is set, the data folder. Defaults to the executable's folder; point it at the repository root to run a `cargo` build.
 - `SPARTANPORT_PYTHON`: the Python the dump tests compare against (the frozen Python launcher and runner). Defaults to `py -3` on Windows and `python3` elsewhere. The exe itself never runs Python.
