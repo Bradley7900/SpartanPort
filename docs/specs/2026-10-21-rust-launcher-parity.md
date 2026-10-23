@@ -34,7 +34,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py` | 51 | 20 | 18 | 0 | 0 | 13 |
 | `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 |
 | `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 |
-| `tests/test_launcher_exit_hint.py` | 17 | 10 | 5 | 0 | 0 | 2 |
+| `tests/test_launcher_exit_hint.py` | 17 | 10 | 7 | 0 | 0 | 0 |
 | `tests/test_launcher_font.py` | 19 | 0 | 6 | 6 | 0 | 7 |
 | `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 | 0 |
 | `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 |
@@ -50,13 +50,13 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_save.py` | 17 | 12 | 2 | 0 | 0 | 3 |
 | `tests/test_launcher_scaling.py` | 17 | 0 | 4 | 9 | 1 | 3 |
 | `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 | 0 |
-| `tests/test_launcher_stream_memory.py` | 4 | 0 | 3 | 0 | 0 | 1 |
+| `tests/test_launcher_stream_memory.py` | 4 | 1 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 0 | 8 |
 | `tests/test_launcher_update.py` | 15 | 11 | 1 | 0 | 0 | 3 |
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **336** | **127** | **85** | **20** | **2** | **102** |
+| **Total** | **336** | **128** | **87** | **20** | **2** | **99** |
 
 ## Map
 
@@ -176,8 +176,8 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_exit_hint_switches_to_advanced_page_and_scrolls_log` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | ported |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_exit_hint_unhides_launcher_when_hidden_for_game` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | ported |
 | `tests/test_launcher_exit_hint.py::ExitHintTest::test_clean_exit_destroys_root_when_hidden_for_game` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | ported |
-| `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_logs_hint_and_shows_messagebox` | — | dropped: no Rust counterpart — --play writes the exit advice to the log and shows a message box when no console is attached (--play is forwarded to the Python launcher) |
-| `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_clean_exit_does_not_show_messagebox` | — | dropped: no Rust counterpart — --play shows no message box after a clean exit (--play is forwarded to the Python launcher) |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_logs_hint_and_shows_messagebox` | `tests/runner.rs::play_writes_last_run_log_with_the_advice` | replaced by `tests/runner.rs::play_writes_last_run_log_with_the_advice` |
+| `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_clean_exit_does_not_show_messagebox` | `tests/runner.rs::play_writes_last_run_log_with_the_advice` | replaced by `tests/runner.rs::play_writes_last_run_log_with_the_advice` |
 | `tests/test_launcher_exit_hint.py::HybridGpuTest::test_windows_hides_the_amd_switchable_layer` | `src/core/env.rs::tests::windows_hides_the_amd_switchable_layer` | ported |
 | `tests/test_launcher_exit_hint.py::HybridGpuTest::test_a_value_set_by_the_player_is_kept` | `src/core/env.rs::tests::a_value_set_by_the_player_is_kept` | ported |
 | `tests/test_launcher_exit_hint.py::RealLauncherExitTest::test_real_launcher_memory_failure_navigates_to_advanced_without_key_error` | `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` | replaced by `tests/ui_play.rs::an_exit_hint_opens_the_log_and_unhides_the_launcher` |
@@ -358,7 +358,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_stdio.py::UnicodePreparationTest::test_captured_preparation_output_uses_utf8_despite_gbk_environment` | — | dropped: Python-only: run.py captures its scripts' output as UTF-8 whatever PYTHONIOENCODING says; run.py stays Python (the Rust launcher passes PYTHONIOENCODING=utf-8, tests/fixtures.rs) |
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_legacy_settings_and_invalid_values_use_cached_memory` | `src/core/env.rs::tests::stream_memory_falls_back_to_cached`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` | replaced by `src/core/env.rs::tests::stream_memory_falls_back_to_cached`, `tests/fixtures.rs::environment_matches_python_for_case_legacy_controls` |
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_every_selection_overrides_inherited_environment_without_changing_it` | `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
-| `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_play_without_window_uses_saved_selection` | — | dropped: no Rust counterpart — --play starts the game with the saved stream_memory (--play is forwarded to the Python launcher) |
+| `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_play_without_window_uses_saved_selection` | `tests/runner.rs::play_starts_the_game_with_the_saved_stream_memory` | ported |
 | `tests/test_launcher_stream_memory.py::StreamMemoryLauncherTest::test_ui_selection_persists_reopens_and_reverts_on_next_launch` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
 | `tests/test_launcher_translations.py::PortugueseTest::test_every_literal_text_is_translated` | — | dropped: no Rust counterpart — every literal text the launcher translates has a Portuguese text (no Rust test scans the tr() literals of the code) |
 | `tests/test_launcher_translations.py::PortugueseTest::test_button_names_are_translated` | — | dropped: no Rust counterpart — the controller button names have Portuguese texts |
@@ -402,7 +402,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 ## Known deviations from the Python
 
 1. Snapshot pixel comparison runs on Windows only; other hosts render and smoke-check (fonts: `Font::MONOSPACE` and Arabic glyphs come from the OS) — spec §7 asked for both CI runners.
-2. `--run`, `--script`, `--install-update`, `--play` are forwarded to the Python launcher (transition) until sub-project 4 ports them.
+2. `--script` and `--install-update` are forwarded to the Python launcher (transition) until sub-project 4 ports them. `--run` and `--play` start the Rust runner (`src/runner/`, sub-project 2), which no longer needs Python.
 3. The Steam Deck `render_resolution` default is not ported.
 4. On Save the Python resets a stored choice that is absent from its option list to the first option and converts value types; the Rust keeps stored values except the monitor.
 5. In Arabic the bar, the drawer side, the drawer header and the setting rows (name, control and note, check boxes, folder rows and section headings) are mirrored (R68). What stays left to right: the bar's tab order inside the right-aligned group and the pages' own layouts (the Trophies list, the Controls mapping table, the Mods list and presets, the Log button row and the order of the Files buttons, whose row is mirrored like the others).
@@ -444,6 +444,8 @@ the Python test:
 - `tests/test_launcher_desktop.py::DesktopIntegrationTest::test_a_broken_file_never_stops_the_start`: a broken neighbour across starts stands in for a failing scan.
 - `tests/test_launcher_desktop.py::LinuxShortcutTest::test_the_shells_variable_is_not_read_when_the_environment_is_given`: holds because write_linux_shortcut reads only the environment it is given.
 - `tests/test_launcher_exit_hint.py::ExitHintTest::test_other_lines_have_no_hint`: the other debug exception code (0xa0020014) is not asserted.
+- `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_logs_hint_and_shows_messagebox`: the advice reaches the test's callback (`play_with`'s `notify`); `play`'s own callback, `MessageBoxW` when no console is attached, is not run.
+- `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_clean_exit_does_not_show_messagebox`: the test's callback (`play_with`'s `notify`) stands for the message box and is not called after a clean exit; `play`'s own callback, `MessageBoxW` when no console is attached, is not run.
 - `tests/test_launcher_font.py::FontFileTest::test_font_file_is_a_launcher_asset_under_port_dir`: the Rust embeds the face instead of reading launcher/Cinzel-Black.ttf.
 - `tests/test_launcher_font.py::HeadingFontTest::test_english_titles_use_the_loaded_font`: only the snapshots show it (pixels compared on Windows only).
 - `tests/test_launcher_font.py::HeadingFontTest::test_game_name_uses_the_font_in_every_language`: the Rust name is the logotype image, the same in every language (snapshots).
@@ -481,7 +483,7 @@ the Python test:
 
 ## Gaps
 
-The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
+The 99 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rust test covers.
 
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_cover_falls_back_to_base_but_version_stays_from_update` — with an update that has no pic1.png the cover falls back to the base game's while the version shown stays the update's
 - `tests/test_launcher_artwork.py::LauncherArtworkTest::test_update_artwork_overrides_base_when_present` — the update's pic1.png is the cover when it has one
@@ -501,8 +503,6 @@ The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_controls.py::PadStyleTest::test_connected_gamepad_reads_the_probe` — the probe's "Gamepad: type=" line means a gamepad, "No gamepad" none, a timeout unknown (only a missing probe is asserted)
 - `tests/test_launcher_controls.py::PadStyleTest::test_nintendo_icons` — the Nintendo icons put B on the south button and ZL on the left trigger
 - `tests/test_launcher_desktop.py::DesktopIntegrationTest::test_without_the_environment_argument_the_real_one_is_read` — the start-up integration honours DESKTOPINTEGRATION from the real environment
-- `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_logs_hint_and_shows_messagebox` — --play writes the exit advice to the log and shows a message box when no console is attached (--play is forwarded to the Python launcher)
-- `tests/test_launcher_exit_hint.py::ExitHintTest::test_play_without_window_clean_exit_does_not_show_messagebox` — --play shows no message box after a clean exit (--play is forwarded to the Python launcher)
 - `tests/test_launcher_font.py::FontFileTest::test_packages_ship_the_font_license` — the Cinzel OFL license text ships with the face (launcher-rust/assets/OFL-Cinzel.txt exists; no test checks it or its packaging)
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_prefers_windows_cjk_font_for_body_and_headings` — Chinese uses an installed CJK face (Microsoft YaHei UI) for the body and the headings
 - `tests/test_launcher_font.py::ChineseFontTest::test_chinese_can_use_noto_on_linux` — Chinese uses Noto Sans CJK SC on Linux for the body and serif text
@@ -570,7 +570,6 @@ The 102 rows marked `dropped: no Rust counterpart`: Python behaviour that no Rus
 - `tests/test_launcher_scaling.py::ScaleSelectionTest::test_ui_scale_does_not_change_the_game_environment` — the GUI scale does not change the game environment
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_save_scales_the_whole_interface_and_preserves_game_settings` — Save with GUI Scale 2 doubles the interface, keeps the page, the ini and the game environment, and back to 1 restores the sizes
 - `tests/test_launcher_scaling.py::LauncherScalingTest::test_failed_save_keeps_the_current_scale` — a failed save keeps the current GUI scale
-- `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_play_without_window_uses_saved_selection` — --play starts the game with the saved stream_memory (--play is forwarded to the Python launcher)
 - `tests/test_launcher_translations.py::PortugueseTest::test_every_literal_text_is_translated` — every literal text the launcher translates has a Portuguese text (no Rust test scans the tr() literals of the code)
 - `tests/test_launcher_translations.py::PortugueseTest::test_button_names_are_translated` — the controller button names have Portuguese texts
 - `tests/test_launcher_translations.py::PortugueseTest::test_the_built_in_patch_notes_are_translated` — the notes of the built-in patches have Portuguese texts
