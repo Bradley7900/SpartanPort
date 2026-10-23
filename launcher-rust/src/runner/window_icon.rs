@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::core::fs::atomic_write;
+
 /// Writes `out/window_icon.bmp` from the port's icon (64 x 64 RGBA, Lanczos). `None` when the icon
 /// cannot be read or written: the window then keeps SDL's default.
 ///
@@ -11,7 +13,7 @@ pub fn write(png: &Path, out: &Path) -> Option<PathBuf> {
     let icon = image::open(png).ok()?.to_rgba8();
     let small = image::imageops::resize(&icon, SIZE, SIZE, image::imageops::FilterType::Lanczos3);
     let target = out.join("window_icon.bmp");
-    std::fs::write(&target, bmp_bytes(&small)).ok()?;
+    atomic_write(&target, &bmp_bytes(&small)).ok()?;
     Some(target)
 }
 
@@ -60,6 +62,23 @@ mod tests {
         let want = std::fs::read(&expected).unwrap();
         assert_eq!(got.len(), want.len());
         assert_eq!(got[..54], want[..54]);
+    }
+
+    #[test]
+    fn the_icon_replaces_the_file_instead_of_writing_into_it() {
+        // An atomic write: the new BMP takes the old file's place whole, so a second link to the
+        // old file keeps its bytes.
+        let png = Path::new(env!("CARGO_MANIFEST_DIR")).join("../launcher/spartanport.png");
+        let dir = tempfile::tempdir().unwrap();
+        let other = dir.path().join("other.bmp");
+        std::fs::write(&other, b"old").unwrap();
+        std::fs::hard_link(&other, dir.path().join("window_icon.bmp")).unwrap();
+        let written = write(&png, dir.path()).unwrap();
+        assert_eq!(std::fs::read(&written).unwrap().len(), 54 + 64 * 64 * 4);
+        assert!(
+            std::fs::read(&other).unwrap() == b"old",
+            "the BMP was written into the old file"
+        );
     }
 
     #[test]
