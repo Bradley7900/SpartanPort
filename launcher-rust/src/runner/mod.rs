@@ -2,6 +2,7 @@
 
 pub mod content_profile;
 pub mod game_update;
+pub mod graphics_options;
 pub mod guest_memory;
 pub mod isa_rewrite;
 pub mod link_libc;

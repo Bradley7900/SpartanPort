@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use spartanport_launcher::core::patches::{write_game_patches, PatchJob};
 use spartanport_launcher::runner::content_profile::{self, Sku};
+use spartanport_launcher::runner::graphics_options;
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::prepare::prepare;
@@ -215,4 +216,43 @@ fn patches_match_python() {
          Patches: Missing skipped (signature not found in this eboot.bin)\n\
          Patches: CUSA01623; 3 writes from ['Found', 'Call', 'Data']\n"
     );
+}
+
+#[test]
+fn graphics_matches_python() {
+    // As the generator ran graphics_options: prepare three times; before the second the in-game
+    // menu wrote input/edit.json (a restart request) into the ini.
+    let input = fixture_dir("graphics").join("input");
+    let dir = tempfile::tempdir().unwrap();
+    let ini = dir.path().join("spartanport.ini");
+    let state = dir.path().join("graphics_state.json");
+    fs::copy(input.join("spartanport.ini"), &ini).unwrap();
+    fs::copy(input.join("graphics_state.json"), &state).unwrap();
+    let edit: Value = serde_json::from_slice(&fs::read(input.join("edit.json")).unwrap()).unwrap();
+    let edit: indexmap::IndexMap<String, String> = edit
+        .as_object()
+        .unwrap()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
+        .collect();
+    for step in ["good", "tried", "reverted"] {
+        if step == "tried" {
+            graphics_options::write_keys(&ini, &edit).unwrap();
+        }
+        let prepared = graphics_options::prepare(&ini, &state, &[]);
+        let environment = graphics_options::environment(&prepared.options);
+        let mut environment_json = serde_json::to_string_pretty(&environment).unwrap();
+        environment_json.push('\n');
+        for (name, actual) in [
+            ("spartanport.ini", fs::read(&ini).unwrap()),
+            ("graphics_state.json", fs::read(&state).unwrap()),
+            ("environment.json", environment_json.into_bytes()),
+        ] {
+            assert_same_bytes(
+                &actual,
+                &expected("graphics", &format!("{step}/{name}")),
+                &format!("{step}/{name}"),
+            );
+        }
+    }
 }
