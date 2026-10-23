@@ -628,7 +628,7 @@ fn opening_the_ini_saves_first() {
 fn add_to_steam_saves_first() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    // No eboot.bin there: the bridge answers at once, without Python.
+    // No eboot.bin there: adding to Steam answers at once.
     set(
         &mut state,
         "game_dir",
@@ -641,13 +641,13 @@ fn add_to_steam_saves_first() {
         saved["game_dir"],
         json!(dir.path().join("game").display().to_string())
     );
-    assert_eq!(task.units(), 1, "the bridge starts");
+    assert_eq!(task.units(), 1, "adding to Steam starts");
 
     set(&mut state, "game_dir", json!(""));
     fs::remove_file(state.paths.config_file()).unwrap();
     block_settings(&state);
     let task = app::update(&mut state, Message::AddToSteam);
-    assert_eq!(task.units(), 0, "no bridge after a failed save");
+    assert_eq!(task.units(), 0, "no Add to Steam after a failed save");
     assert!(save_failed_shown(&state), "{:?}", state.modal);
 }
 
@@ -741,7 +741,7 @@ fn opening_the_ini_or_adding_to_steam_keeps_an_unreadable_file() {
     let task = app::update(&mut state, Message::OpenIni);
     assert_eq!(task.units(), 1, "the ini opens");
     let task = app::update(&mut state, Message::AddToSteam);
-    assert_eq!(task.units(), 1, "the bridge starts");
+    assert_eq!(task.units(), 1, "adding to Steam starts");
     assert!(state.modal.is_none());
     files_untouched(&state);
 }

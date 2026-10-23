@@ -24,6 +24,7 @@ if [[ -d fsr4_shaders ]] && command -v spirv-cross >/dev/null; then
 fi
 bash build.sh
 # cargo reads .cargo/config.toml from the working directory, so the launcher builds inside its crate.
-if [[ ! -x launcher-rust/target/release/spartanport-launcher ]]; then (cd launcher-rust && cargo build --release); fi
+# Always built: cargo does nothing when nothing changed, so a git pull never runs a stale launcher.
+(cd launcher-rust && cargo build --release)
 export SPARTAN_DATA_DIR=$data
 exec launcher-rust/target/release/spartanport-launcher --run "$@"

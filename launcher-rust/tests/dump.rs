@@ -18,7 +18,6 @@ use spartanport_launcher::runner::pause_menu::{self, decode, MenuError, Op, Reco
 use spartanport_launcher::runner::prepare::{prepare, read_self};
 use spartanport_launcher::runner::{glyphs, isa_rewrite, link_libc, link_modules, pause_menu_args};
 
-/// The game folder of `SPARTAN_GAME_DIR`, when it holds an `eboot.bin`.
 /// The interpreter the comparisons against the frozen Python use: `SPARTANPORT_PYTHON` as one
 /// program path, else `py -3` on Windows when `py.exe` is on `PATH`, `python` on Windows
 /// without it, `python3` elsewhere.
@@ -39,6 +38,7 @@ fn python_command(env: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, (
     }
 }
 
+/// The game folder of `SPARTAN_GAME_DIR`, when it holds an `eboot.bin`.
 fn dump() -> Option<PathBuf> {
     let dir = PathBuf::from(std::env::var_os("SPARTAN_GAME_DIR")?);
     dir.join("eboot.bin").is_file().then_some(dir)
