@@ -298,6 +298,10 @@ pub const ICONS: [&str; 9] = [
 pub const INK: [u8; 3] = [240, 240, 240];
 /// Drawn this many times larger, then reduced.
 pub const SCALE: usize = 6;
+/// The largest texture side `patch` draws (the game's glyph textures are 2048 at most): a DDS
+/// header that claims more comes from a corrupt WAD, and is left as it is rather than drawn and
+/// allocated at that size.
+pub const MAX_SIDE: usize = 4096;
 
 fn lookup<'a, V: Copy>(table: &'a [(&'a str, V)], key: &str) -> Option<V> {
     table.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
@@ -312,8 +316,12 @@ fn is_style(style: &str) -> bool {
 pub enum GlyphError {
     #[error("{0}")]
     Io(#[from] io::Error),
+    /// `length` is negative for an entry that ends inside its DDS header, as the Python's
+    /// `end - dds - 128` is.
     #[error("{drawn} bytes drawn for a texture of {length}")]
-    Length { drawn: usize, length: usize },
+    Length { drawn: usize, length: i64 },
+    #[error("a {width}x{height} texture is larger than {max}x{max}", max = MAX_SIDE)]
+    TooLarge { width: usize, height: usize },
     #[error("{0}")]
     Picture(String),
 }
@@ -1738,7 +1746,7 @@ pub fn encode(image: &Picture, fourcc: FourCc, length: usize) -> Result<Vec<u8>,
     if pixels.len() != length {
         return Err(GlyphError::Length {
             drawn: pixels.len(),
-            length,
+            length: i64::try_from(length).unwrap_or(i64::MAX),
         });
     }
     Ok(pixels)
@@ -1832,7 +1840,9 @@ pub fn patch(
                 buttons: &[],
             },
         };
-        let result = if texture.form.is_lyre() {
+        let result = if width > MAX_SIDE || height > MAX_SIDE {
+            Err(GlyphError::TooLarge { width, height })
+        } else if texture.form.is_lyre() {
             decode_texture(&data[dds..end], fourcc).and_then(|original| {
                 let kind = texture.buttons.first().copied().unwrap_or("");
                 let painted = lyre_paint(&original, texture.form, kind, &choice, &painter)?;
@@ -1849,7 +1859,15 @@ pub fn patch(
                 height,
                 &painter,
             )
-            .and_then(|picture| encode(&picture, fourcc, end - dds - 128))
+            .and_then(|picture| {
+                // The DDS magic lies inside the entry; its header may not.
+                let room = end - dds;
+                let length = room.checked_sub(128).ok_or(GlyphError::Length {
+                    drawn: 0,
+                    length: room as i64 - 128,
+                })?;
+                encode(&picture, fourcc, length)
+            })
             .map(|pixels| data[dds + 128..end].copy_from_slice(&pixels))
         };
         if let Err(error) = result {
@@ -2625,6 +2643,51 @@ pub(crate) mod tests {
         assert_eq!(count, 0);
         assert!(log.last().unwrap().contains("left as it is"), "{log:?}");
         assert_eq!(data, before);
+    }
+
+    /// What `patch` logs for `data`, a WAD of one glyph texture, which it must leave as it is.
+    fn refused(data: &[u8]) -> Vec<String> {
+        let mut copy = data.to_vec();
+        let mut log = Vec::new();
+        let count = patch(&mut copy, "xbox", None, "", "", &assets(), &mut |line| {
+            log.push(line)
+        });
+        assert_eq!(count, 0, "{log:?}");
+        assert_eq!(copy, data);
+        log
+    }
+
+    #[test]
+    fn a_texture_cut_short_inside_its_header_is_left_alone() {
+        // The entry ends 28 bytes before the DDS header does: the Python's encode gets a
+        // negative length and says so.
+        let name = "TX7FF61BF7.CC842B4F.dds";
+        let mut payload = b"\x07\x00\x01\x00".to_vec();
+        let mut field = name.as_bytes().to_vec();
+        field.resize(0x48, 0);
+        payload.extend(field);
+        payload.extend(&dds_header(128, 128, "DXT1")[..100]);
+        assert_eq!(
+            refused(&entry(name, &payload, 1)),
+            [format!(
+                "Glyphs: {name}: 0 bytes drawn for a texture of -28, left as it is"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_texture_larger_than_4096_a_side_is_left_alone() {
+        // A corrupt WAD's DDS header can claim any size: nothing is drawn, nor allocated, at it.
+        let name = "TX7FF61BF7.CC842B4F.dds";
+        for (width, height) in [(1_000_000, 1_000_000), (4097, 4), (4, 4097)] {
+            assert_eq!(
+                refused(&texture(name, width, height, "DXT1", 0, 64)),
+                [format!(
+                    "Glyphs: {name}: a {width}x{height} texture is larger than 4096x4096, left \
+                     as it is"
+                )]
+            );
+        }
     }
 
     #[test]
