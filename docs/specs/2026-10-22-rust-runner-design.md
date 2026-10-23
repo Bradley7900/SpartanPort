@@ -1,6 +1,7 @@
 # Runner em Rust (sub-projeto 2 da migração Python → Rust)
 
-Data: 2026-10-22. Estado: aprovada em conversa; aguarda o plano (`docs/plans/`).
+Data: 2026-10-22. Estado: implementada (plano em `docs/plans/2026-10-22-rust-runner.md`); o que
+foi construído está no mapa de paridade `2026-10-22-rust-runner-parity.md`.
 
 ## 1. Objetivo
 
@@ -23,7 +24,7 @@ no 3, entram aqui (§2): `run.py` chama as duas a cada PLAY.
 | Cobertura | Os 13 módulos mais `game_update` (a vista jogo + update que `run.py` monta quando há `SPARTAN_PATCH_DIR`), `link_libc` incluído: `out/boot-libc.bin` e `out/libc-link.json` continuam gerados embora nada os leia. Só `steam_shortcut` fica para o 3. |
 | Byte a byte | Onde o probe ou o jogo leem: `boot.bin`, `boot-libc.bin`, `boot-linked.bin`, `isa-rewrite.bin`, `content.bin`, `patches.bin`, `patches-merged.xml`, `patch_status.json`, `graphics_state.json`, o `R_UI.WAD` de `out/pause_menu/` e, nos WADs de `out/glyphs/`, tudo menos os blocos DXT pintados (linha "Desenho dos glyphs"). `window_icon.bmp` só precisa do mesmo tamanho e cabeçalho (§3.2). |
 | DXT | Compressão idêntica ao Pillow 12.3.0: port em Rust do encoder BC1/BC3 de `src/libImaging/BcnEncode.c` dessa release (licença HPND, atribuída em `launcher-rust/assets/`), chamado por faixa de 4 linhas como `glyphs.encode_region` chama `Image.save(..., 'DDS', pixel_format=…)`. Um encoder de crate daria blocos diferentes. |
-| Desenho dos glyphs | Os pixels pintados (texto em `Cinzel-Black.ttf` e `BodoniModa.ttf`, elipses, retângulos, redução Lanczos de 6×) saem de `ab_glyph` e `image` em Rust, não de FreeType e `ImageDraw`: comparados ao desenho do Pillow por PSNR ≥ 40 dB por textura, mais a conferência visual no dump real. Invisível para o jogador; os bytes diferem só nos blocos pintados. Igualdade total exigiria FreeType compilada e o port de `ImageDraw` e `Resample.c`: descartada. |
+| Desenho dos glyphs | Os pixels pintados (texto em `Cinzel-Black.ttf` e `BodoniModa.ttf`, elipses, retângulos, redução Lanczos de 6×) saem de `skrifa` (port em Rust puro do auto-hinter do FreeType: contornos e avanços com hinting) e `ab_glyph_rasterizer`, não de FreeType e `ImageDraw`: comparados ao desenho do Pillow por PSNR ≥ 40 dB por textura (medido: no mínimo 52,79 dB; as texturas só de formas saem idênticas) e, no dump real, bytes idênticos fora dos blocos pintados. O `ab_glyph` não serviu: sem hinter, errava hastes e avanços em até 2 px (17 de 74 texturas abaixo de 40 dB). Invisível para o jogador; os bytes diferem só nos blocos pintados. Igualdade total exigiria FreeType compilada e o port de `ImageDraw` e `Resample.c`: descartada. |
 | ISA | Crate `iced-x86` 1.21.0, o mesmo motor e versão da binding Python (`iced-x86==1.21.0` em `README.md`): os mesmos sites de MOVBE, LZCNT, BMI1 e F16C. |
 | Discord | `discord_presence.py` vem para este sub-projeto (`runner/discord.rs`): `run.py` cria `Presence(pid)` em processo e não há CLI Python para uma ponte; sem o port a presença sumiria entre o 2 e o 3. |
 | Ícone | `game_icon.ico` (ícone do jogo, da Sony, criado pelo launcher antigo) deixa de ser copiado pela migração portátil (`core/settings.rs`); o ícone é só o do SpartanPort (`launcher/spartanport.ico`, `launcher/spartanport.png`). |
@@ -49,7 +50,7 @@ runner depende de `core/` (`paths`, `ini`, `sfo`, `env`, `legacy`, `patches`, `m
 | `runner/prepare.rs` | `prepare.py` | SELF/ELF em texto claro → `boot.bin` (`G3PROBE2`), `eboot.elf`, `entry.bin`, `analysis.json`; `parse_self`, `read_self`, `nid`, `inspect_libc` (checa `_init_env` = `RET`); `load_sfo`/`read_sfo` reusam `core/sfo.rs`. |
 | `runner/link_libc.rs` | `link_libc.py` | eboot + `libc.prx` → `boot-libc.bin` (`G3PROBE4`), `libc-link.json`; `module`, `encode_id`. |
 | `runner/link_modules.rs` | `link_modules.py` | eboot + `libc.prx` + `libSceFios2.prx` → `boot-linked.bin` (`G3PROBE5`), `link.json`; `patch_fs_loads` reescreve `64 48 8b 04 25 00000000` (`fs:[0]`) para `gs:`; nomes canônicos `NID#lib`. |
-| `runner/isa_rewrite.rs` | `isa_rewrite.py` | `scan_segment` com `iced-x86`; `isa-rewrite.bin` (`G3ISA1`: cabeçalho de 64 bytes com SHA-256 e tamanho da imagem, registros de 64 bytes ordenados, espelho de `IsaSite` em `src/isa_emulate.h`); devolve 0 quando há sites, 1 quando não. |
+| `runner/isa_rewrite.rs` | `isa_rewrite.py` | `scan_segment` com `iced-x86`; `isa-rewrite.bin` (`G3ISA1`: cabeçalho de 64 bytes com SHA-256 e tamanho da imagem, registros de 64 bytes ordenados, espelho de `IsaSite` em `src/isa_emulate.h`); grava a tabela mesmo sem sites, como o Python, e devolve os sites. |
 | `runner/content_profile.rs` | `content_profile.py` | `param.sfo` + `--sku` → `content.bin` (28 bytes `G3CONT01`: full = 3, trial = 1), `content-profile.json`. |
 | `core/patches.rs` (amplia) | `patches.py` | `compile_patches` (busca por assinatura, preenchimento `{rel:}`), `merge_patch_files` → `patches-merged.xml`, `selected_patches`, `default_enabled`, `patch_requirements`, `game_profile_for`, `write_patches` → `patches.bin` (`G3PATCH2`), `patch_status.json`. XML externo só na SHA de referência, como hoje. |
 | `core/mods.rs` (amplia) | `mods.py` | `build_overlay` com as quatro estratégias de `mods.build_overlay` (symlink, junction, hard link, espelho), na ordem e com os critérios do Python; junction por `FSCTL_SET_REPARSE_POINT` em `core/platform/windows.rs` (o Python usa `_winapi.CreateJunction`); overlay removido no fim; `unpack_zips` com o marcador `.from-zip`. |
@@ -61,13 +62,13 @@ runner depende de `core/` (`paths`, `ini`, `sfo`, `env`, `legacy`, `patches`, `m
 | `core/save_backup.rs` | `save_backup.py` | Já existe (`backup`, `restore`); o runner chama `backup`. |
 | `core/legacy.rs` | `legacy.py` | Já existe (`forward_environment`, `copy_game_settings`); o runner chama os dois. |
 | `runner/discord.rs` | `discord_presence.py` | §3.5. |
-| `runner/window_icon.rs` | `run.py` (Pillow) | `launcher/spartanport.png` → `out/window_icon.bmp` 64 × 64 RGBA, redução Lanczos, com o crate `image` (feature `bmp`); pixels iguais aos do Pillow não são exigidos (só a janela os mostra). |
+| `runner/window_icon.rs` | `run.py` (Pillow) | `launcher/spartanport.png` → `out/window_icon.bmp` 64 × 64 RGBA, redução Lanczos, BMP escrito à mão (cabeçalho de 40 bytes, 32 bpp, os 54 primeiros bytes iguais aos do Pillow); pixels iguais aos do Pillow não são exigidos (só a janela os mostra). |
 
 ### 3.3 Linha de comando do executável
 
 - `--run [--after <pid>] [args]`: o runner; devolve seu exit code (§6). `args` vão ao probe.
-- `--play [args]`: o runner com as configurações salvas, como `play_without_window` do Python
-  2.7.0: `attach_stdio`, log em `<pasta de saves>/last_run.log`, conselho de saída gravado no
+- `--play`: o runner com as configurações salvas e sem argumentos, como `play_without_window` do
+  Python 2.7.0: `attach_stdio`, log em `<pasta de saves>/last_run.log`, conselho de saída gravado no
   log e, no Windows sem console, `MessageBoxW`.
 - `--version`, `--script`, `--install-update`: como hoje (os dois últimos encaminhados ao Python).
 - `startup::route` ganha `Route::Run` e `Route::Play`; `Route::Python` fica para os encaminhados.
@@ -85,7 +86,9 @@ influenciar PLAY (continua valendo para os encaminhados).
 `SPARTAN_DISCORD_ID` o substitui, `SPARTAN_DISCORD=0` desliga. Transportes: no Windows os named
 pipes `\\?\pipe\discord-ipc-0` … `9`; no Linux os sockets `discord-ipc-0` … `9` sob
 `XDG_RUNTIME_DIR`, `TMPDIR`, `TMP`, `TEMP` e `/tmp`, cada um também em
-`app/com.discordapp.Discord` e `snap.discord`. Quadros `<u32 opcode><u32 tamanho>` + JSON; opcodes
+`app/com.discordapp.Discord` e `snap.discord`. O pipe do Windows é aberto `PIPE_NOWAIT` e consultado
+com `PeekNamedPipe`, como no Python, sem thread de leitura (uma leitura pendente num pipe síncrono
+trava a escrita e o fechamento). Quadros `<u32 opcode><u32 tamanho>` + JSON; opcodes
 HANDSHAKE 0, FRAME 1, CLOSE 2, PING 3, PONG 4. Sequência: HANDSHAKE `{v: 1, client_id}` → FRAME
 `evt: READY`; SET_ACTIVITY com o `pid` do probe e o mesmo payload de `activity(started)`; leitura
 com 5 s de limite; nova tentativa a cada 15 s; ao fechar, limpa a atividade, envia CLOSE e espera
@@ -93,9 +96,13 @@ com 5 s de limite; nova tentativa a cada 15 s; ao fechar, limpa a atividade, env
 
 ### 3.6 Dependências novas
 
-`iced-x86 = "=1.21.0"` (features `decoder`), `image` com `bmp`, `sha2` e `roxmltree` já
-presentes, `windows-sys` com `Win32_System_Ioctl` e `Win32_Storage_FileSystem` (junction),
-`nix` já presente (`setsid`, `kill`). Nenhum crate de DXT.
+`iced-x86 = "=1.21.0"` (features `std`, `decoder` e `instr_info`: o fluxo de controle e os
+registradores), `skrifa` (sem `autohint_shaping`, como o FreeType padrão, sem HarfBuzz) e
+`ab_glyph_rasterizer` para o texto dos glyphs, `image` só com `png` (o BMP do ícone é escrito à mão:
+o encoder do crate grava um cabeçalho V4 em vez dos 54 bytes do Pillow), `sha2` e `roxmltree` já
+presentes, `windows-sys` com `Win32_System_Ioctl`, `Win32_System_IO` e `Win32_Storage_FileSystem`
+(junction), `Win32_System_Pipes` (Discord) e `Win32_System_SystemInformation` (memória física),
+`nix` já presente (`setsid`, `kill`). Nenhum crate de DXT e nenhuma FreeType compilada.
 
 ### 3.7 Formatos e constantes partilhados com o runtime C/C++
 
@@ -154,7 +161,8 @@ Nenhuma janela nova. O que muda para quem vê:
     (`applied_engine_fps`, padrão 60), `SPARTAN_DMEM_MB`, `SPARTAN_VBLANK_HZ` (padrão 60).
 13. `glyph_mounts`: `probe --gamepad` com 15 s de limite quando `SPARTAN_GLYPH_STYLE` é `auto`;
     `glyphs::build` → montagens; `pause_menu::build` sobre o `R_UI.WAD` resultante (ou o original)
-    → `--pause-menu`. Falhas dos dois só no log.
+    → `--pause-menu`. Falhas dos dois só no log. Se o probe `--gamepad` expira ou falha, não há
+    montagens e o jogo fica com os próprios ícones, como no `run.py`.
 14. `SPARTAN_DERIVED` com as chaves derivadas; aviso de `guest_memory` no log; cria `user_dir`;
     `SPARTAN_GPU_USER_DIR` padrão; `save_backup::backup` (falha só no log).
 15. `SPARTAN_RESTART_COMMAND` (§2).
@@ -204,14 +212,17 @@ no `last_run.log` e mostra `MessageBoxW` no Windows sem console.
 TDD: teste falhando antes do código. Os testes Python do runner são a lista de comportamentos;
 `docs/specs/2026-10-22-rust-runner-parity.md` marca cada caso como portado, substituído ou
 descartado, com o motivo, contra a referência 2.7.0 (`003e42b`), e
-`tests/test_runner_parity_doc.py` (o checador do launcher, parametrizado pelos arquivos) mantém o
-mapa honesto. Arquivos cobertos e seus casos: `test_prepare.py` (13), `test_link_libc.py` (9),
+`tests/test_runner_parity_doc.py` (o checador do launcher, `tests/parity_doc.py`, parametrizado pelos
+arquivos) mantém o mapa honesto. Arquivos cobertos e seus métodos de teste: `test_prepare.py` (13), `test_link_libc.py` (9),
 `test_link_modules.py` (2), `test_isa_rewrite.py` (21), `test_run_isa.py` (4), `test_patches.py`
 (30), `test_mods.py` (43), `test_mod_conflicts.py` (5), `test_glyphs.py` (37), `test_content.py`
 (5), `test_guest_memory.py` (8), `test_graphics_options.py` (28), `test_save_backup.py` (10),
 `test_pause_menu.py` (19), `test_native_cheats.py` (9), `test_legacy.py` (34),
-`test_discord_presence.py` (26), `test_game_update.py` (6). `test_runtime.py` testa o runtime C,
-não o runner: fica fora.
+`test_discord_presence.py` (26), `test_game_update.py` (6): 309 métodos e 308 linhas, pois
+`test_graphics_options.py` define um nome duas vezes. Resultado final do mapa: 276 portados,
+15 substituídos, 4 descartados (`ContentTests` testa o runtime C; `test_main_without_iced_x86` é só do
+Python), nenhum descartado pela spec e 13 lacunas, listadas no mapa (a maioria, atalhos do Windows
+que precisam do PowerShell). `test_runtime.py` testa o runtime C, não o runner: fica fora.
 
 ### 7.1 Unitários (`cargo test`, sem jogo)
 

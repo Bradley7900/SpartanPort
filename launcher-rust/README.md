@@ -16,6 +16,15 @@ cd launcher-rust
 cargo test
 ```
 
+The tests in `tests/dump.rs` need a real game folder (the patches of the real `eboot.bin`, the pause menu and the glyph WADs against the Python's) and return at once without one. Point `SPARTAN_GAME_DIR` at the dump to run them; the dump is only read:
+
+```
+cd launcher-rust
+SPARTAN_GAME_DIR=<game folder> cargo test --test dump
+```
+
+On Windows PowerShell: `$env:SPARTAN_GAME_DIR = "<game folder>"; cargo test --test dump`. Drop `--test dump` to run the whole suite with the dump. These tests also run the Python scripts (`py -3` on Windows, `python3` elsewhere, or `SPARTANPORT_PYTHON`) to compare their files with the Rust ones.
+
 ## Environment
 
 - `SPARTAN_PORT_DIR`: the port folder (with `run.py`, `bin/` and `scripts/`) and, unless `SPARTAN_DATA_DIR` is set, the data folder. Defaults to the executable's folder; point it at the repository root to run a `cargo` build.
