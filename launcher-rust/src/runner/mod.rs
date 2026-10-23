@@ -10,6 +10,7 @@ pub mod guest_memory;
 pub mod isa_rewrite;
 pub mod link_libc;
 pub mod link_modules;
+pub mod pause_menu;
 pub mod prepare;
 pub mod window_icon;
 
@@ -198,6 +199,35 @@ pub fn glyph_mounts(
         .flat_map(|(guest, path)| ["--mount".to_string(), format!("{guest}={}", path.display())])
         .collect();
     (arguments, Some(resolved.style))
+}
+
+/// Probe arguments for the copy of `R_UI.WAD` with the pause menu's Exit to Desktop row
+/// (`pause_menu::build`), made from the glyphs' copy when `mounts` (the probe arguments of
+/// [`glyph_mounts`]) has one (`run.py` `pause_menu_args`). The probe mounts it over both once its
+/// hook is in (`src/menu_hook.h`). The game folder is never written; what fails only reaches the
+/// Log, and the game then starts without the row.
+pub fn pause_menu_args(
+    game: &Path,
+    out: &Path,
+    mounts: &[String],
+    language: Option<&str>,
+    log: &mut dyn FnMut(String),
+) -> Vec<String> {
+    let guest = format!("/app0/{}=", pause_menu::WAD);
+    let source = mounts
+        .iter()
+        .find_map(|part| part.strip_prefix(guest.as_str()))
+        .map(Path::new);
+    match pause_menu::build(game, out, source, language, log) {
+        Ok(made) => made
+            .into_iter()
+            .flat_map(|path| ["--pause-menu".to_string(), pause_menu::python_path(&path)])
+            .collect(),
+        Err(error) => {
+            log(format!("Pause menu: {error}; no Exit to Desktop row"));
+            Vec::new()
+        }
+    }
 }
 
 /// Waits up to `limit` for process `pid` to end (the previous game, for `--after`). `true` when it
@@ -458,6 +488,54 @@ mod tests {
             log.len() == 1
                 && log[0].starts_with("Glyphs: ")
                 && log[0].ends_with("; the game keeps its own button icons"),
+            "{log:?}"
+        );
+    }
+
+    // -- pause_menu_args (run.py): the copy with the Exit to Desktop row ---------------------------
+
+    /// What `pause_menu_args` returned and the Log lines.
+    fn menu_args(game: &Path, out: &Path, mounts: &[String]) -> (Vec<String>, Vec<String>) {
+        let mut log = Vec::new();
+        let args = pause_menu_args(game, out, mounts, Some("en"), &mut |line| log.push(line));
+        (args, log)
+    }
+
+    #[test]
+    fn pause_menu_args_patch_the_glyph_copy_when_it_is_mounted() {
+        // The game folder has no R_UI.WAD: only the glyph copy can be the source.
+        let run = glyph_run(false);
+        let copy = run.out.join("glyphs").join("R_UI.WAD");
+        std::fs::write(&copy, glyphs::tests::wad()).unwrap();
+        let mounts = [
+            "--mount".to_string(),
+            "/app0/EXEC/WAD/PS4_LE/R_UI.WAD.bak=elsewhere".to_string(),
+            "--mount".to_string(),
+            format!("/app0/EXEC/WAD/PS4_LE/R_UI.WAD={}", copy.display()),
+        ];
+        let (args, log) = menu_args(&run.game, &run.out, &mounts);
+        assert!(args.is_empty());
+        assert_eq!(
+            log,
+            ["Pause menu: no SMI_R_UI in this WAD; no Exit to Desktop row"]
+        );
+        // Without the mount the game's own R_UI.WAD is the source; there is none here.
+        let (args, log) = menu_args(&run.game, &run.out, &[]);
+        assert!(args.is_empty());
+        assert!(log.is_empty(), "{log:?}");
+    }
+
+    #[test]
+    fn pause_menu_args_report_what_fails_and_start_without_the_row() {
+        let run = glyph_run(true);
+        // out/ is a file, so out/pause_menu cannot be made.
+        let out = run.out.join("glyphs").join("R_UI.WAD");
+        let (args, log) = menu_args(&run.game, &out, &[]);
+        assert!(args.is_empty());
+        assert!(
+            log.len() == 1
+                && log[0].starts_with("Pause menu: ")
+                && log[0].ends_with("; no Exit to Desktop row"),
             "{log:?}"
         );
     }
