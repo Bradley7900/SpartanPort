@@ -527,10 +527,11 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
             v.async_shaders = true;
             v.rcas = true;
             v.rcas_strength = 75;
+            v.anisotropy = 0;
             SpartanSettings::Save();
             return 0;
         }
-        if (index >= 4 || group > 0xfa0) return 0;
+        if (index >= 5 || group > 0xfa0) return 0;
         if (group == 0xfa0) return index == 3 ? std::clamp(v.rcas_strength.load(), 0, 100) : 0;
         if (index == 3 && (!v.rcas || !rcas_available))
             return text("-");
@@ -543,6 +544,10 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
                 v.async_shaders = !v.async_shaders.load();
             } else if (index == 2) {
                 v.rcas = !v.rcas.load();
+            } else if (index == 4) {
+                const auto& values = SpartanGraphics::Anisotropies;
+                const int current = SpartanGraphics::IndexOf(values, v.anisotropy.load(), 0);
+                v.anisotropy = values[(current + (group == 0xf90 ? 1 : 4)) % values.size()];
             } else {
                 v.rcas_strength = std::clamp(v.rcas_strength.load() + (group == 0xf90 ? 5 : -5), 0, 100);
             }
@@ -555,6 +560,11 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
         if (index == 1 || index == 2) {
             const bool enabled = index == 1 ? v.async_shaders.load() : v.rcas.load();
             return enabled ? label("On", "Ligada") : label("Off", "Desligada");
+        }
+        if (index == 4) {
+            static thread_local std::string anisotropy;
+            anisotropy = v.anisotropy ? std::to_string(v.anisotropy.load()) + "x" : portuguese ? "Padrão do jogo" : "Game default";
+            return text(anisotropy.c_str());
         }
         static thread_local char strength[8];
         std::snprintf(strength, sizeof(strength), "%d%%", v.rcas_strength.load());

@@ -12,6 +12,12 @@ GAME = Path(os.environ['SPARTAN_GAME_DIR']) if os.environ.get('SPARTAN_GAME_DIR'
 
 @unittest.skipUnless(GAME and (GAME / pause_menu.WAD).is_file(), 'needs SPARTAN_GAME_DIR')
 class NativeCheats(unittest.TestCase):
+    def test_anisotropy_has_a_restart_confirmation(self):
+        self.script.one('NativeGraphic4')
+        entry = self.block(self.script.one('NativeGraphicsRestart'), 1)
+        target = next(int.from_bytes(arg, 'big') for _, op, arg in entry if op == 0x47)
+        self.assertEqual(target, self.script.one('NativeGraphicsRestartNo')['at'] - 4)
+
     @classmethod
     def setUpClass(cls):
         cls.data = bytearray((GAME / pause_menu.WAD).read_bytes())
@@ -90,8 +96,8 @@ class NativeCheats(unittest.TestCase):
 
     def test_graphics_rows_wrap_and_only_strength_uses_a_slider(self):
         self.assertEqual(self.target('NativeGraphic0', pause_menu.UP),
-                         self.script.one('NativeGraphicsReset')['at'] - 4)
-        self.assertEqual(self.target('NativeGraphicsReset', pause_menu.DOWN),
+                         self.script.one('NativeGraphicsApply')['at'] - 4)
+        self.assertEqual(self.target('NativeGraphicsApply', pause_menu.DOWN),
                          self.script.one('NativeGraphic0')['at'] - 4)
         entry = self.block(self.script.one('NativeGraphics'), 1)
         texts = [self.script.string(self.script.lit + int.from_bytes(arg, 'big'))

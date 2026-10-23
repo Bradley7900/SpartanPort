@@ -35,7 +35,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 20  # of the patch: a change rebuilds the cached copy
+VERSION = 21  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABELS = {
     'en': b'Exit to Desktop',
@@ -476,9 +476,10 @@ def native_cheats(data, spans, language=None):
     specs += [(f'NativeMultiplier{i}', 'NativeMultipliers', [left, right, UP, DOWN]) for i in range(6)]
     specs += [('NativeMultiplierReset', 'NativeMultipliers', [UP, DOWN, CONFIRM])]
     specs += [('NativeGraphics', 'pause', [[0xeb]])]
-    specs += [(f'NativeGraphic{i}', 'NativeGraphics', [left, right, UP, DOWN] if i in (0, 3)
-               else [toggle, UP, DOWN]) for i in range(4)]
+    specs += [(f'NativeGraphic{i}', 'NativeGraphics', [left, right, UP, DOWN] if i in (0, 3, 4)
+               else [toggle, UP, DOWN]) for i in range(5)]
     specs += [('NativeGraphicsReset', 'NativeGraphics', [UP, DOWN, CONFIRM]),
+              ('NativeGraphicsApply', 'NativeGraphics', [UP, DOWN, CONFIRM]),
               ('NativeGraphicsConfirm', 'pause', [[0xeb]]),
               ('NativeGraphicsResetYes', 'NativeGraphicsConfirm', [UP, DOWN, CONFIRM]),
               ('NativeGraphicsResetNo', 'NativeGraphicsConfirm', [UP, DOWN, CONFIRM])]
@@ -488,6 +489,9 @@ def native_cheats(data, spans, language=None):
     specs += [('NativeDisplayConfirm', 'pause', [[0xeb]]),
               ('NativeDisplayYes', 'NativeDisplayConfirm', [UP, DOWN, CONFIRM]),
               ('NativeDisplayNo', 'NativeDisplayConfirm', [UP, DOWN, CONFIRM])]
+    for page in ('NativeGraphicsRestart',):
+        specs += [(page, 'pause', [[0xeb]]), (page + 'Yes', page, [UP, DOWN, CONFIRM]),
+                  (page + 'No', page, [UP, DOWN, CONFIRM])]
     sizes = {name: 20 + sum(4 + 4 * len(t) for t in events) for name, parent, events in specs}
     option_size = sizes['HLNativeGraphics'] + sizes['HLNativeCheats']
     display_size = sum(sizes[name] for name, parent, events in display_specs)
@@ -609,9 +613,10 @@ def native_cheats(data, spans, language=None):
     portuguese = resolve_label(language)[1] == 'pt'
     graphics_title = 'Configurações Gráficas' if portuguese else 'Graphics Settings'
     graphics_names = (['Quadros enfileirados', 'Shaders assíncronos', 'Nitidez RCAS',
-                       'Intensidade da nitidez', 'Restaurar padrões gráficos'] if portuguese else
+                       'Intensidade da nitidez', 'Filtragem anisotrópica', 'Restaurar padrões gráficos',
+                       'Aplicar e reiniciar'] if portuguese else
                       ['Frames Queued', 'Async Shader Compilation', 'RCAS Sharpening',
-                       'Sharpening Strength', 'Restore Graphics Defaults'])
+                       'Sharpening Strength', 'Anisotropic Filtering', 'Restore Graphics Defaults', 'Apply and Restart'])
     display_names = (['Resolução', 'Proporção', 'Limite de FPS', 'FPS do motor', 'Monitor',
                       'Modo de exibição', 'VSync', 'HDR', 'Aplicar e reiniciar'] if portuguese else
                      ['Resolution', 'Aspect Ratio', 'Frame Rate Limit', 'Engine Frame Rate', 'Monitor',
@@ -760,11 +765,17 @@ def native_cheats(data, spans, language=None):
                 end()
 
     def graphics_values(selected=None):
-        for index in range(4):
+        string(graphics_title)
+        assign(0)
+        for slot in range(8):
+            string(graphics_names[slot] if slot < len(graphics_names) else '')
+            assign(1 + slot)
+        for index in range(5):
             query(index, 0xf70 + index, index == selected)
         slider(3, 0xfa3)
+        bars(True, (3,))
 
-    graphics_rows = [f'NativeGraphic{i}' for i in range(4)] + ['NativeGraphicsReset']
+    graphics_rows = [f'NativeGraphic{i}' for i in range(5)] + ['NativeGraphicsReset', 'NativeGraphicsApply']
     confirmation_rows = ['NativeGraphicsResetYes', 'NativeGraphicsResetNo']
     for page, title, names_, rows in (
             ('NativeGraphics', graphics_title, graphics_names, graphics_rows),
@@ -784,7 +795,6 @@ def native_cheats(data, spans, language=None):
         bars(False)
         if page == 'NativeGraphics':
             graphics_values()
-            bars(True, (3,))
         goto(rows[0] if page == 'NativeGraphics' else rows[1])
         end()
         begin(page, 2)
@@ -795,7 +805,7 @@ def native_cheats(data, spans, language=None):
         goto('HLNativeGraphics' if page == 'NativeGraphics' else 'NativeGraphicsReset')
         end()
         for index, name in enumerate(rows):
-            function = 0xf70 + index if page == 'NativeGraphics' and index < 4 else None
+            function = 0xf70 + index if page == 'NativeGraphics' and index < 5 else None
             selection(name, index, function, graphics=page == 'NativeGraphics')
             selection(name, index, function, False)
             navigation(name, index, rows)
@@ -804,18 +814,53 @@ def native_cheats(data, spans, language=None):
                 sound('SND_MM_SELECT')
                 if name == 'NativeGraphicsResetYes':
                     builtin(0xfb0)
-                goto('NativeGraphicsConfirm' if name == 'NativeGraphicsReset' else 'NativeGraphicsReset')
+                if name == 'NativeGraphicsApply':
+                    builtin(0xfc9, pop=False)
+                    emit(b'\x17' + be(5, 2))
+                    goto('NativeGraphicsRestart')
+                else:
+                    goto('NativeGraphicsConfirm' if name == 'NativeGraphicsReset' else 'NativeGraphicsReset')
                 end()
             else:
-                actions = [('left', 0xf80 + index), ('right', 0xf90 + index)] if index in (0, 3) else [('toggle', 0xf90 + index)]
+                actions = [('left', 0xf80 + index), ('right', 0xf90 + index)] if index in (0, 3, 4) else [('toggle', 0xf90 + index)]
                 for kind, function in actions:
                     begin(name, kind)
                     call(repeat)
-                    for other in range(4):
+                    for other in range(5):
                         query(other, function if other == index else 0xf70 + other, other == index)
                     slider(3, 0xfa3)
                     sound('SND_MM_NAV_LR')
                     end()
+
+    for page, target, reset in (('NativeGraphicsRestart', 'NativeGraphicsApply', False),):
+        rows = [page + 'Yes', page + 'No']
+        begin(page, 1)
+        string(('Restaurar padrões dos controles?' if portuguese else 'Restore controls defaults?') if reset
+               else ('Reiniciar o jogo?' if portuguese else 'Apply and restart?'))
+        assign(0)
+        for index in range(8):
+            yes = ('Sim' if reset else 'Sim, perder progresso não salvo') if portuguese else ('Yes' if reset else 'Yes, lose unsaved progress')
+            string((yes if index == 0 else 'Não' if portuguese else 'No') if index < 2 else '')
+            assign(1 + index)
+            string('')
+            assign(9 + index)
+        bars(False)
+        goto(rows[1])
+        end()
+        begin(page, 2)
+        end()
+        begin(page, 'back')
+        goto(target)
+        end()
+        for index, name in enumerate(rows):
+            selection(name, index)
+            selection(name, index, selected=False)
+            navigation(name, index, rows)
+            begin(name, 'confirm')
+            if index == 0:
+                builtin(0xfb7 if reset else 0xfcb)
+            goto(target)
+            end()
 
     display_ref = next(v for k, v, t in s.blocks(display) if k == 1)
     original_display = s.block_bytes(display_ref)
@@ -958,7 +1003,6 @@ def native_cheats(data, spans, language=None):
         ref = next(v for k, v, t in s.blocks(record) if k == 1)
         copy_entry(ref, {})
         redirects.append((record, label))
-
     code_start = start + len(strings)
     for at, target in fixups:
         destination = code_start + labels[target] if target in labels else target
@@ -1011,7 +1055,8 @@ def native_cheats(data, spans, language=None):
             record += be((kind << 24) | (code_start + handlers[name, kind]))
         event_names = ['back'] if parent == 'pause' else (
             ['left', 'right', 'up', 'down'] if (name.startswith('NativeMultiplier') and name[-1:].isdigit())
-            or name in ('NativeGraphic0', 'NativeGraphic3') or name.startswith('NativeDisplay') and name[-1:].isdigit()
+            or name in ('NativeGraphic0', 'NativeGraphic3', 'NativeGraphic4')
+            or name.startswith('NativeDisplay') and name[-1:].isdigit()
             else ['toggle', 'up', 'down'] if (name.startswith('NativeCheat') and name[-1:].isdigit())
             or name in ('NativeGraphic1', 'NativeGraphic2')
             else ['up', 'down', 'confirm'])

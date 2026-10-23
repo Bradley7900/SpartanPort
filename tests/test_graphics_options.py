@@ -9,6 +9,19 @@ import graphics_options as g
 
 
 class GraphicsOptionsTest(unittest.TestCase):
+    def test_anisotropy_survives_restart_and_recovers_after_failure(self):
+        g.prepare(self.ini, self.state)
+        g.write_keys(self.ini, {'anisotropy': '16', 'restart_unconfirmed': '1'})
+        options, reverted = g.prepare(self.ini, self.state)
+        self.assertFalse(reverted)
+        self.assertEqual(g.environment(options)['SPARTAN_ANISOTROPY'], '16')
+        restored, reverted = g.prepare(self.ini, self.state)
+        self.assertTrue(reverted)
+        self.assertEqual(restored['anisotropy'], '0')
+
+    def test_invalid_anisotropy_falls_back_to_default(self):
+        self.assertEqual(g.startup_options({'anisotropy': '3'})['anisotropy'], '0')
+
     def test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart(self):
         self.ini.write_text('monitor=0\nhdr=0\n', encoding='utf-8')
         good, _ = g.prepare(self.ini, self.state)
@@ -58,6 +71,7 @@ class GraphicsOptionsTest(unittest.TestCase):
                 'async_shaders': '1',
                 'monitor': '',
                 'hdr': '0',
+                'anisotropy': '0',
             },
         )
 
@@ -298,6 +312,7 @@ class GraphicsOptionsTest(unittest.TestCase):
                 'SPARTAN_ASYNC_SHADERS': '1',
                 'SPARTAN_MONITOR': '',
                 'SPARTAN_HDR': '0',
+                'SPARTAN_ANISOTROPY': '0',
             },
         )
 

@@ -181,6 +181,10 @@ int main() {
     assert(spartanportgpu_enemy_health_bar(1) == 0 && !v.enemy_health_bar);
     assert(Read(path).find("enemy_health_bar=0\n") != std::string::npos);
     const auto text = [](unsigned id) { return reinterpret_cast<const char*>(spartanportgpu_native_setting(id)); };
+    v.anisotropy = 0;
+    assert(spartanportgpu_native_setting(0xf74) != 0);
+    assert(std::string(text(0xf94)) == "2x" && v.anisotropy == 2);
+    assert(std::string(text(0xf84)) == "Game default" && v.anisotropy == 0);
     v.cheats_supported = 0;
     v.cheats[0] = false;
     assert(std::string(text(0xf10)) == "Unavailable" && !v.cheats[0]);
@@ -269,7 +273,7 @@ int main() {
     assert(spartanportgpu_native_setting(0xfb0) == 0);
     assert(v.frames_queued == 1 && v.async_shaders && v.rcas && v.rcas_strength == 75);
     assert(v.fps_limit == 144 && v.engine_fps == 180 && v.render_resolution == 4 && !v.vsync);
-    assert(v.anisotropy == 8 && v.cheats[0] && v.damage_dealt == 2.0f);
+    assert(v.anisotropy == 0 && v.cheats[0] && v.damage_dealt == 2.0f);
     v.rcas_strength = 0;
     SpartanSettings::Load();
     assert(v.rcas_strength == 75 && v.async_shaders && v.frames_queued == 1 && v.rcas);
@@ -277,7 +281,7 @@ int main() {
     v.async_shaders = false;
     assert(std::string(text(0xf71)) == "Desligada");
     assert(std::string(text(0xf91)) == "Ligada");
-    assert(spartanportgpu_native_setting(0xf74) == 0 && spartanportgpu_native_setting(0xfb1) == 0);
+    assert(std::string(text(0xf74)) == "Padrão do jogo");
     SetEnvironment("SPARTAN_LANGUAGE", "");
     v.render_resolution = 0;
     const auto initial_aspect = std::string(text(0xfc1));

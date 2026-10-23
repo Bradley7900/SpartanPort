@@ -44,7 +44,7 @@ int spartanportgpu_vibration_percent(void);
 int spartanportgpu_enemy_health_bar(int toggle);
 /* Native Cheats: f00+i query/f10+i toggle (8 cheats); f20+i text/f30+i decrease/f40+i increase/
  * f50+i slider position (6 multipliers); f60 resets multipliers. Graphics: f70+i query,
- * f80+i decrease/f90+i increase (4 controls), fa3 strength position, fb0 defaults.
+ * f80+i decrease/f90+i increase (5 controls), fa3 strength position, fb0 defaults.
  * Display: fc0+i query/fd0+i decrease/fe0+i increase/ff0+i selected query (8 controls;
  * formatted text), fc9 restart available, fcb confirmed restart request (1 when saved).
  * Text results are stable pointers. */
