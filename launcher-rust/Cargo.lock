@@ -3748,6 +3748,7 @@ version = "2.7.0"
 dependencies = [
  "ab_glyph_rasterizer",
  "chrono",
+ "crc32fast",
  "iced",
  "iced-x86",
  "iced_test",

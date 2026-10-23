@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io;
-use std::os::windows::ffi::OsStrExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
@@ -28,6 +28,7 @@ use windows_sys::Win32::System::Pipes::{
     PeekNamedPipe, SetNamedPipeHandleState, NAMED_PIPE_MODE, PIPE_NOWAIT, PIPE_READMODE_BYTE,
 };
 use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_MOUNT_POINT;
+use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
 use windows_sys::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE,
 };
@@ -39,6 +40,49 @@ pub fn user_default_ui_language() -> Option<u32> {
     // SAFETY: the function takes no arguments and no pointers, and always succeeds.
     let id = unsafe { GetUserDefaultUILanguage() };
     (id != 0).then_some(u32::from(id))
+}
+
+/// Steam's install folder from `HKCU\Software\Valve\Steam\SteamPath`, if the key is there.
+pub fn steam_path_from_registry() -> Option<std::path::PathBuf> {
+    let wide = |text: &str| -> Vec<u16> { text.encode_utf16().chain([0]).collect() };
+    let (key, value) = (wide("Software\\Valve\\Steam"), wide("SteamPath"));
+    let mut size: u32 = 0;
+    // SAFETY: both names are NUL-terminated and outlive the call; a null data pointer only asks
+    // for the size in bytes.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut size,
+        )
+    };
+    if status != 0 || size == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; (size as usize).div_ceil(2)];
+    let mut size = (buf.len() * 2) as u32;
+    // SAFETY: `buf` is writable for `size` bytes and the names are as above; the call writes at
+    // most `size` bytes and updates it to the length written.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    (len > 0).then(|| std::path::PathBuf::from(std::ffi::OsString::from_wide(&buf[..len])))
 }
 
 /// Gives a console program no console window (the launcher, a windowed program, has none to share).

@@ -18,6 +18,11 @@ pub fn user_default_ui_language() -> Option<u32> {
     None
 }
 
+/// Steam keeps no registry entry here.
+pub fn steam_path_from_registry() -> Option<std::path::PathBuf> {
+    None
+}
+
 /// Programs share the terminal here: nothing to hide.
 pub fn no_window(_cmd: &mut Command) {}
 
