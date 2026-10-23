@@ -282,22 +282,29 @@ pub fn remove_python_leftovers(port_dir: &Path) {
     if !internal.is_dir() {
         return;
     }
-    let _ = fs::remove_dir_all(&internal);
-    let _ = fs::remove_file(port_dir.join("run.py"));
+    let gone = |result: std::io::Result<()>| {
+        result.is_ok() || result.is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+    };
+    let mut all_gone = gone(fs::remove_file(port_dir.join("run.py")));
     let scripts = port_dir.join("scripts");
     if let Ok(entries) = fs::read_dir(&scripts) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_some_and(|e| e == "py") && path.is_file() {
-                let _ = fs::remove_file(path);
+                all_gone &= gone(fs::remove_file(path));
             }
         }
     }
-    let _ = fs::remove_dir_all(scripts.join("__pycache__"));
+    all_gone &= gone(fs::remove_dir_all(scripts.join("__pycache__")));
     let tools = port_dir.join("tools");
-    let _ = fs::remove_file(tools.join("xvag_voice_swap.py"));
-    // `remove_dir` only removes an empty folder.
+    all_gone &= gone(fs::remove_file(tools.join("xvag_voice_swap.py")));
+    // `remove_dir` only removes an empty folder; a tools/ with other files stays on purpose.
     let _ = fs::remove_dir(&tools);
+    // `_internal/` is what brings this cleanup back at the next start: it goes last, and only
+    // when nothing above failed.
+    if all_gone {
+        let _ = fs::remove_dir_all(&internal);
+    }
 }
 
 fn write_marker(data_dir: &Path, marker: &Path) {
@@ -658,6 +665,25 @@ mod tests {
         remove_python_leftovers(&port);
         assert!(!port.join("tools/xvag_voice_swap.py").exists());
         assert!(port.join("tools/mine.txt").is_file());
+    }
+
+    #[test]
+    fn a_failed_removal_keeps_the_cleanup_for_the_next_start() {
+        // `_internal/` is what brings the cleanup back: it must outlive any other failure.
+        let f = fixture();
+        let port = f.root.join("install");
+        python_package(&port);
+        // A non-empty folder named run.py: remove_file fails on it.
+        fs::remove_file(port.join("run.py")).unwrap();
+        put(&port.join("run.py/blocker"), b"x");
+        remove_python_leftovers(&port);
+        assert!(port.join("_internal").is_dir());
+        assert!(!port.join("scripts/glyphs.py").exists());
+        assert!(!port.join("tools").exists());
+        // The blocker goes; the next start finishes the job.
+        fs::remove_dir_all(port.join("run.py")).unwrap();
+        remove_python_leftovers(&port);
+        assert!(!port.join("_internal").exists());
     }
 
     #[test]
