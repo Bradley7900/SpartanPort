@@ -309,6 +309,18 @@ class ControlMapTest(unittest.TestCase):
         self.assertEqual(launcher.APP_DEFAULTS['glyph_style'], 'off')
         self.assertNotIn('SPARTAN_GLYPH_STYLE', launcher.game_environment({**launcher.APP_DEFAULTS}))
 
+    def test_glyph_style_ini_overrides_legacy_launcher_choice(self):
+        with tempfile.TemporaryDirectory() as folder:
+            ini = Path(folder) / 'spartanport.ini'
+            with mock.patch.object(launcher, 'ini_path', return_value=ini), \
+                    mock.patch.object(launcher, 'load_json', return_value={'glyph_style': 'nintendo'}):
+                self.assertEqual(launcher.load_ini()[0]['glyph_style'], 'nintendo')
+                ini.write_text('glyph_style=keyboard\n', encoding='utf-8')
+                values, _ = launcher.load_ini()
+                self.assertEqual(values['glyph_style'], 'keyboard')
+                options = launcher.graphics_options.startup_options(values)
+                self.assertEqual(launcher.graphics_options.environment(options)['SPARTAN_GLYPH_STYLE'], 'keyboard')
+
     def test_glyph_style_choices_reach_the_game(self):
         for style in ('auto', 'xbox', 'nintendo', 'keyboard'):
             env = launcher.game_environment({**launcher.APP_DEFAULTS, 'glyph_style': style})

@@ -9,18 +9,21 @@ import graphics_options as g
 
 
 class GraphicsOptionsTest(unittest.TestCase):
-    def test_anisotropy_survives_restart_and_recovers_after_failure(self):
-        g.prepare(self.ini, self.state)
-        g.write_keys(self.ini, {'anisotropy': '16', 'restart_unconfirmed': '1'})
-        options, reverted = g.prepare(self.ini, self.state)
+    def test_glyphs_and_anisotropy_survive_restart_and_recover_after_failure(self):
+        options, _ = g.prepare(self.ini, self.state, environment={'SPARTAN_GLYPH_STYLE': 'xbox'})
+        self.assertEqual(options['glyph_style'], 'xbox')
+        g.write_keys(self.ini, {'glyph_style': 'keyboard', 'anisotropy': '16', 'restart_unconfirmed': '1'})
+        options, reverted = g.prepare(self.ini, self.state, environment={'SPARTAN_GLYPH_STYLE': 'xbox'})
         self.assertFalse(reverted)
+        self.assertEqual(g.environment(options)['SPARTAN_GLYPH_STYLE'], 'keyboard')
         self.assertEqual(g.environment(options)['SPARTAN_ANISOTROPY'], '16')
         restored, reverted = g.prepare(self.ini, self.state)
         self.assertTrue(reverted)
-        self.assertEqual(restored['anisotropy'], '0')
+        self.assertEqual((restored['glyph_style'], restored['anisotropy']), ('xbox', '0'))
 
-    def test_invalid_anisotropy_falls_back_to_default(self):
-        self.assertEqual(g.startup_options({'anisotropy': '3'})['anisotropy'], '0')
+    def test_invalid_glyphs_and_anisotropy_fall_back_to_defaults(self):
+        options = g.startup_options({'glyph_style': 'bad', 'anisotropy': '3'})
+        self.assertEqual((options['glyph_style'], options['anisotropy']), ('off', '0'))
 
     def test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart(self):
         self.ini.write_text('monitor=0\nhdr=0\n', encoding='utf-8')
@@ -71,6 +74,7 @@ class GraphicsOptionsTest(unittest.TestCase):
                 'async_shaders': '1',
                 'monitor': '',
                 'hdr': '0',
+                'glyph_style': 'off',
                 'anisotropy': '0',
             },
         )
@@ -312,6 +316,7 @@ class GraphicsOptionsTest(unittest.TestCase):
                 'SPARTAN_ASYNC_SHADERS': '1',
                 'SPARTAN_MONITOR': '',
                 'SPARTAN_HDR': '0',
+                'SPARTAN_GLYPH_STYLE': 'off',
                 'SPARTAN_ANISOTROPY': '0',
             },
         )

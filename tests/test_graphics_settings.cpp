@@ -185,6 +185,25 @@ int main() {
     assert(spartanportgpu_native_setting(0xf74) != 0);
     assert(std::string(text(0xf94)) == "2x" && v.anisotropy == 2);
     assert(std::string(text(0xf84)) == "Game default" && v.anisotropy == 0);
+    assert(spartanportgpu_native_setting(0xfa4) != 0);
+    assert(std::string(text(0xfa4)).find("PlayStation") != std::string::npos);
+    spartanportgpu_native_setting(0xfb1);
+    assert(std::string(text(0xfa4)).find("Xbox") != std::string::npos);
+    v.vibration = 0;
+    spartanportgpu_native_setting(0xfab);
+    assert(v.vibration == 0);
+    spartanportgpu_native_setting(0xfb2);
+    assert(v.vibration == 5);
+    v.mouse_aim_sensitivity = 200;
+    spartanportgpu_native_setting(0xfb3);
+    assert(v.mouse_aim_sensitivity == 200);
+    v.mouse_prompt_distance = 16;
+    spartanportgpu_native_setting(0xfae);
+    assert(v.mouse_prompt_distance == 16);
+    v.anisotropy = 16;
+    spartanportgpu_native_setting(0xfb7);
+    assert(v.vibration == 100 && v.mouse_aim_sensitivity == 100 && v.mouse_prompt_distance == 48);
+    assert(v.mouse_lock && v.mouse_aim_style == 0 && v.anisotropy == 16);
     v.cheats_supported = 0;
     v.cheats[0] = false;
     assert(std::string(text(0xf10)) == "Unavailable" && !v.cheats[0]);
@@ -347,6 +366,19 @@ int main() {
     assert(!SpartanSettings::GraphicsNeedRestart());
     v.engine_fps_global = nullptr;
     v.engine_fps_int_global = nullptr;
+    v.glyph_style = v.startup_glyph_style;
+    assert(!SpartanSettings::GraphicsNeedRestart());
+    for (int style = 1; style <= 4; ++style) {
+        spartanportgpu_native_setting(0xfb1);
+        assert(v.glyph_style == style % 4);
+    }
+    spartanportgpu_native_setting(0xfb1);
+    assert(v.glyph_style == 1 && SpartanSettings::GraphicsNeedRestart());
+    assert(Read(path).find("glyph_style=xbox\n") != std::string::npos);
+    v.glyph_style = 0;
+    SpartanSettings::Load();
+    assert(v.glyph_style == 1 && !SpartanSettings::GraphicsNeedRestart());
+    assert(std::string(text(0xfa4)).find("Xbox") != std::string::npos);
     std::remove(path);
     std::puts("PASS: graphics settings");
 }

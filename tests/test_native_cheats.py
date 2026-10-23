@@ -12,11 +12,48 @@ GAME = Path(os.environ['SPARTAN_GAME_DIR']) if os.environ.get('SPARTAN_GAME_DIR'
 
 @unittest.skipUnless(GAME and (GAME / pause_menu.WAD).is_file(), 'needs SPARTAN_GAME_DIR')
 class NativeCheats(unittest.TestCase):
-    def test_anisotropy_has_a_restart_confirmation(self):
+    def test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation(self):
+        for page, apply, reset, confirm, no in (
+                ('NativeGraphics', 'NativeGraphicsApply', 'NativeGraphicsReset', 'NativeGraphicsRestart', 'NativeGraphicsRestartNo'),
+                ('PauseControls', 'NativeControlsApply', 'NativeControlsReset', 'NativeControlsRestart', 'NativeControlsRestartNo')):
+            self.script.one(apply)
+            self.script.one(reset)
+            entry = self.block(self.script.one(confirm), 1)
+            target = next(int.from_bytes(arg, 'big') for _, op, arg in entry if op == 0x47)
+            self.assertEqual(target, self.script.one(no)['at'] - 4)
         self.script.one('NativeGraphic4')
-        entry = self.block(self.script.one('NativeGraphicsRestart'), 1)
-        target = next(int.from_bytes(arg, 'big') for _, op, arg in entry if op == 0x47)
-        self.assertEqual(target, self.script.one('NativeGraphicsRestartNo')['at'] - 4)
+        for index in range(6):
+            row = self.script.one(f'NativeControl{index}')
+            self.assertEqual(row['parent'], self.script.one('PauseControls')['at'] - 4)
+            for trigger, function in (([0xe6, 0xf2], 0xfaa), ([0xe2, 0xee], 0xfb1)):
+                self.assertIn(function + index, [int.from_bytes(arg, 'big') for _, op, arg
+                                               in self.block(row, 3, trigger) if op == 0x13])
+        for name in ('HLContDis', 'HLFreeCamera', 'HLFlightControl'):
+            self.script.one(name)
+        self.assertEqual(self.target('HLFlightControl', pause_menu.DOWN), self.script.one('NativeControl0')['at'] - 4)
+        self.assertEqual(self.target('HLContDis', pause_menu.UP), self.script.one('NativeControlsApply')['at'] - 4)
+        end = self.block(self.script.one('PauseControls'), 2)
+        self.assertIn('sliderBar12', [self.script.string(self.script.lit + int.from_bytes(arg, 'big'))
+                                    for _, op, arg in end if op == 0x16])
+
+    def test_new_controls_labels_and_graphics_restore_are_bilingual(self):
+        data = bytearray((GAME / pause_menu.WAD).read_bytes())
+        pause_menu.patch(data, language='pt')
+        for text in ('Tipo de controle', 'Filtragem anisotrópica', 'Restaurar padrões dos controles', 'Aplicar e reiniciar'):
+            self.assertIn(text.encode('utf-8') + b'\0', data)
+        for name in ('NativeGraphicsReset', 'NativeGraphicsApply'):
+            entry = self.block(self.script.one(name), 1)
+            texts = [self.script.string(self.script.lit + int.from_bytes(arg, 'big')) for _, op, arg in entry if op == 0x16]
+            self.assertIn('Graphics Settings', texts)
+            self.assertIn('Anisotropic Filtering', texts)
+        starts = {r['at'] - 4 for r in self.script.records}
+        for name in self.script.by_name:
+            if not name or not name.startswith(('NativeControl', 'NativeGraphicsRestart')):
+                continue
+            for kind, ref, triggers in self.script.blocks(self.script.one(name)):
+                for at, op, arg in self.block(self.script.one(name), kind, triggers):
+                    if op == 0x47:
+                        self.assertIn(int.from_bytes(arg, 'big'), starts, name)
 
     @classmethod
     def setUpClass(cls):

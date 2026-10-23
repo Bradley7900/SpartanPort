@@ -83,6 +83,8 @@ struct Values {
     std::atomic<int> frames_queued{1};
     /// Controller vibration strength in percent; 0 turns it off (runtime_pad.c). Live.
     std::atomic<int> vibration{100};
+    std::atomic<int> glyph_style{0}; ///< PlayStation, Xbox, Nintendo, keyboard, legacy automatic
+    int startup_glyph_style = 0;
     /// Mouse movement in px that counts as one step of a stick prompt (runtime_pad.c). Live.
     std::atomic<int> mouse_prompt_distance{48};
     /// Keep the mouse in the game window while the game has it (window.cpp). Live.

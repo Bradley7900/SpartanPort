@@ -230,7 +230,7 @@ class GameScript(unittest.TestCase):
 
     def test_options_row(self):
         options, row = self.new.one('PauseOptions'), self.new.by_name['HLDisplay'][1]
-        self.assertEqual(len(self.new.records), len(self.old.records) + 48)
+        self.assertEqual(len(self.new.records), len(self.old.records) + 62)
         self.assertEqual(row['parent'], options['at'] - 4)
         cheats = self.new.one('HLNativeCheats')
         graphics = self.new.one('HLNativeGraphics')
@@ -242,8 +242,8 @@ class GameScript(unittest.TestCase):
         size = struct.unpack_from('<I', self.data, self.base - 0x40 + 4)[0]
         old_size = struct.unpack_from('<I', self.original, self.old_base - 0x40 + 4)[0]
         self.assertEqual(struct.unpack_from('<I', self.data, self.base + 8)[0], size - 4)
-        # Six sliders plus two scrollbars' isolated meshes, models, templates, instances and references.
-        self.assertEqual(len(self.data) - len(self.original), ((size + 15) & ~15) - ((old_size + 15) & ~15) + 8192)
+        # Six sliders plus three scrollbars' isolated meshes, models, templates, instances and references.
+        self.assertEqual(len(self.data) - len(self.original), ((size + 15) & ~15) - ((old_size + 15) & ~15) + 11040)
         self.assertEqual([n for _o, _s, n in pause_menu.entries(self.data)][-1], 'GroupEnd')
 
     def test_every_other_goto_is_unchanged(self):
@@ -266,9 +266,12 @@ class GameScript(unittest.TestCase):
         wad_choose = moved(next(i for i, r in enumerate(self.old.records) if r['at'] == dead['at']))
         cheats = self.new.records.index(self.new.one('HLNativeCheats'))
         graphics = self.new.records.index(self.new.one('HLNativeGraphics'))
-        # Only the neighbors of the four added rows change destinations.
+        # Only the neighbors of the added rows change destinations.
         apply = self.new.records.index(self.new.one('NativeDisplayApply'))
-        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, apply, graphics, cheats]))
+        controls_first = self.new.records.index(self.new.one('NativeControl0'))
+        controls_apply = self.new.records.index(self.new.one('NativeControlsApply'))
+        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health,
+                                                          apply, graphics, cheats, controls_first, controls_apply]))
 
     def test_japanese_fallback(self):
         data = bytearray(self.original)

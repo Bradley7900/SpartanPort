@@ -49,7 +49,7 @@ def default_render_resolution(dmi=Path('/sys/devices/virtual/dmi/id')):
 
 DEFAULTS = {'render_resolution': default_render_resolution(), 'engine_fps': '120', 'deferred_readback': '1',
             'stale_readback': '1', 'async_shaders': '1', 'monitor': '', 'hdr': '0',
-            'anisotropy': '0'}
+            'glyph_style': 'off', 'anisotropy': '0'}
 RESOLUTION_PREFIX = 'Resolution Patch'
 FPS_PREFIX = 'Frame Rate Patch'
 TEXTURE_FIX = 'Bug Fix - Texture Corruption Fix'
@@ -167,6 +167,8 @@ def startup_options(ini, extra=()):
     monitor = options['monitor']
     options['monitor'] = monitor if monitor.isascii() and monitor.isdigit() and len(monitor) <= 10 and int(monitor) <= 2147483647 else ''
     options['hdr'] = '1' if options['hdr'] == '1' else '0'
+    if options['glyph_style'] not in ('off', 'auto', 'xbox', 'nintendo', 'keyboard'):
+        options['glyph_style'] = 'off'
     if options['anisotropy'] not in ('0', '2', '4', '8', '16'):
         options['anisotropy'] = '0'
     return options
@@ -179,7 +181,7 @@ def prepare(config, state_path, extra=(), environment=None):
     if environment is not None:
         migrated = {key: environment.get(env, DEFAULTS[key]) for key, env in
                     (('monitor', 'SPARTAN_MONITOR'), ('hdr', 'SPARTAN_HDR'),
-                     ('anisotropy', 'SPARTAN_ANISOTROPY')) if key not in ini}
+                     ('glyph_style', 'SPARTAN_GLYPH_STYLE'), ('anisotropy', 'SPARTAN_ANISOTROPY')) if key not in ini}
         if migrated:
             ini.update(migrated)
             normalized = startup_options(ini, extra)
@@ -248,4 +250,5 @@ def environment(options):
             'SPARTAN_STALE_READBACK': options['stale_readback'],
             'SPARTAN_ASYNC_SHADERS': options['async_shaders'],
             'SPARTAN_MONITOR': options.get('monitor', ''), 'SPARTAN_HDR': options.get('hdr', '0'),
+            'SPARTAN_GLYPH_STYLE': options.get('glyph_style', 'off'),
             'SPARTAN_ANISOTROPY': options.get('anisotropy', '0')}

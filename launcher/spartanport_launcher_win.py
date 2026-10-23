@@ -478,7 +478,7 @@ INI_DEFAULTS = {'upscaler': 'fsr3', 'preset': '1',
                 'live_resolution': 'auto', 'display_mode': 'windowed', 'vsync': '1', 'fps_limit': '0',
                 'async_shaders': '1', 'deferred_readback': '1', 'stale_readback': '1',
                 'render_resolution': graphics_options.DEFAULTS['render_resolution'], 'engine_fps': '120',
-                'frames_queued': '1', 'monitor': '', 'hdr': '0', 'cheat_very_hard': '0', 'cheat_double_jumps': '0',
+                'frames_queued': '1', 'monitor': '', 'hdr': '0', 'glyph_style': 'off', 'cheat_very_hard': '0', 'cheat_double_jumps': '0',
                 'anisotropy': '0', 'vibration': '100', 'mouse_prompt_distance': '48', 'mouse_lock': '1',
                 'mouse_aim_style': '0', 'mouse_aim_sensitivity': '100'}
 DISPLAY_MODES = [('windowed', ('Windowed',)), ('borderless', ('Borderless',)), ('fullscreen', ('Fullscreen',))]
@@ -831,6 +831,7 @@ def load_ini():
     if not isinstance(legacy, dict):
         legacy = {}
     values.update(monitor=str(legacy.get('monitor') or ''), hdr='1' if legacy.get('hdr') else '0')
+    values['glyph_style'] = legacy.get('glyph_style', 'off')
     try:
         lines = ini_path().read_text(encoding='utf-8').splitlines()
     except OSError:
@@ -2454,7 +2455,7 @@ class Launcher:
 
         # The in-game icons first, then the device: its section is shown, the other hidden (show_device).
         page = f
-        self.row(page, _('In-game button icons'), self.choice(page, 'glyph_style', 'app', GLYPH_STYLES),
+        self.row(page, _('In-game button icons'), self.choice(page, 'glyph_style', 'ini', GLYPH_STYLES),
                  hint=_('Replaces the PlayStation button icons inside the game with the ones of your controller. '
                         'Works on a copy of up to three game files in the port\'s data folder (about 410 MB); your game folder '
                         'is never changed. Applied when the game starts.'))

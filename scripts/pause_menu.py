@@ -35,7 +35,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 21  # of the patch: a change rebuilds the cached copy
+VERSION = 22  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABELS = {
     'en': b'Exit to Desktop',
@@ -463,6 +463,8 @@ def native_cheats(data, spans, language=None):
     options, game, audio = (s.one(n) for n in ('PauseOptions', 'HLGSettings', 'HLAudio'))
     enter = s.one('EnterPause')
     display = s.one('PauseDisplay')
+    controls = s.one('PauseControls')
+    controls_at = controls['at'] + controls['size']
     display_at = display['at'] + display['size']
     opt_at, pages_at = options['at'] + options['size'], enter['at'] + enter['size']
     left, right = [0xe6, 0xf2], [0xe2, 0xee]
@@ -485,23 +487,31 @@ def native_cheats(data, spans, language=None):
               ('NativeGraphicsResetNo', 'NativeGraphicsConfirm', [UP, DOWN, CONFIRM])]
     display_specs = [(f'NativeDisplay{i}', 'display', [left, right, UP, DOWN]) for i in range(8)]
     display_specs += [('NativeDisplayApply', 'display', [UP, DOWN, CONFIRM])]
-    specs[2:2] = display_specs
+    controls_specs = [(f'NativeControl{i}', 'controls', [left, right, UP, DOWN]) for i in range(6)]
+    controls_specs += [('NativeControlsReset', 'controls', [UP, DOWN, CONFIRM]),
+                      ('NativeControlsApply', 'controls', [UP, DOWN, CONFIRM])]
+    specs[2:2] = controls_specs + display_specs
     specs += [('NativeDisplayConfirm', 'pause', [[0xeb]]),
               ('NativeDisplayYes', 'NativeDisplayConfirm', [UP, DOWN, CONFIRM]),
               ('NativeDisplayNo', 'NativeDisplayConfirm', [UP, DOWN, CONFIRM])]
-    for page in ('NativeGraphicsRestart',):
+    for page in ('NativeGraphicsRestart', 'NativeControlsRestart', 'NativeControlsConfirm'):
         specs += [(page, 'pause', [[0xeb]]), (page + 'Yes', page, [UP, DOWN, CONFIRM]),
                   (page + 'No', page, [UP, DOWN, CONFIRM])]
     sizes = {name: 20 + sum(4 + 4 * len(t) for t in events) for name, parent, events in specs}
     option_size = sizes['HLNativeGraphics'] + sizes['HLNativeCheats']
     display_size = sum(sizes[name] for name, parent, events in display_specs)
-    pages_size = sum(sizes.values()) - option_size - display_size
-    final = lambda at: at + (option_size if at >= opt_at else 0) + (display_size if at >= display_at else 0) + (pages_size if at >= pages_at else 0)
-    refs = {'options': final(options['at']) - 4, 'pause': final(enter['at']) - 4, 'display': final(display['at']) - 4}
+    controls_size = sum(sizes[name] for name, parent, events in controls_specs)
+    pages_size = sum(sizes.values()) - option_size - display_size - controls_size
+    final = lambda at: at + sum(size for end, size in ((opt_at, option_size), (controls_at, controls_size),
+                                                      (display_at, display_size), (pages_at, pages_size)) if at >= end)
+    refs = {'options': final(options['at']) - 4, 'pause': final(enter['at']) - 4,
+            'display': final(display['at']) - 4, 'controls': final(controls['at']) - 4}
     refs['HLNativeGraphics'] = opt_at - 4
     refs['HLNativeCheats'] = opt_at + sizes['HLNativeGraphics'] - 4
-    for subset, start_at in ((display_specs, display_at + option_size),
-                             (specs[2 + len(display_specs):], pages_at + option_size + display_size)):
+    for subset, start_at in ((controls_specs, controls_at + option_size),
+                             (display_specs, display_at + option_size + controls_size),
+                             (specs[2 + len(controls_specs) + len(display_specs):],
+                              pages_at + option_size + controls_size + display_size)):
         at = start_at
         for name, parent, events in subset:
             refs[name] = at - 4
@@ -617,6 +627,11 @@ def native_cheats(data, spans, language=None):
                        'Aplicar e reiniciar'] if portuguese else
                       ['Frames Queued', 'Async Shader Compilation', 'RCAS Sharpening',
                        'Sharpening Strength', 'Anisotropic Filtering', 'Restore Graphics Defaults', 'Apply and Restart'])
+    controls_names = (['Tipo de controle', 'Intensidade da vibração', 'Sensibilidade da mira', 'Estilo da mira',
+                       'Distância do mouse nos QTEs', 'Prender cursor à janela', 'Restaurar padrões dos controles',
+                       'Aplicar e reiniciar'] if portuguese else
+                      ['Controller Type', 'Vibration Strength', 'Mouse Aim Sensitivity', 'Mouse Aim Style',
+                       'Mouse QTE Distance', 'Keep Mouse in Window', 'Restore Controls Defaults', 'Apply and Restart'])
     display_names = (['Resolução', 'Proporção', 'Limite de FPS', 'FPS do motor', 'Monitor',
                       'Modo de exibição', 'VSync', 'HDR', 'Aplicar e reiniciar'] if portuguese else
                      ['Resolution', 'Aspect Ratio', 'Frame Rate Limit', 'Engine Frame Rate', 'Monitor',
@@ -832,7 +847,67 @@ def native_cheats(data, spans, language=None):
                     sound('SND_MM_NAV_LR')
                     end()
 
-    for page, target, reset in (('NativeGraphicsRestart', 'NativeGraphicsApply', False),):
+    controls_ref = next(v for k, v, t in s.blocks(controls) if k == 1)
+    controls_originals = [s.one(n) for n in ('HLContDis', 'HLFreeCamera', 'HLFlightControl')]
+    controls_labels = {}
+    body = s.block_bytes(controls_ref)
+    instructions = decode(data, base + s.lit + controls_ref, base + s.lit + controls_ref + len(body))
+    for previous, instruction in zip(instructions, instructions[1:]):
+        if previous[1] == 0x16 and instruction[1] == 0x09 and instruction[2][1] <= 3:
+            controls_labels[instruction[2][1] - 1] = s.string(s.lit + int.from_bytes(previous[2], 'big'))
+    if len(controls_labels) != 4:
+        raise ValueError('Controls labels not recognized')
+    controls_rows = [r['at'] - 4 for r in controls_originals] + [n for n, p, e in controls_specs]
+
+    def controls_window(first, selected=None):
+        string(controls_labels[-1])
+        assign(0)
+        for slot in range(8):
+            row = first + slot
+            string(controls_labels[row] if row < 3 else controls_names[row - 3])
+            assign(1 + slot)
+            if 3 <= row < 9:
+                builtin((0xfb8 if row == selected else 0xfa4) + row - 3, pop=False)
+                assign(9 + slot)
+            else:
+                edge = ('ArrowSelectionL', 'ArrowSelectionR') if row == selected else ('ArrowSpacer', 'ArrowSpacer')
+                string(f'[{edge[0]}][PauseMenu:optSet{row}][{edge[1]}]' if row in (1, 2) else '')
+                assign(9 + slot)
+        string('PauseText')
+        integer(1)
+        builtin(0x58)
+        scrollbar(12, first, 11, 8)
+
+    for index, name in enumerate(n for n, p, e in controls_specs):
+        row, first = index + 3, max(0, index + 3 - 7)
+        begin(name, 1)
+        builtin(0x6b)
+        controls_window(first, row)
+        animation(row - first, 8)
+        end()
+        begin(name, 2)
+        animation(row - first, 9)
+        end()
+        navigation(name, row, controls_rows)
+        if index < 6:
+            for kind, function in (('left', 0xfaa + index), ('right', 0xfb1 + index)):
+                begin(name, kind)
+                call(repeat)
+                builtin(function)
+                controls_window(first, row)
+                sound('SND_MM_NAV_LR')
+                end()
+        else:
+            begin(name, 'confirm')
+            if name == 'NativeControlsApply':
+                builtin(0xfc9, pop=False)
+                emit(b'\x17' + be(5, 2))
+            goto('NativeControlsRestart' if name == 'NativeControlsApply' else 'NativeControlsConfirm')
+            end()
+
+    for page, target, reset in (('NativeGraphicsRestart', 'NativeGraphicsApply', False),
+                                ('NativeControlsRestart', 'NativeControlsApply', False),
+                                ('NativeControlsConfirm', 'NativeControlsReset', True)):
         rows = [page + 'Yes', page + 'No']
         begin(page, 1)
         string(('Restaurar padrões dos controles?' if portuguese else 'Restore controls defaults?') if reset
@@ -962,15 +1037,15 @@ def native_cheats(data, spans, language=None):
     exit_ref = int.from_bytes(original_entry[exit_at - 2:exit_at], 'big')
     raw = bytes(data[base + s.lit + exit_ref:]).split(b'\0', 1)[0]
     replacements[7] = raw
-    def copy_entry(ref, replacements, display_entry=False):
+    def copy_entry(ref, replacements, window=None):
         body = s.block_bytes(ref)
         for at, op, arg in decode(data, base + s.lit + ref, base + s.lit + ref + len(body)):
             relative = at - base - s.lit
             if op == 0x16 and data[at + 3:at + 5] == b'\x09\xe0' and data[at + 5] in replacements:
                 string(replacements[data[at + 5]])
             elif op == 0x47:
-                if display_entry:
-                    display_window(0)
+                if window:
+                    window(0)
                 goto(int.from_bytes(arg, 'big'))
             elif op == 0x4a:
                 call(relative + 5 + struct.unpack('>i', arg)[0])
@@ -989,7 +1064,7 @@ def native_cheats(data, spans, language=None):
     copy_entry(old_entry, replacements)
     redirects = [(options, 'options_entry'), (audio_page, 'audio_entry')]
     labels['display_entry'] = len(code)
-    copy_entry(display_ref, {}, True)
+    copy_entry(display_ref, {}, display_window)
     redirects.append((display, 'display_entry'))
     labels['display_exit'] = len(code)
     string('sliderBar10')
@@ -1003,6 +1078,21 @@ def native_cheats(data, spans, language=None):
         ref = next(v for k, v, t in s.blocks(record) if k == 1)
         copy_entry(ref, {})
         redirects.append((record, label))
+    labels['controls_entry'] = len(code)
+    copy_entry(controls_ref, {}, controls_window)
+    redirects.append((controls, 'controls_entry'))
+    labels['controls_exit'] = len(code)
+    string('sliderBar12')
+    integer(1)
+    builtin(0x59)
+    copy_entry(next(v for k, v, t in s.blocks(controls) if k == 2), {})
+    for index, record in enumerate(controls_originals):
+        label = f'controls_selection_{index}'
+        labels[label] = len(code)
+        controls_window(0, index)
+        copy_entry(next(v for k, v, t in s.blocks(record) if k == 1), {})
+        redirects.append((record, label))
+
     code_start = start + len(strings)
     for at, target in fixups:
         destination = code_start + labels[target] if target in labels else target
@@ -1020,6 +1110,11 @@ def native_cheats(data, spans, language=None):
     exit_item = next(i for i, (k, v) in enumerate(display['items']) if k == 2)
     edits.append((base + display['at'] + 12 + 4 * exit_item,
                   be(0x02000000 | (code_start + labels['display_exit']))))
+    exit_item = next(i for i, (k, v) in enumerate(controls['items']) if k == 2)
+    edits.append((base + controls['at'] + 12 + 4 * exit_item,
+                  be(0x02000000 | (code_start + labels['controls_exit']))))
+    edits += [retarget(s, controls_originals[-1], DOWN, controls_originals[0]['at'] - 4, refs['NativeControl0']),
+              retarget(s, controls_originals[0], UP, controls_originals[-1]['at'] - 4, refs['NativeControlsApply'])]
     edits += [retarget(s, originals[-1], DOWN, originals[0]['at'] - 4, refs['NativeDisplay0']),
               retarget(s, originals[0], UP, originals[-1]['at'] - 4, refs['NativeDisplayApply'])]
     for record, old_index in ((audio, 2), (s.by_name['HLDisplay'][0], 3), (s.by_name['HLDisplay'][1], 4)):
@@ -1033,7 +1128,7 @@ def native_cheats(data, spans, language=None):
                 edits.append((base + s.lit + ref + block.index(source), destination))
     ancestors = {r['at'] - 4: r for r in s.records}
     growth = {}
-    for record, amount in ((options, option_size), (display, display_size), (enter, pages_size)):
+    for record, amount in ((options, option_size), (controls, controls_size), (display, display_size), (enter, pages_size)):
         while record:
             growth[record['at']] = growth.get(record['at'], 0) + amount
             record = ancestors.get(record['parent'])
@@ -1056,7 +1151,7 @@ def native_cheats(data, spans, language=None):
         event_names = ['back'] if parent == 'pause' else (
             ['left', 'right', 'up', 'down'] if (name.startswith('NativeMultiplier') and name[-1:].isdigit())
             or name in ('NativeGraphic0', 'NativeGraphic3', 'NativeGraphic4')
-            or name.startswith('NativeDisplay') and name[-1:].isdigit()
+            or name.startswith(('NativeDisplay', 'NativeControl')) and name[-1:].isdigit()
             else ['toggle', 'up', 'down'] if (name.startswith('NativeCheat') and name[-1:].isdigit())
             or name in ('NativeGraphic1', 'NativeGraphic2')
             else ['up', 'down', 'confirm'])
@@ -1067,10 +1162,11 @@ def native_cheats(data, spans, language=None):
             raise ValueError(f'{name}: native record size mismatch')
         records += record
     data[base + s.symtab:base + old_size] = strings + code + symbols
-    data[base + pages_at:base + pages_at] = records[option_size + display_size:]
-    data[base + display_at:base + display_at] = records[option_size:option_size + display_size]
+    data[base + pages_at:base + pages_at] = records[option_size + controls_size + display_size:]
+    data[base + display_at:base + display_at] = records[option_size + controls_size:option_size + controls_size + display_size]
+    data[base + controls_at:base + controls_at] = records[option_size:option_size + controls_size]
     data[base + opt_at:base + opt_at] = records[:option_size]
-    table_growth = option_size + display_size + pages_size
+    table_growth = option_size + controls_size + display_size + pages_size
     grown = table_growth + len(strings) + len(code) + len(symbols) - (old_size - s.symtab)
     for offset, amount in ((8, grown), (12, table_growth), (16, table_growth + len(strings) + len(code))):
         struct.pack_into('<I', data, base + offset, struct.unpack_from('<I', data, base + offset)[0] + amount)
@@ -1079,6 +1175,7 @@ def native_cheats(data, spans, language=None):
     native_multiplier_bars(data)
     native_scrollbar(data, 10, 13, 8)
     native_scrollbar(data, 11, 8, 7)
+    native_scrollbar(data, 12, 11, 8)
 
 
 def native_scrollbar(data, index, total, visible):
