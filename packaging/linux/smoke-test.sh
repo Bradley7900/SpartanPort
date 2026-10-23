@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Starts the AppImage's launcher on a virtual display and checks it is still running after a few
-# seconds: a missing glibc version or library stops it at import (#291). Run as root in a fresh
+# seconds: a missing glibc version or library stops it at start (#291). Run as root in a fresh
 # container of the distro to check; it installs Xvfb and a font, as a desktop has them
 # (.github/workflows/linux-appimage.yml).
 # Usage: smoke-test.sh path/to/spartanport-x86_64.AppImage
@@ -30,10 +30,13 @@ fi
 Xvfb :99 -screen 0 1280x800x24 >/dev/null 2>&1 &
 export DISPLAY=:99 HOME=$work
 sleep 2
+version=$(squashfs-root/AppRun --version)
+echo "$version"
+grep -qE '^SpartanPort [0-9]+\.[0-9]+\.[0-9]+$' <<<"$version" || { echo 'FAIL: --version printed no version line' >&2; exit 1; }
 status=0
 timeout 15 squashfs-root/AppRun > launcher.log 2>&1 || status=$?
 cat launcher.log
-if [[ $status != 124 ]] || grep -qE 'GLIBC_|ImportError|Traceback' launcher.log; then
+if [[ $status != 124 ]] || grep -qE 'panicked|GLIBC_|error while loading shared libraries' launcher.log; then
     echo "FAIL: the launcher exited ($status) instead of staying open" >&2
     exit 1
 fi

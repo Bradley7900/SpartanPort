@@ -13,9 +13,9 @@ on:
         description: Release to attach the AppImage to; a new tag makes a test pre-release. Empty builds only.
         required: false
       stamp:
-        description: Attach the release stamp — only for packages that ship the Rust launcher
+        description: Attach the release stamp
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
@@ -34,6 +34,7 @@ jobs:
           submodules: recursive
       - name: Dependencies
         run: bash packaging/linux/ci-deps.sh
+      - uses: dtolnay/rust-toolchain@stable
       - name: Build
         run: bash build.sh
       - name: Stamp
@@ -52,7 +53,7 @@ jobs:
           cat release.json
       - name: AppImage
         run: |
-          PATH="$PWD/out/venv/bin:$PATH" bash packaging/linux/build.sh
+          bash packaging/linux/build.sh
           cd dist && sha256sum spartanport-x86_64.AppImage | sed 's/  / */' > spartanport-x86_64.AppImage.sha256
       - uses: actions/upload-artifact@v4
         with:

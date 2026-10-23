@@ -54,3 +54,48 @@ fn the_windows_package_ships_the_rust_launcher() {
         assert!(workflow.contains(needed), "windows-zip.yml lacks {needed}");
     }
 }
+
+#[test]
+fn the_appimage_ships_the_rust_launcher() {
+    let build = read("packaging/linux/build.sh");
+    for needed in [
+        "launcher-rust/target/release/spartanport-launcher",
+        "scripts/controller_diagrams",
+        "(cd launcher-rust && \"${CARGO:-cargo}\" build --release --locked)",
+        "-name '*.py'",
+        "_internal",
+    ] {
+        assert!(build.contains(needed), "build.sh lacks {needed}");
+    }
+    for banned in [
+        "PyInstaller",
+        "run.py",
+        "cp -r scripts patches",
+        "--manifest-path launcher-rust/Cargo.toml",
+    ] {
+        assert!(!build.contains(banned), "build.sh still has {banned}");
+    }
+
+    let smoke = read("packaging/linux/smoke-test.sh");
+    for needed in ["--version", "panicked"] {
+        assert!(smoke.contains(needed), "smoke-test.sh lacks {needed}");
+    }
+    for banned in ["Traceback", "ImportError"] {
+        assert!(!smoke.contains(banned), "smoke-test.sh still has {banned}");
+    }
+
+    let deps = read("packaging/linux/ci-deps.sh");
+    for banned in ["PyInstaller", "pyinstaller", "venv", "python3-tk"] {
+        assert!(!deps.contains(banned), "ci-deps.sh still has {banned}");
+    }
+
+    let workflow = read(".github/workflows/linux-appimage.yml");
+    assert!(
+        workflow.contains("dtolnay/rust-toolchain@stable"),
+        "linux-appimage.yml lacks the Rust toolchain"
+    );
+    assert!(
+        !workflow.contains("venv"),
+        "linux-appimage.yml still has the venv"
+    );
+}
