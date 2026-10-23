@@ -26,6 +26,11 @@ static uint32_t pressed_by(const ButtonMap *map, int source) {
 }
 
 int main(void) {
+    ButtonMap directions=key_map;
+    assert(apply_button_map(&directions,"move_up=T,move_down=G,move_left=F,move_right=H,"
+                                       "look_up=Keypad 8,look_down=Keypad 2,"
+                                       "look_left=Keypad 4,look_right=None",true)==8);
+
     ButtonMap keys=key_map;
     assert(apply_button_map(&keys,NULL,true)==0 && apply_button_map(&keys,"",true)==0);
     assert(keys.count==key_map.count);
@@ -450,6 +455,57 @@ int main(void) {
     assert(!qte_play(keyboard,now));
     ++spartanport_qte.heartbeat;
     assert(qte_play(keyboard,now) && qte.step==0 && spartanport_qte.pass==0);
+    spartanport_qte.block=0;
+
+    /* Direction sources drive both sticks, release their old keys, and never reach PS4 buttons. */
+    const ButtonMap original_keys=key_map;
+    key_map=directions;
+    memset(keyboard,0,sizeof(keyboard));
+    keyboard[SDL_SCANCODE_W]=keyboard[SDL_SCANCODE_UP]=keyboard[SDL_SCANCODE_RIGHT]=true;
+    PadData remapped={.left_x=128,.left_y=128,.right_x=128,.right_y=128,.timestamp=now};
+    sample_keyboard(&remapped,keyboard,0,no_wheel);
+    assert(remapped.left_y==128 && remapped.right_x==128 && remapped.right_y==128);
+    keyboard[SDL_SCANCODE_T]=keyboard[SDL_SCANCODE_H]=keyboard[SDL_SCANCODE_KP_4]=true;
+    sample_keyboard(&remapped,keyboard,0,no_wheel);
+    assert(remapped.left_x==255 && remapped.left_y==0 && remapped.right_x==0);
+    assert(!(remapped.buttons & STICK_DIRECTIONS));
+    remapped.buttons=DODGE;
+    reset_dodge();
+    apply_dodge(&remapped);
+    assert(remapped.right_x==255 && remapped.right_y==0);
+    assert(apply_button_map(&key_map,"move_up=None,move_right=None,look_left=None",true)==3);
+    remapped=(PadData){.left_x=128,.left_y=128,.right_x=128,.right_y=128,.timestamp=now};
+    sample_keyboard(&remapped,keyboard,0,no_wheel);
+    assert(remapped.left_x==128 && remapped.left_y==128 && remapped.right_x==128);
+    ButtonMap untouched_pad=pad_map;
+    assert(apply_button_map(&untouched_pad,"move_up=a,look_right=b",false)==0);
+    assert(!memcmp(&untouched_pad,&pad_map,sizeof(pad_map)));
+
+    /* Default rotation prompts follow the remapped movement inputs, not their original letters. */
+    key_map=directions;
+    qte.mode=STICK_PROMPTS_KEYBOARD;
+    qte_reset();
+    memset(qte.held,0,sizeof(qte.held));
+    memset(keyboard,0,sizeof(keyboard));
+    spartanport_qte.block=(uint64_t)(uintptr_t)prompt;
+    prompt[SPARTAN_QTE_TYPE_OFFSET]=6; /* Down180CW: right, down, left. */
+    ++spartanport_qte.heartbeat;
+    assert(qte_play(keyboard,now));
+    const int old_turn[]={SDL_SCANCODE_D,SDL_SCANCODE_S,SDL_SCANCODE_A};
+    const int new_turn[]={SDL_SCANCODE_H,SDL_SCANCODE_G,SDL_SCANCODE_F};
+    for (unsigned i=0;i<3;++i) {
+        keyboard[old_turn[i]]=true; now+=16000; ++spartanport_qte.heartbeat;
+        assert(qte_play(keyboard,now) && qte.step==0);
+        keyboard[old_turn[i]]=false;
+    }
+    for (unsigned i=0;i<3;++i) {
+        keyboard[new_turn[i]]=true; now+=16000; ++spartanport_qte.heartbeat;
+        assert(qte_play(keyboard,now) && qte.step==i+1);
+        keyboard[new_turn[i]]=false; now+=16000; ++spartanport_qte.heartbeat;
+        assert(qte_play(keyboard,now));
+    }
+    assert(spartanport_qte.pass==1);
+    key_map=original_keys;
     spartanport_qte.block=0;
 
     puts("PASS: pad and key maps");

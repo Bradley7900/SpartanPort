@@ -66,6 +66,45 @@ class DiskModsTest(unittest.TestCase):
 
 
 class ControlMapTest(unittest.TestCase):
+    def test_stick_directions_are_saved_and_sent_like_other_keyboard_actions(self):
+        defaults = {row[0]: launcher.default_input(row, 'key') for row in launcher.table_rows('key')}
+        self.assertEqual({name: defaults.get(name) for name in
+                          ('move_up', 'move_down', 'move_left', 'move_right',
+                           'look_up', 'look_down', 'look_left', 'look_right')},
+                         dict(move_up='W', move_down='S', move_left='A', move_right='D',
+                              look_up='Up', look_down='Down', look_left='Left', look_right='Right'))
+        defaults.update(move_up='T', look_left='None')
+        changes = launcher.control_changes(defaults, 'key')
+        self.assertEqual(changes, {'move_up': 'T', 'look_left': 'None'})
+        spec = launcher.keyboard_map({'key': changes})
+        self.assertIn('move_up=T', spec)
+        self.assertIn('look_left=None', spec)
+
+    def test_new_directions_do_not_take_keys_from_saved_actions(self):
+        old = {'controls_layout': 3, 'controls': {'key': {'cross': 'W', 'dodge': 'Left'}}}
+        new = launcher.migrate_controls(old)
+        self.assertEqual(old['controls']['key'], {'cross': 'W', 'dodge': 'Left'})
+        self.assertEqual(new['controls']['key']['cross'], 'W')
+        self.assertEqual(new['controls']['key']['move_up'], 'None')
+        self.assertEqual(new['controls']['key']['look_left'], 'None')
+        self.assertEqual(launcher.migrate_controls(new), new)
+
+    def test_unbinding_several_inputs_does_not_swap_their_old_keys(self):
+        bindings = {'move_up': 'W', 'move_left': 'None', 'look_right': 'Right'}
+        self.assertIsNone(launcher.bind_key(bindings, 'move_up', 'None'))
+        self.assertIsNone(launcher.bind_key(bindings, 'look_right', 'None'))
+        self.assertEqual(set(bindings.values()), {'None'})
+
+    def test_direction_conflicts_swap_and_invalid_entries_are_not_forwarded(self):
+        bindings = {row[0]: launcher.default_input(row, 'key') for row in launcher.table_rows('key')}
+        self.assertEqual(launcher.bind_key(bindings, 'cross', 'W'), 'move_up')
+        self.assertEqual(bindings['move_up'], 'Space')
+        spec = launcher.keyboard_map({'key': launcher.control_changes(bindings, 'key')})
+        self.assertIn('move_up=Space', spec)
+        self.assertIn('cross=W', spec)
+        self.assertNotIn('move_up=', launcher.keyboard_map({'key': {'move_up': 'T,cross=H'}}))
+
+
     def test_shader_notes_are_off_without_a_saved_choice(self):
         self.assertFalse(launcher.APP_DEFAULTS['shader_notes'])
         settings = {**launcher.APP_DEFAULTS}
