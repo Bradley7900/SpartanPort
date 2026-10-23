@@ -14,7 +14,7 @@
 //! size field and no data). A texture entry is named `TX<hash>.<hash>.dds` and holds a short prefix
 //! and a plain DDS file (DXT1 or DXT5).
 //!
-//! The drawing is the Python's, step by step, over the Pillow operations of [`super::draw`]; only
+//! The drawing is the Python's, step by step, over the Pillow operations of [`crate::core::draw`]; only
 //! the text's coverage differs by a level here and there (a port of FreeType's auto-hinter and
 //! another rasterizer instead of FreeType). Fonts and the controller pictures are read from the
 //! port folder at run time ([`Assets`]).
@@ -27,11 +27,11 @@ use std::path::{Path, PathBuf};
 use indexmap::IndexMap;
 use serde_json::{json, Value};
 
-use crate::core::fs::atomic_write;
-use crate::runner::draw::{
+use crate::core::draw::{
     add, composite, difference, floodfill, invert, lighter, linear_gradient, multiply, subtract,
     Draw, Filter, Font, Mode, Picture, Transpose, Window,
 };
+use crate::core::fs::atomic_write;
 use crate::runner::dxt;
 
 /// Of the drawing: a change redraws the cached copies.

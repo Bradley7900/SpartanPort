@@ -2,7 +2,6 @@
 
 pub mod content_profile;
 pub mod discord;
-pub mod draw;
 pub mod dxt;
 pub mod game_update;
 pub mod glyphs;

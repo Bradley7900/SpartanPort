@@ -2,6 +2,7 @@
 
 pub mod controls;
 pub mod desktop;
+pub mod draw;
 pub mod env;
 pub mod fs;
 pub mod game;

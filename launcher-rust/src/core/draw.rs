@@ -79,6 +79,24 @@ pub struct Window {
     pub y1: usize,
 }
 
+/// `ImagingAlphaComposite` for one RGBA pixel: `src` over `dst`.
+fn composite_pixel(dst: &mut [u8], src: &[u8]) {
+    const PRECISION: u32 = 7;
+    if src[3] == 0 {
+        return;
+    }
+    let (sa, da) = (u32::from(src[3]), u32::from(dst[3]));
+    let mix = da * (255 - sa);
+    let outa255 = sa * 255 + mix;
+    let coef1 = sa * 255 * 255 * (1 << PRECISION) / outa255;
+    let coef2 = 255 * (1 << PRECISION) - coef1;
+    for band in 0..3 {
+        let tmp = u32::from(src[band]) * coef1 + u32::from(dst[band]) * coef2;
+        dst[band] = (shift_div255(tmp + (0x80 << PRECISION)) >> PRECISION) as u8;
+    }
+    dst[3] = shift_div255(outa255 + 0x80) as u8;
+}
+
 impl Picture {
     /// `Image.new(mode, (width, height), color)`.
     pub fn new(mode: Mode, width: usize, height: usize, color: &[u8]) -> Picture {
@@ -391,21 +409,23 @@ impl Picture {
 
     /// `self.alpha_composite(over)` of two RGBA pictures of one size (`ImagingAlphaComposite`).
     pub fn alpha_composite(&mut self, over: &Picture) {
-        const PRECISION: u32 = 7;
         for (dst, src) in self.data.chunks_exact_mut(4).zip(over.data.chunks_exact(4)) {
-            if src[3] == 0 {
-                continue;
+            composite_pixel(dst, src);
+        }
+    }
+
+    /// `self.alpha_composite(over, dest=(x, y))` of two RGBA pictures: the part of `over` inside
+    /// `self` goes through the arithmetic of [`Picture::alpha_composite`]; what falls outside is
+    /// cut.
+    pub fn alpha_composite_at(&mut self, over: &Picture, x: i64, y: i64) {
+        let (width, height) = (self.width as i64, self.height as i64);
+        let (over_width, over_height) = (over.width as i64, over.height as i64);
+        for oy in (-y).max(0)..over_height.min(height - y) {
+            for ox in (-x).max(0)..over_width.min(width - x) {
+                let from = self.at((x + ox) as usize, (y + oy) as usize);
+                let src = over.at(ox as usize, oy as usize);
+                composite_pixel(&mut self.data[from..from + 4], &over.data[src..src + 4]);
             }
-            let (sa, da) = (u32::from(src[3]), u32::from(dst[3]));
-            let mix = da * (255 - sa);
-            let outa255 = sa * 255 + mix;
-            let coef1 = sa * 255 * 255 * (1 << PRECISION) / outa255;
-            let coef2 = 255 * (1 << PRECISION) - coef1;
-            for band in 0..3 {
-                let tmp = u32::from(src[band]) * coef1 + u32::from(dst[band]) * coef2;
-                dst[band] = (shift_div255(tmp + (0x80 << PRECISION)) >> PRECISION) as u8;
-            }
-            dst[3] = shift_div255(outa255 + 0x80) as u8;
         }
     }
 
@@ -2482,6 +2502,11 @@ fn pixel(v: i64) -> i64 {
 }
 
 impl FontSize<'_> {
+    /// `ImageDraw.textlength(text, font)`: the total advance of the layout (26.6) in pixels.
+    pub fn length(&self, text: &str) -> f64 {
+        self.layout(text).1 as f64 / 64.0
+    }
+
     /// `FT_MulFix(units, scale)`: font units to 26.6.
     fn scaled(&self, units: i64) -> i64 {
         let ab = units * self.scale;
@@ -2847,5 +2872,41 @@ mod tests {
                 blank.resize_placed(5, 5, full_width, full_height, 40, 30, Filter::Lanczos);
             assert_eq!(placed, Picture::new(mode, 40, 30, &[]));
         }
+    }
+
+    #[test]
+    fn length_is_the_sum_of_the_advances() {
+        let font = Font::open(Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../launcher/Cinzel-Black.ttf"
+        )))
+        .unwrap();
+        let size = font.at(40);
+        assert_eq!(size.length(""), 0.0);
+        assert!(size.length("S") > 0.0);
+        assert_eq!(size.length("SP"), size.length("S") + size.length("P"));
+    }
+
+    #[test]
+    fn alpha_composite_at_cuts_what_falls_outside() {
+        let red_at = |x: i64, y: i64| {
+            let mut base = Picture::new(Mode::Rgba, 4, 4, &[0, 0, 0, 255]);
+            let over = Picture::new(Mode::Rgba, 2, 2, &[255, 0, 0, 255]);
+            base.alpha_composite_at(&over, x, y);
+            let mut red = Vec::new();
+            for py in 0..4 {
+                for px in 0..4 {
+                    match base.pixel(px, py) {
+                        [255, 0, 0, 255] => red.push((px, py)),
+                        [0, 0, 0, 255] => {}
+                        other => panic!("unexpected pixel {other:?} at {px}, {py}"),
+                    }
+                }
+            }
+            red
+        };
+        assert_eq!(red_at(1, 1), [(1, 1), (2, 1), (1, 2), (2, 2)]);
+        assert_eq!(red_at(3, 3), [(3, 3)]);
+        assert_eq!(red_at(-1, -1), [(0, 0)]);
     }
 }
