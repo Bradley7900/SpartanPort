@@ -1731,24 +1731,31 @@ mod tests {
             };
             let began = Instant::now();
             let presence = start(4321, &[], setup);
-            // The runner waits for the game right after this: nothing here waits for Discord.
-            assert!(began.elapsed() < Duration::from_millis(500));
-            (presence, calls)
+            // The runner waits for the game right after this: nothing here waits for Discord. A
+            // start that waited for the silent pipe's handshake would take READ at least.
+            assert!(began.elapsed() < READ);
+            (presence, calls, began)
         };
 
         // No answer: the handshake read gives up after READ and lets the pipe go; the next try
         // would come after RETRY, which close does not wait for.
         let server = Silent::new(hello.len());
-        let (mut presence, calls) = presence_at(&server);
+        let (mut presence, calls, began) = presence_at(&server);
         assert_eq!(server.received(2 * SECOND), Some(hello.clone()));
         let asked = Instant::now();
         assert!(
             server.closed(READ + 2 * SECOND),
             "the handshake read never gave up"
         );
-        let waited = asked.elapsed();
-        let (early, late) = (Duration::from_millis(250), Duration::from_millis(1500));
-        assert!(waited > READ - early && waited < READ + late, "{waited:?}");
+        // The read's deadline starts after the hello is written, so after `began`: it cannot
+        // give up sooner than READ from there, however late this thread runs. The hello was
+        // written before `asked`, so the read gave up at most 1.5 s past READ.
+        let (since_start, since_hello) = (began.elapsed(), asked.elapsed());
+        assert!(since_start >= READ, "{since_start:?}");
+        assert!(
+            since_hello < READ + Duration::from_millis(1500),
+            "{since_hello:?}"
+        );
         let began = Instant::now();
         assert!(presence.shutdown());
         assert!(began.elapsed() < JOIN);
@@ -1756,7 +1763,7 @@ mod tests {
 
         // Closed while the handshake read still waits: close returns in time and the pipe goes.
         let server = Silent::new(hello.len());
-        let (mut presence, calls) = presence_at(&server);
+        let (mut presence, calls, _) = presence_at(&server);
         assert_eq!(server.received(2 * SECOND), Some(hello));
         let began = Instant::now();
         assert!(presence.shutdown());
