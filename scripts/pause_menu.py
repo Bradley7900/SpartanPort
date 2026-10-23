@@ -35,7 +35,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 17  # of the patch: a change rebuilds the cached copy
+VERSION = 20  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABELS = {
     'en': b'Exit to Desktop',
@@ -626,6 +626,18 @@ def native_cheats(data, spans, language=None):
     def end():
         emit(b'\x49')
 
+    def scrollbar(index, first, total, visible):
+        string(f'sliderBar{index}')
+        integer(64)
+        string('')
+        emit(b'\x00' + struct.pack('>f', 0.0))
+        emit(b'\x00' + struct.pack('>f', (first + visible / 2) / total * 100 / 30))
+        integer(5)
+        builtin(0x5a)
+        string(f'sliderBar{index}')
+        integer(1)
+        builtin(0x58)
+
     def cheat_window(first):
         for slot in range(8):
             row = first + slot if slot < 7 else 8
@@ -636,6 +648,7 @@ def native_cheats(data, spans, language=None):
             else:
                 string('')
                 assign(9 + slot)
+        scrollbar(11, first, 8, 7)
 
     def selection(name, index, function=None, selected=True, cheat=False, graphics=False):
         begin(name, 1 if selected else 2)
@@ -703,6 +716,10 @@ def native_cheats(data, spans, language=None):
         begin(page, 2)
         if is_multiplier:
             bars(False)
+        else:
+            string('sliderBar11')
+            integer(1)
+            builtin(0x59)
         end()
         begin(page, 'back')
         sound('SND_MM_BACK')
@@ -832,6 +849,7 @@ def native_cheats(data, spans, language=None):
             string(name)
         integer(2)
         builtin(0x58 if first == 0 else 0x59)
+        scrollbar(10, first, 13, 8)
 
     for index, name in enumerate(name for name, parent, events in display_specs):
         row, first = index + 4, max(0, index + 4 - 7)
@@ -928,6 +946,11 @@ def native_cheats(data, spans, language=None):
     labels['display_entry'] = len(code)
     copy_entry(display_ref, {}, True)
     redirects.append((display, 'display_entry'))
+    labels['display_exit'] = len(code)
+    string('sliderBar10')
+    integer(1)
+    builtin(0x59)
+    copy_entry(next(v for k, v, t in s.blocks(display) if k == 2), {})
     for index, record in enumerate(originals):
         label = f'display_selection_{index}'
         labels[label] = len(code)
@@ -950,6 +973,9 @@ def native_cheats(data, spans, language=None):
     for record, label in redirects:
         entry_item = next(i for i, (k, v) in enumerate(record['items']) if k == 1)
         edits.append((base + record['at'] + 12 + 4 * entry_item, be(0x01000000 | (code_start + labels[label]))))
+    exit_item = next(i for i, (k, v) in enumerate(display['items']) if k == 2)
+    edits.append((base + display['at'] + 12 + 4 * exit_item,
+                  be(0x02000000 | (code_start + labels['display_exit']))))
     edits += [retarget(s, originals[-1], DOWN, originals[0]['at'] - 4, refs['NativeDisplay0']),
               retarget(s, originals[0], UP, originals[-1]['at'] - 4, refs['NativeDisplayApply'])]
     for record, old_index in ((audio, 2), (s.by_name['HLDisplay'][0], 3), (s.by_name['HLDisplay'][1], 4)):
@@ -1006,6 +1032,51 @@ def native_cheats(data, spans, language=None):
     struct.pack_into('<I', data, base - 60, old_size + grown)
     data[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)
     native_multiplier_bars(data)
+    native_scrollbar(data, 10, 13, 8)
+    native_scrollbar(data, 11, 8, 7)
+
+
+def native_scrollbar(data, index, total, visible):
+    """Clone a native slider with an isolated mesh and a proportional vertical thumb."""
+    all_entries = list(entries(data))
+    objects = {name: (o, size) for o, size, name in all_entries if size}
+    mesh_at, mesh_size = objects['MG_95eaf70b_0']
+    instance_at, instance_size = objects['gosliderbar3']
+    model_at, _ = objects['MDL_1d029412']
+    template_at, template_size = objects['95eaf70b']
+    if mesh_size != 880 or instance_size != 148 or template_size != 500:
+        raise ValueError('Native scrollbar template not recognized')
+    template_name = f'{0x95eaf70c + index - 10:08x}'.encode()
+    model_name = f'{0x1d029413 + index - 10:08x}'.encode()
+    instance_name = f'gosliderbar{index}'.encode().ljust(56, b'\0')
+    mesh = bytearray(data[mesh_at:mesh_at + 64 + mesh_size])
+    mesh[8:64] = (b'MG_' + template_name + b'_0').ljust(56, b'\0')
+    xs = [struct.unpack_from('<f', mesh, 64 + 0x220 + i * 20)[0] for i in range(4)]
+    center = (max(xs) + min(xs)) / 2
+    scale = (2.98 * visible / total) / (max(xs) - min(xs))
+    for i, x in enumerate(xs):
+        struct.pack_into('<f', mesh, 64 + 0x220 + i * 20, center + (x - center) * scale)
+    # Keep the original animation and materials; only this model uses the wider thumb.
+    group_end = next(o + 64 for o, size, name in all_entries if o > template_at and name == 'GroupEnd')
+    model = bytes(data[model_at - 64:group_end]).replace(b'95eaf70b', template_name)
+    model = model.replace(b'1d029412', model_name).replace(b'ANM_' + template_name, b'ANM_95eaf70b')
+    instance = bytearray(data[instance_at - 64:instance_at + 64 + 160 + 64])
+    instance[72:128] = instance_name
+    instance[132:140] = template_name
+    ids = [struct.unpack_from('<I', data, o + 64 + 0x3c)[0] for o, size, name in all_entries
+           if size == 148 and struct.unpack_from('<I', data, o)[0] == 0x1f0001]
+    last = max(value for value in ids if value >> 16 == 1)
+    struct.pack_into('<I', instance, 128 + 0x3c, last + 1)
+    # Rotate local X downward and align the track with the scrollable rows.
+    length_scale = (visible - 1) * 0.75 / 2.98
+    struct.pack_into('<3f', instance, 128 + 0x40, 0, -length_scale, 0)
+    struct.pack_into('<3f', instance, 128 + 0x4c, 0.45, 0, 0)
+    struct.pack_into('<2f', instance, 128 + 0x64, 406.4, 2.95 - 3.65489149 * length_scale)
+    struct.pack_into('<H', instance, 128 + 0x76, index)
+    reference = next(o for o, size, name in all_entries if name == 'gosliderbar3' and not size)
+    data[reference + 64:reference + 64] = bytes(data[reference:reference + 8]) + instance_name
+    data[instance_at - 64:instance_at - 64] = instance
+    data[mesh_at:mesh_at] = mesh + model
 
 
 def native_multiplier_bars(data):

@@ -187,6 +187,25 @@ class NativeCheats(unittest.TestCase):
             if op == 0x09:
                 self.assertLessEqual(arg[1], 0x18)
 
+    def test_cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit(self):
+        objects = {name: (o + 64, size) for o, size, name in entries(self.data) if size}
+        self.assertTrue('gosliderbar11' in objects)
+        mesh, _ = objects['MG_95eaf70d_0']
+        xs = [struct.unpack_from('<f', self.data, mesh + 0x220 + i * 20)[0] for i in range(4)]
+        self.assertAlmostEqual(max(xs) - min(xs), 2.98 * 7 / 8, places=4)
+        times = []
+        for name in ('NativeCheat0', 'NativeCheat7', 'NativeMultipliersLink'):
+            code = self.block(self.script.one(name), 1)
+            marker = next(i for i, (_, op, arg) in enumerate(code) if op == 0x16
+                          and self.script.string(self.script.lit + int.from_bytes(arg, 'big')) == 'sliderBar11')
+            times.append(struct.unpack('>f', code[marker + 4][2])[0])
+        self.assertLess(times[0], times[1])
+        self.assertEqual(times[1], times[2])
+        exit_code = self.block(self.script.one('NativeCheats'), 2)
+        self.assertIn((0x13, b'\x00\x59'), [(op, arg) for _, op, arg in exit_code])
+        self.assertIn('sliderBar11', [self.script.string(self.script.lit + int.from_bytes(arg, 'big'))
+                                    for _, op, arg in exit_code if op == 0x16])
+
     def test_multipliers_stays_visible_and_qte_uses_a_visible_value_slot(self):
         for name in ('NativeCheat0', 'NativeCheat6', 'NativeCheat7', 'NativeMultipliersLink'):
             entry = self.block(self.script.one(name), 1)
