@@ -683,6 +683,26 @@ mod tests {
     }
 
     #[test]
+    fn an_update_keeps_the_tags_and_the_play_time() {
+        let f = fixture();
+        let mut old = IndexMap::new();
+        old.insert("appid".to_string(), Vdf::U32(7));
+        old.insert("AppName".to_string(), Vdf::Str("SpartanPort".into()));
+        old.insert("Exe".to_string(), Vdf::Str("\"/old\"".into()));
+        let mut tags = IndexMap::new();
+        tags.insert("0".to_string(), Vdf::Str("fav".into()));
+        old.insert("tags".to_string(), Vdf::Map(tags.clone()));
+        old.insert("LastPlayTime".to_string(), Vdf::U32(1234));
+        write_shortcuts(&f.root, "1111", vec![("0", old)]);
+        assert!(add(&f).unwrap().updated);
+        let shortcuts = shortcuts_of(&f.root, "1111");
+        let ours = entry(&shortcuts, "0");
+        assert_eq!(ours["tags"], Vdf::Map(tags));
+        assert_eq!(ours["LastPlayTime"], Vdf::U32(1234));
+        assert_eq!(text(ours, "Exe"), "\"/home/user/spartanport.AppImage\"");
+    }
+
+    #[test]
     fn a_shortcut_from_before_the_rename_is_updated_not_doubled() {
         let f = fixture();
         let mut old = IndexMap::new();
