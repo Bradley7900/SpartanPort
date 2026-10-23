@@ -526,13 +526,15 @@ Es un fork del [port para Windows de Supermedo](https://github.com/Supermedo/blo
 
 | Parte | Dónde | Qué hace |
 |---|---|---|
-| Preparación | `scripts/` | Lee `eboot.bin`, aplica sus relocaciones y enlaza las `libc` y `libSceFios2` propias del juego en una sola imagen |
+| Preparación | `launcher-rust/src/core`, `launcher-rust/src/runner` | Lee `eboot.bin`, aplica sus relocaciones y enlaza las `libc` y `libSceFios2` propias del juego en una sola imagen |
 | Loader | `src/probe.c` | Carga la imagen, instala los hooks validados (trucos, multiplicadores, barra de vida) e inicia el código original del juego |
 | Runtime | `src/runtime_*.c` | Reimplementa las funciones del sistema de la PS4: memoria, hilos, archivos, audio, video, control, partidas y servicios |
 | GPU | `gpu/shadps4/` | El video core de shadPS4, que traduce los comandos y shaders de la GPU de la PS4 a Vulkan, con las correcciones de cuesta4 para este juego (rama `eltutz`) y el trabajo de velocidad de este port (caché de shaders en segundo plano, lecturas diferidas) |
 | Menú dentro del juego | `gpu/shim/spartanport_overlay.cpp` | El menú Dear ImGui y el overlay de rendimiento; ajustes en `gpu/shim/spartanport_settings.cpp` |
-| Parches | `patches/CUSA01623.xml`, `scripts/patches.py` | Se aplican en memoria al iniciar, sin modificar los archivos del juego |
-| Launcher | `launcher/spartanport_launcher_win.py` | Ajustes, parches, mods, controles y el botón de jugar |
+| Parches | `patches/CUSA01623.xml`, `launcher-rust/src/core` | Se aplican en memoria al iniciar, sin modificar los archivos del juego |
+| Launcher | `launcher-rust/src/ui` | Ajustes, parches, mods, controles y el botón de jugar |
+
+El Python de `scripts/` y `launcher/` se conserva como la referencia congelada de la que se portó el código Rust; ya no se distribuye.
 
 Más documentación: [mods](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/MODS.es.md), [parches](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/PATCHES.es.md), [mapa de cuadros e historial de investigación de escaladores](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/upscaler.md)
 y [trabajo paralelo de GPU](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/parallel_gpu.md).

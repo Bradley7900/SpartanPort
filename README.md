@@ -206,9 +206,9 @@ Settings are kept in `spartanport.ini` (the game and the in-game menu) and in
 
 **GUI Scale:** choose **Auto**, **1x** or **2x** under **Advanced → Launcher**,
 then click **Save**. Text, controls and layout resize together, without changing
-game resolution. Auto follows the desktop scale reported by Tk, with X11/XWayland
-font DPI and window-scale fallbacks on Linux. On macOS, Retina scaling stays with
-the operating system. Manual 1x/2x sets the launcher's logical size, including text,
+game resolution. Auto follows the desktop scale the window system reports to the Rust
+launcher (Windows display scaling; the Wayland or X11 scale on Linux). On macOS, Retina
+scaling stays with the operating system. Manual 1x/2x sets the launcher's logical size, including text,
 icons, controls, scrollbars and spacing. Screen resolution alone does not select
 a scale. The choice is saved in `settings.json`.
 
@@ -540,13 +540,15 @@ It is a fork of [Supermedo's Windows port](https://github.com/Supermedo/bloodbor
 
 | Part | Where | What it does |
 |---|---|---|
-| Preparation | `scripts/` | Reads `eboot.bin`, applies its relocations and links the game's own `libc` and `libSceFios2` into one image |
+| Preparation | `launcher-rust/src/core`, `launcher-rust/src/runner` | Reads `eboot.bin`, applies its relocations and links the game's own `libc` and `libSceFios2` into one image |
 | Loader | `src/probe.c` | Loads the image, installs the validated hooks (cheats, multipliers, health bar) and starts the game's original code |
 | Runtime | `src/runtime_*.c` | Reimplements the PS4 system functions: memory, threads, files, audio, video, controller, saves and services |
 | GPU | `gpu/shadps4/` | The shadPS4 video core, translating the PS4 GPU commands and shaders to Vulkan, with cuesta4's fixes for this game (`eltutz` branch) and this port's speed work (background shader cache, deferred readbacks) |
 | In-game menu | `gpu/shim/spartanport_overlay.cpp` | The Dear ImGui menu and performance overlay; settings in `gpu/shim/spartanport_settings.cpp` |
-| Patches | `patches/CUSA01623.xml`, `scripts/patches.py` | Applied in memory at start, without changing the game files |
-| Launcher | `launcher/spartanport_launcher_win.py` | Settings, patches, mods, controls and the play button |
+| Patches | `patches/CUSA01623.xml`, `launcher-rust/src/core` | Applied in memory at start, without changing the game files |
+| Launcher | `launcher-rust/src/ui` | Settings, patches, mods, controls and the play button |
+
+The Python in `scripts/` and `launcher/` is kept as the frozen reference the Rust code was ported from; it no longer ships.
 
 More documentation: [mods](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/MODS.md), [patches](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/PATCHES.md), [frame map and historical upscaler research](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/upscaler.md)
 and [parallel GPU work](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/parallel_gpu.md).

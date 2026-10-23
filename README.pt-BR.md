@@ -521,13 +521,15 @@ menu no jogo).
 
 | Parte | Onde | O que faz |
 |---|---|---|
-| Preparação | `scripts/` | Lê o `eboot.bin`, aplica as realocações e junta a `libc` e a `libSceFios2` do próprio jogo numa imagem |
+| Preparação | `launcher-rust/src/core`, `launcher-rust/src/runner` | Lê o `eboot.bin`, aplica as realocações e junta a `libc` e a `libSceFios2` do próprio jogo numa imagem |
 | Loader | `src/probe.c` | Carrega a imagem, instala os ganchos conferidos (trapaças, multiplicadores, barra de vida) e inicia o código original do jogo |
 | Runtime | `src/runtime_*.c` | Reimplementa as funções de sistema do PS4: memória, threads, arquivos, áudio, vídeo, controle, saves e serviços |
 | GPU | `gpu/shadps4/` | O núcleo de vídeo do shadPS4, que traduz os comandos e shaders da GPU do PS4 para Vulkan, com as correções de cuesta4 para este jogo (branch `eltutz`) e as otimizações deste port (cache de shaders em segundo plano, leituras adiadas) |
 | Menu do jogo | `gpu/shim/spartanport_overlay.cpp` | Menu e contador de desempenho em Dear ImGui; configurações em `gpu/shim/spartanport_settings.cpp` |
-| Patches | `patches/CUSA01623.xml`, `scripts/patches.py` | Aplicados na memória ao iniciar, sem alterar os arquivos do jogo |
-| Launcher | `launcher/spartanport_launcher_win.py` | Configurações, patches, mods, controles e o botão de jogar |
+| Patches | `patches/CUSA01623.xml`, `launcher-rust/src/core` | Aplicados na memória ao iniciar, sem alterar os arquivos do jogo |
+| Launcher | `launcher-rust/src/ui` | Configurações, patches, mods, controles e o botão de jogar |
+
+O Python de `scripts/` e `launcher/` fica como a referência congelada da qual o código Rust foi portado; ele não é mais distribuído.
 
 Mais documentação: [mods](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/MODS.pt-BR.md), [patches](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/PATCHES.pt-BR.md), [mapa do quadro e histórico de pesquisa de upscalers](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/upscaler.md)
 e [trabalho paralelo da GPU](https://github.com/FelipePrado0/SpartanPort/blob/main/docs/parallel_gpu.md).

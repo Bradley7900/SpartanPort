@@ -63,10 +63,10 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_save_backup.py` | 10 | 10 | 0 | 0 | 0 | 0 |
 | `tests/test_pause_menu.py` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `tests/test_native_cheats.py` | 9 | 9 | 0 | 0 | 0 | 0 |
-| `tests/test_legacy.py` | 34 | 19 | 5 | 0 | 0 | 10 |
+| `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 |
 | `tests/test_discord_presence.py` | 26 | 23 | 2 | 0 | 0 | 1 |
 | `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 |
-| **Total** | **308** | **277** | **15** | **4** | **0** | **12** |
+| **Total** | **308** | **276** | **16** | **4** | **0** | **12** |
 
 ## Map
 
@@ -331,7 +331,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_legacy.py::UpgradeFromFormerNameTest::test_linux_appimage_settings_and_saves_are_copied` | `src/core/legacy.rs::tests::linux_data_folder_with_saves_is_copied`, `src/core/settings.rs::tests::portable_migration_copies_only_settings`, `src/core/legacy.rs::tests::game_settings_file_is_copied_and_kept` | replaced by `src/core/legacy.rs::tests::linux_data_folder_with_saves_is_copied`, `src/core/settings.rs::tests::portable_migration_copies_only_settings`, `src/core/legacy.rs::tests::game_settings_file_is_copied_and_kept` |
 | `tests/test_legacy.py::UpgradeFromFormerNameTest::test_settings_already_in_the_old_data_folder_win` | — | dropped: no Rust counterpart — a settings.json already in the old data folder (a build between the release and the rename) is read instead of the older one in the legacy config folder |
 | `tests/test_legacy.py::UpgradeFromFormerNameTest::test_start_moves_before_reading_settings` | — | dropped: no Rust counterpart — the start moves the legacy files before it reads the settings (no test pins the order in startup.rs) |
-| `tests/test_legacy.py::LauncherStartTest::test_the_update_installer_does_not_migrate` | `tests/startup.rs::the_update_installer_does_not_migrate` | ported |
+| `tests/test_legacy.py::LauncherStartTest::test_the_update_installer_does_not_migrate` | `tests/startup.rs::the_update_installer_does_not_migrate`, `tests/startup.rs::arguments_route_to_their_roles` | replaced by `tests/startup.rs::the_update_installer_does_not_migrate`, `tests/startup.rs::arguments_route_to_their_roles` |
 | `tests/test_legacy.py::CrossPlatformShortcutMarkerTest::test_shortcut_migration_skips_when_marker_exists` | `src/core/legacy.rs::tests::shortcut_migration_skips_when_marker_exists` | ported |
 | `tests/test_legacy.py::CrossPlatformShortcutMarkerTest::test_shortcut_migration_returns_false_on_non_windows` | `src/core/legacy.rs::tests::shortcut_migration_returns_false_on_non_windows` | ported |
 | `tests/test_legacy.py::WindowsDesktopShortcutTest::test_user_created_shortcut_with_custom_name` | `src/core/legacy.rs::tests::windows_shortcuts::user_created_shortcut_with_custom_name` | ported |
