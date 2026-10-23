@@ -8,8 +8,8 @@ mod windows;
 #[cfg(not(windows))]
 pub use unix::{
     attach_parent_console, catch_interrupt, close_std_streams, create_junction, interrupted,
-    no_console_window, no_window, prepare, steam_path_from_registry, user_default_ui_language,
-    wait_for_process, Job,
+    no_console_window, no_window, prepare, show_error, steam_path_from_registry,
+    user_default_ui_language, wait_for_process, Job,
 };
 #[cfg(windows)]
 pub use windows::{

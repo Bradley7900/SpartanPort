@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use spartanport_launcher::core::env::{environment_of, start_up_environment};
 use spartanport_launcher::core::game::ready_to_play;
+use spartanport_launcher::core::i18n::{launcher_language, system_language};
 use spartanport_launcher::core::paths::{default_port_dir, Paths};
 use spartanport_launcher::core::platform;
 use spartanport_launcher::core::settings::load_app_settings;
@@ -15,7 +16,7 @@ use spartanport_launcher::startup::{self, Route};
 use spartanport_launcher::{ui, APP_NAME, VERSION};
 
 fn main() {
-    // First, so `--version`, the forwarded Python and start-up errors print in a terminal (and
+    // First, so `--version`, the update installer and start-up errors print in a terminal (and
     // `--play`'s output: the Python's `attach_stdio`).
     platform::attach_parent_console();
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -45,7 +46,7 @@ fn main() {
             // As the Python `main`: the old name's files and the settings first.
             startup::forward_environment();
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
-            startup::prepare(&paths);
+            startup::prepare(&paths, startup::migrates(&args));
             let settings = load_app_settings(&paths);
             // Without a usable game folder there is nothing to play yet: the window opens instead.
             if ready_to_play(
@@ -63,16 +64,26 @@ fn main() {
             }
             open_window(paths);
         }
-        Route::Python => {
-            // The Python launcher of the port folder (`SPARTAN_PORT_DIR` included).
+        Route::InstallUpdate => {
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
-            std::process::exit(startup::forward_to_python(&paths.port_dir, &args))
+            let target = PathBuf::from(&args[1]);
+            let pid = args[2].to_str().and_then(|pid| pid.parse().ok());
+            let lang = launcher_language(
+                &load_app_settings(&paths).get_str("ui_language"),
+                system_language,
+            );
+            std::process::exit(startup::install_update(
+                &exe_dir,
+                &target,
+                pid.unwrap_or(0),
+                &lang,
+            ))
         }
         Route::Launcher => {
             // Before the folders below are read from the environment.
             startup::forward_environment();
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
-            startup::prepare(&paths);
+            startup::prepare(&paths, startup::migrates(&args));
             open_window(paths);
         }
     }

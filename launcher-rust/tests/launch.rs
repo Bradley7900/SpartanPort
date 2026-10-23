@@ -1,9 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use indexmap::IndexMap;
-use spartanport_launcher::core::launch::{
-    python_command, run_command, spawn_game, GameEvent, GameHandle,
-};
+use spartanport_launcher::core::launch::{run_command, spawn_game, GameEvent, GameHandle};
 use spartanport_launcher::core::log::RunLog;
 use std::ffi::OsString;
 use std::path::Path;
@@ -125,20 +123,6 @@ fn run_log_holds_every_line() {
         .replace("\r\n", "\n");
     let expected: String = (1..=5).map(|k| format!("line {k}\n")).collect();
     assert_eq!(text, expected);
-}
-
-#[test]
-fn python_command_prefers_the_override() {
-    let with_override = |key: &str| (key == "SPARTANPORT_PYTHON").then(|| "/opt/py".to_string());
-    assert_eq!(python_command(&with_override).unwrap(), vec!["/opt/py"]);
-
-    let empty_path = |key: &str| (key == "PATH").then(String::new);
-    let expected: Vec<String> = if cfg!(windows) {
-        vec!["python".into()]
-    } else {
-        vec!["python3".into()]
-    };
-    assert_eq!(python_command(&empty_path).unwrap(), expected);
 }
 
 #[test]

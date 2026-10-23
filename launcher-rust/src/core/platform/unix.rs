@@ -26,6 +26,11 @@ pub fn steam_path_from_registry() -> Option<std::path::PathBuf> {
 /// Programs share the terminal here: nothing to hide.
 pub fn no_window(_cmd: &mut Command) {}
 
+/// The error goes to the terminal here: there is no dialog to block on.
+pub fn show_error(title: &str, text: &str) {
+    eprintln!("{title}: {text}");
+}
+
 /// The output already reaches the terminal here.
 pub fn attach_parent_console() {}
 

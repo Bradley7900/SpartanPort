@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use spartanport_launcher::core::launch::python_command;
 use spartanport_launcher::core::patches::{
     compile_patches, eboot_image, eboot_segments, write_game_patches, PatchJob, Write,
 };
@@ -20,6 +19,26 @@ use spartanport_launcher::runner::prepare::{prepare, read_self};
 use spartanport_launcher::runner::{glyphs, isa_rewrite, link_libc, link_modules, pause_menu_args};
 
 /// The game folder of `SPARTAN_GAME_DIR`, when it holds an `eboot.bin`.
+/// The interpreter the comparisons against the frozen Python use: `SPARTANPORT_PYTHON` as one
+/// program path, else `py -3` on Windows when `py.exe` is on `PATH`, `python` on Windows
+/// without it, `python3` elsewhere.
+fn python_command(env: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, ()> {
+    if let Some(program) = env("SPARTANPORT_PYTHON").filter(|p| !p.is_empty()) {
+        return Ok(vec![program]);
+    }
+    if cfg!(windows) {
+        let path = env("PATH").unwrap_or_default();
+        let has_py = std::env::split_paths(&path).any(|dir| dir.join("py.exe").is_file());
+        if has_py {
+            Ok(vec!["py".to_string(), "-3".to_string()])
+        } else {
+            Ok(vec!["python".to_string()])
+        }
+    } else {
+        Ok(vec!["python3".to_string()])
+    }
+}
+
 fn dump() -> Option<PathBuf> {
     let dir = PathBuf::from(std::env::var_os("SPARTAN_GAME_DIR")?);
     dir.join("eboot.bin").is_file().then_some(dir)

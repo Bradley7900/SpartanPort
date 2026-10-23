@@ -3,15 +3,16 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use indexmap::IndexMap;
 
 use crate::core::env::start_up_environment;
-use crate::core::launch::python_command;
+use crate::core::i18n::tr;
 use crate::core::paths::Paths;
 use crate::core::settings::load_app_settings;
-use crate::core::update::update_dir;
+use crate::core::update::{self, update_dir};
 use crate::core::{desktop, legacy, platform};
 use crate::ui::update::is_packaged;
 use crate::APP_NAME;
@@ -25,20 +26,26 @@ pub enum Route {
     Run,
     /// `--play`: the Rust runner's play role.
     Play,
-    /// `--script` or `--install-update`: the Python launcher does these.
-    Python,
+    /// `--install-update TARGET PID`: the downloaded version installs itself over the old one.
+    InstallUpdate,
     /// Anything else: the window.
     Launcher,
 }
 
-/// `--run`, `--script` and `--install-update` count first (what follows them is theirs); `--play`
-/// counts anywhere, as in the Python `main`.
+/// [`route_on`] for the system this program runs on.
 pub fn route<S: AsRef<OsStr>>(args: &[S]) -> Route {
+    route_on(args, cfg!(windows))
+}
+
+/// `--run` and `--install-update` count first (what follows them is theirs); `--install-update`
+/// needs exactly `TARGET PID` and Windows, the only system that updates itself this way. `--play`
+/// counts anywhere, as in the Python `main`. Other arguments, `--script` included, are ignored.
+pub fn route_on<S: AsRef<OsStr>>(args: &[S], windows: bool) -> Route {
     let is = |arg: &S, flag: &str| arg.as_ref() == OsStr::new(flag);
     match args.first() {
         Some(first) if is(first, "--run") => return Route::Run,
-        Some(first) if is(first, "--script") || is(first, "--install-update") => {
-            return Route::Python;
+        Some(first) if is(first, "--install-update") && windows && args.len() == 3 => {
+            return Route::InstallUpdate;
         }
         _ => {}
     }
@@ -51,36 +58,38 @@ pub fn route<S: AsRef<OsStr>>(args: &[S]) -> Route {
     Route::Launcher
 }
 
-/// Runs the Python launcher of `port_dir` with `args`, from `port_dir`, and returns its exit code;
-/// 1 when it cannot start.
-pub fn forward_to_python<S: AsRef<OsStr>>(port_dir: &Path, args: &[S]) -> i32 {
-    let python = match python_command(&|key| std::env::var(key).ok()) {
-        Ok(python) => python,
-        Err(error) => {
-            eprintln!("{APP_NAME}: {error}");
-            return 1;
-        }
-    };
-    let Some((program, interpreter_args)) = python.split_first() else {
+/// Whether [`prepare`] moves the old name's files: not for the downloaded copy that installs an
+/// update, which leaves the player's folders alone.
+pub fn migrates<S: AsRef<OsStr>>(args: &[S]) -> bool {
+    !args
+        .first()
+        .is_some_and(|first| first.as_ref() == OsStr::new("--install-update"))
+}
+
+/// Python `install_update`: waits for the old launcher (`pid`) to close, copies this version
+/// (`source`) over `target` and starts it. Returns the exit code.
+pub fn install_update(source: &Path, target: &Path, pid: u32, lang: &str) -> i32 {
+    platform::wait_for_process(pid, Duration::from_secs(60));
+    let mut pause = || std::thread::sleep(Duration::from_secs(1));
+    if update::install_over(source, target, 30, &mut pause).is_err() {
+        platform::show_error(
+            APP_NAME,
+            &tr(
+                lang,
+                "Could not install the update. Download it from the releases page.",
+            ),
+        );
+        let _ = desktop::open_url(update::RELEASES_PAGE);
         return 1;
-    };
-    let mut command = Command::new(program);
-    // From Steam or a shortcut no console window opens with it; a terminal still gets its output.
-    platform::no_window(&mut command);
-    let status = command
-        .args(interpreter_args)
-        .arg(
-            port_dir
-                .join("launcher")
-                .join("spartanport_launcher_win.py"),
-        )
-        .args(args)
-        .current_dir(port_dir)
-        .status();
-    match status {
-        Ok(status) => status.code().unwrap_or(1),
+    }
+    let started = Command::new(target.join("SpartanPort.exe"))
+        .current_dir(target)
+        .stdin(Stdio::null())
+        .spawn();
+    match started {
+        Ok(_) => 0,
         Err(error) => {
-            eprintln!("{APP_NAME}: {program}: {error}");
+            platform::show_error(APP_NAME, &error.to_string());
             1
         }
     }
@@ -104,12 +113,14 @@ pub fn forward_environment() {
 /// The steps between the arguments and the window, in the Python `main`'s order: the old name's
 /// files, the settings, the Linux menu entry and what a finished update left behind. The
 /// language is the window's (`State::new`).
-pub fn prepare(paths: &Paths) {
+pub fn prepare(paths: &Paths, migrate: bool) {
     // Python `WINDOWS and FROZEN and UPDATE_DIR not in PORT_DIR.parents`: the installed Windows
     // launcher, not the copy that runs from a downloaded update.
     let installed = cfg!(windows) && is_packaged() && !runs_from_update_dir(&paths.port_dir);
     // Before the settings are loaded: their copy must not mask the old data folder's.
-    move_from_legacy_name(paths, installed);
+    if migrate {
+        move_from_legacy_name(paths, installed);
+    }
     let settings = load_app_settings(paths);
     if !cfg!(windows) {
         let env = |key: &str| std::env::var(key).ok();

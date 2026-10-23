@@ -30,26 +30,6 @@ pub enum LaunchError {
     Spawn(#[from] std::io::Error),
 }
 
-/// The Python interpreter command. `SPARTANPORT_PYTHON` is taken as one program path (it is not
-/// split into arguments). Otherwise Windows uses `py -3` when `py.exe` is on `PATH`, else
-/// `python`; other systems use `python3`.
-pub fn python_command(env: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, LaunchError> {
-    if let Some(program) = env("SPARTANPORT_PYTHON").filter(|p| !p.is_empty()) {
-        return Ok(vec![program]);
-    }
-    if cfg!(windows) {
-        let path = env("PATH").unwrap_or_default();
-        let has_py = std::env::split_paths(&path).any(|dir| dir.join("py.exe").is_file());
-        if has_py {
-            Ok(vec!["py".to_string(), "-3".to_string()])
-        } else {
-            Ok(vec!["python".to_string()])
-        }
-    } else {
-        Ok(vec!["python3".to_string()])
-    }
-}
-
 /// The command that runs the game: the launcher's own `exe` with `--run` and `args`.
 pub fn run_command(exe: &Path, args: &[OsString]) -> Vec<String> {
     let mut command = vec![exe.to_string_lossy().into_owned(), "--run".to_string()];

@@ -7,26 +7,32 @@ use iced::{window, Point, Size};
 use spartanport_launcher::core::i18n::launcher_language;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::settings::app_defaults;
-use spartanport_launcher::startup::{route, Route};
+use spartanport_launcher::startup::{install_update, migrates, route, route_on, Route};
 use spartanport_launcher::ui::app::{
     self, centred_position, fitted_window, window_message, Message, State, WINDOW_SIZE,
 };
 use spartanport_launcher::ui::theme::window_zoom;
 
 #[test]
-fn arguments_route_to_python() {
+fn arguments_route_to_their_roles() {
     let none: [&str; 0] = [];
     assert_eq!(route(&none), Route::Launcher);
     assert_eq!(route(&["--version"]), Route::Version);
-    // The Python roles: what follows `--script` and `--install-update` is theirs.
+    // The update installer: `--install-update TARGET PID`, on Windows only.
+    let update = ["--install-update", r"C:\Port", "1234"];
+    assert_eq!(route_on(&update, true), Route::InstallUpdate);
+    assert_eq!(route_on(&update, false), Route::Launcher);
     assert_eq!(
-        route(&["--script", "prepare.py", "--version"]),
-        Route::Python
+        route_on(&["--install-update", "a.zip"], true),
+        Route::Launcher
     );
     assert_eq!(
-        route(&["--install-update", "a.zip", "C:\\Port"]),
-        Route::Python
+        route_on(&["--install-update", "a", "1", "b"], true),
+        Route::Launcher
     );
+    // `--script` is an ordinary argument now.
+    assert_eq!(route(&["--script", "prepare.py"]), Route::Launcher);
+    assert_eq!(route(&["--script", "x.py", "--version"]), Route::Version);
     // Anything else opens the window; the Python ignores unknown arguments too.
     assert_eq!(route(&["--fullscreen"]), Route::Launcher);
     assert_eq!(route(&["play"]), Route::Launcher);
@@ -39,8 +45,41 @@ fn run_and_play_are_their_own_routes() {
     // `--play` counts anywhere, as in the Python `main`.
     assert_eq!(route(&["--play"]), Route::Play);
     assert_eq!(route(&["--fullscreen", "--play"]), Route::Play);
-    assert_eq!(route(&["--script", "x.py"]), Route::Python);
-    assert_eq!(route(&["--install-update", "--run"]), Route::Python);
+}
+
+#[test]
+fn the_update_installer_does_not_migrate() {
+    assert!(!migrates(&["--install-update", r"C:\P", "1"]));
+    assert!(migrates(&["--play"]));
+    assert!(migrates::<&str>(&[]));
+}
+
+#[cfg(windows)]
+#[test]
+fn install_update_copies_and_starts_the_new_launcher() {
+    let dir = tempfile::tempdir().unwrap();
+    let (source, target) = (dir.path().join("source"), dir.path().join("target"));
+    std::fs::create_dir_all(source.join("bin")).unwrap();
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::copy(
+        env!("CARGO_BIN_EXE_fake-game"),
+        source.join("SpartanPort.exe"),
+    )
+    .unwrap();
+    std::fs::write(source.join("bin").join("x"), "new").unwrap();
+    std::fs::write(target.join("settings.json"), "mine").unwrap();
+    // A process that has already ended: waiting for it returns at once.
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_fake-game"))
+        .spawn()
+        .unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    assert_eq!(install_update(&source, &target, pid, "en"), 0);
+    assert!(target.join("bin").join("x").exists());
+    assert_eq!(
+        std::fs::read_to_string(target.join("settings.json")).unwrap(),
+        "mine"
+    );
 }
 
 #[test]
