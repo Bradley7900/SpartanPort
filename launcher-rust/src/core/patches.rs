@@ -204,14 +204,19 @@ pub fn selectable(metas: &[PatchMeta]) -> Vec<PatchMeta> {
         .collect()
 }
 
-/// Sort key of a size: its pixel count, then the text; anything that is not WxH goes last.
+/// Sort key of a size: its pixel count, then the text; anything that is not WxH goes last. A
+/// count past `u128` saturates: it still sorts after the names that are not WxH, as Python's
+/// unbounded integers sort it (two such sizes then go by their text).
 fn pixels(size: &str) -> (u128, String) {
     let (width, height) = size.split_once('x').unwrap_or((size, ""));
     let digits = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_digit());
     if digits(width) && digits(height) {
-        if let (Ok(w), Ok(h)) = (width.parse::<u128>(), height.parse::<u128>()) {
-            return (w * h, size.to_string());
-        }
+        // Only digits: the one way to fail is a number too large.
+        let number = |s: &str| s.parse::<u128>().unwrap_or(u128::MAX);
+        return (
+            number(width).saturating_mul(number(height)),
+            size.to_string(),
+        );
     }
     (1 << 60, size.to_string())
 }
@@ -1869,6 +1874,40 @@ mod tests {
         assert_eq!(
             resolution_names(&[a, bad, gone, b]),
             ["854x480", "1920x1080", "3440x1440", "wide"]
+        );
+    }
+
+    #[test]
+    fn an_absurd_size_from_a_mod_sorts_last_as_in_python() {
+        // A mod's XML can name any size. Python's integers have no limit: a pixel count above
+        // 2^60 sorts after the names that are not WxH, and 0 times anything is 0.
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, sizes: &[String]| {
+            let entries: String = sizes
+                .iter()
+                .map(|size| {
+                    format!(r#"<Metadata Name="Resolution Patch - {size}" AppVer="01.02"/>"#)
+                })
+                .collect();
+            write(dir.path(), name, &format!("<Patch>{entries}</Patch>"))
+        };
+        let wide = format!("{0}x{0}", "9".repeat(20)); // overflows the product
+        let tall = format!("{}x2", "1".repeat(45)); // overflows the width
+        let flat = format!("0x{}", "7".repeat(45)); // 0 pixels
+        let sizes = [
+            wide.clone(),
+            "Custom".into(),
+            flat.clone(),
+            "1280x720".into(),
+        ];
+        assert_eq!(
+            resolution_names(&[file("a.xml", &sizes)]),
+            [flat, "1280x720".into(), "Custom".into(), wide]
+        );
+        let sizes = [tall.clone(), "Custom".into()];
+        assert_eq!(
+            resolution_names(&[file("b.xml", &sizes)]),
+            ["Custom".to_string(), tall]
         );
     }
 
