@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -39,7 +40,11 @@ void Set(Values& v, const std::string& key, const std::string& value) {
             return;
         }
     }
-    if (key == "overlay_scale") {
+    if (key == "monitor") {
+        v.monitor = SpartanGraphics::ParseMonitor(value);
+    } else if (key == "hdr") {
+        v.hdr = i != 0;
+    } else if (key == "overlay_scale") {
         v.overlay_scale = std::clamp(i, 50, 300);
         return;
     }
@@ -208,6 +213,7 @@ void Load() {
         {"SPARTAN_MOUSE_PROMPT_DISTANCE", "mouse_prompt_distance"}, {"SPARTAN_MOUSE_LOCK", "mouse_lock"},
         {"SPARTAN_MOUSE_AIM_STYLE", "mouse_aim_style"}, {"SPARTAN_MOUSE_AIM_SENSITIVITY", "mouse_aim_sensitivity"},
         {"SPARTAN_AUTO_QTE", "auto_qte"},
+        {"SPARTAN_MONITOR", "monitor"}, {"SPARTAN_HDR", "hdr"},
     };
     for (const auto& [env, key] : env_keys) {
         if (const char* value = std::getenv(env); value && value[0]) {
@@ -220,6 +226,8 @@ void Load() {
     v.startup_output_res = v.output_res;
     v.startup_live_resolution = v.live_resolution;
     v.startup_render_resolution = v.render_resolution;
+    v.startup_monitor = v.monitor;
+    v.startup_hdr = v.hdr;
     const char* applied = std::getenv("SPARTAN_ENGINE_FPS");
     v.applied_engine_fps = applied && applied[0] ? SpartanGraphics::ParseEngineFps(std::atoi(applied))
                                                  : v.engine_fps.load();
@@ -265,6 +273,7 @@ int CycleEngineFps() {
 bool GraphicsNeedRestart() {
     const auto& v = Get();
     return v.render_resolution != v.startup_render_resolution ||
+           v.monitor != v.startup_monitor || v.hdr != v.startup_hdr ||
            v.deferred_readback != v.startup_deferred_readback ||
            v.stale_readback != v.startup_stale_readback ||
            v.anisotropy != v.startup_anisotropy;
@@ -378,6 +387,8 @@ void Save() {
     // Read by run.sh at start.
     std::fprintf(file, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");
+    std::fprintf(file, "monitor=%s\nhdr=%d\n", v.monitor < 0 ? "" : std::to_string(v.monitor.load()).c_str(),
+                 int(v.hdr.load()));
     std::fclose(file);
 }
 
@@ -413,6 +424,96 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
     auto& v = SpartanSettings::Get();
     const unsigned group = function & ~0xfu, index = function & 0xfu;
     const auto text = [](const char* value) { return reinterpret_cast<uint64_t>(value); };
+    if (function >= 0xfc0 && function <= 0xff7) {
+        const bool restart = std::getenv("SPARTAN_RESTART_COMMAND") &&
+                             std::getenv("SPARTAN_RESTART_COMMAND")[0] && SpartanSettings::GraphicsNeedRestart();
+        if (function == 0xfc9) return restart;
+        if (function == 0xfcb) {
+            if (!restart) return 0;
+            v.restart_unconfirmed = true;
+            SpartanSettings::Save();
+            return 1;
+        }
+        if (index >= 8) return 0;
+        const char* language = std::getenv("SPARTAN_LANGUAGE");
+        const bool pt = language && (std::strcmp(language, "7") == 0 || std::strcmp(language, "17") == 0
+                                    || std::strncmp(language, "pt", 2) == 0 || std::strcmp(language, "br") == 0);
+        const int direction = group == 0xfd0 ? -1 : group == 0xfe0 ? 1 : 0;
+        const auto names = SpartanGraphics::ResolutionNames();
+        const auto aspect = [](const std::string& name) {
+            const auto [w, h] = SpartanGraphics::ResolutionSize(name);
+            const char* labels[] = {"16:9", "16:10", "21:9", "32:9", "4:3"};
+            const double ratios[] = {16.0/9, 1.6, 2.37, 32.0/9, 4.0/3};
+            for (unsigned i = 0; i < 5; ++i) if (std::abs(double(w)/h - ratios[i]) < 0.05)
+                return std::string(labels[i]);
+            const int divisor = std::gcd(w, h);
+            return std::to_string(w/divisor) + ":" + std::to_string(h/divisor);
+        };
+        const auto pixels = [&](int i) {
+            const auto [w, h] = SpartanGraphics::ResolutionSize(names[i]);
+            return int64_t(w) * h;
+        };
+        int resolution = std::clamp(v.render_resolution.load(), 0, int(names.size()) - 1);
+        const bool engine_supported = v.engine_fps_global && v.engine_fps_int_global && v.applied_engine_fps > 60;
+        if (direction && (index != 3 || engine_supported)) {
+            const auto cycle = [&](const auto& values, int current) {
+                const auto found = std::find(values.begin(), values.end(), current);
+                const int pos = found == values.end() ? 0 : int(found - values.begin());
+                return values[(pos + direction + int(values.size())) % values.size()];
+            };
+            if (index <= 1) {
+                std::vector<std::string> aspects;
+                for (const char* a : {"16:9", "16:10", "21:9", "32:9", "4:3"}) aspects.emplace_back(a);
+                for (const auto& name : names) {
+                    const auto a = aspect(name);
+                    if (std::find(aspects.begin(), aspects.end(), a) == aspects.end()) aspects.push_back(a);
+                }
+                auto desired = aspect(names[resolution]);
+                if (index == 1) {
+                    const int current = int(std::find(aspects.begin(), aspects.end(), desired) - aspects.begin());
+                    desired = aspects[(current + direction + int(aspects.size())) % aspects.size()];
+                }
+                std::vector<int> choices;
+                for (unsigned i = 0; i < names.size(); ++i) if (aspect(names[i]) == desired) choices.push_back(int(i));
+                std::stable_sort(choices.begin(), choices.end(), [&](int a, int b) {
+                    return a == 0 ? b != 0 : b == 0 ? false : pixels(a) < pixels(b);
+                });
+                if (!choices.empty()) resolution = index == 0 ? cycle(choices, resolution)
+                    : *std::min_element(choices.begin(), choices.end(), [&](int a, int b) {
+                        return std::abs(pixels(a) - pixels(resolution)) < std::abs(pixels(b) - pixels(resolution));
+                    });
+                v.render_resolution = resolution;
+            } else if (index == 2) v.fps_limit = cycle(SpartanGraphics::FpsLimits, v.fps_limit);
+            else if (index == 3) {
+                std::vector<int> rates;
+                for (int rate : SpartanGraphics::EngineFps) if (rate <= v.applied_engine_fps) rates.push_back(rate);
+                v.engine_fps = cycle(rates, v.engine_fps);
+            } else if (index == 4) {
+                std::vector<int> monitors{-1};
+                monitors.insert(monitors.end(), v.monitors.begin(), v.monitors.end());
+                v.monitor = cycle(monitors, v.monitor);
+            } else if (index == 5) v.display_mode = (v.display_mode + direction + 3) % 3;
+            else if (index == 6) v.vsync = !v.vsync;
+            else if (index == 7) v.hdr = !v.hdr;
+            SpartanSettings::Save();
+        }
+        std::string value;
+        if (index == 0) value = names[resolution] == "native" ? "1920x1080" : names[resolution];
+        else if (index == 1) value = aspect(names[resolution]);
+        else if (index == 2) value = v.fps_limit ? std::to_string(v.fps_limit.load()) : pt ? "Sem limite" : "Unlimited";
+        else if (index == 3) value = engine_supported ? std::to_string(v.engine_fps.load()) : "-";
+        else if (index == 4) value = v.monitor < 0 ? (pt ? "Principal" : "Primary") : std::to_string(v.monitor + 1);
+        else if (index == 5) {
+            const char* en[] = {"Windowed", "Borderless", "Fullscreen"};
+            const char* br[] = {"Janela", "Sem bordas", "Tela cheia"};
+            value = (pt ? br : en)[std::clamp(v.display_mode.load(), 0, 2)];
+        } else value = (index == 6 ? v.vsync.load() : v.hdr.load()) ? (pt ? "Ligado" : "On") : (pt ? "Desligado" : "Off");
+        const bool selected = group != 0xfc0 && (index != 3 || engine_supported);
+        static thread_local std::string labels[8];
+        labels[index] = std::string(selected ? "[ArrowSelectionL]" : "[ArrowSpacer]") + value
+                      + (selected ? "[ArrowSelectionR]" : "[ArrowSpacer]");
+        return text(labels[index].c_str());
+    }
     if (function >= 0xf70 && function <= 0xfb0) {
         const char* language = std::getenv("SPARTAN_LANGUAGE");
         const bool portuguese = language && (std::strcmp(language, "7") == 0 || std::strcmp(language, "17") == 0

@@ -9,6 +9,30 @@ import graphics_options as g
 
 
 class GraphicsOptionsTest(unittest.TestCase):
+    def test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart(self):
+        self.ini.write_text('monitor=0\nhdr=0\n', encoding='utf-8')
+        good, _ = g.prepare(self.ini, self.state)
+        self.assertEqual(g.environment(good)['SPARTAN_MONITOR'], '0')
+        g.write_keys(self.ini, {'monitor': '2', 'hdr': '1', 'restart_unconfirmed': '1'})
+        tried, reverted = g.prepare(self.ini, self.state)
+        self.assertFalse(reverted)
+        self.assertEqual(g.environment(tried)['SPARTAN_HDR'], '1')
+        restored, reverted = g.prepare(self.ini, self.state)
+        self.assertTrue(reverted)
+        self.assertEqual((restored['monitor'], restored['hdr']), ('0', '0'))
+
+    def test_legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart(self):
+        options, _ = g.prepare(self.ini, self.state, environment={'SPARTAN_MONITOR': '2', 'SPARTAN_HDR': '1'})
+        self.assertEqual((options['monitor'], options['hdr']), ('2', '1'))
+        g.write_keys(self.ini, {'monitor': '0', 'hdr': '0'})
+        options, _ = g.prepare(self.ini, self.state, environment={'SPARTAN_MONITOR': '2', 'SPARTAN_HDR': '1'})
+        self.assertEqual((options['monitor'], options['hdr']), ('0', '0'))
+
+    def test_invalid_monitor_and_hdr_fall_back_safely(self):
+        for value in ('-1', 'bad', '2147483648', '1' * 100, '²'):
+            self.assertEqual(g.startup_options({'monitor': value})['monitor'], '')
+        self.assertEqual(g.startup_options({'hdr': 'bad'})['hdr'], '0')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.ini = Path(self.temp.name) / 'spartanport.ini'
@@ -32,6 +56,8 @@ class GraphicsOptionsTest(unittest.TestCase):
                 'deferred_readback': '1',
                 'stale_readback': '1',
                 'async_shaders': '1',
+                'monitor': '',
+                'hdr': '0',
             },
         )
 
@@ -270,6 +296,8 @@ class GraphicsOptionsTest(unittest.TestCase):
                 'SPARTAN_DEFERRED_READBACK': '1',
                 'SPARTAN_STALE_READBACK': '0',
                 'SPARTAN_ASYNC_SHADERS': '1',
+                'SPARTAN_MONITOR': '',
+                'SPARTAN_HDR': '0',
             },
         )
 

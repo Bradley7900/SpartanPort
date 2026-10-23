@@ -123,6 +123,35 @@ class NativeCheats(unittest.TestCase):
         self.assertEqual([(op, arg) for _, op, arg in entry[18:] if op not in (0x47, 0x4a)],
                          [(op, arg) for _, op, arg in before if op not in (0x47, 0x4a)])
 
+    def test_display_contains_eight_new_controls_and_keeps_its_original_rows(self):
+        page = self.script.one('PauseDisplay')
+        for index in range(8):
+            self.assertEqual(self.script.one(f'NativeDisplay{index}')['parent'], page['at'] - 4)
+        self.assertEqual(self.script.one('NativeDisplayApply')['parent'], page['at'] - 4)
+        self.assertEqual(self.target('HLBrightness', pause_menu.UP), self.script.one('NativeDisplayApply')['at'] - 4)
+        self.assertEqual(self.target('NativeDisplay0', pause_menu.UP),
+                         next(r for r in self.script.by_name['HLSubtitleDis'] if r['parent'] == page['at'] - 4)['at'] - 4)
+        for name in ('HLBrightness', 'HLScreenLocX', 'HLScreenLocY'):
+            parents = {r['at'] - 4: r for r in self.script.records}
+            parent = self.script.one(name)['parent']
+            while parent != page['at'] - 4:
+                parent = parents[parent]['parent']
+            self.assertEqual(parent, page['at'] - 4)
+
+    def test_display_scrolls_without_overwriting_original_setting_values(self):
+        for index in range(8):
+            entry = self.block(self.script.one(f'NativeDisplay{index}'), 1)
+            self.assertTrue(any(op == 0x13 and int.from_bytes(arg, 'big') == 0xff0 + index for _, op, arg in entry))
+            self.assertFalse(any(op == 0x09 and 0x11 <= arg[1] <= 0x14 for _, op, arg in entry))
+            texts = [self.script.string(self.script.lit + int.from_bytes(arg, 'big'))
+                     for _, op, arg in entry if op == 0x16]
+            self.assertIn(f'menuItem{min(index + 4, 7)}Select', texts)
+        self.assertEqual(self.target('NativeDisplayConfirm', [0xeb]), self.script.one('NativeDisplayApply')['at'] - 4)
+        for name in ('NativeDisplayYes', 'NativeDisplayNo'):
+            calls = [int.from_bytes(arg, 'big') for _, op, arg in
+                     self.block(self.script.one(name), 3, pause_menu.CONFIRM) if op == 0x13]
+            self.assertEqual(0xfcb in calls, name.endswith('Yes'))
+
     def test_graphics_does_not_add_an_informational_row(self):
         names = ['NativeGraphics', 'NativeGraphicsReset', *[f'NativeGraphic{i}' for i in range(4)]]
         for name in names:
@@ -200,7 +229,9 @@ class NativeCheats(unittest.TestCase):
                      'NativeMultiplierReset', *[f'NativeCheat{i}' for i in range(8)],
                      *[f'NativeMultiplier{i}' for i in range(6)], 'HLNativeGraphics', 'NativeGraphics',
                      'NativeGraphicsReset', 'NativeGraphicsConfirm', 'NativeGraphicsResetYes',
-                     'NativeGraphicsResetNo', *[f'NativeGraphic{i}' for i in range(4)]]:
+                     'NativeGraphicsResetNo', *[f'NativeGraphic{i}' for i in range(4)],
+                     *[f'NativeDisplay{i}' for i in range(8)], 'NativeDisplayApply',
+                     'NativeDisplayConfirm', 'NativeDisplayYes', 'NativeDisplayNo']:
             for kind, ref, triggers in self.script.blocks(self.script.one(name)):
                 self.assertNotIn((0x09, b'\xe0\x1d'),
                                  [(op, arg) for _, op, arg in self.block(self.script.one(name), kind, triggers)], name)
@@ -233,7 +264,9 @@ class NativeCheats(unittest.TestCase):
         for name in ['HLNativeCheats', 'NativeCheats', 'NativeMultipliers', 'NativeMultiplierReset',
                      *[f'NativeCheat{i}' for i in range(8)], *[f'NativeMultiplier{i}' for i in range(6)],
                      'HLNativeGraphics', 'NativeGraphics', 'NativeGraphicsReset', 'NativeGraphicsConfirm',
-                     'NativeGraphicsResetYes', 'NativeGraphicsResetNo', *[f'NativeGraphic{i}' for i in range(4)]]:
+                     'NativeGraphicsResetYes', 'NativeGraphicsResetNo', *[f'NativeGraphic{i}' for i in range(4)],
+                     *[f'NativeDisplay{i}' for i in range(8)], 'NativeDisplayApply',
+                     'NativeDisplayConfirm', 'NativeDisplayYes', 'NativeDisplayNo']:
             for kind, ref, triggers in self.script.blocks(self.script.one(name)):
                 for at, op, arg in self.block(self.script.one(name), kind, triggers):
                     if op == 0x47:

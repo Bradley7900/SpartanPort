@@ -35,7 +35,7 @@ import struct
 
 from glyphs import entries
 
-VERSION = 16  # of the patch: a change rebuilds the cached copy
+VERSION = 17  # of the patch: a change rebuilds the cached copy
 WAD = 'EXEC/WAD/PS4_LE/R_UI.WAD'
 LABELS = {
     'en': b'Exit to Desktop',
@@ -193,7 +193,7 @@ class Script:
 
     def block_bytes(self, ref):
         refs = self.code_refs()
-        end = next(r for r in refs if r > ref)
+        end = next((r for r in refs if r > ref), self.symtab - self.lit)
         return bytes(self.data[self.base + self.lit + ref:self.base + self.lit + end])
 
     def literal(self, text):
@@ -462,6 +462,8 @@ def native_cheats(data, spans, language=None):
     s = Script(data, base)
     options, game, audio = (s.one(n) for n in ('PauseOptions', 'HLGSettings', 'HLAudio'))
     enter = s.one('EnterPause')
+    display = s.one('PauseDisplay')
+    display_at = display['at'] + display['size']
     opt_at, pages_at = options['at'] + options['size'], enter['at'] + enter['size']
     left, right = [0xe6, 0xf2], [0xe2, 0xee]
     toggle = [0xe6, 0xe2, 0xee, 0xf2, 0xe9]
@@ -480,17 +482,26 @@ def native_cheats(data, spans, language=None):
               ('NativeGraphicsConfirm', 'pause', [[0xeb]]),
               ('NativeGraphicsResetYes', 'NativeGraphicsConfirm', [UP, DOWN, CONFIRM]),
               ('NativeGraphicsResetNo', 'NativeGraphicsConfirm', [UP, DOWN, CONFIRM])]
+    display_specs = [(f'NativeDisplay{i}', 'display', [left, right, UP, DOWN]) for i in range(8)]
+    display_specs += [('NativeDisplayApply', 'display', [UP, DOWN, CONFIRM])]
+    specs[2:2] = display_specs
+    specs += [('NativeDisplayConfirm', 'pause', [[0xeb]]),
+              ('NativeDisplayYes', 'NativeDisplayConfirm', [UP, DOWN, CONFIRM]),
+              ('NativeDisplayNo', 'NativeDisplayConfirm', [UP, DOWN, CONFIRM])]
     sizes = {name: 20 + sum(4 + 4 * len(t) for t in events) for name, parent, events in specs}
     option_size = sizes['HLNativeGraphics'] + sizes['HLNativeCheats']
-    pages_size = sum(sizes.values()) - option_size
-    final = lambda at: at + (option_size if at >= opt_at else 0) + (pages_size if at >= pages_at else 0)
-    refs = {'options': final(options['at']) - 4, 'pause': final(enter['at']) - 4}
+    display_size = sum(sizes[name] for name, parent, events in display_specs)
+    pages_size = sum(sizes.values()) - option_size - display_size
+    final = lambda at: at + (option_size if at >= opt_at else 0) + (display_size if at >= display_at else 0) + (pages_size if at >= pages_at else 0)
+    refs = {'options': final(options['at']) - 4, 'pause': final(enter['at']) - 4, 'display': final(display['at']) - 4}
     refs['HLNativeGraphics'] = opt_at - 4
     refs['HLNativeCheats'] = opt_at + sizes['HLNativeGraphics'] - 4
-    at = pages_at + option_size
-    for name, parent, events in specs[2:]:
-        refs[name] = at - 4
-        at += sizes[name]
+    for subset, start_at in ((display_specs, display_at + option_size),
+                             (specs[2 + len(display_specs):], pages_at + option_size + display_size)):
+        at = start_at
+        for name, parent, events in subset:
+            refs[name] = at - 4
+            at += sizes[name]
 
     # New symbol records go before the old name pool; existing symbol ids stay valid.
     old_size = struct.unpack_from('<I', data, base - 60)[0]
@@ -601,6 +612,10 @@ def native_cheats(data, spans, language=None):
                        'Intensidade da nitidez', 'Restaurar padrões gráficos'] if portuguese else
                       ['Frames Queued', 'Async Shader Compilation', 'RCAS Sharpening',
                        'Sharpening Strength', 'Restore Graphics Defaults'])
+    display_names = (['Resolução', 'Proporção', 'Limite de FPS', 'FPS do motor', 'Monitor',
+                      'Modo de exibição', 'VSync', 'HDR', 'Aplicar e reiniciar'] if portuguese else
+                     ['Resolution', 'Aspect Ratio', 'Frame Rate Limit', 'Engine Frame Rate', 'Monitor',
+                      'Display Mode', 'VSync', 'HDR', 'Apply and Restart'])
     handlers = {}
 
     def begin(name, kind):
@@ -785,6 +800,91 @@ def native_cheats(data, spans, language=None):
                     sound('SND_MM_NAV_LR')
                     end()
 
+    display_ref = next(v for k, v, t in s.blocks(display) if k == 1)
+    original_display = s.block_bytes(display_ref)
+    original_names = {}
+    instructions = decode(data, base + s.lit + display_ref, base + s.lit + display_ref + len(original_display))
+    for previous, instruction in zip(instructions, instructions[1:]):
+        if previous[1] == 0x16 and instruction[1] == 0x09 and 1 <= instruction[2][1] <= 4:
+            original_names[instruction[2][1] - 1] = s.string(s.lit + int.from_bytes(previous[2], 'big'))
+    if len(original_names) != 4:
+        raise ValueError('Display labels not recognized')
+    originals = [s.one('HLBrightness'), s.one('HLScreenLocX'), s.one('HLScreenLocY'),
+                 next(r for r in s.by_name['HLSubtitleDis'] if r['parent'] == display['at'] - 4)]
+    display_rows = [r['at'] - 4 for r in originals] + [name for name, parent, events in display_specs]
+
+    def display_window(first, selected=None):
+        for slot in range(8):
+            index = first + slot
+            string(original_names[index] if index < 4 else display_names[index - 4])
+            assign(1 + slot)
+            if index < 4:
+                edge = ('ArrowSelectionL', 'ArrowSelectionR') if index == selected else ('ArrowSpacer', 'ArrowSpacer')
+                string(f'[{edge[0]}][PauseMenu:optSet{index}][{edge[1]}]' if index == 3 else '')
+                assign(9 + slot)
+            elif index < 12:
+                builtin((0xff0 if index == selected else 0xfc0) + index - 4, pop=False)
+                assign(9 + slot)
+            else:
+                string('')
+                assign(9 + slot)
+        for name in ('sliderBar1', 'sliderBar2'):
+            string(name)
+        integer(2)
+        builtin(0x58 if first == 0 else 0x59)
+
+    for index, name in enumerate(name for name, parent, events in display_specs):
+        row, first = index + 4, max(0, index + 4 - 7)
+        begin(name, 1)
+        builtin(0x6b)
+        display_window(first, row)
+        animation(row - first, 8)
+        end()
+        begin(name, 2)
+        animation(row - first, 9)
+        end()
+        navigation(name, row, display_rows)
+        if index < 8:
+            for kind, function in (('left', 0xfd0 + index), ('right', 0xfe0 + index)):
+                begin(name, kind)
+                call(repeat)
+                builtin(function)
+                display_window(first, row)
+                sound('SND_MM_NAV_LR')
+                end()
+        else:
+            begin(name, 'confirm')
+            builtin(0xfc9, pop=False)
+            emit(b'\x17' + be(5, 2))  # no pending restart: skip the state change
+            goto('NativeDisplayConfirm')
+            end()
+
+    begin('NativeDisplayConfirm', 1)
+    string('Reiniciar o jogo?' if portuguese else 'Apply and restart?')
+    assign(0)
+    for index in range(8):
+        string((['Sim, perder progresso não salvo', 'Não'] if portuguese else
+                ['Yes, lose unsaved progress', 'No'])[index] if index < 2 else '')
+        assign(1 + index)
+        string('')
+        assign(9 + index)
+    goto('NativeDisplayNo')
+    end()
+    begin('NativeDisplayConfirm', 2)
+    end()
+    begin('NativeDisplayConfirm', 'back')
+    goto('NativeDisplayApply')
+    end()
+    for index, name in enumerate(('NativeDisplayYes', 'NativeDisplayNo')):
+        selection(name, index)
+        selection(name, index, selected=False)
+        navigation(name, index, ['NativeDisplayYes', 'NativeDisplayNo'])
+        begin(name, 'confirm')
+        if index == 0:
+            builtin(0xfcb)
+        goto('NativeDisplayApply')
+        end()
+
     # Clone Options' entry, inserting Graphics/Cheats before Audio/Display/Exit.
     old_entry = next(v for k, v, t in s.blocks(options) if k == 1)
     original_entry = s.block_bytes(old_entry)
@@ -799,13 +899,15 @@ def native_cheats(data, spans, language=None):
     exit_ref = int.from_bytes(original_entry[exit_at - 2:exit_at], 'big')
     raw = bytes(data[base + s.lit + exit_ref:]).split(b'\0', 1)[0]
     replacements[7] = raw
-    def copy_entry(ref, replacements):
+    def copy_entry(ref, replacements, display_entry=False):
         body = s.block_bytes(ref)
         for at, op, arg in decode(data, base + s.lit + ref, base + s.lit + ref + len(body)):
             relative = at - base - s.lit
             if op == 0x16 and data[at + 3:at + 5] == b'\x09\xe0' and data[at + 5] in replacements:
                 string(replacements[data[at + 5]])
             elif op == 0x47:
+                if display_entry:
+                    display_window(0)
                 goto(int.from_bytes(arg, 'big'))
             elif op == 0x4a:
                 call(relative + 5 + struct.unpack('>i', arg)[0])
@@ -822,6 +924,17 @@ def native_cheats(data, spans, language=None):
     copy_entry(audio_entry, {})
     labels['options_entry'] = len(code)
     copy_entry(old_entry, replacements)
+    redirects = [(options, 'options_entry'), (audio_page, 'audio_entry')]
+    labels['display_entry'] = len(code)
+    copy_entry(display_ref, {}, True)
+    redirects.append((display, 'display_entry'))
+    for index, record in enumerate(originals):
+        label = f'display_selection_{index}'
+        labels[label] = len(code)
+        display_window(0, index)
+        ref = next(v for k, v, t in s.blocks(record) if k == 1)
+        copy_entry(ref, {})
+        redirects.append((record, label))
 
     code_start = start + len(strings)
     for at, target in fixups:
@@ -834,10 +947,11 @@ def native_cheats(data, spans, language=None):
                 edits.append((at + 1, be(final(int.from_bytes(arg, 'big') + 4) - 4)))
     edits += [retarget(s, game, DOWN, audio['at'] - 4, refs['HLNativeGraphics']),
               retarget(s, audio, UP, game['at'] - 4, refs['HLNativeCheats'])]
-    entry_item = next(i for i, (k, v) in enumerate(options['items']) if k == 1)
-    edits.append((base + options['at'] + 12 + 4 * entry_item, be(0x01000000 | (code_start + labels['options_entry']))))
-    entry_item = next(i for i, (k, v) in enumerate(audio_page['items']) if k == 1)
-    edits.append((base + audio_page['at'] + 12 + 4 * entry_item, be(0x01000000 | (code_start + labels['audio_entry']))))
+    for record, label in redirects:
+        entry_item = next(i for i, (k, v) in enumerate(record['items']) if k == 1)
+        edits.append((base + record['at'] + 12 + 4 * entry_item, be(0x01000000 | (code_start + labels[label]))))
+    edits += [retarget(s, originals[-1], DOWN, originals[0]['at'] - 4, refs['NativeDisplay0']),
+              retarget(s, originals[0], UP, originals[-1]['at'] - 4, refs['NativeDisplayApply'])]
     for record, old_index in ((audio, 2), (s.by_name['HLDisplay'][0], 3), (s.by_name['HLDisplay'][1], 4)):
         for kind, ref, triggers in s.blocks(record):
             if kind in (1, 2):
@@ -849,7 +963,7 @@ def native_cheats(data, spans, language=None):
                 edits.append((base + s.lit + ref + block.index(source), destination))
     ancestors = {r['at'] - 4: r for r in s.records}
     growth = {}
-    for record, amount in ((options, option_size), (enter, pages_size)):
+    for record, amount in ((options, option_size), (display, display_size), (enter, pages_size)):
         while record:
             growth[record['at']] = growth.get(record['at'], 0) + amount
             record = ancestors.get(record['parent'])
@@ -871,7 +985,7 @@ def native_cheats(data, spans, language=None):
             record += be((kind << 24) | (code_start + handlers[name, kind]))
         event_names = ['back'] if parent == 'pause' else (
             ['left', 'right', 'up', 'down'] if (name.startswith('NativeMultiplier') and name[-1:].isdigit())
-            or name in ('NativeGraphic0', 'NativeGraphic3')
+            or name in ('NativeGraphic0', 'NativeGraphic3') or name.startswith('NativeDisplay') and name[-1:].isdigit()
             else ['toggle', 'up', 'down'] if (name.startswith('NativeCheat') and name[-1:].isdigit())
             or name in ('NativeGraphic1', 'NativeGraphic2')
             else ['up', 'down', 'confirm'])
@@ -882,10 +996,12 @@ def native_cheats(data, spans, language=None):
             raise ValueError(f'{name}: native record size mismatch')
         records += record
     data[base + s.symtab:base + old_size] = strings + code + symbols
-    data[base + pages_at:base + pages_at] = records[option_size:]
+    data[base + pages_at:base + pages_at] = records[option_size + display_size:]
+    data[base + display_at:base + display_at] = records[option_size:option_size + display_size]
     data[base + opt_at:base + opt_at] = records[:option_size]
-    grown = option_size + pages_size + len(strings) + len(code) + len(symbols) - (old_size - s.symtab)
-    for offset, amount in ((8, grown), (12, option_size + pages_size), (16, option_size + pages_size + len(strings) + len(code))):
+    table_growth = option_size + display_size + pages_size
+    grown = table_growth + len(strings) + len(code) + len(symbols) - (old_size - s.symtab)
+    for offset, amount in ((8, grown), (12, table_growth), (16, table_growth + len(strings) + len(code))):
         struct.pack_into('<I', data, base + offset, struct.unpack_from('<I', data, base + offset)[0] + amount)
     struct.pack_into('<I', data, base - 60, old_size + grown)
     data[base + old_size + grown:base + old_size + grown + -old_size % 16] = bytes(-(old_size + grown) % 16)

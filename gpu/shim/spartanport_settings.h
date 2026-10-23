@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 namespace SpartanSettings {
 
@@ -64,6 +65,11 @@ struct Values {
     // Graphics (spartanport_graphics.h). Live: applied on the next frame.
     std::atomic<int> display_mode{0};
     std::atomic<bool> vsync{true};
+    std::atomic<int> monitor{-1};
+    std::atomic<bool> hdr{false};
+    int startup_monitor = -1;
+    bool startup_hdr = false;
+    std::vector<int> monitors; ///< SDL indices, populated before the guest starts
     std::atomic<int> fps_limit{0};
     std::atomic<bool> async_shaders{true};
     std::atomic<bool> fsr1{false};

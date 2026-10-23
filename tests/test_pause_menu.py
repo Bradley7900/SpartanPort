@@ -124,7 +124,9 @@ class GameScript(unittest.TestCase):
         row = next(r for r in self.new.by_name['HLSubtitleDis'] if r['parent'] == display['at'] - 4)
         y = self.new.one('HLScreenLocY')
         self.assertEqual(row['at'], y['at'] + y['size'])
-        self.assertEqual(row['at'] + row['size'], display['at'] + display['size'])
+        self.assertEqual(row['at'] + row['size'], self.new.one('NativeDisplay0')['at'])
+        last = self.new.one('NativeDisplayApply')
+        self.assertEqual(last['at'] + last['size'], display['at'] + display['size'])
         for kind, layer in ((1, 8), (2, 9)):
             ref = next(v for k, v, _ in self.new.blocks(row) if k == kind)
             code = self.new.block_bytes(ref)
@@ -147,7 +149,8 @@ class GameScript(unittest.TestCase):
                                    self.base + self.new.lit + ref + len(code)):
             if op == 0x16 and self.data[pos + 3:pos + 7] == b'\x09\xe0\x0c\x43':
                 assignments.append(self.new.string(self.new.lit + int.from_bytes(arg, 'big')))
-        self.assertEqual(assignments, ['[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]'])
+        self.assertTrue(assignments)
+        self.assertEqual(set(assignments), {'[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]'})
 
     def test_pause_row(self):
         main, row = self.new.one('PauseMain'), self.new.one('WadChoose')
@@ -193,7 +196,7 @@ class GameScript(unittest.TestCase):
 
     def test_options_row(self):
         options, row = self.new.one('PauseOptions'), self.new.by_name['HLDisplay'][1]
-        self.assertEqual(len(self.new.records), len(self.old.records) + 31)
+        self.assertEqual(len(self.new.records), len(self.old.records) + 43)
         self.assertEqual(row['parent'], options['at'] - 4)
         cheats = self.new.one('HLNativeCheats')
         graphics = self.new.one('HLNativeGraphics')
@@ -205,7 +208,7 @@ class GameScript(unittest.TestCase):
         size = struct.unpack_from('<I', self.data, self.base - 0x40 + 4)[0]
         old_size = struct.unpack_from('<I', self.original, self.old_base - 0x40 + 4)[0]
         self.assertEqual(struct.unpack_from('<I', self.data, self.base + 8)[0], size - 4)
-        # Six dedicated native slider instances (352 bytes each) and their 64-byte references.
+        # Six dedicated native slider instances and their references.
         self.assertEqual(len(self.data) - len(self.original), ((size + 15) & ~15) - ((old_size + 15) & ~15) + 2496)
         self.assertEqual([n for _o, _s, n in pause_menu.entries(self.data)][-1], 'GroupEnd')
 
@@ -219,7 +222,7 @@ class GameScript(unittest.TestCase):
         inserted = self.new.records.index(self.new.by_name['HLDisplay'][1])
         display = self.new.one('PauseDisplay')
         health = next(i for i, r in enumerate(self.new.records)
-                      if r['at'] == display['at'] + display['size'] - 0x44)
+                      if r in self.new.by_name['HLSubtitleDis'] and r['parent'] == display['at'] - 4)
         names = {id(r): name for name, records in self.new.by_name.items() for r in records}
         original_indices = [i for i, r in enumerate(self.new.records)
                             if i not in (inserted, health) and not (names[id(r)] or '').startswith(('Native', 'HLNative'))]
@@ -230,7 +233,8 @@ class GameScript(unittest.TestCase):
         cheats = self.new.records.index(self.new.one('HLNativeCheats'))
         graphics = self.new.records.index(self.new.one('HLNativeGraphics'))
         # Only the neighbors of the four added rows change destinations.
-        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, health, graphics, cheats]))
+        apply = self.new.records.index(self.new.one('NativeDisplayApply'))
+        self.assertEqual(sorted(changed.values()), sorted([wad_choose, wad_choose, inserted, inserted, health, apply, graphics, cheats]))
 
     def test_japanese_fallback(self):
         data = bytearray(self.original)
