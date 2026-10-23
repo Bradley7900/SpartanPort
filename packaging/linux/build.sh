@@ -33,10 +33,8 @@ install -m644 launcher/BodoniModa.ttf "$share/launcher/BodoniModa.ttf"
 install -m644 launcher/OFL-BodoniModa.txt "$share/launcher/OFL-BodoniModa.txt"
 
 # The package holds no Python and no frozen interpreter.
-if find "$appdir" \( -name '*.py' -o -name _internal \) | grep -q .; then
-    echo 'The AppDir holds Python files or _internal' >&2
-    exit 1
-fi
+stray=$(find "$appdir" \( -name '*.py' -o -name _internal \) -print)
+[[ -z $stray ]] || { echo 'Python files in the AppDir:' >&2; echo "$stray" >&2; exit 1; }
 install -m755 packaging/linux/AppRun "$appdir/AppRun"
 install -m644 packaging/linux/spartanport.desktop "$appdir/spartanport.desktop"
 install -m644 "$icon" "$appdir/spartanport.png"
