@@ -16,6 +16,9 @@ pub struct Paths {
     pub data_dir: PathBuf,
     ini: PathBuf,
     legacy_config_dir: PathBuf,
+    /// `SPARTAN_GAME_DIR` as the environment given to `from_env` had it: the game folder a new
+    /// `settings.json` starts with.
+    game_dir_default: String,
 }
 
 /// The port folder of a launcher started without `SPARTAN_PORT_DIR`: the exe's folder when
@@ -70,7 +73,12 @@ impl Paths {
             data_dir,
             ini,
             legacy_config_dir: base.join(LEGACY_CONFIG_DIR),
+            game_dir_default: env("SPARTAN_GAME_DIR").unwrap_or_default(),
         }
+    }
+
+    pub fn game_dir_default(&self) -> &str {
+        &self.game_dir_default
     }
 
     pub fn config_file(&self) -> PathBuf {

@@ -143,7 +143,8 @@ pub fn read_app_settings(paths: &Paths) -> (Settings, SettingsFile) {
         Ok(None) => (Map::new(), SettingsFile::Missing),
         Ok(Some(_)) | Err(_) => (Map::new(), SettingsFile::Unreadable),
     };
-    let mut merged = app_defaults(&|k| std::env::var(k).ok());
+    let mut merged =
+        app_defaults(&|k| (k == "SPARTAN_GAME_DIR").then(|| paths.game_dir_default().to_string()));
     for (key, value) in migrate_controls(saved) {
         merged.insert(key, value);
     }
@@ -237,7 +238,7 @@ mod tests {
                 _ => None,
             });
             let settings = load_app_settings(&paths);
-            let defaults = app_defaults(&|k| std::env::var(k).ok());
+            let defaults = app_defaults(&|_| None);
             assert_eq!(settings.0, defaults);
             assert_eq!(fs::read(&path).unwrap(), text.as_bytes());
         }

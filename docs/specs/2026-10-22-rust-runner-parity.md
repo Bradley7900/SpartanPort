@@ -16,7 +16,7 @@ Release gate: checked on 2026-10-23 at the end of the runner work, on Windows, a
 dump `CUSA01623` (`APP_VER` 01.02, `VERSION` 01.00), read only:
 `SPARTAN_GAME_DIR=<game> cargo test --no-fail-fast` in `launcher-rust/`.
 
-Result: 842 tests passed and 10 failed. All 26 tests of `tests/dump.rs` ran on the real files and passed (the patches of the real `eboot.bin`, the pause menu and cheat scripts of `R_UI.WAD` and the glyph WADs, each compared with the Python's). The 10 failures are tests of `ui_home`, `ui_pages` and `ui_setup` that assume an empty game folder and read the process's `SPARTAN_GAME_DIR` through `settings::app_defaults`; they do not touch the runner. Without the variable the whole suite passes: 852 passed, 0 failed.
+Result: 852 tests passed, 0 failed, with the dump set. All 26 tests of `tests/dump.rs` ran on the real files (the patches of the real `eboot.bin`, the pause menu and cheat scripts of `R_UI.WAD` and the glyph WADs, each compared with the Python's). The launcher's settings take `SPARTAN_GAME_DIR` from the environment the `Paths` were built with, so the UI tests, which build theirs without it, do not see the dump.
 
 The tests that need the dump return at once without `SPARTAN_GAME_DIR`, as the Python ones skip; with
 it they run on the real `eboot.bin` and `R_UI.WAD`. The Unix paths (Linux sockets, `kill(pid, 0)`,
