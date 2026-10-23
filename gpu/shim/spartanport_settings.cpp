@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <numeric>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -17,6 +18,8 @@
 namespace SpartanSettings {
 
 namespace {
+
+constexpr const char* GlyphStyles[] = {"off", "xbox", "nintendo", "keyboard", "auto"};
 
 const char* Path() {
     const char* env = std::getenv("SPARTAN_CONFIG");
@@ -39,7 +42,11 @@ void Set(Values& v, const std::string& key, const std::string& value) {
             return;
         }
     }
-    if (key == "overlay_scale") {
+    if (key == "monitor") {
+        v.monitor = SpartanGraphics::ParseMonitor(value);
+    } else if (key == "hdr") {
+        v.hdr = i != 0;
+    } else if (key == "overlay_scale") {
         v.overlay_scale = std::clamp(i, 50, 300);
         return;
     }
@@ -123,6 +130,9 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.stale_readback = i != 0;
     } else if (key == "anisotropy") {
         v.anisotropy = SpartanGraphics::ParseAnisotropy(i);
+    } else if (key == "glyph_style") {
+        v.glyph_style = 0;
+        for (int style = 0; style < 5; ++style) if (value == GlyphStyles[style]) v.glyph_style = style;
     } else if (key == "vibration") {
         v.vibration = value.empty() ? 100 : std::clamp(i, 0, 100);
     } else if (key == "mouse_prompt_distance") {
@@ -208,6 +218,8 @@ void Load() {
         {"SPARTAN_MOUSE_PROMPT_DISTANCE", "mouse_prompt_distance"}, {"SPARTAN_MOUSE_LOCK", "mouse_lock"},
         {"SPARTAN_MOUSE_AIM_STYLE", "mouse_aim_style"}, {"SPARTAN_MOUSE_AIM_SENSITIVITY", "mouse_aim_sensitivity"},
         {"SPARTAN_AUTO_QTE", "auto_qte"},
+        {"SPARTAN_MONITOR", "monitor"}, {"SPARTAN_HDR", "hdr"},
+        {"SPARTAN_GLYPH_STYLE", "glyph_style"},
     };
     for (const auto& [env, key] : env_keys) {
         if (const char* value = std::getenv(env); value && value[0]) {
@@ -220,6 +232,9 @@ void Load() {
     v.startup_output_res = v.output_res;
     v.startup_live_resolution = v.live_resolution;
     v.startup_render_resolution = v.render_resolution;
+    v.startup_monitor = v.monitor;
+    v.startup_hdr = v.hdr;
+    v.startup_glyph_style = v.glyph_style;
     const char* applied = std::getenv("SPARTAN_ENGINE_FPS");
     v.applied_engine_fps = applied && applied[0] ? SpartanGraphics::ParseEngineFps(std::atoi(applied))
                                                  : v.engine_fps.load();
@@ -265,9 +280,10 @@ int CycleEngineFps() {
 bool GraphicsNeedRestart() {
     const auto& v = Get();
     return v.render_resolution != v.startup_render_resolution ||
+           v.monitor != v.startup_monitor || v.hdr != v.startup_hdr ||
            v.deferred_readback != v.startup_deferred_readback ||
            v.stale_readback != v.startup_stale_readback ||
-           v.anisotropy != v.startup_anisotropy;
+           v.anisotropy != v.startup_anisotropy || v.glyph_style != v.startup_glyph_style;
 }
 
 void ConfigureUpscalerSupport(bool fsr4, bool fsr411) {
@@ -378,6 +394,9 @@ void Save() {
     // Read by run.sh at start.
     std::fprintf(file, "live_resolution=%s\n", v.live_resolution < 0 ? "auto"
                                                   : v.live_resolution ? "1" : "0");
+    std::fprintf(file, "monitor=%s\nhdr=%d\n", v.monitor < 0 ? "" : std::to_string(v.monitor.load()).c_str(),
+                 int(v.hdr.load()));
+    std::fprintf(file, "glyph_style=%s\n", GlyphStyles[std::clamp(v.glyph_style.load(), 0, 4)]);
     std::fclose(file);
 }
 
@@ -413,6 +432,193 @@ extern "C" uint64_t spartanportgpu_native_setting(unsigned function) {
     auto& v = SpartanSettings::Get();
     const unsigned group = function & ~0xfu, index = function & 0xfu;
     const auto text = [](const char* value) { return reinterpret_cast<uint64_t>(value); };
+    if ((function >= 0xfa4 && function <= 0xfaf) || (function >= 0xfb1 && function <= 0xfbd)) {
+        if (function == 0xfb7) {
+            v.glyph_style = 0;
+            v.vibration = 100;
+            v.mouse_aim_sensitivity = 100;
+            v.mouse_aim_style = 0;
+            v.mouse_prompt_distance = 48;
+            v.mouse_lock = true;
+            SpartanSettings::Save();
+            return 0;
+        }
+        const unsigned row = function >= 0xfb8 ? function - 0xfb8 : function >= 0xfb1 ? function - 0xfb1
+                           : function >= 0xfaa ? function - 0xfaa : function - 0xfa4;
+        const int direction = function >= 0xfb8 ? 0 : function >= 0xfb1 ? 1 : function >= 0xfaa ? -1 : 0;
+        if (direction) {
+            if (row == 0) v.glyph_style = ((v.glyph_style < 4 ? v.glyph_style.load() : 0) + direction + 4) % 4;
+            else if (row == 1) v.vibration = std::clamp(v.vibration + direction * 5, 0, 100);
+            else if (row == 2) v.mouse_aim_sensitivity = std::clamp(v.mouse_aim_sensitivity + direction * 5, 10, 200);
+            else if (row == 3) v.mouse_aim_style = !v.mouse_aim_style;
+            else if (row == 4) v.mouse_prompt_distance = std::clamp(v.mouse_prompt_distance + direction * 4, 16, 200);
+            else if (row == 5) v.mouse_lock = !v.mouse_lock;
+            SpartanSettings::Save();
+        }
+        const char* language = std::getenv("SPARTAN_LANGUAGE");
+        const bool pt = language && (std::strcmp(language, "7") == 0 || std::strcmp(language, "17") == 0
+                                    || std::strncmp(language, "pt", 2) == 0 || std::strcmp(language, "br") == 0);
+        std::string value;
+        if (row == 0) {
+            const char* names[] = {"PlayStation", "Xbox", "Nintendo", "Keyboard", pt ? "Automático" : "Automatic"};
+            value = names[std::clamp(v.glyph_style.load(), 0, 4)];
+        } else if (row == 1) value = std::to_string(v.vibration.load()) + "%";
+        else if (row == 2) value = std::to_string(v.mouse_aim_sensitivity.load()) + "%";
+        else if (row == 3) value = v.mouse_aim_style ? (pt ? "Absoluto" : "Absolute") : (pt ? "Relativo" : "Relative");
+        else if (row == 4) value = std::to_string(v.mouse_prompt_distance.load()) + " px";
+        else value = v.mouse_lock ? (pt ? "Ligado" : "On") : (pt ? "Desligado" : "Off");
+        static thread_local std::string labels[6];
+        const bool selected = direction || function >= 0xfb8;
+        labels[row] = std::string(selected ? "[ArrowSelectionL]" : "[ArrowSpacer]") + value
+                    + (selected ? "[ArrowSelectionR]" : "[ArrowSpacer]");
+        return text(labels[row].c_str());
+    }
+    if (function >= 0xfc0 && function <= 0xff7) {
+        const bool restart = std::getenv("SPARTAN_RESTART_COMMAND") &&
+                             std::getenv("SPARTAN_RESTART_COMMAND")[0] && SpartanSettings::GraphicsNeedRestart();
+        if (function == 0xfc9) return restart;
+        if (function == 0xfcb) {
+            if (!restart) return 0;
+            v.restart_unconfirmed = true;
+            SpartanSettings::Save();
+            return 1;
+        }
+        if (index >= 8) return 0;
+        const char* language = std::getenv("SPARTAN_LANGUAGE");
+        const bool pt = language && (std::strcmp(language, "7") == 0 || std::strcmp(language, "17") == 0
+                                    || std::strncmp(language, "pt", 2) == 0 || std::strcmp(language, "br") == 0);
+        const int direction = group == 0xfd0 ? -1 : group == 0xfe0 ? 1 : 0;
+        const auto names = SpartanGraphics::ResolutionNames();
+        const auto aspect = [](const std::string& name) {
+            const auto [w, h] = SpartanGraphics::ResolutionSize(name);
+            const char* labels[] = {"16:9", "16:10", "21:9", "32:9", "4:3"};
+            const double ratios[] = {16.0/9, 1.6, 2.37, 32.0/9, 4.0/3};
+            for (unsigned i = 0; i < 5; ++i) if (std::abs(double(w)/h - ratios[i]) < 0.05)
+                return std::string(labels[i]);
+            const int divisor = std::gcd(w, h);
+            return std::to_string(w/divisor) + ":" + std::to_string(h/divisor);
+        };
+        const auto pixels = [&](int i) {
+            const auto [w, h] = SpartanGraphics::ResolutionSize(names[i]);
+            return int64_t(w) * h;
+        };
+        int resolution = std::clamp(v.render_resolution.load(), 0, int(names.size()) - 1);
+        const bool engine_supported = v.engine_fps_global && v.engine_fps_int_global && v.applied_engine_fps > 60;
+        if (direction && (index != 3 || engine_supported)) {
+            const auto cycle = [&](const auto& values, int current) {
+                const auto found = std::find(values.begin(), values.end(), current);
+                const int pos = found == values.end() ? 0 : int(found - values.begin());
+                return values[(pos + direction + int(values.size())) % values.size()];
+            };
+            if (index <= 1) {
+                std::vector<std::string> aspects;
+                for (const char* a : {"16:9", "16:10", "21:9", "32:9", "4:3"}) aspects.emplace_back(a);
+                for (const auto& name : names) {
+                    const auto a = aspect(name);
+                    if (std::find(aspects.begin(), aspects.end(), a) == aspects.end()) aspects.push_back(a);
+                }
+                auto desired = aspect(names[resolution]);
+                if (index == 1) {
+                    const int current = int(std::find(aspects.begin(), aspects.end(), desired) - aspects.begin());
+                    desired = aspects[(current + direction + int(aspects.size())) % aspects.size()];
+                }
+                std::vector<int> choices;
+                for (unsigned i = 0; i < names.size(); ++i) if (aspect(names[i]) == desired) choices.push_back(int(i));
+                std::stable_sort(choices.begin(), choices.end(), [&](int a, int b) {
+                    return a == 0 ? b != 0 : b == 0 ? false : pixels(a) < pixels(b);
+                });
+                if (!choices.empty()) resolution = index == 0 ? cycle(choices, resolution)
+                    : *std::min_element(choices.begin(), choices.end(), [&](int a, int b) {
+                        return std::abs(pixels(a) - pixels(resolution)) < std::abs(pixels(b) - pixels(resolution));
+                    });
+                v.render_resolution = resolution;
+            } else if (index == 2) v.fps_limit = cycle(SpartanGraphics::FpsLimits, v.fps_limit);
+            else if (index == 3) {
+                std::vector<int> rates;
+                for (int rate : SpartanGraphics::EngineFps) if (rate <= v.applied_engine_fps) rates.push_back(rate);
+                v.engine_fps = cycle(rates, v.engine_fps);
+            } else if (index == 4) {
+                std::vector<int> monitors{-1};
+                monitors.insert(monitors.end(), v.monitors.begin(), v.monitors.end());
+                v.monitor = cycle(monitors, v.monitor);
+            } else if (index == 5) v.display_mode = (v.display_mode + direction + 3) % 3;
+            else if (index == 6) v.vsync = !v.vsync;
+            else if (index == 7) v.hdr = !v.hdr;
+            SpartanSettings::Save();
+        }
+        std::string value;
+        if (index == 0) value = names[resolution] == "native" ? "1920x1080" : names[resolution];
+        else if (index == 1) value = aspect(names[resolution]);
+        else if (index == 2) value = v.fps_limit ? std::to_string(v.fps_limit.load()) : pt ? "Sem limite" : "Unlimited";
+        else if (index == 3) value = engine_supported ? std::to_string(v.engine_fps.load()) : "-";
+        else if (index == 4) value = v.monitor < 0 ? (pt ? "Principal" : "Primary") : std::to_string(v.monitor + 1);
+        else if (index == 5) {
+            const char* en[] = {"Windowed", "Borderless", "Fullscreen"};
+            const char* br[] = {"Janela", "Sem bordas", "Tela cheia"};
+            value = (pt ? br : en)[std::clamp(v.display_mode.load(), 0, 2)];
+        } else value = (index == 6 ? v.vsync.load() : v.hdr.load()) ? (pt ? "Ligado" : "On") : (pt ? "Desligado" : "Off");
+        const bool selected = group != 0xfc0 && (index != 3 || engine_supported);
+        static thread_local std::string labels[8];
+        labels[index] = std::string(selected ? "[ArrowSelectionL]" : "[ArrowSpacer]") + value
+                      + (selected ? "[ArrowSelectionR]" : "[ArrowSpacer]");
+        return text(labels[index].c_str());
+    }
+    if (function >= 0xf70 && function <= 0xfb0) {
+        const char* language = std::getenv("SPARTAN_LANGUAGE");
+        const bool portuguese = language && (std::strcmp(language, "7") == 0 || std::strcmp(language, "17") == 0
+            || std::strcmp(language, "pt") == 0 || std::strcmp(language, "pt-BR") == 0
+            || std::strcmp(language, "pt-br") == 0 || std::strcmp(language, "br") == 0);
+        const auto label = [&](const char* en, const char* pt) { return text(portuguese ? pt : en); };
+        const bool rcas_available = v.image_width > 0 && v.image_height > 0 && v.window_width > 0 && v.window_height > 0
+            && SpartanGraphics::FsrPassRuns(v.fsr1, true, v.image_width, v.image_height, v.window_width, v.window_height);
+        if (function == 0xfb0) {
+            v.frames_queued = 1;
+            v.async_shaders = true;
+            v.rcas = true;
+            v.rcas_strength = 75;
+            v.anisotropy = 0;
+            SpartanSettings::Save();
+            return 0;
+        }
+        if (index >= 5 || group > 0xfa0) return 0;
+        if (group == 0xfa0) return index == 3 ? std::clamp(v.rcas_strength.load(), 0, 100) : 0;
+        if (index == 3 && (!v.rcas || !rcas_available))
+            return text("-");
+        if (group == 0xf80 || group == 0xf90) {
+            if (index == 0) {
+                const auto& values = SpartanGraphics::FramesQueued;
+                const int current = SpartanGraphics::IndexOf(values, v.frames_queued.load(), 0);
+                v.frames_queued = values[(current + (group == 0xf90 ? 1 : 2)) % values.size()];
+            } else if (index == 1) {
+                v.async_shaders = !v.async_shaders.load();
+            } else if (index == 2) {
+                v.rcas = !v.rcas.load();
+            } else if (index == 4) {
+                const auto& values = SpartanGraphics::Anisotropies;
+                const int current = SpartanGraphics::IndexOf(values, v.anisotropy.load(), 0);
+                v.anisotropy = values[(current + (group == 0xf90 ? 1 : 4)) % values.size()];
+            } else {
+                v.rcas_strength = std::clamp(v.rcas_strength.load() + (group == 0xf90 ? 5 : -5), 0, 100);
+            }
+            SpartanSettings::Save();
+        }
+        if (index == 0) {
+            if (v.frames_queued == 0) return label("Unlimited", "Sem limite");
+            return text(v.frames_queued == 2 ? "2" : "1");
+        }
+        if (index == 1 || index == 2) {
+            const bool enabled = index == 1 ? v.async_shaders.load() : v.rcas.load();
+            return enabled ? label("On", "Ligada") : label("Off", "Desligada");
+        }
+        if (index == 4) {
+            static thread_local std::string anisotropy;
+            anisotropy = v.anisotropy ? std::to_string(v.anisotropy.load()) + "x" : portuguese ? "Padrão do jogo" : "Game default";
+            return text(anisotropy.c_str());
+        }
+        static thread_local char strength[8];
+        std::snprintf(strength, sizeof(strength), "%d%%", v.rcas_strength.load());
+        return text(strength);
+    }
     if ((group == 0xf00 || group == 0xf10) && index == SPARTAN_CHEAT_COUNT) {
         if (!v.qte_supported.load()) return text("Unavailable");
         if (group == 0xf10) {

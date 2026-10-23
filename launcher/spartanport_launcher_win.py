@@ -471,14 +471,14 @@ def heading_font(size, fallback=None, every_language=False):
 # launcher's own settings.json (passed to run.py as environment variables).
 
 INI_FLAGS = {'cheat_double_jumps', 'cheat_very_hard', 'object_motion', 'show_fps', 'vsync', 'async_shaders', 'deferred_readback',
-             'stale_readback'}
+             'stale_readback', 'hdr'}
 # The graphics keys are also in the in-game menu (Insert / R3+L2); run.py reads the startup ones.
 INI_DEFAULTS = {'upscaler': 'fsr3', 'preset': '1',
                 'object_motion': '1', 'show_fps': '1', 'output_res': '1920x1080',
                 'live_resolution': 'auto', 'display_mode': 'windowed', 'vsync': '1', 'fps_limit': '0',
                 'async_shaders': '1', 'deferred_readback': '1', 'stale_readback': '1',
                 'render_resolution': graphics_options.DEFAULTS['render_resolution'], 'engine_fps': '120',
-                'frames_queued': '1', 'cheat_very_hard': '0', 'cheat_double_jumps': '0',
+                'frames_queued': '1', 'monitor': '', 'hdr': '0', 'glyph_style': 'off', 'cheat_very_hard': '0', 'cheat_double_jumps': '0',
                 'anisotropy': '0', 'vibration': '100', 'mouse_prompt_distance': '48', 'mouse_lock': '1',
                 'mouse_aim_style': '0', 'mouse_aim_sensitivity': '100'}
 DISPLAY_MODES = [('windowed', ('Windowed',)), ('borderless', ('Borderless',)), ('fullscreen', ('Fullscreen',))]
@@ -827,6 +827,11 @@ def ini_path():
 
 def load_ini():
     values, lines = dict(INI_DEFAULTS), []
+    legacy = load_json(CONFIG_FILE, {})
+    if not isinstance(legacy, dict):
+        legacy = {}
+    values.update(monitor=str(legacy.get('monitor') or ''), hdr='1' if legacy.get('hdr') else '0')
+    values['glyph_style'] = legacy.get('glyph_style', 'off')
     try:
         lines = ini_path().read_text(encoding='utf-8').splitlines()
     except OSError:
@@ -1245,8 +1250,7 @@ def game_environment(s):
     # Menu language is independent from the game's text and voice language.
     env['SPARTAN_UI_LANGUAGE'] = s.get('ui_language') or windows_language()
     env['SPARTAN_DISCORD'] = '1' if s.get('discord_rpc') else '0'
-    if s['hdr']:
-        env['SPARTAN_HDR'] = '1'
+    env['SPARTAN_HDR'] = '1' if s['hdr'] else '0'
     for key, name in (('draw_pipe', 'SPARTAN_DRAW_PIPE'), ('readbacks', 'SPARTAN_READBACKS'), ('no_msaa', 'SPARTAN_NO_MSAA')):
         if s.get(key):
             env[name] = s[key]
@@ -1867,7 +1871,7 @@ class Launcher:
         monitor = ttk.Frame(quick)
         monitor.grid(row=2 + (len(items) + 1) // 2, column=0, columnspan=4, sticky='w', pady=self.px(6))
         ttk.Label(monitor, text=_('Monitor', 'Монитор')).pack(side='left', padx=self.px((0, 12)))
-        self.quick_monitor_box = self.choice(monitor, 'monitor', 'app', self.monitor_list)
+        self.quick_monitor_box = self.choice(monitor, 'monitor', 'ini', self.monitor_list)
         self.quick_monitor_box.pack(side='left')
 
     def draw_banner(self):
@@ -1976,12 +1980,12 @@ class Launcher:
                  _('Borderless covers the screen without changing the display mode.'))
         # Asked again whenever the box is drawn or opened (monitor_list), so a list refresh_monitors()
         # put in place is picked up without capturing the list once.
-        self.monitor_box = self.choice(f, 'monitor', 'app', self.monitor_list, width=46)
+        self.monitor_box = self.choice(f, 'monitor', 'ini', self.monitor_list, width=46)
         self.row(f, _('Monitor', 'Монитор'), self.monitor_box,
                  _('The screen the game opens its window on. Primary is the monitor the system considers the main one.',
                    'Экран, на котором игра открывает своё окно. Основной монитор определяется системой.'))
         self.check(f, 'vsync', 'ini', _('VSync'), _('Off allows tearing for the lowest latency.'))
-        self.check(f, 'hdr', 'app', _('Allow HDR output', 'Разрешить HDR'),
+        self.check(f, 'hdr', 'ini', _('Allow HDR output', 'Разрешить HDR'),
                    _('When HDR is on in Windows and the display supports it.',
                      'Если HDR включён в Windows и монитор его поддерживает.'))
         self.section(f, _('Textures'))
@@ -2451,7 +2455,7 @@ class Launcher:
 
         # The in-game icons first, then the device: its section is shown, the other hidden (show_device).
         page = f
-        self.row(page, _('In-game button icons'), self.choice(page, 'glyph_style', 'app', GLYPH_STYLES),
+        self.row(page, _('In-game button icons'), self.choice(page, 'glyph_style', 'ini', GLYPH_STYLES),
                  hint=_('Replaces the PlayStation button icons inside the game with the ones of your controller. '
                         'Works on a copy of up to three game files in the port\'s data folder (about 410 MB); your game folder '
                         'is never changed. Applied when the game starts.'))
