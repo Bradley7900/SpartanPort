@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use spartanport_launcher::core::patches::{write_game_patches, PatchJob};
 use spartanport_launcher::runner::content_profile::{self, Sku};
+use spartanport_launcher::runner::dxt;
 use spartanport_launcher::runner::graphics_options;
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
@@ -254,5 +255,60 @@ fn graphics_matches_python() {
                 &format!("{step}/{name}"),
             );
         }
+    }
+}
+
+/// The PNGs of case `dxt` as RGBA, by name.
+fn dxt_images() -> Vec<(String, image::RgbaImage)> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(fixture_dir("dxt").join("input"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    paths.sort();
+    let images: Vec<(String, image::RgbaImage)> = paths
+        .iter()
+        .map(|path| {
+            let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+            (name, image::open(path).unwrap().to_rgba8())
+        })
+        .collect();
+    let names: Vec<&str> = images.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        ["alpha", "edges", "flat", "gradient", "noise", "odd"]
+    );
+    images
+}
+
+/// As `glyphs.encode_region` encodes a picture: each 4-row strip on its own (the last one shorter
+/// when the height is not a multiple of 4), the blocks of the strips one after the other.
+fn strips(image: &image::RgbaImage, encode: fn(&[u8], u32, u32) -> Vec<u8>) -> Vec<u8> {
+    let (width, height) = image.dimensions();
+    let row = width as usize * 4;
+    let mut blocks = Vec::new();
+    for y in (0..height).step_by(4) {
+        let rows = (height - y).min(4);
+        let start = y as usize * row;
+        let strip = &image.as_raw()[start..start + rows as usize * row];
+        blocks.extend(encode(strip, width, rows));
+    }
+    blocks
+}
+
+#[test]
+fn dxt1_blocks_match_pillow() {
+    for (name, image) in dxt_images() {
+        let name = format!("{name}.dxt1");
+        let actual = strips(&image, dxt::encode_dxt1);
+        assert_same_bytes(&actual, &expected("dxt", &name), &name);
+    }
+}
+
+#[test]
+fn dxt5_blocks_match_pillow() {
+    for (name, image) in dxt_images() {
+        let name = format!("{name}.dxt5");
+        let actual = strips(&image, dxt::encode_dxt5);
+        assert_same_bytes(&actual, &expected("dxt", &name), &name);
     }
 }

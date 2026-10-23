@@ -31,7 +31,8 @@ generator stops when one does).
             launches. graphics_options.prepare runs three times, as in
             test_unconfirmed_restart_is_tried_once_then_reverted; expected/<good|tried|reverted>/ holds the ini,
             the state file and environment.json after each launch.
-  dxt       input: gradient, edges, alpha, noise and flat, 64 x 64 RGBA PNGs (noise from a fixed seed).
+  dxt       input: gradient, edges, alpha, noise and flat, 64 x 64 RGBA PNGs (noise from a fixed seed), and
+            odd, a 5 x 3 RGBA gradient whose blocks extend past the picture (Pillow's padding).
             expected: <name>.dxt1 and <name>.dxt5, the 4-row strips of glyphs.encode_region concatenated with
             each DDS header (128 bytes) stripped (RGB for DXT1, RGBA for DXT5).
   icon      expected: window_icon.bmp, launcher/spartanport.png as run.py makes it (RGBA, 64 x 64 LANCZOS, BMP)."""
@@ -428,6 +429,14 @@ def test_images():
     return images
 
 
+def odd_image():
+    """A 5 x 3 RGBA gradient: both of its blocks reach past the bottom edge, the second past the right one."""
+    image = Image.new('RGBA', (5, 3))
+    image.putdata([(40 + x * 50, 200 - y * 70, 30 + x * y * 20, 255 - x * 45 - y * 30)
+                   for y in range(3) for x in range(5)])
+    return image
+
+
 def strips(image, fourcc):
     """glyphs.encode_region's 4-row strips of the whole picture, DDS headers stripped, concatenated."""
     image = image.convert('RGBA' if fourcc == 'DXT5' else 'RGB')
@@ -441,10 +450,12 @@ def strips(image, fourcc):
 
 
 def encode_region_blocks(image, fourcc):
-    """The same bytes through glyphs.encode_region itself, over a texture holding just the top level."""
+    """The same bytes through glyphs.encode_region itself, over a texture holding just the top level
+    (partial blocks included)."""
     block = 16 if fourcc == 'DXT5' else 8
     width, height = image.size
-    data = bytearray(128 + (width // 4) * (height // 4) * block)
+    columns, rows = -(-width // 4), -(-height // 4)
+    data = bytearray(128 + columns * rows * block)
     struct.pack_into('<II', data, 12, height, width)
     glyphs.encode_region(data, 0, len(data), image, fourcc, (0, 0, width, height))
     return bytes(data[128:])
@@ -452,7 +463,7 @@ def encode_region_blocks(image, fourcc):
 
 def case_dxt():
     inputs, expected = case_folder('dxt')
-    for name, image in test_images().items():
+    for name, image in {**test_images(), 'odd': odd_image()}.items():
         inputs.mkdir(parents=True, exist_ok=True)
         image.save(inputs / f'{name}.png')
         for fourcc in ('DXT1', 'DXT5'):
