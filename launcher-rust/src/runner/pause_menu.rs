@@ -721,6 +721,23 @@ impl<'a> Script<'a> {
     }
 }
 
+/// `record`, then its parent, its parent's parent and so on, as long as the parent word names a
+/// state of `s`. A chain longer than the state table goes round a cycle: an error, where the
+/// Python would never return.
+fn ancestors<'r>(s: &'r Script, record: &'r Record) -> Result<Vec<&'r Record>, MenuError> {
+    let mut chain = vec![record];
+    while let Some(parent) = chain
+        .last()
+        .and_then(|last| s.records.iter().find(|r| r.at - 4 == last.parent))
+    {
+        if chain.len() >= s.records.len() {
+            return Err(script("state tree has a cycle"));
+        }
+        chain.push(parent);
+    }
+    Ok(chain)
+}
+
 /// The code of `record`'s first block of `kind`.
 fn first_block(record: &Record, kind: u8) -> Result<usize, MenuError> {
     Script::blocks(record)
@@ -1144,11 +1161,8 @@ pub fn display_health_bar(data: &mut Vec<u8>, spans: &mut Spans) -> Result<(), M
         base + display.at + 12 + 4 * entry_item,
         be(0x0100_0000 | display_entry, 4)?,
     ));
-    let parents: HashMap<usize, &Record> = s.records.iter().map(|r| (r.at - 4, r)).collect();
-    let mut ancestor = Some(&display);
-    while let Some(record) = ancestor {
+    for record in ancestors(&s, &display)? {
         edits.push((base + record.at, be(0x0400_0000 | (record.size + ROW), 4)?));
-        ancestor = parents.get(&record.parent).copied();
     }
     for record in &s.records {
         if record.parent + 4 >= insert {
@@ -1757,13 +1771,10 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
             edits.push((base + s.lit + block.code + at, destination));
         }
     }
-    let ancestors: HashMap<usize, &Record> = s.records.iter().map(|r| (r.at - 4, r)).collect();
     let mut growth: HashMap<usize, usize> = HashMap::new();
     for (record, amount) in [(&options, option_size), (&enter, pages_size)] {
-        let mut record = Some(record);
-        while let Some(r) = record {
+        for r in ancestors(&s, record)? {
             *growth.entry(r.at).or_insert(0) += amount;
-            record = ancestors.get(&r.parent).copied();
         }
     }
     for record in &s.records {
@@ -2076,10 +2087,8 @@ pub fn patch(data: &[u8], language: Option<&str>) -> Result<Vec<u8>, MenuError> 
         (&opt, n as i64),
         (left, -(debug.size as i64)),
     ] {
-        let mut chain = Some(record);
-        while let Some(r) = chain {
+        for r in ancestors(&s, record)? {
             *grow.entry(r.at).or_insert(0) += amount;
-            chain = parents.get(&(r.parent + 4)).copied();
         }
     }
     for (&at, &g) in &grow {
@@ -2457,12 +2466,19 @@ mod tests {
     /// 8 pushes "Hi"; UP at 13 goes to Root), then the literal pool ("" at 19, "Hi" at 20) and the
     /// symbol table (Root id 4, Child id 12).
     fn tiny_script() -> Vec<u8> {
+        tiny_script_with_root_parent(0xffff_ffff)
+    }
+
+    /// [`tiny_script`] with `parent` as Root's parent word (0x14 is Root's own state ref).
+    fn tiny_script_with_root_parent(parent: u32) -> Vec<u8> {
         let mut smi = vec![0u8; 0x18];
         let (code, symtab) = (0x44u32, 0x48u32 + 23);
         smi[0x0c..0x10].copy_from_slice(&code.to_le_bytes());
         smi[0x10..0x14].copy_from_slice(&symtab.to_le_bytes());
         // Root at 0x18 (subtree 44 bytes), Child at 0x28 (28 bytes, parent ref 0x14).
-        smi.extend([4, 0, 0, 44, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 4, 1, 0, 0, 0]);
+        smi.extend([4, 0, 0, 44]);
+        smi.extend(parent.to_be_bytes());
+        smi.extend([0, 0, 0, 4, 1, 0, 0, 0]);
         smi.extend([4, 0, 0, 28, 0, 0, 0, 0x14, 0, 0, 0, 12]);
         smi.extend([1, 0, 0, 8, 3, 0, 0, 13, 0x80, 0, 0, 0xe0, 0, 0, 0, 0xec]);
         smi.extend([0; 4]); // code start .. code refs' base
@@ -2532,6 +2548,34 @@ mod tests {
             blank_line(&s, child, 6).unwrap_err().to_string(),
             "line 5 assignment not found"
         );
+    }
+
+    #[test]
+    fn a_cyclic_state_tree_is_an_error_not_a_hang() {
+        // Root names itself as its parent: the walk up from Child never reaches the top. It runs on
+        // a thread so that a walk without a bound fails the test instead of hanging it.
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let data = tiny_script_with_root_parent(0x14);
+            let outcome = Script::parse(&data).and_then(|s| {
+                let child = s.one("Child")?;
+                ancestors(&s, child).map(|chain| chain.len())
+            });
+            let _ = sender.send(outcome.map_err(|error| error.to_string()));
+        });
+        match receiver.recv_timeout(std::time::Duration::from_millis(300)) {
+            Ok(outcome) => assert_eq!(outcome, Err("state tree has a cycle".to_string())),
+            Err(_) => panic!("ancestors did not return within 300 ms on a cyclic tree"),
+        }
+        // A tree: the record, then its ancestors up to the root.
+        let data = tiny_script();
+        let s = Script::parse(&data).unwrap();
+        let chain: Vec<usize> = ancestors(&s, s.one("Child").unwrap())
+            .unwrap()
+            .iter()
+            .map(|record| record.at)
+            .collect();
+        assert_eq!(chain, [0x28, 0x18]);
     }
 
     #[test]
