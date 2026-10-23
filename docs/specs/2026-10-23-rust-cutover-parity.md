@@ -20,10 +20,7 @@ Release gate: checked on 2026-10-23 at the end of the cutover work, on Windows, 
 dump `CUSA01623`, read only: `SPARTAN_GAME_DIR=<game> cargo test --no-fail-fast` in `launcher-rust/`,
 after `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` (both clean).
 
-Result: 922 tests passed, 0 failed, with the dump set. The first run had 921 passed and one failure,
-`tests/ui_save.rs::rebuilding_keeps_the_status_of_a_running_game`: its "newer release" fixture was 2.8.0,
-which is the installed version now; it uses 2.9.0, and `tests/ui_save.rs` then passed on its own with the
-dump set (25 of 25). The other suites were not run again.
+Result: 924 tests passed, 0 failed, in one clean run with the dump set, after the final-review fixes.
 
 Manual checks on the built package (CI zip and the user's Steam): pending, to be recorded here.
 
