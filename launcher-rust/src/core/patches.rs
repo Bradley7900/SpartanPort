@@ -912,13 +912,21 @@ pub fn fill(value: &str, at: i64, targets: &Targets) -> Result<Vec<u8>, PatchErr
             .get(name)
             .ok_or_else(|| PatchError::Invalid(format!("no target {}", py_repr(name))))?;
         let tail = py_int(tail, 10).ok_or_else(|| invalid_literal(tail, 10))?;
-        let end = i128::from(at) + out.len() as i128 + 4 + tail;
-        let rel = i32::try_from(i128::from(target) - end).map_err(|_| {
-            PatchError::Invalid(format!(
-                "the rel32 to {} does not fit in 32 bits",
-                py_repr(name)
-            ))
-        })?;
+        // Every term is within 64 bits (a tail outside them gives no 32-bit rel), so the sum
+        // cannot overflow an i128.
+        let rel = i64::try_from(tail)
+            .ok()
+            .map(|tail| {
+                let end = i128::from(at) + out.len() as i128 + 4 + i128::from(tail);
+                i128::from(target) - end
+            })
+            .and_then(|rel| i32::try_from(rel).ok())
+            .ok_or_else(|| {
+                PatchError::Invalid(format!(
+                    "the rel32 to {} does not fit in 32 bits",
+                    py_repr(name)
+                ))
+            })?;
         out.extend(rel.to_le_bytes());
         rest = next;
     }
@@ -1529,31 +1537,35 @@ pub fn external_selection(
         .collect())
 }
 
-/// The writes of one external patch: the `Metadata` of its file named `name` for this version
-/// (the first, when a file repeats a name).
+/// The writes of one external patch: the `occurrence`-th `Metadata` of its file for this version
+/// that reads as `meta` (a file may repeat a patch).
 fn external_writes(
     path: &Path,
-    name: &str,
+    meta: &PatchMeta,
+    occurrence: usize,
     app_version: &str,
     segments: &[Segment],
 ) -> Result<Vec<Write>, PatchError> {
     let text = read_text(path)?;
     let doc = parse(&text)?;
-    let meta = metadata(&doc)
-        .find(|m| {
-            m.attribute("Name").unwrap_or_default() == name
-                && m.attribute("AppVer") == Some(app_version)
+    let element = metadata(&doc)
+        .filter(|m| {
+            m.attribute("AppVer") == Some(app_version)
                 && m.attribute("AppElf").unwrap_or("eboot.bin") == "eboot.bin"
+                && meta_of(*m) == *meta
         })
+        .nth(occurrence)
         .ok_or_else(|| PatchError::Invalid(format!("no longer in {}", file_name(path))))?;
-    meta.descendants()
+    element
+        .descendants()
         .filter(|n| n.has_tag_name("Line"))
         .map(|line| {
             let text = line.attribute("Address").unwrap_or_default();
             let address = py_int(text, 0).ok_or_else(|| invalid_literal(text, 0))?;
             let bytes = encode(line)?;
-            u64::try_from(address - i128::from(EBOOT_BASE))
-                .ok()
+            address
+                .checked_sub(i128::from(EBOOT_BASE))
+                .and_then(|offset| u64::try_from(offset).ok())
                 .filter(|&start| fits(segments, start, bytes.len()))
                 .map(|address| Write { address, bytes })
                 .ok_or_else(|| PatchError::Invalid(format!("address {text} is outside the eboot")))
@@ -1570,8 +1582,15 @@ pub fn compile_external(
     log: &mut dyn io::Write,
 ) -> Vec<Write> {
     let mut writes = Vec::new();
-    for (key, path, meta) in selected {
-        match external_writes(path, &meta.name, app_version, segments) {
+    for (index, (key, path, meta)) in selected.iter().enumerate() {
+        // Each entry is one Metadata of its file. Entries alike (file, name and attributes) are
+        // selected alike and keep the file's order, so the k-th of them here is the k-th there.
+        let occurrence = selected
+            .iter()
+            .take(index)
+            .filter(|(_, other_path, other)| other_path == path && other == meta)
+            .count();
+        match external_writes(path, meta, occurrence, app_version, segments) {
             Ok(ours) => {
                 let count = ours.len();
                 writes.extend(ours);
@@ -2106,6 +2125,61 @@ mod compile_tests {
             pairs(&writes),
             [(0x2000, 0x1234_5678u32.to_le_bytes().to_vec())]
         );
+        // An address no 64-bit offset holds is outside the eboot, as the Python says.
+        let far = folder.join("far");
+        fs::create_dir_all(&far).unwrap();
+        let huge = "-170141183460469231731687303715884105727";
+        fs::write(
+            far.join("far.xml"),
+            format!(
+                r#"<Patch><Metadata Name="Far" AppVer="01.02" isEnabled="true"><PatchList><Line Type="bytes" Address="{huge}" Value="90"/></PatchList></Metadata></Patch>"#
+            ),
+        )
+        .unwrap();
+        let found = external_patches(&far, "01.02", &spartan(), &["CUSA01623"]);
+        let mut log = Vec::new();
+        let selected = external_selection(&found, None).unwrap();
+        assert!(compile_external(&selected, "01.02", &segments(ALL), &mut log).is_empty());
+        assert_eq!(
+            String::from_utf8(log).unwrap(),
+            format!("Patches: skipped far.xml/Far: address {huge} is outside the eboot\n")
+        );
+    }
+
+    #[test]
+    fn a_repeated_external_name_compiles_each_element_once() {
+        // The Python compiles each Metadata's own lines, in file order: both "Twin" entries, and
+        // only the second "Pair" (the first is off).
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("twin.xml"),
+            r#"<Patch>
+  <TitleID><ID>CUSA01623</ID></TitleID>
+  <Metadata Name="Twin" AppVer="01.02" isEnabled="true"><PatchList><Line Type="bytes" Address="0x00401000" Value="90"/></PatchList></Metadata>
+  <Metadata Name="Twin" AppVer="01.02" isEnabled="true"><PatchList><Line Type="bytes" Address="0x00402000" Value="91"/></PatchList></Metadata>
+  <Metadata Name="Pair" AppVer="01.02"><PatchList><Line Type="bytes" Address="0x00403000" Value="92"/></PatchList></Metadata>
+  <Metadata Name="Pair" AppVer="01.02" isEnabled="true"><PatchList><Line Type="bytes" Address="0x00404000" Value="93"/></PatchList></Metadata>
+</Patch>"#,
+        )
+        .unwrap();
+        let found = external_patches(dir.path(), "01.02", &spartan(), &["CUSA01623"]);
+        let mut log = Vec::new();
+        let selected = external_selection(&found, None).unwrap();
+        let writes = compile_external(&selected, "01.02", &segments(ALL), &mut log);
+        assert_eq!(
+            pairs(&writes),
+            [
+                (0x1000, vec![0x90]),
+                (0x2000, vec![0x91]),
+                (0x4000, vec![0x93])
+            ]
+        );
+        assert_eq!(
+            String::from_utf8(log).unwrap(),
+            "Patches: external twin.xml/Twin (1 writes)\n\
+             Patches: external twin.xml/Twin (1 writes)\n\
+             Patches: external twin.xml/Pair (1 writes)\n"
+        );
     }
 
     #[test]
@@ -2470,9 +2544,11 @@ mod compile_tests {
     #[test]
     fn spartanport_patches_compile() {
         let names = metadata_names(&spartan());
-        let (writes, _) =
+        let (writes, skipped) =
             compile_patches(&spartan(), &names, Some("01.02"), &segments(ALL), None).unwrap();
         assert!(!writes.is_empty());
+        // The Python's call without `skipped` raises on any lookup: no Target= is dangling.
+        assert!(skipped.is_empty(), "{skipped:?}");
     }
 
     #[test]
@@ -3249,6 +3325,16 @@ mod compile_tests {
             r#"<Target Name="t" Pattern="c6" At="-0x1000" Ref="1"/>"#,
         );
         error(line, r#"<Target Name="t" Line="x"/>"#);
+        // A rel32 tail no 64-bit offset holds.
+        for tail in [
+            "170141183460469231731687303715884105727",
+            "-170141183460469231731687303715884105727",
+        ] {
+            error(
+                &format!(r#"<Line Type="bytes" Address="0x400041" Value="e8{{rel:t:{tail}}}"/>"#),
+                r#"<Target Name="t" Line="0"/>"#,
+            );
+        }
         // Lookups the Python leaves out with the reason (its IndexError and KeyError texts).
         let skips = |lines: &str, targets: &str| {
             let (writes, skipped) = run(lines, targets).unwrap();
