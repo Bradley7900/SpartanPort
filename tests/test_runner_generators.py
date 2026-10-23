@@ -28,7 +28,9 @@ CASES = {
                [f'{style}/{name}.png' for style in ('xbox', 'nintendo', 'keyboard')
                 for name in ('TX1BBACF4D', 'TX7FF61BF7', 'TXFB91136E', 'TXD43D1443')]
                + [f'{style}/{name}.png' for style in ('xbox', 'nintendo') for name in ('TXCE352DC5', 'TX2CDFA5F8')]
-               + ['keyboard/TXDCA1B818.png', 'keyboard/TX77AAD542.png', 'keyboard/TXBF2035D0.png']),
+               + ['keyboard/TXDCA1B818.png', 'keyboard/TX77AAD542.png', 'keyboard/TXBF2035D0.png']
+               + ['encode/xbox/TX7FF61BF7.dxt1', 'encode/keyboard/TXD43D1443.dxt5',
+                  'encode_region/xbox/TXEACA5E71.dxt1']),
 }
 
 

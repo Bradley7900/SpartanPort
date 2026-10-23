@@ -383,14 +383,28 @@ fn real_glyph_wads_match_python_outside_the_painted_blocks() {
             let original = fs::read(game.join(name)).unwrap();
             let (ours, theirs) = (fs::read(ours).unwrap(), fs::read(theirs).unwrap());
             assert_eq!(ours.len(), theirs.len(), "{style}: {name} size");
-            // Every byte outside the DXT blocks of the drawn textures is the Python's.
+            assert_eq!(theirs.len(), original.len(), "{style}: {name} size");
+            // Both sides repaint the same entries; inside those, a DXT block either side
+            // re-encoded is exempt (the text's edges move which blocks a lyre re-encode touches).
+            // Every other byte of both copies is the game's own.
             let mut painted = vec![false; ours.len()];
             for entry in glyphs::entries(&original) {
-                let end = entry.offset + 0x40 + entry.size;
-                let Some(dds) = original[entry.offset + 0x40..end]
+                let (start, end) = (entry.offset + 0x40, entry.offset + 0x40 + entry.size);
+                let changed = |copy: &[u8]| copy[start..end] != original[start..end];
+                assert_eq!(
+                    changed(&ours),
+                    changed(&theirs),
+                    "{style}: {name}: {} repainted by one side only (Rust: {})",
+                    entry.name,
+                    changed(&ours)
+                );
+                if !changed(&theirs) {
+                    continue;
+                }
+                let Some(dds) = original[start..end]
                     .windows(4)
                     .position(|w| w == b"DDS ")
-                    .map(|i| i + entry.offset + 0x40)
+                    .map(|i| i + start)
                 else {
                     continue;
                 };
@@ -398,17 +412,17 @@ fn real_glyph_wads_match_python_outside_the_painted_blocks() {
                     continue;
                 }
                 for (at, size) in dxt_blocks(&original, dds, end) {
-                    // A block either side repainted; the others are the game's in both.
                     let changed = |copy: &[u8]| copy[at..at + size] != original[at..at + size];
                     if changed(&ours) || changed(&theirs) {
                         painted[at..at + size].fill(true);
                     }
                 }
             }
-            let differing = (0..ours.len()).find(|i| !painted[*i] && ours[*i] != theirs[*i]);
+            let differing = (0..ours.len())
+                .find(|i| !painted[*i] && (ours[*i] != original[*i] || theirs[*i] != original[*i]));
             assert_eq!(
                 differing, None,
-                "{style}: {name} differs outside the painted blocks"
+                "{style}: {name} differs from the game outside the painted blocks"
             );
         }
     }

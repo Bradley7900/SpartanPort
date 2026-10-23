@@ -2730,3 +2730,122 @@ fn sliding_extreme(line: &[u8], half: usize, max: bool, out: &mut [u8]) {
         *value = pick(behind[x], ahead[x + k - 1]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A picture of `mode` whose every band of every pixel is pseudo-random.
+    fn noise(mode: Mode, width: usize, height: usize, seed: u32) -> Picture {
+        let mut picture = Picture::new(mode, width, height, &[]);
+        let mut state = seed;
+        for value in &mut picture.data {
+            state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            *value = (state >> 16) as u8;
+        }
+        picture
+    }
+
+    /// Asserts `part` is `whole` inside `window` and zero outside it.
+    fn assert_window(part: &Picture, whole: &Picture, window: Window, case: &str) {
+        assert_eq!(
+            (part.width, part.height),
+            (whole.width, whole.height),
+            "{case}"
+        );
+        for y in 0..whole.height {
+            for x in 0..whole.width {
+                let inside =
+                    (window.x0..window.x1).contains(&x) && (window.y0..window.y1).contains(&y);
+                if inside {
+                    assert_eq!(part.pixel(x, y), whole.pixel(x, y), "{case}: {x}, {y}");
+                } else {
+                    assert!(part.pixel(x, y).iter().all(|v| *v == 0), "{case}: {x}, {y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resize_window_is_the_whole_resize_inside_the_window() {
+        for mode in [Mode::L, Mode::Rgb, Mode::Rgba] {
+            let picture = noise(mode, 96, 80, 7);
+            // The pair shares every row but ten with the first picture.
+            let mut other = picture.clone();
+            other.paste(&noise(mode, 96, 10, 9), 0, 33, None);
+            for filter in [Filter::Lanczos, Filter::Bicubic] {
+                for (width, height) in [(48, 40), (24, 20), (37, 13), (130, 7)] {
+                    let whole = picture.resize(width, height, filter);
+                    let other_whole = other.resize(width, height, filter);
+                    for window in [
+                        Window {
+                            x0: width / 3,
+                            y0: height / 4,
+                            x1: width - 2,
+                            y1: height - 1,
+                        },
+                        Window {
+                            x0: 0,
+                            y0: 0,
+                            x1: width,
+                            y1: height,
+                        },
+                        Window {
+                            x0: width - 1,
+                            y0: 0,
+                            x1: width,
+                            y1: 1,
+                        },
+                    ] {
+                        let case = format!("{mode:?} {filter:?} {width}x{height} {window:?}");
+                        let part = picture.resize_window(width, height, filter, window);
+                        assert_window(&part, &whole, window, &case);
+                        let (first, second) =
+                            picture.resize_window_pair(&other, width, height, filter, window);
+                        assert_window(&first, &whole, window, &format!("{case} pair first"));
+                        assert_window(
+                            &second,
+                            &other_whole,
+                            window,
+                            &format!("{case} pair second"),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resize_placed_is_the_resize_of_the_whole_zero_canvas() {
+        let (full_width, full_height) = (160, 120);
+        for mode in [Mode::L, Mode::Rgba] {
+            // A letter with a zero border, so its box is smaller than the picture.
+            let mut letter = Picture::new(mode, 50, 30, &[]);
+            letter.paste(&noise(mode, 44, 21, 3), 3, 5, None);
+            for (left, top) in [(37, 41), (110, 90), (0, 0)] {
+                let mut canvas = Picture::new(mode, full_width, full_height, &[]);
+                canvas.paste(&letter, left as i64, top as i64, None);
+                for filter in [Filter::Lanczos, Filter::Bicubic] {
+                    for (width, height) in [(40, 30), (53, 41), (80, 60), (107, 77)] {
+                        let case =
+                            format!("{mode:?} {filter:?} at {left}, {top} to {width}x{height}");
+                        let placed = letter.resize_placed(
+                            left,
+                            top,
+                            full_width,
+                            full_height,
+                            width,
+                            height,
+                            filter,
+                        );
+                        assert_eq!(placed, canvas.resize(width, height, filter), "{case}");
+                    }
+                }
+            }
+            let blank = Picture::new(mode, 50, 30, &[]);
+            let placed =
+                blank.resize_placed(5, 5, full_width, full_height, 40, 30, Filter::Lanczos);
+            assert_eq!(placed, Picture::new(mode, 40, 30, &[]));
+        }
+    }
+}

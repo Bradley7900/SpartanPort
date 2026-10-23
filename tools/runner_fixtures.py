@@ -42,7 +42,11 @@ generator stops when one does).
             shape (glow mask); flat elsewhere. expected: <style>/<texture>.png for the xbox, nintendo and
             keyboard styles with the default maps, the Python's own drawing: glyphs.render at the sizes of
             tests/test_glyphs.wad (inline 64, the select icon 64 x 40, QTE 128, atlas 256) and the controller
-            diagram at 512 x 256, glyphs.lyre_paint of the input for the lyre and gold textures."""
+            diagram at 512 x 256, glyphs.lyre_paint of the input for the lyre and gold textures. The bytes
+            written from those pictures: encode/<style>/<texture>.<fourcc>, glyphs.encode of the PNG (its mip
+            chain: the DXT1 QTE cross in the 7 levels of tests/test_glyphs.wad, the DXT5 select key down to
+            1 x 1); encode_region/xbox/TXEACA5E71.dxt1, a DDS header and the glow mask's whole chain of 0xee
+            bytes after glyphs.encode_region of the painted PNG over the input (the lyre's corner)."""
 import contextlib
 import io
 import json
@@ -493,6 +497,21 @@ GLYPH_STYLES = ('xbox', 'nintendo', 'keyboard')
 GLYPH_SIZES = {'inline': (64, 64), 'qte': (128, 128), 'atlas': (256, 256), 'controller': (512, 256)}
 GLYPH_SIZE_OF = {'TXD43D1443': (64, 40)}
 LYRE_SIZE_OF = {'glow': 512}  # the other kinds: 1024
+# (style, texture, fourcc, mip levels or None for the chain down to 1 x 1) for glyphs.encode
+GLYPH_ENCODES = (('xbox', 'TX7FF61BF7', 'DXT1', 7), ('keyboard', 'TXD43D1443', 'DXT5', None))
+GLYPH_REGION = ('xbox', 'TXEACA5E71')  # the glow mask (DXT1, 512 px) for glyphs.encode_region
+
+
+def mip_chain(width, height, fourcc, levels=None):
+    """The bytes of the DXT mip levels of a width x height texture: `levels` of them, or down to 1 x 1."""
+    length, level = 0, 0
+    while levels is None or level < levels:
+        w, h = max(1, width >> level), max(1, height >> level)
+        length += -(-w // 4) * -(-h // 4) * (16 if fourcc == 'DXT5' else 8)
+        if (w, h) == (1, 1):
+            break
+        level += 1
+    return length
 
 
 def lyre_input(form, kind, size):
@@ -575,6 +594,18 @@ def case_glyphs():
                 width, height = GLYPH_SIZE_OF.get(name, GLYPH_SIZES[form])
                 picture = glyphs.render(form, buttons, style, None, '', width, height, '')
             picture.save(expected / style / f'{name}.png')
+    for style, name, fourcc, levels in GLYPH_ENCODES:
+        with Image.open(expected / style / f'{name}.png') as picture:
+            length = mip_chain(picture.width, picture.height, fourcc, levels)
+            put(expected / 'encode' / style / f'{name}.{fourcc.lower()}', glyphs.encode(picture, fourcc, length))
+    style, name = GLYPH_REGION
+    with Image.open(inputs / f'{name}.png') as original, Image.open(expected / style / f'{name}.png') as painted:
+        width, height = original.size
+        data = bytearray(b'DDS ' + bytes(8) + struct.pack('<II', height, width) + bytes(108))
+        data += b'\xee' * mip_chain(width, height, 'DXT1')
+        region = tuple(v // (2048 // width) for v in glyphs.LYRE_CORNER)
+        glyphs.encode_region(data, 0, len(data), painted, 'DXT1', region, original)
+        put(expected / 'encode_region' / style / f'{name}.dxt1', bytes(data))
 
 
 def check_no_temp_folder():

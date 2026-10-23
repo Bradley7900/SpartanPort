@@ -402,3 +402,49 @@ fn painted_textures_match_pillow_within_tolerance() {
         .collect();
     assert!(low.is_empty(), "below 40 dB: {low:?}");
 }
+
+#[test]
+fn glyph_mip_chains_match_pillow() {
+    // `glyphs.encode` of Pillow's own drawing: the top level and every smaller (bicubic) level.
+    let folder = fixture_dir("glyphs").join("expected");
+    for (style, id, fourcc, extension) in [
+        ("xbox", "TX7FF61BF7", glyphs::FourCc::Dxt1, "dxt1"),
+        ("keyboard", "TXD43D1443", glyphs::FourCc::Dxt5, "dxt5"),
+    ] {
+        let picture = picture_of(&folder.join(style).join(format!("{id}.png")));
+        let name = format!("encode/{style}/{id}.{extension}");
+        let expected = fs::read(folder.join(&name)).unwrap();
+        let actual = glyphs::encode(&picture, fourcc, expected.len()).unwrap();
+        assert_same_bytes(&actual, &expected, &name);
+    }
+}
+
+#[test]
+fn lyre_corner_blocks_match_pillow() {
+    // `glyphs.encode_region` of Pillow's painted glow mask over its input, every level of a
+    // texture of 0xee bytes: the same blocks re-encoded (Lanczos levels), the others untouched.
+    let folder = fixture_dir("glyphs");
+    let id = "TXEACA5E71";
+    let original = picture_of(&folder.join("input").join(format!("{id}.png")));
+    let painted = picture_of(&folder.join("expected/xbox").join(format!("{id}.png")));
+    let name = format!("encode_region/xbox/{id}.dxt1");
+    let expected = fs::read(folder.join("expected").join(&name)).unwrap();
+    let mut data = vec![0u8; 128];
+    data[..4].copy_from_slice(b"DDS ");
+    data[12..16].copy_from_slice(&(original.height as u32).to_le_bytes());
+    data[16..20].copy_from_slice(&(original.width as u32).to_le_bytes());
+    data.resize(expected.len(), 0xee);
+    let end = data.len();
+    let region = glyphs::LYRE_CORNER.map(|v| v / (2048 / original.width));
+    glyphs::encode_region(
+        &mut data,
+        0,
+        end,
+        &painted,
+        glyphs::FourCc::Dxt1,
+        region,
+        Some(&original),
+    )
+    .unwrap();
+    assert_same_bytes(&data, &expected, &name);
+}
