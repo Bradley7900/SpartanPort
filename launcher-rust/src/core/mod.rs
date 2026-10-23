@@ -22,5 +22,6 @@ pub mod save_backup;
 pub mod settings;
 pub mod sfo;
 pub mod steam;
+pub mod steam_art;
 pub mod trophies;
 pub mod update;
