@@ -4,6 +4,7 @@
 //! Nothing here writes into the game folder.
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,9 +14,10 @@ use spartanport_launcher::core::launch::python_command;
 use spartanport_launcher::core::patches::{
     compile_patches, eboot_image, eboot_segments, write_game_patches, PatchJob, Write,
 };
+use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::pause_menu::{self, decode, MenuError, Op, Record, Script};
-use spartanport_launcher::runner::prepare::read_self;
-use spartanport_launcher::runner::{glyphs, pause_menu_args};
+use spartanport_launcher::runner::prepare::{prepare, read_self};
+use spartanport_launcher::runner::{glyphs, isa_rewrite, link_libc, link_modules, pause_menu_args};
 
 /// The game folder of `SPARTAN_GAME_DIR`, when it holds an `eboot.bin`.
 fn dump() -> Option<PathBuf> {
@@ -288,6 +290,80 @@ fn real_patches_bin_matches_python() {
                 case.name
             );
         }
+    }
+}
+
+/// Runs `scripts/<script> <args>` as `run.py`'s `run_script` does (`PYTHONIOENCODING=utf-8`): its
+/// exit code and what it printed, CRLF as LF. `None` when no interpreter starts.
+fn python_script(script: &str, args: &[&OsStr]) -> Option<(i32, String)> {
+    let env = |key: &str| std::env::var(key).ok();
+    let command = python_command(&env).ok()?;
+    let (program, interpreter) = command.split_first()?;
+    let output = Command::new(program)
+        .args(interpreter)
+        .arg(repo("scripts").join(script))
+        .args(args)
+        .env("PYTHONIOENCODING", "utf-8")
+        .output()
+        .ok()?;
+    let printed = [&output.stdout[..], &output.stderr[..]].concat();
+    let printed = String::from_utf8_lossy(&printed).replace("\r\n", "\n");
+    Some((output.status.code().unwrap_or(-1), printed))
+}
+
+#[test]
+fn real_boot_linked_bin_matches_python() {
+    let Some(game) = dump() else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let (python, rust) = (dir.path().join("python"), dir.path().join("rust"));
+    // run.py's order: prepare.py, link_libc.py and link_modules.py on the game.
+    for script in ["prepare.py", "link_libc.py", "link_modules.py"] {
+        let args = [game.as_os_str(), OsStr::new("--out"), python.as_os_str()];
+        let Some((code, printed)) = python_script(script, &args) else {
+            return;
+        };
+        assert_eq!(code, 0, "{script} failed:\n{printed}");
+    }
+    prepare(&game, &rust).unwrap();
+    link_libc::link(&game, &rust).unwrap();
+    link_modules::link(&game, &rust, &DEFAULT_MODULES).unwrap();
+    // The ISA table run.py asks for on a CPU without MOVBE, BMI1, LZCNT or F16C.
+    let boot = python.join("boot-linked.bin");
+    let args = [boot.as_os_str(), OsStr::new("--out"), python.as_os_str()];
+    let (code, printed) = python_script("isa_rewrite.py", &args).unwrap();
+    let sites = isa_rewrite::rewrite(&rust.join("boot-linked.bin"), &rust).unwrap();
+    let mut binaries = vec![
+        "boot.bin",
+        "eboot.elf",
+        "entry.bin",
+        "boot-libc.bin",
+        "boot-linked.bin",
+    ];
+    if printed.contains("iced_x86 is not installed") {
+        println!("This Python has no iced_x86: isa-rewrite.bin is not compared");
+    } else {
+        assert_eq!(code, 0, "isa_rewrite.py failed:\n{printed}");
+        assert_eq!(printed, format!("{}\n", isa_rewrite::summary(&sites)));
+        binaries.push("isa-rewrite.bin");
+    }
+    for name in binaries {
+        let ours = fs::read(rust.join(name)).unwrap();
+        let theirs = fs::read(python.join(name)).unwrap();
+        let first = ours.iter().zip(&theirs).position(|(a, b)| a != b);
+        assert!(
+            ours == theirs,
+            "{name} differs (sizes {} and {}, first difference at {first:?})",
+            ours.len(),
+            theirs.len()
+        );
+    }
+    // The Python writes them in text mode: CRLF on Windows.
+    for name in ["analysis.json", "libc-link.json", "link.json"] {
+        let ours = fs::read_to_string(rust.join(name)).unwrap();
+        let theirs = fs::read_to_string(python.join(name)).unwrap();
+        assert!(ours == theirs.replace("\r\n", "\n"), "{name} differs");
     }
 }
 
