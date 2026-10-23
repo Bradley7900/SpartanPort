@@ -62,10 +62,11 @@ Use the launcher's **Game → Update folder**. It is laid over the game when it 
 you change at the same paths as in the game, for example
 `PORTUGUESE/SOUNDS/STREAMS_PS4/KR_001_012.XVAG`.
 
-`tools/xvag_voice_swap.py` builds that folder from your recordings:
+`SpartanPort.exe --voice-swap` builds that folder from your recordings (on Linux,
+`spartanport-x86_64.AppImage --voice-swap …`):
 
 ```
-python tools/xvag_voice_swap.py GAME_DIR SOURCE UPDATE_DIR --language PORTUGUESE [--reference ORIGINAL] [--dry-run]
+SpartanPort.exe --voice-swap GAME_DIR SOURCE UPDATE_DIR --language PORTUGUESE [--reference ORIGINAL] [--dry-run]
 ```
 
 - `SOURCE` is a PS3 language archive (`.psarc`, zlib) or a folder of mono PS-ADPCM recordings named
@@ -148,7 +149,8 @@ gravado (`scripts/game_update.py`). Ela precisa do `eboot.bin` e do `sce_sys/par
 arquivos que você troca, no mesmo caminho que têm no jogo, por exemplo
 `PORTUGUESE/SOUNDS/STREAMS_PS4/KR_001_012.XVAG`.
 
-`tools/xvag_voice_swap.py` monta essa pasta a partir das suas gravações (uso acima).
+`SpartanPort.exe --voice-swap` monta essa pasta a partir das suas gravações (no Linux,
+`spartanport-x86_64.AppImage --voice-swap …`; uso acima).
 
 - `SOURCE` é um arquivo de idioma do PS3 (`.psarc`, zlib) ou uma pasta de gravações mono PS-ADPCM com nome
   `<NOME>.XVAG` (Sony VAG ou XVAG).

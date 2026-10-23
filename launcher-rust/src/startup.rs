@@ -28,6 +28,8 @@ pub enum Route {
     Play,
     /// `--install-update TARGET PID`: the downloaded version installs itself over the old one.
     InstallUpdate,
+    /// `--voice-swap`: the voice-line tool.
+    VoiceSwap,
     /// Anything else: the window.
     Launcher,
 }
@@ -37,13 +39,14 @@ pub fn route<S: AsRef<OsStr>>(args: &[S]) -> Route {
     route_on(args, cfg!(windows))
 }
 
-/// `--run` and `--install-update` count first (what follows them is theirs); `--install-update`
+/// `--run`, `--voice-swap` and `--install-update` count first (what follows them is theirs); `--install-update`
 /// needs exactly `TARGET PID` and Windows, the only system that updates itself this way. `--play`
 /// counts anywhere, as in the Python `main`. Other arguments, `--script` included, are ignored.
 pub fn route_on<S: AsRef<OsStr>>(args: &[S], windows: bool) -> Route {
     let is = |arg: &S, flag: &str| arg.as_ref() == OsStr::new(flag);
     match args.first() {
         Some(first) if is(first, "--run") => return Route::Run,
+        Some(first) if is(first, "--voice-swap") => return Route::VoiceSwap,
         Some(first) if is(first, "--install-update") && windows && args.len() == 3 => {
             return Route::InstallUpdate;
         }

@@ -26,3 +26,4 @@ pub mod steam;
 pub mod steam_art;
 pub mod trophies;
 pub mod update;
+pub mod voice_swap;

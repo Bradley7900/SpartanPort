@@ -11,6 +11,7 @@ use spartanport_launcher::core::i18n::{launcher_language, system_language};
 use spartanport_launcher::core::paths::{default_port_dir, Paths};
 use spartanport_launcher::core::platform;
 use spartanport_launcher::core::settings::load_app_settings;
+use spartanport_launcher::core::voice_swap;
 use spartanport_launcher::runner::{self, RunContext};
 use spartanport_launcher::startup::{self, Route};
 use spartanport_launcher::{ui, APP_NAME, VERSION};
@@ -78,6 +79,17 @@ fn main() {
                 pid.unwrap_or(0),
                 &lang,
             ))
+        }
+        Route::VoiceSwap => {
+            // As the AppImage runs from a mount, `OWD` is the folder the player typed paths in.
+            let base = std::env::var_os("OWD");
+            let code = voice_swap::main(
+                &args[1..],
+                base.as_deref().map(Path::new),
+                &mut std::io::stdout(),
+                &mut std::io::stderr(),
+            );
+            std::process::exit(code)
         }
         Route::Launcher => {
             // Before the folders below are read from the environment.

@@ -343,3 +343,9 @@ fn the_desktop_scale_is_read_when_the_window_opens() {
     let _ = app::update(&mut state, Message::MonitorSize(Some(Size::ZERO)));
     assert_eq!(state.window_size, WINDOW_SIZE);
 }
+
+#[test]
+fn voice_swap_is_its_own_role() {
+    assert_eq!(route(&["--voice-swap", "--help"]), Route::VoiceSwap);
+    assert_eq!(route(&["--voice-swap", "a", "--play"]), Route::VoiceSwap);
+}
