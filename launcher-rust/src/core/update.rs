@@ -304,6 +304,70 @@ pub fn relaunch_appimage(target: &Path, env: &IndexMap<String, String>) -> io::R
     command.spawn().map(drop)
 }
 
+/// Names the player owns: an update never copies them over, at any depth.
+pub const USER_FILES: [&str; 10] = [
+    "user",
+    "out",
+    "mods",
+    "spartanport.ini",
+    "settings.json",
+    "game_icon.ico",
+    "mods.json",
+    "mods_presets.json",
+    "patches.json",
+    "last_run.log",
+];
+
+fn is_user_file(name: &std::ffi::OsStr, windows: bool) -> bool {
+    let name = name.to_string_lossy();
+    USER_FILES.iter().any(|user| {
+        if windows {
+            name.eq_ignore_ascii_case(user)
+        } else {
+            name == *user
+        }
+    })
+}
+
+fn copy_tree(source: &Path, target: &Path) -> io::Result<()> {
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        if is_user_file(&entry.file_name(), cfg!(windows)) {
+            continue;
+        }
+        let (from, to) = (entry.path(), target.join(entry.file_name()));
+        if from.is_dir() {
+            copy_tree(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Copies the downloaded package over the installed one, keeping the
+/// player's files and anything only the target has. A failed pass waits
+/// through `pause` and starts over, up to `attempts` passes.
+pub fn install_over(
+    source: &Path,
+    target: &Path,
+    attempts: u32,
+    pause: &mut dyn FnMut(),
+) -> io::Result<()> {
+    let mut pass = 1;
+    loop {
+        match copy_tree(source, target) {
+            Ok(()) => return Ok(()),
+            Err(error) if pass >= attempts => return Err(error),
+            Err(_) => {
+                pause();
+                pass += 1;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,5 +610,110 @@ mod tests {
     #[test]
     fn the_api_lists_one_page_of_releases() {
         assert!(RELEASES_API.ends_with("/releases?per_page=100"));
+    }
+
+    fn put(root: &Path, rel: &str, text: &str) {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+    }
+
+    fn read(root: &Path, rel: &str) -> String {
+        fs::read_to_string(root.join(rel)).unwrap()
+    }
+
+    #[test]
+    fn user_files_include_settings_and_icon() {
+        assert_eq!(
+            USER_FILES,
+            [
+                "user",
+                "out",
+                "mods",
+                "spartanport.ini",
+                "settings.json",
+                "game_icon.ico",
+                "mods.json",
+                "mods_presets.json",
+                "patches.json",
+                "last_run.log",
+            ]
+        );
+    }
+
+    #[test]
+    fn installing_skips_the_players_files_at_any_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, target) = (dir.path().join("src"), dir.path().join("dst"));
+        put(&source, "SpartanPort.exe", "new");
+        put(&source, "bin/a.exe", "a");
+        put(&source, "user/x", "x");
+        put(&source, "docs/out/y", "y");
+        put(&source, "settings.json", "theirs");
+        put(&target, "SpartanPort.exe", "old");
+        put(&target, "settings.json", "mine");
+        put(&target, "user/save", "save");
+        install_over(&source, &target, 1, &mut || {}).unwrap();
+        assert_eq!(read(&target, "SpartanPort.exe"), "new");
+        assert_eq!(read(&target, "bin/a.exe"), "a");
+        assert_eq!(read(&target, "settings.json"), "mine");
+        assert_eq!(read(&target, "user/save"), "save");
+        assert!(!target.join("user/x").exists());
+        assert!(!target.join("docs/out").exists());
+    }
+
+    #[test]
+    fn names_match_without_case_on_windows() {
+        assert!(is_user_file(std::ffi::OsStr::new("Settings.JSON"), true));
+        assert!(!is_user_file(std::ffi::OsStr::new("Settings.JSON"), false));
+    }
+
+    #[test]
+    fn files_only_in_the_target_stay() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, target) = (dir.path().join("src"), dir.path().join("dst"));
+        put(&source, "SpartanPort.exe", "new");
+        put(&target, "fsr4_411/a.bin", "keep");
+        install_over(&source, &target, 1, &mut || {}).unwrap();
+        assert_eq!(read(&target, "fsr4_411/a.bin"), "keep");
+    }
+
+    #[test]
+    fn a_failed_copy_is_tried_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, target) = (dir.path().join("src"), dir.path().join("dst"));
+        put(&source, "SpartanPort.exe", "new");
+        fs::create_dir_all(target.join("SpartanPort.exe")).unwrap();
+        let mut pauses = 0;
+        let blocker = target.join("SpartanPort.exe");
+        install_over(&source, &target, 3, &mut || {
+            pauses += 1;
+            fs::remove_dir(&blocker).unwrap();
+        })
+        .unwrap();
+        assert_eq!(pauses, 1);
+        assert_eq!(read(&target, "SpartanPort.exe"), "new");
+    }
+
+    #[test]
+    fn copying_gives_up_after_the_last_attempt() {
+        let dir = tempfile::tempdir().unwrap();
+        let (source, target) = (dir.path().join("src"), dir.path().join("dst"));
+        put(&source, "SpartanPort.exe", "new");
+        fs::create_dir_all(target.join("SpartanPort.exe")).unwrap();
+        let mut pauses = 0;
+        let result = install_over(&source, &target, 3, &mut || pauses += 1);
+        assert!(result.is_err());
+        assert_eq!(pauses, 2);
+    }
+
+    #[test]
+    fn a_folder_with_spaces_and_accents_installs() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("src");
+        let target = dir.path().join("Jogos Ação").join("SpartanPort");
+        put(&source, "bin/a.exe", "a");
+        install_over(&source, &target, 1, &mut || {}).unwrap();
+        assert_eq!(read(&target, "bin/a.exe"), "a");
     }
 }
