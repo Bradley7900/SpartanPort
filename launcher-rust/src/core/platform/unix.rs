@@ -1,12 +1,13 @@
 //! Calls for systems other than Windows.
 
 use nix::errno::Errno;
-use nix::sys::signal::{kill, killpg, Signal};
+use nix::sys::signal::{kill, killpg, SigSet, Signal};
 use nix::unistd::Pid;
 use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// Time between SIGTERM and SIGKILL.
@@ -22,6 +23,33 @@ pub fn no_window(_cmd: &mut Command) {}
 
 /// The output already reaches the terminal here.
 pub fn attach_parent_console() {}
+
+/// Console programs never open a window of their own here.
+pub fn no_console_window(_cmd: &mut Command) {}
+
+/// Set once SIGINT came after `catch_interrupt`.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// From now on SIGINT (Ctrl+C) ends nothing: it sets [`interrupted`], which the caller checks to
+/// end in order (the Python's `KeyboardInterrupt`). The signal is blocked in the calling thread,
+/// and so in the threads it starts afterwards, and taken by a thread of its own; the programs it
+/// starts get the usual handling back (the standard library resets their signal mask).
+pub fn catch_interrupt() {
+    let mut set = SigSet::empty();
+    set.add(Signal::SIGINT);
+    if set.thread_block().is_ok() {
+        std::thread::spawn(move || {
+            while set.wait().is_ok() {
+                INTERRUPTED.store(true, Ordering::SeqCst);
+            }
+        });
+    }
+}
+
+/// Whether Ctrl+C came since `catch_interrupt`.
+pub fn interrupted() -> bool {
+    INTERRUPTED.load(Ordering::SeqCst)
+}
 
 /// Puts the child in its own process group.
 pub fn prepare(cmd: &mut Command) {

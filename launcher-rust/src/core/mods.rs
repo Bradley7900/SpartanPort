@@ -714,6 +714,35 @@ pub fn enabled_patch_files(
         .collect()
 }
 
+/// The folders `build_overlay` lays over the game, in load order (Python `mods.py`'s `main`):
+/// with mods on, shadPS4's loose `<game>-mods` folder beside the game, then the mods folder itself
+/// when it is a loose overlay (it holds a game folder), else the mods `selected` in it.
+pub fn overlay_layers(
+    game: &Path,
+    mods_dir: &Path,
+    config: Option<&Path>,
+    enabled: bool,
+) -> Result<Vec<PathBuf>, ModsError> {
+    let mut layers = Vec::new();
+    if !enabled {
+        return Ok(layers);
+    }
+    let mut legacy = resolve(game)?.into_os_string();
+    legacy.push("-mods");
+    let legacy = PathBuf::from(legacy);
+    if legacy.is_dir() {
+        layers.push(legacy);
+    }
+    if has_game_root(mods_dir, &data_roots(Some(game))) {
+        layers.push(mods_dir.to_path_buf());
+    } else {
+        for name in selected(mods_dir, config, Some(game))? {
+            layers.push(mods_dir.join(name));
+        }
+    }
+    Ok(layers)
+}
+
 // ---- Files and conflicts ----------------------------------------------------------------------
 
 /// Visits `directory`: refuses links, then collects its files and goes into its folders.
@@ -1496,6 +1525,46 @@ mod tests {
         fs::write(&config, r#"{"order": ["B", "A"], "disabled": ["B"]}"#).unwrap();
         assert_eq!(names(true), ["A/mine.xml"]);
         assert!(names(false).is_empty()); // "Load mods" off
+    }
+
+    /// `test_shadps4_sibling_folder_and_global_disable` (`mods.py`'s `main`): the shadPS4 folder
+    /// beside the game is a layer while mods are on, and nothing is laid over the game when off.
+    #[test]
+    fn shadps4_sibling_folder_and_global_disable() {
+        let f = Fixture::new();
+        let legacy = PathBuf::from(format!("{}-mods", f.game.display()));
+        write(&legacy.join("dvdroot_ps4/data/a.wad"), b"legacy");
+        for (enabled, expected) in [(true, &b"legacy"[..]), (false, b"original")] {
+            let layers = overlay_layers(&f.game, &f.moddir, None, enabled).unwrap();
+            let overlay = build_overlay(&f.game, &f.root.join("out"), &layers).unwrap();
+            let content = fs::read(overlay.root.join("dvdroot_ps4/data/a.wad")).unwrap();
+            assert_eq!(content, expected, "enabled {enabled}");
+            overlay.remove().unwrap();
+        }
+    }
+
+    /// A mods folder that is itself a game overlay (its own `dvdroot_ps4`) is the one layer; else
+    /// the selection of `mods.json`, whose errors stop the start.
+    #[test]
+    fn a_loose_overlay_or_the_selection_are_the_layers() {
+        let f = Fixture::new();
+        write(&f.moddir.join("dvdroot_ps4/data/a.wad"), b"loose");
+        let layers = overlay_layers(&f.game, &f.moddir, None, true).unwrap();
+        assert_eq!(layers, std::slice::from_ref(&f.moddir));
+        let f = Fixture::new();
+        f.mod_file("B", b"b", "a.wad");
+        f.mod_file("A", b"a", "a.wad");
+        let config = f.root.join("mods.json");
+        fs::write(&config, r#"{"order": ["B", "A"], "disabled": []}"#).unwrap();
+        let layers = overlay_layers(&f.game, &f.moddir, Some(&config), true).unwrap();
+        assert_eq!(layers, [f.moddir.join("B"), f.moddir.join("A")]);
+        fs::write(&config, "{").unwrap();
+        assert!(overlay_layers(&f.game, &f.moddir, Some(&config), true).is_err());
+        // Mods off: the selection is not read.
+        assert_eq!(
+            overlay_layers(&f.game, &f.moddir, Some(&config), false).unwrap(),
+            Vec::<PathBuf>::new()
+        );
     }
 
     #[test]

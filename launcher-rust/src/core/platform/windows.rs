@@ -8,15 +8,17 @@ use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use windows_sys::core::BOOL;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, MAXIMUM_REPARSE_DATA_BUFFER_SIZE,
 };
 use windows_sys::Win32::System::Console::{
-    AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
-    STD_OUTPUT_HANDLE,
+    AttachConsole, GetConsoleWindow, GetStdHandle, SetConsoleCtrlHandler, SetStdHandle,
+    ATTACH_PARENT_PROCESS, CTRL_BREAK_EVENT, CTRL_C_EVENT, STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
 };
 use windows_sys::Win32::System::Ioctl::FSCTL_SET_REPARSE_POINT;
 use windows_sys::Win32::System::JobObjects::{
@@ -30,6 +32,7 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE,
 };
 use windows_sys::Win32::System::IO::DeviceIoControl;
+use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR};
 
 /// The user's UI language id (LANGID), or `None` when Windows reports 0.
 pub fn user_default_ui_language() -> Option<u32> {
@@ -59,6 +62,62 @@ pub fn attach_parent_console() {
     }
     // SAFETY: takes a plain process id; without a parent console it fails and changes nothing.
     unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+}
+
+/// Whether this process has a console window (the Python's `GetConsoleWindow()`): started from a
+/// terminal or attached to its console, not from the launcher, Steam or a shortcut.
+pub fn has_console() -> bool {
+    // SAFETY: takes no arguments; returns null when the process has no console.
+    !unsafe { GetConsoleWindow() }.is_null()
+}
+
+/// The Python's `no_console()`: a process without a console starts console programs without a
+/// window of their own; with a console they share it.
+pub fn no_console_window(cmd: &mut Command) {
+    if !has_console() {
+        no_window(cmd);
+    }
+}
+
+/// An error dialog (`MessageBoxW`, `MB_ICONERROR`) for a program nobody watches the output of.
+pub fn show_error(title: &str, text: &str) {
+    let wide = |text: &str| -> Vec<u16> { text.encode_utf16().chain([0]).collect() };
+    let (title, text) = (wide(title), wide(text));
+    // SAFETY: both strings are NUL-terminated and outlive the call; there is no owner window.
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            text.as_ptr(),
+            title.as_ptr(),
+            MB_ICONERROR,
+        )
+    };
+}
+
+/// Set once Ctrl+C or Ctrl+Break reached the console after `catch_interrupt`.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+unsafe extern "system" fn on_console_control(event: u32) -> BOOL {
+    if event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT {
+        INTERRUPTED.store(true, Ordering::SeqCst);
+        1
+    } else {
+        0
+    }
+}
+
+/// From now on Ctrl+C and Ctrl+Break in the console end nothing: they set [`interrupted`], which
+/// the caller checks to end in order (the Python's `KeyboardInterrupt`). The programs it starts
+/// still get them as before.
+pub fn catch_interrupt() {
+    // SAFETY: the handler is a plain function, valid for the life of the process, that only
+    // stores to an atomic.
+    unsafe { SetConsoleCtrlHandler(Some(on_console_control), 1) };
+}
+
+/// Whether Ctrl+C came since `catch_interrupt`.
+pub fn interrupted() -> bool {
+    INTERRUPTED.load(Ordering::SeqCst)
 }
 
 /// A job object holding the game and its descendants.
