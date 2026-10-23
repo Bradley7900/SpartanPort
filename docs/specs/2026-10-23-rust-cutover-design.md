@@ -84,7 +84,7 @@ Igual ao Python:
   `~/.steam/steam` e `~/.var/app/com.valvesoftware.Steam/.local/share/Steam`.
 - **Contas:** pastas de `userdata/` cujo nome só tem dígitos e não é `0`, em ordem de nome, sem
   repetir o mesmo caminho canônico.
-- **Entrada:** os 18 campos de `shortcut_entry` na mesma ordem e com os mesmos valores. `Exe` e
+- **Entrada:** os 17 campos de `shortcut_entry` na mesma ordem e com os mesmos valores. `Exe` e
   `StartDir` vão entre aspas, e `icon` aponta para `<grid>/<id>_icon.png`.
 - **Slot:** o primeiro cujo `appid` é o calculado ou cujo `AppName` é `SpartanPort` ou
   `God of War III` (`legacy::LEGACY_TITLE`). Achado, conta como `updated` e mantém `tags` e

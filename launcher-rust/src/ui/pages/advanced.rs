@@ -13,11 +13,11 @@ use serde_json::Value;
 
 use crate::core::desktop::{host_environment, windows_shortcut, write_linux_shortcut};
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::launch::python_command;
 use crate::core::options::{ui_scale_choice, UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
 use crate::core::paths::Paths;
-use crate::core::platform;
 use crate::core::settings::Settings;
+use crate::core::steam::{self, Added, Shortcut, SteamError};
+use crate::core::steam_art;
 use crate::ui::app::{Message, State};
 use crate::ui::pages::performance::SelectRow;
 use crate::ui::persist;
@@ -496,95 +496,44 @@ fn make_shortcut(paths: &Paths) -> Result<Vec<String>, String> {
     .map_err(|error| error.to_string())
 }
 
-/// `text` as a Python string literal: quotes and backslashes escaped, so any folder name (an
-/// apostrophe, a final backslash) stays one string in the bridge's script.
-pub fn python_literal(text: &str) -> String {
-    let mut literal = String::with_capacity(text.len() + 2);
-    literal.push('\'');
-    for c in text.chars() {
-        match c {
-            '\\' => literal.push_str(r"\\"),
-            '\'' => literal.push_str(r"\'"),
-            '\n' => literal.push_str(r"\n"),
-            '\r' => literal.push_str(r"\r"),
-            '\t' => literal.push_str(r"\t"),
-            c if c.is_ascii_control() => literal.push_str(&format!(r"\x{:02x}", u32::from(c))),
-            c => literal.push(c),
+/// What Steam starts for `launcher`: it with `--play`, in its own folder.
+pub fn steam_shortcut(launcher: &Path) -> Shortcut {
+    Shortcut {
+        exe: launcher.to_path_buf(),
+        options: "--play".to_string(),
+        start_dir: launcher.parent().map(Path::to_path_buf).unwrap_or_default(),
+    }
+}
+
+/// What `add_to_steam` said, as the text of the dialog: `Ok` for the info, `Err` for the error.
+pub fn steam_message(lang: &str, result: &Result<Added, SteamError>) -> Result<String, String> {
+    match result {
+        Ok(added) => {
+            let english = if added.updated {
+                "The shortcut \"{}\" was updated in Steam (accounts: {}), with its icon, capsules, background and logo. Open Steam to see it in the library."
+            } else {
+                "The shortcut \"{}\" was added to Steam (accounts: {}), with its icon, capsules, background and logo. Open Steam to see it in the library."
+            };
+            Ok(tr_fmt(
+                lang,
+                english,
+                &[APP_NAME, &added.accounts.to_string()],
+            ))
         }
-    }
-    literal.push('\'');
-    literal
-}
-
-/// The arguments after the interpreter that add the game to Steam through
-/// `scripts/steam_shortcut.py` (spec 3.5, until the shortcut is ported). `exe` is the program
-/// Steam starts; it gets `--play` and starts in the port folder.
-pub fn steam_bridge_command(paths: &Paths, settings: &Settings, exe: &Path) -> Vec<String> {
-    let path = |path: &Path| python_literal(&path.display().to_string());
-    let script = format!(
-        "import sys; sys.path.insert(0, {scripts}); import steam_shortcut as s; \
-         print(s.add_to_steam({game}, ({exe}, '--play', {port}), {icon}))",
-        scripts = path(&paths.port_dir.join("scripts")),
-        game = python_literal(&settings.get_str("game_dir")),
-        exe = path(exe),
-        port = path(&paths.port_dir),
-        icon = path(&paths.port_dir.join("launcher").join("spartanport.png")),
-    );
-    vec!["-c".to_string(), script]
-}
-
-/// The number after `'accounts': ` in the printed result.
-fn accounts_of(stdout: &str) -> String {
-    stdout
-        .split("'accounts':")
-        .nth(1)
-        .map(|rest| {
-            rest.trim_start()
-                .chars()
-                .take_while(char::is_ascii_digit)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// What the bridge said, as the text of the dialog: `Ok` for the info, `Err` for the error.
-pub fn steam_outcome(
-    lang: &str,
-    success: bool,
-    stdout: &str,
-    stderr: &str,
-) -> Result<String, String> {
-    if success {
-        let english = if stdout.contains("'updated': True") {
-            "The shortcut \"{}\" was updated in Steam (accounts: {}), with its icon, capsules, background and logo. Open Steam to see it in the library."
-        } else {
-            "The shortcut \"{}\" was added to Steam (accounts: {}), with its icon, capsules, background and logo. Open Steam to see it in the library."
-        };
-        return Ok(tr_fmt(lang, english, &[APP_NAME, &accounts_of(stdout)]));
-    }
-    let known = [
-        (
-            "SteamError: running",
+        Err(SteamError::Running) => Err(tr(
+            lang,
             "Steam is open. Close it completely (Steam > Exit) and click again: Steam rewrites its shortcuts when it closes.",
-        ),
-        ("SteamError: no_steam", "Steam was not found for this user."),
-        (
-            "SteamError: no_art",
+        )),
+        Err(SteamError::NoSteam) => Err(tr(lang, "Steam was not found for this user.")),
+        Err(SteamError::NoArt(_)) => Err(tr(
+            lang,
             "The game folder has no sce_sys/pic1.png for the pictures.",
-        ),
-    ];
-    if let Some((_, english)) = known.iter().find(|(code, _)| stderr.contains(code)) {
-        return Err(tr(lang, english));
+        )),
+        Err(error) => Err(error.to_string().chars().take(400).collect()),
     }
-    let last = stderr
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("");
-    Err(last.chars().take(400).collect())
 }
 
-/// Runs the bridge; on a thread.
+/// Adds the game to Steam; on a thread.
 fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String, String> {
     let game = settings.get_str("game_dir");
     if !Path::new(&game).join("eboot.bin").is_file() {
@@ -593,21 +542,15 @@ fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String
             "Choose the game folder with eboot.bin (CUSA01623).",
         ));
     }
-    let python = python_command(&env_var).map_err(|error| error.to_string())?;
-    let (program, leading) = python.split_first().ok_or("no Python command")?;
-    let mut command = Command::new(program);
-    command
-        .args(leading)
-        .args(steam_bridge_command(paths, settings, &launcher_path()))
-        .stdin(Stdio::null());
-    platform::no_window(&mut command);
-    let output = command.output().map_err(|error| error.to_string())?;
-    steam_outcome(
-        lang,
-        output.status.success(),
-        &String::from_utf8_lossy(&output.stdout),
-        &String::from_utf8_lossy(&output.stderr),
-    )
+    let result = steam::add_to_steam(
+        Path::new(&game),
+        &steam_shortcut(&launcher_path()),
+        &paths.port_dir.join("launcher").join("spartanport.png"),
+        &steam_art::fonts(&paths.port_dir),
+        None,
+        None,
+    );
+    steam_message(lang, &result)
 }
 
 /// Applies the page's events.

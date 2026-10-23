@@ -2111,77 +2111,50 @@ fn diagnostics_is_a_plain_section_after_the_others() {
 }
 
 #[test]
-fn steam_bridge_command_matches_the_spec() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut state = state(dir.path());
-    state.settings.set("game_dir", "D:/CUSA01623".into());
-    let exe = std::path::Path::new("C:/SP/spartanport-launcher.exe");
-    let command = advanced::steam_bridge_command(&state.paths, &state.settings, exe);
-    let literal = |path: std::path::PathBuf| advanced::python_literal(&path.display().to_string());
-    let port = &state.paths.port_dir;
-    assert_eq!(command[0], "-c");
+fn steam_shortcut_starts_in_the_programs_folder() {
+    let shortcut =
+        advanced::steam_shortcut(std::path::Path::new("/home/u/Apps/spartanport.AppImage"));
     assert_eq!(
-        command[1],
-        format!(
-            "import sys; sys.path.insert(0, {}); import steam_shortcut as s; \
-             print(s.add_to_steam('D:/CUSA01623', ('C:/SP/spartanport-launcher.exe', '--play', {}), {}))",
-            literal(port.join("scripts")),
-            literal(port.clone()),
-            literal(port.join("launcher").join("spartanport.png")),
-        )
+        shortcut.exe,
+        std::path::PathBuf::from("/home/u/Apps/spartanport.AppImage")
     );
-    assert_eq!(command.len(), 2);
-
-    // An apostrophe or a final backslash no longer ends the string early.
-    state
-        .settings
-        .set("game_dir", r"D:\Kratos' Games\GoW3\".into());
-    let command = advanced::steam_bridge_command(&state.paths, &state.settings, exe);
-    assert!(
-        command[1].contains(r"s.add_to_steam('D:\\Kratos\' Games\\GoW3\\', "),
-        "{}",
-        command[1]
-    );
+    assert_eq!(shortcut.start_dir, std::path::PathBuf::from("/home/u/Apps"));
+    assert_eq!(shortcut.options, "--play");
 }
 
 #[test]
-fn python_literals_quote_every_path() {
-    assert_eq!(advanced::python_literal("C:/SP"), "'C:/SP'");
-    assert_eq!(advanced::python_literal(r"C:\it's\"), r"'C:\\it\'s\\'");
-    assert_eq!(advanced::python_literal("a\nb\tc\u{1}"), r"'a\nb\tc\x01'");
-    assert_eq!(advanced::python_literal("Jogos/Ação"), "'Jogos/Ação'");
-}
-
-#[test]
-fn steam_answers_become_the_python_texts() {
-    let added = advanced::steam_outcome(
-        "en",
-        true,
-        "{'accounts': 2, 'updated': False, 'app_id': 1}",
-        "",
+fn steam_results_become_the_texts() {
+    use spartanport_launcher::core::steam::{Added, SteamError};
+    let added = |updated| {
+        Ok(Added {
+            accounts: 2,
+            updated,
+            app_id: 1,
+        })
+    };
+    assert_eq!(
+        advanced::steam_message("en", &added(false)).unwrap(),
+        "The shortcut \"SpartanPort\" was added to Steam (accounts: 2), with its icon, capsules, background and logo. Open Steam to see it in the library."
     );
-    assert!(added
-        .unwrap()
-        .starts_with("The shortcut \"SpartanPort\" was added to Steam (accounts: 2)"));
-    let updated = advanced::steam_outcome("en", true, "{'accounts': 1, 'updated': True}", "");
-    assert!(updated
-        .unwrap()
-        .contains("was updated in Steam (accounts: 1)"));
-    let running = advanced::steam_outcome(
-        "en",
-        false,
-        "",
-        "Traceback\nsteam_shortcut.SteamError: running\n",
+    assert_eq!(
+        advanced::steam_message("en", &added(true)).unwrap(),
+        "The shortcut \"SpartanPort\" was updated in Steam (accounts: 2), with its icon, capsules, background and logo. Open Steam to see it in the library."
     );
-    assert!(running.unwrap_err().starts_with("Steam is open."));
-    let none = advanced::steam_outcome("en", false, "", "steam_shortcut.SteamError: no_steam");
-    assert_eq!(none.unwrap_err(), "Steam was not found for this user.");
-    let art = advanced::steam_outcome("en", false, "", "steam_shortcut.SteamError: no_art: x");
-    assert!(art
-        .unwrap_err()
-        .starts_with("The game folder has no sce_sys/pic1.png"));
-    let other = advanced::steam_outcome("en", false, "", "Traceback\nImportError: nope\n");
-    assert_eq!(other.unwrap_err(), "ImportError: nope");
+    assert_eq!(
+        advanced::steam_message("en", &Err(SteamError::Running)).unwrap_err(),
+        "Steam is open. Close it completely (Steam > Exit) and click again: Steam rewrites its shortcuts when it closes."
+    );
+    assert_eq!(
+        advanced::steam_message("en", &Err(SteamError::NoSteam)).unwrap_err(),
+        "Steam was not found for this user."
+    );
+    assert_eq!(
+        advanced::steam_message("en", &Err(SteamError::NoArt("x".into()))).unwrap_err(),
+        "The game folder has no sce_sys/pic1.png for the pictures."
+    );
+    let long = std::io::Error::other("x".repeat(500));
+    let other = advanced::steam_message("en", &Err(SteamError::Io(long))).unwrap_err();
+    assert_eq!(other.chars().count(), 400);
 }
 
 #[test]
