@@ -1,5 +1,5 @@
-# Windows package: built with MSYS2 CLANG64 and a python.org-style Python (packaging/windows/README.md),
-# then opened on a clean runner without MSYS2 before it is published. Run by hand
+# Windows package: the game side built with MSYS2 CLANG64 and the Rust launcher with cargo
+# (packaging/windows/README.md), then opened on a clean runner without MSYS2 before it is published. Run by hand
 # (Actions > Windows zip > Run workflow), on the branch to build:
 #   - no tag: build and test only (the zip is kept as a workflow artifact).
 #   - tag of an existing release (e.g. windows-v2.3.0): the zip replaces the one attached to it.
@@ -13,9 +13,9 @@ on:
         description: Release to attach the zip to; a new tag makes a test pre-release. Empty builds only.
         required: false
       stamp:
-        description: Attach the release stamp — only for packages that ship the Rust launcher
+        description: Attach the release stamp (the package ships the Rust launcher)
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
@@ -53,10 +53,14 @@ jobs:
             spirv-tools:p spirv-headers:p spirv-cross:p
       - name: Build
         run: bash build.sh
-      # Freezes the launcher; this Python ships Tk, as the python.org one does. Set up after the
-      # build so its Python_ROOT_DIR and PKG_CONFIG_PATH do not reach CMake.
+      # The launcher is built by cargo outside MSYS2 (package.sh needs its exe).
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the launcher
+        shell: pwsh
+        run: cargo build --release --locked --manifest-path launcher-rust/Cargo.toml
+      # Only for the Stamp step (packaging/release_stamp.py is a build tool, not part of the package).
+      # Set up after the build so its Python_ROOT_DIR and PKG_CONFIG_PATH do not reach CMake.
       - uses: actions/setup-python@v5
-        id: python
         with:
           python-version: '3.13'
       - name: Stamp
@@ -75,10 +79,8 @@ jobs:
           mkdir -p dist && cp release.json dist/release-windows.json
           cat release.json
       - name: Package
-        env:
-          PYTHON_EXE: ${{ steps.python.outputs.python-path }}
         run: |
-          WINPYTHON=$(cygpath -u "$PYTHON_EXE") bash packaging/windows/package.sh
+          bash packaging/windows/package.sh
           cd dist && sha256sum -b spartanport-windows.zip > spartanport-windows.zip.sha256
       - uses: actions/upload-artifact@v4
         with:
