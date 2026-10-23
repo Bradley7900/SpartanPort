@@ -272,7 +272,7 @@ mapeamento do teclado (uma tecla trocada aparece no próximo início); *Igual ao
 as teclas quando nenhum controle está conectado. O launcher grava uma cópia com patch de até três arquivos do
 jogo (cerca de 410 MB) na pasta de dados do port e nunca altera a pasta do jogo. Um controle novo é reconhecido após
 reiniciar. Sem o launcher, defina `SPARTAN_GLYPH_STYLE` como `auto`, `xbox`, `nintendo` ou `keyboard` antes de
-iniciar o `run.py`.
+iniciar o `run.sh`.
 
 No menu: L1/R1 ou Q/E trocam de aba. Na lista de saves: setas ou direcional escolhem, Enter ou
 Xis confirmam, Esc ou Círculo cancelam.
@@ -346,15 +346,10 @@ configurações, inclusive em 1080p. Consulte os problemas conhecidos nas notas 
 
 ### Windows
 
-Instale Python 3.10 ou mais novo do python.org, com suporte a Tk. Depois instale as dependências
-do launcher e da reescrita de instruções no PowerShell:
-
-```powershell
-python -m pip install pillow iced-x86==1.21.0
-```
-
-Os comandos de compilação abaixo usam MSYS2 CLANG64; os comandos do launcher identificados
-como PowerShell usam a instalação do Python para Windows.
+Instale o [rustup](https://rustup.rs) (stable) e o Visual Studio Build Tools com a carga
+"Desenvolvimento para desktop com C++"; o launcher é compilado com o cargo e não precisa de Python.
+Os comandos de compilação abaixo usam MSYS2 CLANG64; os comandos do launcher identificados como
+PowerShell rodam no Windows.
 
 O desenvolvimento acontece na branch `spartanport`; a `main` recebe as versões já testadas.
 
@@ -372,7 +367,8 @@ O desenvolvimento acontece na branch `spartanport`; a `main` recebe as versões 
 3. Abra o launcher (no PowerShell, na pasta do projeto):
 
    ```powershell
-   python launcher/spartanport_launcher_win.py
+   cd launcher-rust
+   cargo run --release
    ```
 
 4. Em **Game**, escolha a pasta do jogo e os patches. Ajuste **Graphics** e **Performance**,
@@ -382,21 +378,22 @@ Para jogar com as configurações salvas sem abrir a janela do launcher (para um
 Steam):
 
 ```powershell
-python launcher/spartanport_launcher_win.py --play
+cd launcher-rust
+cargo build --release
+.\target\release\spartanport-launcher.exe --play
 ```
 
-Ou sem o launcher:
+Ou sem as configurações do launcher, no Git Bash ou num terminal MSYS2:
 
-```powershell
-$env:SPARTAN_GAME_DIR = 'D:\caminho\CUSA01623'
-python run.py
+```bash
+SPARTAN_GAME_DIR='D:\caminho\CUSA01623' bash run.sh
 ```
 
 ### Linux (Ubuntu 24.04)
 
 Para um clone novo, execute os comandos abaixo num terminal Linux. O script de dependências
-instala pacotes do sistema usando sudo, seleciona GCC 14 como compilador padrão e cria
-`out/venv` com PyInstaller, Pillow e iced-x86. Ele é destinado ao Ubuntu 24.04; adapte as
+instala pacotes do sistema usando sudo e seleciona GCC 14 como compilador padrão. O launcher
+precisa também do [rustup](https://rustup.rs) (stable). Ele é destinado ao Ubuntu 24.04; adapte as
 dependências em outras distribuições. Se já clonou, comece na pasta do repositório e pule os
 dois primeiros comandos.
 
@@ -405,26 +402,28 @@ git clone --recursive https://github.com/FelipePrado0/SpartanPort
 cd SpartanPort
 bash packaging/linux/ci-deps.sh
 bash build.sh
-out/venv/bin/python launcher/spartanport_launcher_win.py
+cd launcher-rust
+cargo run --release
 ```
 
 Para gerar um AppImage depois de compilar:
 
 ```bash
-PATH="$PWD/out/venv/bin:$PATH" bash packaging/linux/build.sh
+bash packaging/linux/build.sh
 ./dist/spartanport-x86_64.AppImage
 ```
 
-O ambiente de compilação é criado antes do comando de empacotamento. Compilar numa distribuição
+O `packaging/linux/build.sh` compila o launcher em Rust sozinho. Compilar numa distribuição
 mais nova pode exigir uma glibc mais nova; os builds públicos usam Ubuntu 24.04. Na pasta do
-repositório, use `out/venv/bin/python launcher/spartanport_launcher_win.py --play` para as configurações
-salvas do launcher, ou `SPARTAN_GAME_DIR=/caminho/para/CUSA01623 out/venv/bin/python run.py` para
-iniciar diretamente.
+repositório, use `bash run.sh` para iniciar diretamente (ele compila o que falta e executa o exe do
+launcher com `--run`), com `SPARTAN_GAME_DIR=/caminho/para/CUSA01623` para indicar a pasta do jogo.
+Para as configurações salvas do launcher sem a janela, execute
+`launcher-rust/target/release/spartanport-launcher --play`.
 
 ### Launcher em Rust
 
-O launcher está sendo reescrito em Rust (`launcher-rust/`, iced); o launcher Python continua até
-os pacotes trazerem o novo. Compila com o [rustup](https://rustup.rs) (stable). No Windows, instale
+O launcher é escrito em Rust (`launcher-rust/`, iced) e é o único que os pacotes trazem.
+Compila com o [rustup](https://rustup.rs) (stable). No Windows, instale
 o Visual Studio Build Tools com a carga "Desenvolvimento para desktop com C++"; no Ubuntu,
 `sudo apt-get install build-essential pkg-config libwayland-dev libxkbcommon-dev`.
 
@@ -433,11 +432,9 @@ cd launcher-rust
 cargo run --release
 ```
 
-Aberto a partir de um checkout, ele acha sozinho o `run.py` do repositório e as ferramentas de
-`out/`; `SPARTAN_PORT_DIR` aponta para um port empacotado (com `run.py` e `bin/`).
-O PLAY inicia o próprio exe do launcher com `--run`, então não precisa de Python.
-`SPARTANPORT_PYTHON` nomeia o Python dos comandos que ainda são repassados ao launcher Python
-(padrão `py -3` no Windows, `python3` nos demais).
+Aberto a partir de um checkout, ele acha sozinho as ferramentas de `out/`; `SPARTAN_PORT_DIR`
+aponta para um port empacotado (com `bin/`). O PLAY inicia o próprio exe do launcher com `--run`,
+então nada precisa de Python.
 
 ## Testes
 
@@ -445,7 +442,9 @@ Execute na raiz do repositório depois de compilar. Os primeiros testes C++ abai
 
 ### Python
 
-No Windows, use PowerShell. No Linux, substitua `python` por `out/venv/bin/python`.
+O código Python do launcher e do runner está congelado: não é empacotado nem executado pelo port.
+Ele fica no repositório como referência de paridade do launcher em Rust. Os testes dele continuam
+rodando, com Python 3.10 ou mais novo (no Windows, no PowerShell):
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"

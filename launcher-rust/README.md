@@ -23,9 +23,9 @@ cd launcher-rust
 SPARTAN_GAME_DIR=<game folder> cargo test --test dump
 ```
 
-On Windows PowerShell: `$env:SPARTAN_GAME_DIR = "<game folder>"; cargo test --test dump`. Drop `--test dump` to run the whole suite with the dump. These tests also run the Python scripts (`py -3` on Windows, `python3` elsewhere, or `SPARTANPORT_PYTHON`) to compare their files with the Rust ones.
+On Windows PowerShell: `$env:SPARTAN_GAME_DIR = "<game folder>"; cargo test --test dump`. Drop `--test dump` to run the whole suite with the dump. These tests also run the Python scripts (the interpreter is set under Environment below) to compare their files with the Rust ones.
 
 ## Environment
 
 - `SPARTAN_PORT_DIR`: the port folder (with `run.py`, `bin/` and `scripts/`) and, unless `SPARTAN_DATA_DIR` is set, the data folder. Defaults to the executable's folder; point it at the repository root to run a `cargo` build.
-- `SPARTANPORT_PYTHON`: path of the Python interpreter used for the commands still forwarded to the Python launcher; PLAY no longer needs it (the exe runs the game itself with `--run`). Defaults to `py -3` on Windows and `python3` elsewhere.
+- `SPARTANPORT_PYTHON`: the Python the dump tests compare against (the frozen Python launcher and runner). Defaults to `py -3` on Windows and `python3` elsewhere. The exe itself never runs Python.

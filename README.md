@@ -293,7 +293,7 @@ Chamber of the Flame; the pause-menu controller drawing stays a DualShock 4.
 on the next start); *Match my controller* shows the keys too when no gamepad is connected.
 The launcher writes a patched copy of up to three game files (about 410 MB) into the port's data folder and never changes
 your game folder. A new controller is picked up after a restart. Without the launcher, set
-`SPARTAN_GLYPH_STYLE` to `auto`, `xbox`, `nintendo` or `keyboard` before starting `run.py`.
+`SPARTAN_GLYPH_STYLE` to `auto`, `xbox`, `nintendo` or `keyboard` before starting `run.sh`.
 
 In the menu: L1/R1 or Q/E switch tabs. In the save list: arrows or the d-pad choose, Enter or
 Cross confirm, Esc or Circle cancel.
@@ -370,15 +370,9 @@ reported on other setups, including at 1080p. See the known issues in the releas
 
 ### Windows
 
-Install Python 3.10 or newer from python.org, with Tk support, then install the launcher and
-instruction-rewrite dependencies in PowerShell:
-
-```powershell
-python -m pip install pillow iced-x86==1.21.0
-```
-
-The following build commands use MSYS2 CLANG64; launcher commands marked PowerShell use the
-Windows Python installation.
+Install [rustup](https://rustup.rs) (stable) and the Visual Studio Build Tools with the "Desktop
+development with C++" workload; the launcher is built with cargo and needs no Python. The build
+commands below use MSYS2 CLANG64; launcher commands marked PowerShell run on Windows.
 
 Development happens on the `spartanport` branch; `main` receives tested merges.
 
@@ -396,7 +390,8 @@ Development happens on the `spartanport` branch; `main` receives tested merges.
 3. Start the launcher (in PowerShell, in the project folder):
 
    ```powershell
-   python launcher/spartanport_launcher_win.py
+   cd launcher-rust
+   cargo run --release
    ```
 
 4. On **Game**, choose the game folder and patches. Adjust **Graphics** and **Performance**,
@@ -405,21 +400,22 @@ Development happens on the `spartanport` branch; `main` receives tested merges.
 To play with the saved settings without opening the launcher's window (for a shortcut or Steam):
 
 ```powershell
-python launcher/spartanport_launcher_win.py --play
+cd launcher-rust
+cargo build --release
+.\target\release\spartanport-launcher.exe --play
 ```
 
-Or without the launcher at all:
+Or without the launcher's settings, from a Git Bash or MSYS2 shell:
 
-```powershell
-$env:SPARTAN_GAME_DIR = 'D:\path\CUSA01623'
-python run.py
+```bash
+SPARTAN_GAME_DIR='D:\path\CUSA01623' bash run.sh
 ```
 
 ### Linux (Ubuntu 24.04)
 
 For a fresh checkout, run the following in a Linux shell. The dependency script installs system
-packages using sudo, selects GCC 14 as the default compiler and creates `out/venv` with
-PyInstaller, Pillow and iced-x86. It is intended for Ubuntu 24.04; adapt dependencies for other
+packages using sudo and selects GCC 14 as the default compiler. The launcher also needs
+[rustup](https://rustup.rs) (stable). It is intended for Ubuntu 24.04; adapt dependencies for other
 distributions. If already cloned, start in the repository and skip the first two commands.
 
 ```bash
@@ -427,25 +423,27 @@ git clone --recursive https://github.com/FelipePrado0/SpartanPort
 cd SpartanPort
 bash packaging/linux/ci-deps.sh
 bash build.sh
-out/venv/bin/python launcher/spartanport_launcher_win.py
+cd launcher-rust
+cargo run --release
 ```
 
 To package an AppImage after the build:
 
 ```bash
-PATH="$PWD/out/venv/bin:$PATH" bash packaging/linux/build.sh
+bash packaging/linux/build.sh
 ./dist/spartanport-x86_64.AppImage
 ```
 
-The build environment is created before the packaging command. Building on a newer distribution
+`packaging/linux/build.sh` builds the Rust launcher itself. Building on a newer distribution
 can require a newer glibc; public release builds use Ubuntu 24.04. From the repository, use
-`out/venv/bin/python launcher/spartanport_launcher_win.py --play` for saved launcher settings, or
-`SPARTAN_GAME_DIR=/path/to/CUSA01623 out/venv/bin/python run.py` for a direct launch.
+`bash run.sh` for a direct start (it builds what is missing and runs the launcher's exe with
+`--run`), with `SPARTAN_GAME_DIR=/path/to/CUSA01623` to name the game folder. For the saved
+launcher settings without the window, run `launcher-rust/target/release/spartanport-launcher --play`.
 
 ### Rust launcher
 
-The launcher is being rewritten in Rust (`launcher-rust/`, iced); the Python launcher stays until
-the packages ship the new one. It builds with [rustup](https://rustup.rs) (stable). On Windows,
+The launcher is written in Rust (`launcher-rust/`, iced) and is the only launcher the packages
+ship. It builds with [rustup](https://rustup.rs) (stable). On Windows,
 install the Visual Studio Build Tools with the "Desktop development with C++" workload; on Ubuntu,
 `sudo apt-get install build-essential pkg-config libwayland-dev libxkbcommon-dev`.
 
@@ -454,11 +452,9 @@ cd launcher-rust
 cargo run --release
 ```
 
-Started from a checkout, it finds the repository's `run.py` and the tools in `out/` on its own;
-`SPARTAN_PORT_DIR` points it at a packaged port instead (its `run.py` and `bin/`).
-PLAY starts the launcher's own exe with `--run`, so it needs no Python. `SPARTANPORT_PYTHON` names
-the Python for the commands still forwarded to the Python launcher (default `py -3` on Windows,
-`python3` elsewhere).
+Started from a checkout, it finds the tools in `out/` on its own; `SPARTAN_PORT_DIR` points it at a
+packaged port instead (its `bin/`). PLAY starts the launcher's own exe with `--run`, so nothing
+needs Python.
 
 ## Tests
 
@@ -466,7 +462,9 @@ Run these from the repository root after the build. The first C++ checks below d
 
 ### Python
 
-On Windows, use PowerShell. On Linux, replace `python` with `out/venv/bin/python`.
+The launcher and runner Python code is frozen: it is not packaged and not run by the port. It stays
+in the repository as the parity reference for the Rust launcher. Its tests still run, with Python
+3.10 or newer (on Windows, in PowerShell):
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
