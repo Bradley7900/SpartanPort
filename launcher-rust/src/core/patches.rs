@@ -1659,8 +1659,7 @@ impl serde_json::ser::Formatter for PythonCompact {
     }
 }
 
-/// `value` as Python's `json.dumps(value)`: [`PythonCompact`] and `ensure_ascii` (every character
-/// past `~` as `\uXXXX`, outside the BMP as a surrogate pair).
+/// `value` as Python's `json.dumps(value)`: [`PythonCompact`] and [`ensure_ascii`].
 pub(crate) fn python_json(value: &impl Serialize) -> io::Result<String> {
     let mut bytes = Vec::new();
     value
@@ -1670,6 +1669,13 @@ pub(crate) fn python_json(value: &impl Serialize) -> io::Result<String> {
         ))
         .map_err(io::Error::other)?;
     let text = String::from_utf8(bytes).map_err(io::Error::other)?;
+    Ok(ensure_ascii(&text))
+}
+
+/// `text`, JSON serde_json wrote, as Python's `json.dumps` spells it with `ensure_ascii`: every
+/// character past `~` (DEL included) as `\uXXXX`, outside the BMP as a surrogate pair. Below DEL
+/// serde_json already escapes what the Python does.
+pub(crate) fn ensure_ascii(text: &str) -> String {
     let mut ascii = String::with_capacity(text.len());
     for c in text.chars() {
         if c < '\u{7f}' {
@@ -1680,7 +1686,7 @@ pub(crate) fn python_json(value: &impl Serialize) -> io::Result<String> {
             }
         }
     }
-    Ok(ascii)
+    ascii
 }
 
 /// Writes `out/patch_status.json` as the Python's `json.dumps` of it.

@@ -13,6 +13,7 @@ use serde_json::{Map, Value};
 use crate::core::fs::atomic_write;
 use crate::core::ini::{read_ini, save_ini};
 use crate::core::options::{ENGINE_FPS_CHOICES, RESOLUTIONS};
+use crate::core::patches::ensure_ascii;
 
 /// The Steam Deck's DMI names: LCD (Jupiter) and OLED (Galileo), both with a 1280 × 800 screen (#855).
 const STEAM_DECK_PRODUCTS: [&str; 2] = ["Jupiter", "Galileo"];
@@ -163,21 +164,9 @@ fn state_values(last_good: Option<&Value>) -> IndexMap<String, String> {
     }
 }
 
-/// `json.dumps(state, indent=2)` of the Python: two-space indent, every non-ASCII character escaped.
+/// `json.dumps(state, indent=2)` of the Python: two-space indent, `ensure_ascii`.
 fn python_json(state: &Map<String, Value>) -> String {
-    let text = serde_json::to_string_pretty(state).unwrap_or_else(|_| "{}".to_string());
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c.is_ascii() {
-            out.push(c);
-        } else {
-            let mut units = [0u16; 2];
-            for unit in c.encode_utf16(&mut units) {
-                out.push_str(&format!("\\u{unit:04x}"));
-            }
-        }
-    }
-    out
+    ensure_ascii(&serde_json::to_string_pretty(state).unwrap_or_else(|_| "{}".to_string()))
 }
 
 /// The start-up options of this launch, restoring the last confirmed ones when the previous launch
@@ -833,6 +822,21 @@ mod tests {
         assert_eq!(
             fs::read_to_string(&f.state).unwrap(),
             "{\n  \"x\": \"\\u00e9\",\n  \"attempt\": true\n}"
+        );
+    }
+
+    #[test]
+    fn a_del_in_the_state_file_is_escaped_as_python_does() {
+        // json.dumps escapes every character outside ' '..'~', DEL (0x7f) too.
+        let f = folder();
+        fs::write(&f.ini, "render_resolution=1440p\n").unwrap();
+        prepare(&f.ini, &f.state, &[]);
+        fs::write(&f.state, "{\"x\": \"A\\u007fB\", \"attempt\": false}").unwrap();
+        write_keys(&f.ini, &map(&[("restart_unconfirmed", "1")])).unwrap();
+        prepare(&f.ini, &f.state, &[]);
+        assert_eq!(
+            fs::read_to_string(&f.state).unwrap(),
+            "{\n  \"x\": \"A\\u007fB\",\n  \"attempt\": true\n}"
         );
     }
 }

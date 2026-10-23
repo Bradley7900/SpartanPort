@@ -6,7 +6,6 @@
 //! Also what `link_modules` shares: reading a module and `boot.bin`, writing the outputs.
 
 use std::collections::HashMap;
-use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -25,6 +24,7 @@ use super::prepare::{
     R_X86_64_RELATIVE, SHN_ABS, STT_FUNC, STT_OBJECT, SYMBOL_SIZE,
 };
 use crate::core::fs::atomic_write;
+use crate::core::patches::ensure_ascii;
 
 pub(super) const PT_TLS: u32 = 7;
 pub(super) const PT_SCE_PROCPARAM: u32 = 0x6100_0001;
@@ -657,22 +657,12 @@ pub(super) fn write(path: &Path, bytes: &[u8]) -> Result<(), LinkError> {
     atomic_write(path, bytes).map_err(io_error(path))
 }
 
-/// Writes `report` as the Python's `json.dumps(report, indent=2)` does, plus a newline: every
-/// character past `~` as a `\uXXXX` escape (`ensure_ascii`).
+/// Writes `report` as the Python's `json.dumps(report, indent=2)` does (`ensure_ascii`), plus a
+/// newline.
 pub(super) fn write_json(path: &Path, report: &impl Serialize) -> Result<(), LinkError> {
     let text = serde_json::to_string_pretty(report)
         .map_err(|error| io_error(path)(io::Error::other(error)))?;
-    let mut ascii = String::with_capacity(text.len() + 1);
-    for c in text.chars() {
-        if c < '\u{7f}' {
-            ascii.push(c);
-        } else {
-            for unit in c.encode_utf16(&mut [0; 2]) {
-                // Writing to a String cannot fail.
-                let _ = write!(ascii, "\\u{unit:04x}");
-            }
-        }
-    }
+    let mut ascii = ensure_ascii(&text);
     ascii.push('\n');
     write(path, ascii.as_bytes())
 }

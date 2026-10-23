@@ -10,6 +10,7 @@ use serde::ser::Serializer;
 use serde::Serialize;
 
 use crate::core::fs::atomic_write;
+use crate::core::patches::ensure_ascii;
 use crate::core::sfo::{load_sfo, SfoError, SfoReadError, SfoValue};
 
 const MAGIC: &[u8; 8] = b"G3CONT01";
@@ -87,23 +88,6 @@ fn io_error(path: &Path) -> impl FnOnce(io::Error) -> ContentError + '_ {
     }
 }
 
-/// `text` as Python's `json.dumps` (`ensure_ascii`) spells it: every non-ASCII character as
-/// `\uXXXX`, outside the BMP as a surrogate pair. Only strings hold such characters.
-fn escape_non_ascii(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c.is_ascii() {
-            escaped.push(c);
-        } else {
-            let mut units = [0u16; 2];
-            for unit in c.encode_utf16(&mut units) {
-                escaped.push_str(&format!("\\u{unit:04x}"));
-            }
-        }
-    }
-    escaped
-}
-
 /// Writes `content.bin` and `content-profile.json` in `out` from `<game>/sce_sys/param.sfo`.
 pub fn prepare(game: &Path, out: &Path, sku: Sku) -> Result<Profile, ContentError> {
     let path = game.join("sce_sys").join("param.sfo");
@@ -136,7 +120,7 @@ pub fn prepare(game: &Path, out: &Path, sku: Sku) -> Result<Profile, ContentErro
     let json_path = out.join("content-profile.json");
     let mut text = serde_json::to_string_pretty(&profile)
         .map_err(|error| io_error(&json_path)(io::Error::other(error)))?;
-    text = escape_non_ascii(&text);
+    text = ensure_ascii(&text);
     text.push('\n');
     atomic_write(&json_path, text.as_bytes()).map_err(io_error(&json_path))?;
     Ok(profile)
@@ -235,6 +219,15 @@ mod tests {
         prepare(dir.path(), dir.path(), Sku::Full).unwrap();
         let text = fs::read_to_string(dir.path().join("content-profile.json")).unwrap();
         assert!(text.contains("\"\\u00c4\\ud83d\\ude00\""), "{text}");
+    }
+
+    #[test]
+    fn a_del_in_the_title_id_is_escaped_as_python_does() {
+        // json.dumps escapes every character outside ' '..'~', DEL (0x7f) too.
+        let dir = game(&[("TITLE_ID", 0x204, b"A\x7fB".to_vec())]);
+        prepare(dir.path(), dir.path(), Sku::Full).unwrap();
+        let text = fs::read_to_string(dir.path().join("content-profile.json")).unwrap();
+        assert!(text.contains("\"title_id\": \"A\\u007fB\""), "{text:?}");
     }
 
     #[test]
