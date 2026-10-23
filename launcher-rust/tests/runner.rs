@@ -29,14 +29,27 @@ fn manifest() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// Python's `Path.resolve()` of something that exists: links followed, long names, no `\\?\`.
+/// Python's `Path.resolve()` of something that exists: links followed, long names, no `\\?\`
+/// (`\\?\UNC\server\share` is `\\server\share`).
 fn resolved(path: &Path) -> PathBuf {
     let path = fs::canonicalize(path).unwrap();
     let text = path.to_string_lossy().into_owned();
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
-        _ => path,
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
     }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) => PathBuf::from(rest),
+        None => path,
+    }
+}
+
+/// `path`, on a local drive, through this machine's admin share (`\\localhost\C$\...`): a
+/// network share without a network. `None` where the share is not served.
+#[cfg(windows)]
+fn through_admin_share(path: &Path) -> Option<PathBuf> {
+    let (drive, rest) = path.to_str()?.split_once(r":\")?;
+    let shared = PathBuf::from(format!(r"\\localhost\{drive}$\{rest}"));
+    shared.exists().then_some(shared)
 }
 
 fn copy_tree(from: &Path, to: &Path) {
@@ -388,6 +401,25 @@ fn a_missing_eboot_fails_with_the_python_message() {
     );
     assert!(ran.stdout.contains(&message), "{ran}");
     assert!(probe_runs(&ran.stdout).is_empty());
+}
+
+#[cfg(windows)]
+#[test]
+fn a_game_on_a_share_reaches_the_probe_as_python_spells_it() {
+    // \\server\share\..., as Python's resolve() gives it: the probe opens "<app0>/..." paths, and
+    // Windows does not normalize a / under \\?\UNC\.
+    let port = Port::new();
+    let Some(game) = through_admin_share(&port.game()) else {
+        eprintln!(r"skipped: \\localhost\ is not reachable");
+        return;
+    };
+    let ran = port.run(&[("SPARTAN_GAME_DIR", &text(&game))], &[]);
+    assert_eq!(ran.code, Some(0), "{ran}");
+    let runs = probe_runs(&ran.stdout);
+    assert_eq!(runs.len(), 1, "{ran}");
+    let app0 = app0(&runs[0]);
+    assert!(text(&app0).starts_with(r"\\localhost\"), "{ran}");
+    assert_eq!(app0, resolved(&game), "{ran}");
 }
 
 #[test]

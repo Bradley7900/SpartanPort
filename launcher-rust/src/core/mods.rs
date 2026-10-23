@@ -152,10 +152,15 @@ pub(crate) fn resolve(path: &Path) -> io::Result<PathBuf> {
     }
 }
 
-/// `\\?\C:\x` becomes `C:\x` (the long-path form `canonicalize` gives on Windows).
+/// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\server\share\x` becomes `\\server\share\x`, as Python's
+/// `realpath` strips the long-path forms `canonicalize` gives on Windows (the probe opens
+/// `"<app0>/..."` paths, and Windows does not normalize a `/` under `\\?\`).
 fn strip_verbatim(path: PathBuf) -> PathBuf {
     if cfg!(windows) {
         let text = path.to_string_lossy();
+        if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
         if let Some(rest) = text.strip_prefix(r"\\?\") {
             let bytes = rest.as_bytes();
             if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
@@ -1655,6 +1660,65 @@ mod tests {
         assert!(!f.root.join("out").exists());
         result.remove().unwrap(); // the game folder itself is never removed
         assert!(f.game.join("eboot.bin").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_paths_lose_their_prefix_as_python_resolve_does() {
+        // canonicalize gives the \\?\ forms, Python's resolve() the plain ones. The probe opens
+        // "<app0>/..." paths, and Windows does not normalize a / under \\?\.
+        for (verbatim, plain) in [
+            (r"\\?\C:\Games\CUSA01623", r"C:\Games\CUSA01623"),
+            (
+                r"\\?\UNC\server\share\Games\CUSA01623",
+                r"\\server\share\Games\CUSA01623",
+            ),
+            (r"\\?\UNC\server\share", r"\\server\share"),
+        ] {
+            let stripped = strip_verbatim(PathBuf::from(verbatim));
+            assert_eq!(stripped.as_os_str(), plain, "{verbatim}");
+        }
+    }
+
+    /// `path`, on a local drive, through this machine's admin share (`\\localhost\C$\...`): a
+    /// network share without a network. `None` where the share is not served.
+    #[cfg(windows)]
+    fn through_admin_share(path: &Path) -> Option<PathBuf> {
+        let (drive, rest) = path.to_str()?.split_once(r":\")?;
+        let shared = PathBuf::from(format!(r"\\localhost\{drive}$\{rest}"));
+        shared.exists().then_some(shared)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_game_on_a_share_is_overlaid_beside_it_without_the_verbatim_prefix() {
+        let f = Fixture::new();
+        let Some(game) = through_admin_share(&f.game) else {
+            eprintln!(r"skipped: \\localhost\ is not reachable");
+            return;
+        };
+        let lower = |path: &Path| path.to_string_lossy().to_lowercase();
+        // No mod: the game folder itself, as Python's resolve() spells it.
+        let plain = build_overlay(&game, &f.root.join("out"), &[]).unwrap();
+        assert_eq!(lower(&plain.root), lower(&game));
+        // Hard links only (a share refuses symlinks) and an out folder on another volume than the
+        // share: the overlay goes beside the game.
+        let a = f.mod_file("A", b"mod", "a.wad");
+        let share = |kind| matches!(kind, LinkKind::HardLink | LinkKind::Mirror);
+        let result = build_overlay_with(&game, &f.root.join("out"), &[a], &share).unwrap();
+        let beside = result.root.parent().unwrap();
+        assert_eq!(lower(beside), lower(&through_admin_share(&f.root).unwrap()));
+        assert!(name_of(&result.root).starts_with(OVERLAY_PREFIX));
+        let folder = result.root.join("dvdroot_ps4/data");
+        assert_eq!(fs::read(folder.join("a.wad")).unwrap(), b"mod");
+        assert_eq!(fs::read(folder.join("b.wad")).unwrap(), b"untouched");
+        let root = result.root.clone();
+        result.remove().unwrap();
+        assert!(!root.exists());
+        assert_eq!(
+            fs::read(f.game.join("dvdroot_ps4/data/a.wad")).unwrap(),
+            b"original"
+        );
     }
 
     #[test]
