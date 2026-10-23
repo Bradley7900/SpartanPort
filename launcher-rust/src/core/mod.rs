@@ -17,6 +17,7 @@ pub mod options;
 pub mod patches;
 pub mod paths;
 pub mod platform;
+pub mod psarc;
 pub mod release;
 pub mod save_backup;
 pub mod settings;
