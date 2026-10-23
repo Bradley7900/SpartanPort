@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
+use spartanport_launcher::core::patches::{write_game_patches, PatchJob};
 use spartanport_launcher::runner::content_profile::{self, Sku};
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
@@ -161,4 +162,57 @@ fn content_matches_python() {
             assert_same_bytes(&actual, &expected, &format!("{name}/{file}"));
         }
     }
+}
+
+#[test]
+fn patches_match_python() {
+    // As the generator ran patches.py: the game folder (eboot.bin, param.sfo), out/eboot.elf, the
+    // case's patches.xml as the built-in file, mod.xml as a mod's, SPARTAN_PATCHES_ONLY=1.
+    let input = fixture_dir("patches").join("input");
+    let dir = tempfile::tempdir().unwrap();
+    let game = dir.path().join("game");
+    fs::create_dir_all(game.join("sce_sys")).unwrap();
+    fs::copy(input.join("eboot.bin"), game.join("eboot.bin")).unwrap();
+    fs::copy(
+        input.join("param.sfo"),
+        game.join("sce_sys").join("param.sfo"),
+    )
+    .unwrap();
+    let builtin = dir.path().join("patches");
+    fs::create_dir_all(&builtin).unwrap();
+    fs::copy(input.join("patches.xml"), builtin.join("CUSA01623.xml")).unwrap();
+    let out = dir.path().join("out");
+    fs::create_dir_all(&out).unwrap();
+    fs::copy(input.join("eboot.elf"), out.join("eboot.elf")).unwrap();
+    let extra: Vec<String> = ["Found", "Call", "Missing", "Data"]
+        .map(String::from)
+        .to_vec();
+    let mods = [input.join("mod.xml")];
+    let mut log = Vec::new();
+    let job = PatchJob {
+        out: &out,
+        game: &game,
+        builtin_dir: &builtin,
+        mod_patches: &mods,
+        extra: &extra,
+        only: true,
+        patches_dir: None,
+        patches_config: None,
+    };
+    write_game_patches(&job, &mut log).unwrap();
+    for name in ["patches-merged.xml", "patches.bin", "patch_status.json"] {
+        let actual = fs::read(out.join(name)).unwrap();
+        assert_same_bytes(&actual, &expected("patches", name), name);
+    }
+    // What patches.py printed for this run.
+    assert_eq!(
+        String::from_utf8(log).unwrap(),
+        "Patches: Resolution Patch - 3440x1440 from the mod file patches/mod.xml\n\
+         Patches: Resolution Patch - 2560x1080 from the mod file patches/mod.xml\n\
+         Patches: Skip Any Video With X Button from the mod file patches/mod.xml\n\
+         Patches: CUSA01623 01.02, eboot.bin sha256 \
+         ffed585c6a2b513546eba7f283c45ad27382a8e31cf54fe03b4e1c0ca63195d5\n\
+         Patches: Missing skipped (signature not found in this eboot.bin)\n\
+         Patches: CUSA01623; 3 writes from ['Found', 'Call', 'Data']\n"
+    );
 }
