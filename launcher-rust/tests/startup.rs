@@ -7,7 +7,7 @@ use iced::{window, Point, Size};
 use spartanport_launcher::core::i18n::launcher_language;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::settings::app_defaults;
-use spartanport_launcher::startup::{install_update, migrates, route, route_on, Route};
+use spartanport_launcher::startup::{migrates, route, route_on, Route};
 use spartanport_launcher::ui::app::{
     self, centred_position, fitted_window, window_message, Message, State, WINDOW_SIZE,
 };
@@ -57,6 +57,7 @@ fn the_update_installer_does_not_migrate() {
 #[cfg(windows)]
 #[test]
 fn install_update_copies_and_starts_the_new_launcher() {
+    use spartanport_launcher::startup::install_update;
     let dir = tempfile::tempdir().unwrap();
     let (source, target) = (dir.path().join("source"), dir.path().join("target"));
     std::fs::create_dir_all(source.join("bin")).unwrap();
