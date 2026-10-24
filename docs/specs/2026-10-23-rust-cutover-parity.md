@@ -22,7 +22,35 @@ after `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` (both 
 
 Result: 924 tests passed, 0 failed, in one clean run with the dump set, after the final-review fixes.
 
-Manual checks on the built package (CI zip and the user's Steam): pending, to be recorded here.
+Package checks: done on 2026-10-24 at `7eb1f02`, locally, because GitHub Actions is disabled on the
+repository (the workflow dispatch answers HTTP 422) and neither `windows-zip.yml` nor
+`linux-appimage.yml` could run. The workflows still run once Actions is enabled again.
+
+- Linux, in WSL Ubuntu 24.04 (glibc 2.39, the AppImage's floor), on a clean clone after
+  `packaging/linux/ci-deps.sh`: the `rust-launcher.yml` steps (`cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --no-fail-fast` with 918 passed and 0
+  failed without the dump, `cargo build --release`), then `bash build.sh`, `packaging/linux/build.sh`
+  and `packaging/linux/smoke-test.sh` on that Ubuntu: `SpartanPort 2.8.0`, the launcher stayed open.
+  The other four smoke distros (`debian:13`, `fedora:42`, `archlinux:latest`,
+  `opensuse/tumbleweed:latest`) were not run: there was no Docker.
+- Windows, on a clean clone with `core.autocrlf=false`: `bash build.sh` in MSYS2 CLANG64,
+  `cargo build --release --locked`, `packaging/windows/package.sh`, then
+  `packaging/windows/smoke-test.ps1` on the zip: the probe found its DLLs, `--version` and
+  `--voice-swap --help` answered, the window stayed open.
+
+Manual checks on that local zip, with the user:
+
+1. `--install-update` over a copy of the 2.7.0 package: exit 0, and the copy started the Rust window.
+   On that start `_internal/`, `run.py`, `tools/` and the 16 `scripts/*.py` were removed, while
+   `scripts/controller_diagrams/`, `settings.json` (same hash) and `user/` stayed. `SpartanPort.exe`
+   and `bin/spartanport-probe.exe` match the zip's.
+2. Add to Steam with Steam closed: the account's existing SpartanPort shortcut was updated in place (no
+   second entry) and its art was written under `grid/`. The user checked the art in the library. The
+   shortcut was then put back from `shortcuts.vdf.spartanport-backup`.
+3. `--voice-swap --dry-run` over the dump, with the dump's own `ENGLISH` folder as the source and
+   `--language PORTUGUESE`: exit 0 in 9 s, 527 files would be written, 615 refused, nothing written.
+   The frozen `tools/xvag_voice_swap.py` prints the same report line for line (with CRLF line ends,
+   where the Rust prints LF).
 
 Status:
 
