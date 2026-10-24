@@ -90,7 +90,8 @@ pipes `\\?\pipe\discord-ipc-0` … `9`; no Linux os sockets `discord-ipc-0` … 
 com `PeekNamedPipe`, como no Python, sem thread de leitura (uma leitura pendente num pipe síncrono
 trava a escrita e o fechamento). Quadros `<u32 opcode><u32 tamanho>` + JSON; opcodes
 HANDSHAKE 0, FRAME 1, CLOSE 2, PING 3, PONG 4. Sequência: HANDSHAKE `{v: 1, client_id}` → FRAME
-`evt: READY`; SET_ACTIVITY com o `pid` do probe e o mesmo payload de `activity(started)`; leitura
+`evt: READY`; SET_ACTIVITY com o `pid` do probe e `activity(started)` com `state: "God of War III"`
+além do início (o Discord aceita uma atividade só com `timestamps`, mas não a mostra); leitura
 com 5 s de limite; nova tentativa a cada 15 s; ao fechar, limpa a atividade, envia CLOSE e espera
 3 s pela thread. Sem cliente Discord: silêncio.
 

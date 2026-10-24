@@ -23,6 +23,8 @@ use crate::core::platform;
 
 /// The SpartanPort application on Discord; `SPARTAN_DISCORD_ID` replaces it.
 pub const CLIENT_ID: &str = "1560048868677132431";
+/// The game named under the application's name.
+const GAME: &str = "God of War III";
 /// The wait before the next try while no connection is up.
 pub const RETRY: Duration = Duration::from_secs(15);
 /// How long `close` waits for the thread.
@@ -176,9 +178,10 @@ pub fn read_frame(
     }
 }
 
-/// The activity shown: only the start time of the game (Discord counts the time played from it).
+/// The activity shown: the game's name and its start time (Discord counts the time played from
+/// it). Discord takes an activity with only timestamps but never shows it, so the name is needed.
 pub fn activity(started: u64) -> Value {
-    json!({"timestamps": {"start": started}})
+    json!({"state": GAME, "timestamps": {"start": started}})
 }
 
 /// The SET_ACTIVITY request for the process `pid`: `value` shown, or the activity cleared (None).
@@ -956,15 +959,17 @@ mod tests {
         assert_eq!(transport.wire.with(|wire| wire.written.clone()), [expected]);
         let request = set_activity(7, Some(activity(5)));
         let text = std::str::from_utf8(&request[HEADER..]).unwrap();
-        let prefix = r#"{"cmd":"SET_ACTIVITY","args":{"pid":7,"activity":{"timestamps":{"start":5}}},"nonce":""#;
+        let prefix = r#"{"cmd":"SET_ACTIVITY","args":{"pid":7,"activity":{"state":"God of War III","timestamps":{"start":5}}},"nonce":""#;
         assert!(text.starts_with(prefix) && text.ends_with("\"}"), "{text}");
     }
 
     // -- Activity -----------------------------------------------------------------------------------
 
     #[test]
-    fn only_the_start_time_is_shown() {
-        assert_eq!(activity(100), json!({"timestamps": {"start": 100}}));
+    fn the_game_name_and_start_time_are_shown() {
+        // Discord takes an activity with only timestamps but never shows it.
+        let shown = json!({"state": "God of War III", "timestamps": {"start": 100}});
+        assert_eq!(activity(100).to_string(), shown.to_string());
     }
 
     #[test]
@@ -1149,7 +1154,7 @@ mod tests {
             .as_u64()
             .unwrap();
         assert!((before..=after).contains(&started), "{started}");
-        let shown = json!({"timestamps": {"start": started}});
+        let shown = json!({"state": "God of War III", "timestamps": {"start": started}});
         assert_eq!(body["args"]["activity"], shown);
         assert!(frames[2].1["args"].get("activity").is_none());
         assert_eq!(frames[3].0, Opcode::Close as u32);

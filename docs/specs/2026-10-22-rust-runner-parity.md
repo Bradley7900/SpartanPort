@@ -64,9 +64,9 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_pause_menu.py` | 19 | 19 | 0 | 0 | 0 | 0 |
 | `tests/test_native_cheats.py` | 9 | 9 | 0 | 0 | 0 | 0 |
 | `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 |
-| `tests/test_discord_presence.py` | 26 | 23 | 2 | 0 | 0 | 1 |
+| `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 |
 | `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 |
-| **Total** | **308** | **276** | **16** | **4** | **0** | **12** |
+| **Total** | **308** | **275** | **17** | **4** | **0** | **12** |
 
 ## Map
 
@@ -353,7 +353,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_discord_presence.py::Framing::test_ping_echoes_raw_bytes_before_the_next_frame` | `src/runner/discord.rs::tests::ping_echoes_raw_bytes_before_the_next_frame` | ported |
 | `tests/test_discord_presence.py::Framing::test_partial_frame_survives_a_read_timeout` | `src/runner/discord.rs::tests::partial_frame_survives_a_read_timeout` | ported |
 | `tests/test_discord_presence.py::Framing::test_read_frame_raises_when_connection_ends` | `src/runner/discord.rs::tests::read_frame_raises_when_connection_ends` | ported |
-| `tests/test_discord_presence.py::Activity::test_only_the_start_time_is_shown` | `src/runner/discord.rs::tests::only_the_start_time_is_shown` | ported |
+| `tests/test_discord_presence.py::Activity::test_only_the_start_time_is_shown` | `src/runner/discord.rs::tests::the_game_name_and_start_time_are_shown` | replaced by `src/runner/discord.rs::tests::the_game_name_and_start_time_are_shown` |
 | `tests/test_discord_presence.py::Activity::test_clearing_omits_the_activity` | `src/runner/discord.rs::tests::clearing_omits_the_activity` | ported |
 | `tests/test_discord_presence.py::PresenceLifecycle::test_disabled_without_client_id` | `src/runner/discord.rs::tests::disabled_without_client_id` | ported |
 | `tests/test_discord_presence.py::PresenceLifecycle::test_disabled_by_switch` | `src/runner/discord.rs::tests::disabled_by_switch` | ported |
@@ -387,7 +387,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 2. The pixels the glyph code paints are compared with Pillow's by tolerance, not byte for byte: PSNR ≥ 40 dB per texture (`tests/runner_fixtures.rs::painted_textures_match_pillow_within_tolerance`; measured minimum 52.79 dB, the Nintendo lyre decal), the shape-only textures are byte-identical, and on the real WADs everything outside the painted DXT blocks is byte-identical (`tests/dump.rs::real_glyph_wads_match_python_outside_the_painted_blocks`). The text is drawn through `skrifa`'s port of FreeType's auto-hinter (hinted outlines and advances) filled by `ab_glyph_rasterizer`, not through FreeType and not through `ab_glyph`'s plain outlines (their stems and advances were up to two pixels off); no FreeType is compiled.
 3. A missing launcher font skips that texture (Pillow falls back to its default font). A lyre texture wider than 2048 px logs that texture only, where the Python raises `ZeroDivisionError` and loses every glyph. A texture whose DDS header claims more than 4096 px a side is left as it is with `Glyphs: <name>: a <w>x<h> texture is larger than 4096x4096, left as it is`, where the Python draws it at that size (the game's glyph textures are 2048 px at most; a corrupt header that claims millions would abort the process on allocation).
 4. A gamepad probe that times out (15 s) or fails keeps the game's own button icons, with no glyph mounts, as `run.py` does: the plan's `a_hanging_gamepad_probe_falls_back_to_keyboard_glyphs` became `tests/runner.rs::a_hanging_gamepad_probe_keeps_the_game_icons`.
-5. Discord Rich Presence lives in the runner (`runner/discord.rs`), where the Python is `scripts/discord_presence.py` called by `run.py`. The Windows pipe is opened `PIPE_NOWAIT` and polled with `PeekNamedPipe`, as the Python does, with no reader thread (a pending read on a synchronous pipe blocks the writes and the close). A Unix socket `connect` has no timeout (the Python's `settimeout` also covered it). The launcher sends `SPARTAN_DISCORD=1` by default (launcher deviation 16).
+5. Discord Rich Presence lives in the runner (`runner/discord.rs`), where the Python is `scripts/discord_presence.py` called by `run.py`. The Windows pipe is opened `PIPE_NOWAIT` and polled with `PeekNamedPipe`, as the Python does, with no reader thread (a pending read on a synchronous pipe blocks the writes and the close). A Unix socket `connect` has no timeout (the Python's `settimeout` also covered it). The launcher sends `SPARTAN_DISCORD=1` by default (launcher deviation 16). The activity carries `"state": "God of War III"` besides the start time: Discord accepts an activity with only `timestamps` but never shows it, so the Python's presence (start time only) never appears on the profile.
 6. `game_icon.ico` is no longer migrated from the legacy launcher folder: the settings migration copies `settings.json` only, and the runner writes the window icon from `launcher/spartanport.png` (spec §2 "Ícone").
 7. The multi-line files the runner derives (`analysis.json`, `libc-link.json`, `link.json`, `content-profile.json`, `graphics_state.json`, `patches-merged.xml`) are written with LF where the Python on Windows writes CRLF; the fixtures and the dump tests compare after turning the Python's CRLF into LF. The binary files and the one-line JSON files (`patch_status.json`, the `stamp.json` files) are byte-identical.
 8. The XML element nesting is capped at 32 before `roxmltree` parses a patch file (the parser recurses per level and overflows the stack at depth 128 in a debug build; patch files nest 4 deep). The cap also protects the launcher's Home and Mods pages, which parse the same files.
