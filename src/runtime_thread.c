@@ -512,6 +512,7 @@ static void cpu_report(void) {
            (unsigned long long)__atomic_load_n(&guest_yields,__ATOMIC_RELAXED),
            (unsigned long long)__atomic_load_n(&guest_zero_sleeps,__ATOMIC_RELAXED));
 }
+void runtime_thread_cpu_report(void) { cpu_report(); }
 void runtime_thread_report(void) {
     pthread_mutex_lock(&lock);
     printf("Runtime: guest threads created=%zu, exited=%zu, joined=%zu\n",created,exited,joined_count);

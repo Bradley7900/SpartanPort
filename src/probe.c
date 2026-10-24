@@ -688,6 +688,7 @@ static void install_stat_multipliers(Segment *segments, uint64_t count, uint64_t
  * does: GPU, audio and guest threads are still running, so no destructors. */
 static void menu_quit(void) {
     puts("Pause menu: Exit to Desktop");
+    runtime_thread_cpu_report(); /* #209: run log comparisons need per-thread CPU time */
     fflush(NULL);
 #ifdef _WIN32
     TerminateProcess(GetCurrentProcess(),0);
