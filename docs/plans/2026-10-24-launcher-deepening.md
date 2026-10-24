@@ -2,7 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Aplicar os 11 candidatos de aprofundamento da spec ao `launcher-rust/`. O comportamento
+**Goal:** Aplicar os 11 candidatos de aprofundamento da spec ao `launcher-rust/` e, depois, resolver os
+4 bloqueadores da validação do PR #959 (Fase 3). O comportamento
 fica igual, salvo as mudanças marcadas com ⚠ na spec.
 
 **Architecture:** Um candidato por vez, de 01 a 11. Cada candidato troca modules shallow por um
@@ -43,7 +44,8 @@ antes de cada task.
   `docs/specs/2026-10-2*-parity.md` atualiza a linha no mesmo commit (formato
   `caminho::módulo::nome`, checado por `tests/parity_doc.py`).
 - **Fronteira:** `src/core` nunca usa `iced` nem `crate::runner` (`tests/core_boundary.rs`).
-- **Python congelado:** nada em `launcher/`, `run.py`, `scripts/` ou `tools/*.py` muda.
+- **Python congelado:** nada em `launcher/`, `run.py`, `scripts/` ou `tools/*.py` muda nos candidatos
+  01–11. Na Fase 3 valem os ajustes do início dela.
 - **Commits:**
   - um por task;
   - mensagem gerada com a skill `caveman-commit`, no estilo do repo (`Refactor(Launcher): …`,
@@ -1256,15 +1258,477 @@ fn adding_keeps_other_mode_bits() {
 
 ---
 
+## Fase 3: bloqueadores da validação do PR #959 (spec §5)
+
+Valem as mesmas Global Constraints, com três ajustes:
+- o Python de `launcher/`, `run.py` e `scripts/` muda só pelo merge da Task 42;
+- os geradores de fixture (`tools/launcher_fixtures.py`, `tools/runner_fixtures.py`,
+  `tools/launcher_i18n.py`) podem ganhar casos e são rodados com `py -3 tools/<nome>.py` na raiz;
+- os fixtures regerados entram no commit da task que porta a feature.
+
+### Task 40: F1, toolchain fixado e os 4 lints
+
+**Files:**
+- Modify: `launcher-rust/rust-toolchain.toml`, que passa a ter:
+
+```toml
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+```
+
+- Modify: `launcher-rust/Cargo.toml`, que ganha `[profile.dev]` com `debug = "line-tables-only"`
+  (se `[profile.dev]` já existir, só a chave).
+- Modify: os 4 pontos do relatório. Procure pelo padrão, porque as linhas mudaram nos candidatos:
+  - `core/desktop.rs` (`nonminimal_bool`, 2 ocorrências): um `!(a && b)` ou parecido vira a
+    forma mínima;
+  - `core/draw.rs` (`manual_range_contains`): `x >= a && x <= b` vira `(a..=b).contains(&x)`;
+  - `startup.rs` (`nonminimal_bool`).
+
+- [ ] **Step 1:** Rode `rustc --version` em `launcher-rust/`. A saída precisa ser `rustc 1.99.1`.
+- [ ] **Step 2:** Corrija os 4 pontos sem mudar o comportamento.
+- [ ] **Step 3: Gate G.** O `cargo test` desta task recompila tudo por causa do profile; é
+  esperado.
+- [ ] **Step 4: Commit** (`Build(Launcher): pin the toolchain and trim debug info`)
+
+### Task 41: F2, o fogo para com o jogo vivo
+
+**Files:**
+- Modify: `src/ui/app.rs`, que ganha um `enum Clock { Fast, Idle, Off }` privado e
+  `fn clock(state: &State) -> Clock`. A `subscription` (hoje :799-830) monta o relógio a partir
+  dele.
+  - `Fast` = `(store.flag("launcher_effects") && visible && !state.game.is_live())`, ou splash
+    não terminado, ou `lang_menu::timing`, ou `version_menu::timing`.
+  - `Idle` = `visible || state.game.is_live()`.
+  - `Off` = o resto.
+- Modify: o handler de `Message::Tick` (o fogo, `src/ui/fire.rs`): com `state.game.is_live()`, o
+  `Tick` não avança o fogo.
+- Test: `tests/ui_play.rs`
+
+**Interfaces:**
+- Consumes: `GameState::is_live` (Task 26).
+- Produces: `pub(crate) fn clock(state: &State) -> Clock`, visível para os testes via
+  `#[doc(hidden)] pub`, se precisar.
+
+- [ ] **Step 1: Failing tests**
+  - `the_fire_clock_slows_while_the_game_runs`: com effects ligado, janela visível e jogo
+    `Running` (fake_game), `clock(&state) == Clock::Idle`.
+  - `the_fire_does_not_advance_while_the_game_runs`: o estado do fogo antes e depois de 10
+    `Message::Tick` é igual.
+  - `the_fire_clock_comes_back_after_the_game_exits`: depois do `Exited`, `clock == Clock::Fast`.
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_play fire_clock`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Gate G**
+- [ ] **Step 5: Commit** (`Fix(Launcher): stop the fire while the game runs`). No corpo do commit:
+  a causa (relógio de 33 ms com o jogo vivo, ~24% do FPS no A/B do testador) e o aceite manual.
+
+### Task 42: F3, merge de `main` e os mapas com os ports pendentes
+
+**Files:**
+- Merge: `git merge --no-ff origin/main` (depois de `git fetch origin`). O `merge-tree` não acusa
+  conflito. Se houver, pare e reporte: não resolva por conta própria.
+- Modify:
+  - `tests/test_runner_parity_doc.py`: um `PENDING_PORTS` com os testes novos e mudados de
+    `test_graphics_options.py`, `test_pause_menu.py`, `test_native_cheats.py` e `test_glyphs.py`.
+    Ele é somado ao `allowed_drops` do `check`.
+  - `tests/test_launcher_parity_doc.py`: o mesmo `PENDING_PORTS`, para `test_launcher_controls.py`
+    e `test_launcher_monitor.py`. Os arquivos `test_controller_mappings.py`,
+    `test_controller_mapper_launch.py` e `test_controller_mapper_sdl.py` entram em
+    `covered_files()`, e `test_launcher_titlebar.py` entra em `ALLOWED_DROP_FILES`.
+  - `docs/specs/2026-10-21-rust-launcher-parity.md` e `docs/specs/2026-10-22-rust-runner-parity.md`:
+    - uma linha por teste novo, com o status `dropped: pending port (Task NN)` e o número da task
+      que vai portá-lo, de 43 a 54;
+    - uma linha corrigida para o teste renomeado
+      (`test_cheats_is_between_game_settings_and_audio` →
+      `test_graphics_and_cheats_follow_game_settings_before_audio`, `pending port (Task 49)`).
+
+- [ ] **Step 1:** `git fetch origin && git merge --no-ff origin/main`. A mensagem do merge segue o
+  padrão `Merge origin/main into rust-launcher`.
+- [ ] **Step 2:** `py -3 -m pytest tests/test_launcher_parity_doc.py tests/test_runner_parity_doc.py -q`
+  mostra as linhas que faltam. Escreva-as com o status pendente até o pytest passar.
+- [ ] **Step 3: Gate G**, sem o dump. O `cargo test` precisa continuar verde.
+- [ ] **Step 4: Commit** dos mapas e checadores (`Docs(Launcher): map the ports pending from main`).
+
+### Task 43: F4, controles no layout 4 (core)
+
+**Files:**
+- Modify: `src/core/controls.rs`:
+  - a linha de Rage passa a ter default `"F"`, e entra `RAGE_LEGACY_INPUT = "Mouse Middle"`;
+  - `WEAPON_ROWS` e `STICK_ROWS`, com os valores da spec §5/F4;
+  - `KEY_ACTIONS` (13 itens);
+  - `CONTROLS_LAYOUT = 4`;
+  - `table_rows` (as linhas de stick primeiro);
+  - `bind_key` (`None` nunca troca);
+  - `keyboard_map` (as linhas de stick não são emitidas no default);
+  - `migrate_controls`, com `inputs_in_use`, `claim_new_actions`, `keep_saved_rage` e a guarda de
+    layout maior.
+- Modify: a linha `controls_layout` do catálogo (Task 1), com default 4.
+- Regenerate: `py -3 tools/launcher_fixtures.py`.
+- Modify: as expectativas de `controls.rs::keyboard_defaults_put_the_attacks_on_the_mouse`,
+  `rage_switch_*` e `saved_keyboard_binds_keep_their_layout`.
+
+- [ ] **Step 1: Failing tests** em `controls.rs` (port dos testes Python de `main`, mesmos casos):
+  - `the_wheel_cycles_the_weapons_by_default`: o default emite `weapon_next=Wheel Up` e
+    `weapon_prev=Wheel Down`.
+  - `layout_two_keeps_its_table_and_gets_the_weapon_cycle`
+  - `rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click`
+  - `stick_directions_are_saved_and_sent_like_other_keyboard_actions`
+  - `new_directions_do_not_take_keys_from_saved_actions`
+  - `unbinding_several_inputs_does_not_swap_their_old_keys`
+  - `direction_conflicts_swap_and_invalid_entries_are_not_forwarded`
+  - `a_newer_layout_is_left_alone` (bloqueador 3):
+
+```rust
+let saved = json!({"controls_layout": 5, "controls": {"keyboard": {"rage": "Q"}}});
+let map = saved.as_object().unwrap().clone();
+assert_eq!(migrate_controls(map.clone()), map);
+```
+
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib controls`
+- [ ] **Step 3: Implement.** Siga `launcher/spartanport_launcher_win.py` de `main`.
+- [ ] **Step 4:** Regere os fixtures do launcher e confira com `git diff --stat launcher-rust/fixtures`
+  que só mudaram os casos do relatório (`defaults`, `edited`, `legacy_controls`, `collected`).
+- [ ] **Step 5:** Nos mapas, troque para `ported` as linhas destes testes. A guarda de layout
+  maior entra como desvio na seção de desvios do mapa do launcher.
+- [ ] **Step 6: Gate G**
+- [ ] **Step 7: Commit** (`Feat(Launcher): map the mouse wheel and the keyboard sticks`)
+
+### Task 44: F4, controles no layout 4 (UI)
+
+**Files:**
+- Modify: `src/ui/pages/controls.rs`:
+  - `ACTION_NAMES` (+10);
+  - `KEY_NOTE` e `STICK_HINT` passam para as chaves inglesas novas;
+  - `game_icon` (`weapon_*` → `label:D-PAD`, `move_*` → `leftstick`);
+  - `key_line`: o botão "Clear input" na coluna 4, com `ControlsMessage::Clear(action)`, que
+    grava `None`.
+- Regenerate: `py -3 tools/launcher_i18n.py` (`assets/i18n.json`) e os snapshots
+  `snapshots/controls-*.png` (pelo mecanismo de `tests/ui_snapshots.rs`).
+
+- [ ] **Step 1: Failing test** em `tests/ui_pages.rs`: `clear_input_unbinds_one_row`. Clique em
+  "Clear input" na linha de Rage: `controls.keyboard.rage` vira `None` e as outras linhas não
+  mudam.
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages clear_input_unbinds_one_row`
+- [ ] **Step 3: Implement**, e regere o i18n e os snapshots.
+- [ ] **Step 4: Gate G**
+- [ ] **Step 5: Commit** (`Feat(Launcher): clear a keyboard input from its row`)
+
+### Task 45: F4, glyphs com os sticks remapeados
+
+**Files:**
+- Modify: `src/runner/glyphs.rs`: `VERSION` 11 → 12, `STICK_BINDINGS` e `key_buttons`
+  (`lstick`/`rstick` → `T/F/G/H` quando uma direção muda).
+- Modify: `tools/runner_fixtures.py` (um caso de glyph de teclado com movimento remapeado), e
+  depois `py -3 tools/runner_fixtures.py`.
+- Modify: `glyphs.rs::key_map_moves_the_key` e `tests/runner_fixtures.rs` (o caso novo).
+
+- [ ] **Step 1: Failing tests:** `glyphs.rs::key_map_moves_the_key` atualizado e o caso novo de
+  `runner_fixtures` (`keyboard_glyphs_label_the_remapped_sticks`), que compara com os PNGs do
+  Python.
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --test runner_fixtures glyphs`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4:** Mapas: as linhas de `test_glyphs.py` passam a `ported`.
+- [ ] **Step 5: Gate G.** O dump real ainda falha em `real_glyph_*` e `real_menu_*`, e volta ao
+  verde na Task 49.
+- [ ] **Step 6: Commit** (`Feat(Launcher): label the remapped sticks on the key glyphs`)
+
+### Task 46: F5, `graphics_options` com monitor, hdr, glyphs e anisotropia
+
+**Files:**
+- Modify: `src/core/graphics_options.rs`:
+  - `Options` e `keys()` ganham `monitor`, `hdr`, `glyph_style` e `anisotropy`;
+  - `startup_options` valida, como na spec §5/F5;
+  - `prepare(…, environment: &IndexMap<String, String>)` grava os 4 `SPARTAN_*` no ini uma vez,
+    só para as chaves que faltam;
+  - `environment()` exporta os 4.
+- Modify: `src/runner/mod.rs`, onde o runner passa `&self.env` ao `prepare`.
+- Modify: `tools/runner_fixtures.py`, com um caso `graphics` com `environment=` para a migração;
+  depois `py -3 tools/runner_fixtures.py`.
+
+- [ ] **Step 1: Failing tests** em `graphics_options.rs` (port dos 5 testes de `main`):
+  - `glyphs_and_anisotropy_survive_restart_and_recover_after_failure`
+  - `invalid_glyphs_and_anisotropy_fall_back_to_defaults`
+  - `monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart`
+  - `legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart`
+  - `invalid_monitor_and_hdr_fall_back_safely`: `monitor = "1x"` vira `""`, `monitor =
+    "99999999999"` vira `""`, `glyph_style = "ps"` vira `"off"`.
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib graphics_options`
+- [ ] **Step 3: Implement**, e regere os fixtures. `runner_fixtures::graphics_matches_python`
+  passa com os bytes novos.
+- [ ] **Step 4:** Mapas: as linhas de `test_graphics_options.py` passam a `ported`.
+- [ ] **Step 5: Gate G**
+- [ ] **Step 6: Commit** (`Feat(Launcher): carry monitor, HDR, glyphs and anisotropy to the game`)
+
+### Task 47: F5, linhas Ini semeadas de App no launcher
+
+**Files:**
+- Modify: `src/core/catalog.rs`:
+  - campo `seed: Option<&'static str>` em `Setting`;
+  - linhas Ini `monitor` (Text, `""`), `hdr` (Flag, `"0"`) e `glyph_style` (Choice, `"off"`), com
+    `seed: Some(<a mesma chave>)`;
+  - o `every_key_is_described_once` passa a aceitar a mesma chave em App e em Ini quando a Ini tem
+    `seed`.
+- Modify: `src/core/store.rs` (`Store::load` semeia as Ini com `seed` a partir do App antes do
+  arquivo, e o ini do arquivo vence) e `src/core/env.rs` (`SPARTAN_HDR` sempre `"1"`/`"0"`).
+- `INI_FLAGS` ganha `hdr` e `SHOWN_INI_KEYS` vai a 21, os dois pela tabela.
+- Regenerate: `py -3 tools/launcher_fixtures.py`.
+
+- [ ] **Step 1: Failing tests**
+  - `catalog.rs::seeded_ini_rows_name_their_app_key`
+  - `store.rs::an_ini_row_is_seeded_from_settings_json_and_the_file_wins`
+  - `tests/ui_pages.rs::glyph_style_ini_overrides_legacy_launcher_choice`
+  - `tests/ui_pages.rs::ini_migrates_legacy_display_preferences_and_then_takes_precedence`
+  - `env_contract.rs::hdr_is_always_one_or_zero`
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib seeded`
+- [ ] **Step 3: Implement**, e regere os fixtures.
+- [ ] **Step 4:** Mapas: as linhas de `test_launcher_monitor.py` e as de ini de
+  `test_launcher_controls.py` passam a `ported`.
+- [ ] **Step 5: Gate G**
+- [ ] **Step 6: Commit** (`Feat(Launcher): keep monitor, HDR and glyphs in the game ini`)
+
+### Task 48: F6, menu de pausa: base, Graphics Settings e scrollbar
+
+**Files:**
+- Modify: `src/runner/pause_menu.rs`:
+  - `block_end`: o último bloco termina na tabela de símbolos (`Script.block_bytes` de `main`);
+  - `native_scrollbar`, que clona `gosliderbar3` em `gosliderbar10/11/12`;
+  - `native_cheats(data, spans, language)` e o caller (hoje ~:2146);
+  - a página Options › Graphics Settings, com 5 controles, Restore Defaults com Yes/No e Apply and
+    Restart;
+  - as funções GBL entre `0xf70` e `0xff7`, e `0xfcb` reinicia.
+
+  Siga `scripts/pause_menu.py` de `main`.
+
+- [ ] **Step 1: Failing tests** em `pause_menu.rs` (port dos testes de `main`, sobre o `Script`
+  sintético dos testes existentes):
+  - `graphics_anisotropy_and_controls_have_restart_and_reset_confirmation`
+  - `graphics_initializes_only_its_four_controls_and_returns_to_its_link`
+  - `graphics_defaults_require_confirmation_and_cancel_preserves_the_selection`
+  - `graphics_labels_follow_the_game_language`
+  - `graphics_options_label_animation_and_confirmation_focus`
+  - `graphics_rows_wrap_and_only_strength_uses_a_slider`
+  - `graphics_does_not_add_an_informational_row`
+  - `graphics_and_cheats_follow_game_settings_before_audio` (renomeado)
+  - `display_scrollbar_tracks_viewport_and_is_hidden_on_exit`
+  - `cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit`
+  - `the_last_block_ends_at_the_symbol_table`
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib pause_menu`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4:** Mapas: estas linhas passam a `ported`.
+- [ ] **Step 5: Gate G**, sem o dump.
+- [ ] **Step 6: Commit** (`Feat(Launcher): add the native graphics settings page`)
+
+### Task 49: F6, menu de pausa: Display, Controls e VERSION 22
+
+**Files:**
+- Modify: `src/runner/pause_menu.rs`:
+  - as 8 linhas de Display mais Apply;
+  - as 6 linhas de Controls mais Reset/Apply;
+  - `audio` limpa as linhas herdadas de Options;
+  - os rótulos em inglês ou pt;
+  - `VERSION` 14 → 22.
+- Modify: `tests/dump.rs`: `real_menu_options_row` (+62 registros, 11040 bytes), os testes
+  `real_menu_enemy_health_bar_*`, `real_menu_cheats_is_between…` (renomeado como o Python) e um
+  teste novo `real_menu_display_scrolls`.
+
+- [ ] **Step 1: Failing tests** em `pause_menu.rs`:
+  - `new_controls_labels_and_graphics_restore_are_bilingual`
+  - `audio_clears_unused_rows_inherited_from_options`
+  - `display_contains_eight_new_controls_and_keeps_its_original_rows`
+  - `display_scrolls_without_overwriting_original_setting_values`
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib pause_menu`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Gate G** e depois o **dump real**, que **volta ao verde** aqui:
+  `real_menu_wad_matches_python` e `real_glyph_wads_match_python_outside_the_painted_blocks`
+  contra o Python de `main`.
+- [ ] **Step 5:** Mapas: as linhas restantes de `test_pause_menu.py` e `test_native_cheats.py`
+  passam a `ported`.
+- [ ] **Step 6: Commit** (`Feat(Launcher): add the native display and control rows`)
+
+### Task 50: F7, `core/controller_mappings.rs` e o runner
+
+**Files:**
+- Create: `src/core/controller_mappings.rs`, port de `scripts/controller_mappings.py` de `main`:
+  - `FILENAME`, `STEPS`, `STICK_AXES`, `TRIGGERS`, `State` e `Capture`;
+  - `mapping_line`, `mapping_key`, `load_mapping`, `mapping_bindings`, `edit_mapping` e
+    `save_mapping`;
+  - `configure_environment(env: &mut IndexMap<String, String>, data_dir: &Path)`.
+- Modify:
+  - `src/runner/mod.rs`, que chama `configure_environment` logo depois da limpeza de
+    `SPARTAN_DERIVED`;
+  - `src/core/update.rs`, com `USER_FILES: [&str; 11]` e `"gamecontrollerdb.txt"`.
+
+**Interfaces:**
+- Produces:
+  - `pub struct State { pub buttons: Vec<bool>, pub axes: Vec<i16>, pub hats: Vec<u8> }`;
+  - `pub struct Capture { pub index: usize, pub bindings: IndexMap<String, String>, pub error: bool, … }`;
+  - `Capture::new(state: &State) -> Capture` e
+    `Capture::feed(&mut self, state: &State) -> Option<String>`;
+  - `pub static STEPS: &[(&str, &str)]`;
+  - `mapping_bindings(line: Option<&str>) -> IndexMap<String, String>`;
+  - `edit_mapping(line: Option<&str>, guid: &str, name: &str, platform: &str, target: &str, token: Option<&str>) -> Result<String, MappingError>`;
+  - `load_mapping(path: &Path, guid: &str, platform: &str) -> Option<String>`;
+  - `save_mapping(path: &Path, line: &str) -> Result<(), MappingError>`.
+
+- [ ] **Step 1: Failing tests** em `controller_mappings.rs` (os 15 de `main`, mesmos casos e
+  valores):
+  - `release_gate_stability_and_noise`
+  - `hats_diagonals_axes_triggers_and_inversion`
+  - `stick_prompt_ignores_buttons_and_endpoint_trigger`
+  - `full_axes_conflict_but_opposite_halves_can_be_shared`
+  - `back_skip_and_cross_requirement`
+  - `start_with_a_held_button_is_rejected`
+  - `edit_one_input_preserves_other_inputs_and_unknown_sdl_fields`
+  - `partial_profile_can_start_with_any_button`
+  - `platform_specific_saved_mapping_wins_over_generic`
+  - `replace_only_this_guid_and_platform_preserving_comments`
+  - `failed_commit_preserves_profile_and_cleans_temporary_file`
+  - `invalid_mapping_does_not_write`
+  - `explicit_overrides_have_priority_and_restarts_do_not_duplicate`
+  - `no_profile_leaves_environment_untouched`
+  - `reserved_xinput_override_is_not_discarded`
+
+  E mais:
+  - `tests/runner.rs::direct_run_loads_profile_before_native_detection`: o `FakeHost` vê
+    `SDL_GAMECONTROLLERCONFIG` no env da chamada `--cpu-features`;
+  - `update.rs::updater_preserves_profiles`: `install_over` não sobrescreve
+    `gamecontrollerdb.txt`.
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib controller_mappings`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4:** Mapas: as linhas de `test_controller_mappings.py` e 2 de
+  `test_controller_mapper_launch.py` passam a `ported`.
+- [ ] **Step 5: Gate G**
+- [ ] **Step 6: Commit** (`Feat(Launcher): load generic controller mappings for the game`)
+
+### Task 51: F7, o seam `Joysticks` com SDL3 e o fake
+
+**Files:**
+- Create: `src/core/joysticks.rs` (`Device`, `JoyError`, `trait Joysticks` e `Sdl3`, como na spec
+  §5/F7) e, sob `#[cfg(test)]` e em `tests/common/joysticks.rs`, `FakeJoysticks`.
+  - `FakeJoysticks` tem uma fila de `State` roteirizados, aparelhos configuráveis, um
+    `current_mapping` e um `begin_preview` que pode falhar.
+- Modify: `launcher-rust/Cargo.toml`, com `libloading = "0.8.9"` como dependência direta.
+- Create: `launcher-rust/tests/sdl_mapper.rs`, que só roda com `SPARTAN_TEST_SDL3`. Sem a variável,
+  cada teste imprime `skipped: set SPARTAN_TEST_SDL3` e passa. Ele usa
+  `SDL_AttachVirtualJoystick`, com o mesmo `SDL_VirtualJoystickDesc` de
+  `tests/test_controller_mapper_sdl.py`.
+
+**Interfaces:**
+- Produces: `Sdl3::open(port: &Path, data_dir: &Path, library: Option<&Path>) -> Result<Sdl3, JoyError>`.
+  - Ordem de busca: `port/bin/SDL3.dll`, `port/out/SDL3.dll`, `MSYS2_ROOT/clang64/bin/SDL3.dll`
+    (default `C:\msys64`), e no unix `libSDL3.so.0` e depois `libSDL3.so`.
+  - Erro sem biblioteca: `"SDL3 was not found. Use a complete port installation or build the project first."`.
+  - O `Drop` fecha o aparelho, encerra o subsistema `0x2000` e restaura os hints antigos.
+- Produces: `impl Joysticks for Sdl3` e `impl Joysticks for FakeJoysticks`.
+
+- [ ] **Step 1: Failing tests** em `tests/sdl_mapper.rs` (o adapter sobre o SDL real):
+  - `raw_capture_gamepad_preview_inversion_and_analog_trigger`
+  - `saved_mapping_loads_and_explicit_user_file_wins`
+  - `disconnect_reports_error_instead_of_reading_a_stale_pad`
+  - `editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons`
+  - e em `joysticks.rs`: `a_missing_library_names_sdl3`.
+- [ ] **Step 2: Run, expect FAIL:**
+  `SPARTAN_TEST_SDL3=C:/msys64/clang64/bin/SDL3.dll cargo test --test sdl_mapper`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Gate G**, e mais uma vez `cargo test --test sdl_mapper` com a variável.
+- [ ] **Step 5: Commit** (`Feat(Launcher): read joysticks through SDL3`)
+
+### Task 52: F7, a página "Set up a controller"
+
+**Files:**
+- Create: `src/ui/pages/mapper.rs`. É uma página com o layout da janela Tk de
+  `launcher/controller_mapper.py` (`main`):
+  - o título "Set up a controller" e a nota;
+  - a escolha do aparelho, Refresh e os detalhes `"{} buttons, {} axes, {} D-pad hats"`;
+  - a tabela de `STEPS` com Configure (`Listening…` enquanto captura) e Clear;
+  - o prompt, o status e o preview;
+  - Cancel capture e Close.
+- Modify:
+  - `src/ui/app.rs`: `Page::Mapper`, as mensagens `MapperMessage` e o poll de 20 ms na
+    `subscription`, só com a página aberta;
+  - `src/ui/pages/controls.rs`: o botão "Set up a controller" no topo, que abre a página;
+  - `src/ui/play.rs`: `LiveAction::SetUpController`, com o texto do Python;
+  - Esc: cancela a captura se houver, senão fecha a página;
+  - `assets/i18n.json` (`py -3 tools/launcher_i18n.py`), com as ~50 strings em pt e es.
+
+**Interfaces:**
+- Consumes: `Joysticks` e `Sdl3::open` (Task 51), `controller_mappings::*` (Task 50) e
+  `refuse_while_live` (Task 26).
+- O `State` guarda `mapper: Option<MapperState>`, e `MapperState` guarda o
+  `Box<dyn Joysticks>`. Os testes injetam `FakeJoysticks` com um
+  `State::open_mapper_with(Box<dyn Joysticks>)` `#[doc(hidden)]`.
+
+- [ ] **Step 1: Failing tests** em `tests/ui_mapper.rs` (com `FakeJoysticks`):
+  - `mapper_is_not_opened_over_a_running_game` (de `test_controller_mapper_launch.py`)
+  - `rows_save_out_of_order_and_reload_without_losing_other_bindings`
+  - `cancel_capture_and_close_keep_already_saved_rows`
+  - `clear_only_one_row_and_allow_an_empty_profile`
+  - `failed_save_keeps_previous_profile_and_row_values`
+  - `parent_destroy_closes_sdl_without_saving`: fechar o launcher com a página aberta chama o
+    `close_device`, e o `gamecontrollerdb.txt` não muda.
+  - `a_conflicting_input_asks_to_clear_the_other_row`
+  - `no_controller_says_connect_it`
+- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_mapper`
+- [ ] **Step 3: Implement**, e regere o i18n.
+- [ ] **Step 4:** Mapas: as linhas restantes de `test_controller_mapper_launch.py` e todas as de
+  `test_controller_mapper_sdl.py` passam a `ported`, entre `tests/sdl_mapper.rs` e
+  `tests/ui_mapper.rs`.
+- [ ] **Step 5: Gate G**
+- [ ] **Step 6: Commit** (`Feat(Launcher): set up a generic controller in the launcher`)
+
+### Task 53: F8, barra de título escura
+
+**Files:**
+- Modify:
+  - `src/core/platform/{mod,windows,unix}.rs`: `pub fn dark_title_bar(hwnd: isize)` (no unix
+    não faz nada) e um `fn dark_title_bar_with(set: &mut dyn FnMut(u32, u32) -> bool)` interno;
+  - `src/ui/app.rs`: o handler `WindowOpened` usa `window::run(id, …)` para obter o HWND e chama
+    `dark_title_bar`;
+  - `launcher-rust/Cargo.toml`: a feature `Win32_Graphics_Dwm`.
+  - Valores: o atributo 20 com fallback 19 (valor 1), o 35 = `0x000b0b0d` e o 36 = `0x00ffffff`.
+
+- [ ] **Step 1:** Abrir a janela exige ok do usuário. O subagent não abre: ele pede ao
+  controlador, que pergunta ao usuário. Com o ok, tire um screenshot da janela antes (`cargo run`,
+  com `SPARTAN_PORT_DIR=dist/spartanport-windows-2.7.0`) e anote se a barra já está escura. Sem
+  ok, pule os screenshots e siga só com os testes.
+- [ ] **Step 2: Failing tests** em `platform/windows.rs`:
+  - `dwm_attribute_20_success`: a closure aceita o 20; as chamadas são `[(20, 1), (35, 0x000b0b0d), (36, 0x00ffffff)]`.
+  - `dwm_attribute_20_fail_fallback_19`: a closure recusa o 20; as chamadas são
+    `[(20, 1), (19, 1), (35, …), (36, …)]`.
+- [ ] **Step 3: Run, expect FAIL:** `cargo test --lib dwm_attribute`
+- [ ] **Step 4: Implement.** Tire o screenshot depois e compare com o de antes.
+- [ ] **Step 5:** Mapas: os 2 testes passam a `ported`. Os outros 8 de `test_launcher_titlebar.py`
+  ficam `dropped: Tk window mechanics`.
+- [ ] **Step 6: Gate G**
+- [ ] **Step 7: Commit** (`Feat(Launcher): match the Windows title bar to the theme`)
+
+### Task 54: F9, PKGBUILD do Arch com o exe Rust
+
+**Files:**
+- Modify: `packaging/linux/PKGBUILD`:
+  - saem as dependências `python` e `tk`;
+  - o `build()` roda `cargo build --release --locked` em `launcher-rust/` e o `build.sh` do probe;
+  - o `package()` instala o exe Rust e o probe, sem `run.py` nem `launcher/*.py`;
+  - o `pkgver` vem de `launcher-rust/Cargo.toml`.
+- Modify: `tests/test_arch_pkgbuild.py`, com as asserções sobre o arquivo novo: nenhuma referência
+  a `python` ou a `.py`, a versão lida do `Cargo.toml` e a instalação do exe Rust.
+
+- [ ] **Step 1: Failing test:** em `tests/test_arch_pkgbuild.py`,
+  `test_the_package_ships_no_python` (o PKGBUILD não contém `python`, `tk` nem `.py`).
+- [ ] **Step 2: Run, expect FAIL:** `py -3 -m pytest tests/test_arch_pkgbuild.py -q`
+- [ ] **Step 3: Implement**
+- [ ] **Step 4: Gate G**, mais `py -3 -m pytest tests/test_arch_pkgbuild.py -q`.
+- [ ] **Step 5: Commit** (`Build(Linux): package the Rust launcher for Arch`)
+
 ## Fechamento
 
-### Task 40: relatório final
+### Task 55: relatório final
 
 **Files:**
 - Create (fora do repo): `<scratchpad>/deepening-report-<timestamp>.html`. Siga o estilo do
   relatório da revisão: Tailwind e Mermaid via CDN, render sequencial com ids fixos.
 
-Conteúdo, por candidato:
+Conteúdo, por candidato (01–11) e por bloco (F1–F10):
 - os commits;
 - as interfaces que entraram;
 - as linhas removidas e adicionadas (`git diff --stat 708a928..HEAD -- <arquivos>`);
@@ -1275,10 +1739,19 @@ Totais:
 - o número de testes antes (gate da Task 1) e depois;
 - o tempo do `cargo test` antes e depois;
 - quantos testes sobem o exe real;
-- os mapas de paridade verdes.
+- os mapas de paridade verdes;
+- `grep -c "pending port" docs/specs/*parity*.md` igual a 0 e os `PENDING_PORTS` dos checadores
+  vazios. Se estiverem vazios, apague-os num commit
+  (`Test(Launcher): drop the pending port lists`).
 
-- [ ] **Step 1:** Colete os números (`cargo test 2>&1 | grep "test result"`, `git log --oneline
-  708a928..HEAD` e `git diff --stat`).
+Do F10:
+- o pedido ao testador para refazer o A/B de FPS (mesmo save e mesmo trecho) e a validação
+  completa sobre o HEAD novo;
+- a nota do cache de shaders para o 2.8.0;
+- a versão 2.8.0 confirmada.
+
+- [ ] **Step 1:** Colete os números (`cargo test 2>&1 | grep "test result"`,
+  `git log --oneline 708a928..HEAD` e `git diff --stat`).
 - [ ] **Step 2:** Escreva o HTML, confira o render headless (Edge `--dump-dom`, sem
   `Syntax error in text`) e abra para o usuário.
-- [ ] **Step 3:** Nada a commitar; o relatório fica fora do repo.
+- [ ] **Step 3:** O relatório fica fora do repo. Só o commit dos `PENDING_PORTS`, se houver.
