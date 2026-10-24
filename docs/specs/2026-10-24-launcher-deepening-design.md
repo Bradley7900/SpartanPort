@@ -1,6 +1,7 @@
-# Aprofundamento dos modules do launcher Rust (11 candidatos)
+# Aprofundamento dos modules do launcher Rust (11 candidatos) e bloqueadores do PR #959
 
-Data: 2026-10-24. Estado: design aprovado em conversa (seções A, B e C); aguarda revisão do texto.
+Data: 2026-10-24. Estado: design aprovado em conversa (seções A, B, C e D). As seções A–C foram
+revisadas no texto; a Fase 3 (§5, seção D) aguarda revisão do texto.
 
 ## 1. Objetivo
 
@@ -13,6 +14,13 @@ binários que sobem o exe real).
 O comportamento fica igual ao de hoje, que segue o Python, salvo as mudanças marcadas com
 **⚠ muda** neste texto. Todas foram aprovadas em conversa.
 
+Depois do candidato 11 vem a **Fase 3** (§5): os quatro bloqueadores da validação do PR #959
+(relatório de um testador, 2026-10-24, sobre `25ea999`):
+1. o efeito de fogo do launcher tira ~24% do FPS do jogo;
+2. a branch está 9 commits atrás de `main` e perde 5 features;
+3. o launcher rebaixa o `controls_layout`;
+4. o clippy falha num stable mais velho.
+
 Vocabulário: **module** (qualquer coisa com interface e implementação), **interface** (tudo que
 o caller precisa saber: tipos, invariantes, ordem, erros), **depth** (comportamento por unidade de
 interface), **seam** (onde a interface mora), **adapter** (o que satisfaz a interface no seam; um
@@ -23,13 +31,14 @@ adapter = seam hipotético, dois = seam real).
 | Tema | Decisão |
 |---|---|
 | Onde | Direto na branch `rust-launcher` (PR #959). |
-| Ordem | 01 → 11, um candidato por vez. Cada candidato é um bloco de tasks no plano. |
+| Ordem | 01 → 11, um candidato por vez, e depois a Fase 3 (F1 → F10). Cada candidato e cada bloco F é um bloco de tasks no plano. O bug de FPS fica no ar durante o refactor (escolha do usuário). |
+| `main` | Entra por `git merge origin/main` (F3), sem rebase e sem force push no PR #959. |
 | Execução | `superpowers:subagent-driven-development`, uma task por subagent, com revisão. |
 | Testes | TDD: teste falhando na nova interface antes do código. Testes de helpers shallow são substituídos pelos da interface, não acumulados. |
-| Paridade de bytes | `tests/runner_fixtures.rs` e `tests/dump.rs` não mudam os bytes esperados. `tests/fixtures.rs` (settings.json, ini e env do Python) também não. |
+| Paridade de bytes | Nos candidatos 01–11, `tests/runner_fixtures.rs`, `tests/dump.rs` e `tests/fixtures.rs` não mudam os bytes esperados. Na Fase 3, os fixtures são regerados a partir do Python de `main` (`tools/launcher_fixtures.py`, `tools/runner_fixtures.py`), nos blocos que portam a feature correspondente. |
 | Mapas de paridade | `tests/parity_doc.py` cita testes Rust pelo nome. Toda task que renomeia ou move teste atualiza as linhas de `docs/specs/2026-10-2*-parity.md` no mesmo commit. |
 | `CONTEXT.md` | Não é criado (descartado pelo usuário em 2026-10-24). |
-| Python | Fica congelado. Nada em `launcher/`, `run.py` ou `scripts/` muda. |
+| Python | Fica congelado. Nada em `launcher/`, `run.py` ou `scripts/` é editado; esses arquivos só mudam pelo merge de `main` (F3), como referência para o port. |
 | Spec §3.2 do runner | Os arquivos de estágio continuam um por script Python. Arquivos compartilhados novos entram na tabela como "compartilhado por …". |
 | Fronteira | `src/core` continua sem iced e sem `crate::runner` (`tests/core_boundary.rs`). |
 
@@ -975,7 +984,284 @@ O 03 entrega os tipos e `run_tool` com um adapter só. O 11 acrescenta `Tools`, 
 4. O módulo `ipc`. Vermelho: `connect` num caminho inexistente dá NotFound nos dois sistemas.
 5. As leituras restantes recebem `Lookup`. Vermelho: o teste do rótulo do `pause_menu`.
 
-## 5. Dependências entre candidatos
+## 5. Fase 3: bloqueadores da validação do PR #959
+
+Vem depois do candidato 11. A fonte é o relatório de validação de um testador
+(24/10/2026, `25ea999`, Windows 11, RX 6700 XT, dump CUSA01623 v01.02). A Fase 3 se apoia nos
+modules dos candidatos: o catálogo (01), o `Store` (01), `core/graphics_options.rs` (02),
+`LiveAction` (08) e o seam de plataforma (11).
+
+### F1 Toolchain e lints (bloqueador 4)
+
+- O `rust-toolchain.toml` passa a fixar `channel = "1.99.1"` (a versão local hoje) com
+  `components = ["rustfmt", "clippy"]`. Assim o CI e qualquer validador usam o mesmo clippy.
+- Os 4 lints que o clippy 1.94.1 acusa são corrigidos mesmo assim, para o código passar nas duas
+  versões:
+  - `nonminimal_bool`: `core/desktop.rs:194`, 2 ocorrências;
+  - `manual_range_contains`: `core/draw.rs:2309`;
+  - `nonminimal_bool`: `startup.rs:67`.
+
+  As linhas podem ter mudado nos candidatos; ache-as pelo padrão.
+- O `Cargo.toml` ganha `[profile.dev] debug = "line-tables-only"`. O `target/debug` passa de
+  12 GB na máquina do testador e do usuário. Os backtraces continuam com arquivo e linha.
+
+### F2 FPS do jogo (bloqueador 1)
+
+**Causa confirmada** (`ui/app.rs:820`): a `subscription` liga o relógio de 33 ms quando
+`effects && visible`, sem olhar se há um jogo vivo. `close_on_play` vem desligado, então o fogo
+(wgpu, na mesma GPU do jogo) redesenha a janela inteira durante a partida.
+
+**Correção:**
+- Uma função privada `fn clock(state: &State) -> Clock` com `enum Clock { Fast, Idle, Off }`.
+  `Fast` exige `effects && visible && !state.game.is_live()`, ou splash não terminado, ou um timer
+  de menu.
+- Com o jogo vivo, o relógio vira `Idle` (`IDLE_CLOCK`, que já lê a saída do jogo).
+- O fogo também para de avançar e de pedir redraw com o jogo vivo: o `Tick` não muda o estado do
+  fogo.
+
+**Testes:**
+- `the_fire_clock_slows_while_the_game_runs`
+- `the_fire_does_not_advance_while_the_game_runs`
+- `the_fire_clock_comes_back_after_the_game_exits`
+
+**Aceite manual** (do relatório): com o jogo rodando e o launcher aberto atrás, o launcher mede
+perto de 0% de GPU e o FPS fica no nível do launcher Python no mesmo trecho. Vai como pedido ao
+testador no relatório final.
+
+### F3 Merge de `main` (bloqueador 2, parte 1)
+
+- `git merge origin/main` em `rust-launcher` (merge commit, sem rebase). O `merge-tree` de
+  2026-10-24 não tem conflito de texto. Os arquivos mudados dos dois lados (`.gitignore`,
+  `packaging/windows/package.sh` e os 3 READMEs) se juntam sozinhos.
+- No mesmo commit, os mapas de paridade ganham uma linha para cada teste Python novo ou mudado de
+  `main`.
+  - Os ainda sem port levam o status `dropped: pending port (F4)` (ou F5…F9).
+  - Cada bloco que porta o teste troca o status para `ported`.
+  - O relatório final confere que nenhuma linha `pending port` sobrou.
+- `tests/test_controller_mappings.py` e `tests/test_controller_mapper_*.py` entram nos checadores
+  (`test_runner_parity_doc.py` tem uma lista `FILES` fixa).
+- Depois do merge, o `cargo test` continua verde: nenhum teste Rust roda o runtime C nem o Python
+  de `main`. Ficam vermelhos, até F4 e F6, só os testes do dump real `real_menu_*` e
+  `real_glyph_*`, porque os carimbos de versão mudam.
+
+### F4 #614 + #983: roda do mouse e sticks no teclado (bloqueadores 2 e 3)
+
+`main` está no layout **4** (o #614 subiu para 3 e o #983 para 4). Os dois entram como uma
+unidade.
+
+**O que muda em `core/controls.rs`:**
+- `WEAPON_ROWS`: `weapon_next` = Wheel Up, `weapon_prev` = Wheel Down, ícone `label:D-PAD`.
+- `STICK_ROWS`: `move_up/down/left/right` = W/S/A/D e `look_*` = Up/Down/Left/Right, ícone
+  `leftstick` para `move_*`.
+- `KEY_ACTIONS = [STICK_ROWS…, rage, grab, dodge, WEAPON_ROWS…]`.
+- Rage vai para **F**, com `RAGE_LEGACY_INPUT = "Mouse Middle"`.
+- `CONTROLS_LAYOUT = 4`.
+- `migrate_controls` com os helpers `inputs_in_use`, `claim_new_actions` e `keep_saved_rage`.
+  Reproduz o Python de `main` para os layouts 2 e 3 salvos, para o caminho de tradução nativa e
+  para o caminho de teclado antigo. Uma linha nova cujo input já está em uso fica com `None`.
+- `bind_key`: `None` nunca troca.
+- `keyboard_map`: as linhas de stick no default não são emitidas.
+
+**Bloqueador 3** (decisão Rust, além do Python):
+- Um `controls_layout` **maior** que `CONTROLS_LAYOUT` não é tocado: a migração devolve o mapa
+  como está.
+- Voltar a uma versão anterior nunca reescreve as teclas do jogador.
+- Fica registrado como desvio no mapa de paridade do launcher.
+
+**UI (`ui/pages/controls.rs`):**
+- 10 nomes de ação novos.
+- As chaves i18n novas da nota KEY e da dica de stick.
+- Ícones de `game_icon` para `weapon_*` e `move_*`.
+- Um botão **"Clear input"** por linha, que manda um novo `ControlsMessage` e grava `None`.
+
+**Runner (`runner/glyphs.rs`):**
+- `VERSION` 11 → 12.
+- `STICK_BINDINGS`.
+- `key_buttons` troca os rótulos de `lstick`/`rstick` por `T/F/G/H` quando uma direção muda.
+
+**Regerados:**
+- `assets/i18n.json` (`tools/launcher_i18n.py`);
+- os fixtures do launcher (`tools/launcher_fixtures.py`);
+- os snapshots `snapshots/controls-*.png`;
+- um caso novo de glyph de teclado com movimento remapeado.
+
+**Testes** (os 7 novos de `test_launcher_controls.py` mais os mudados):
+- `the_wheel_cycles_the_weapons_by_default`
+- `layout_two_keeps_its_table_and_gets_the_weapon_cycle`
+- `rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click`
+- `stick_directions_are_saved_and_sent_like_other_keyboard_actions`
+- `new_directions_do_not_take_keys_from_saved_actions`
+- `unbinding_several_inputs_does_not_swap_their_old_keys`
+- `direction_conflicts_swap_and_invalid_entries_are_not_forwarded`
+- `a_newer_layout_is_left_alone` (bloqueador 3)
+- `glyphs::key_map_moves_the_key` atualizado
+
+### F5 #980, parte 1: opções de gráficos e o ini
+
+**`core/graphics_options.rs`** (movido no 02):
+- `Options` e `startup_options` ganham:
+  - `monitor`: só dígitos ASCII, até `i32::MAX`, senão `""`;
+  - `hdr`;
+  - `glyph_style`: `off`, `auto`, `xbox`, `nintendo` ou `keyboard`;
+  - `anisotropy`: `0`, `2`, `4`, `8` ou `16`.
+- `prepare(…, environment)` grava `SPARTAN_MONITOR`, `SPARTAN_HDR`, `SPARTAN_GLYPH_STYLE` e
+  `SPARTAN_ANISOTROPY` no ini uma vez, só para as chaves que o ini não tem. A partir daí essas
+  chaves seguem a reversão de restart.
+- `environment()` exporta as 4. Sem isso, as linhas Monitor, HDR e Controller Type do menu nativo
+  não têm efeito: o shim só lê o env.
+
+**Launcher, no catálogo do 01:**
+- `monitor`, `hdr` e `glyph_style` ganham linhas Ini **semeadas de App**. O catálogo ganha um
+  campo `seed: Option<&'static str>`, a chave App que semeia a linha Ini na leitura. O ini do
+  arquivo vence. As linhas App continuam, como em `main`.
+- `INI_FLAGS` ganha `hdr`; `SHOWN_INI_KEYS` vai de 18 para 21.
+- `SPARTAN_HDR` passa a ser sempre `"1"`/`"0"`.
+- As pages que leem essas chaves já passam pelo `Store` (01), então só a tabela muda.
+
+**Regerados:** os fixtures de `graphics/expected/{good,tried,reverted}` (com um caso novo de
+`environment=` para a migração) e os fixtures do launcher.
+
+**Testes:**
+- os 5 novos de `test_graphics_options.py` e os mudados;
+- `glyph_style_ini_overrides_legacy_launcher_choice`;
+- `ini_migrates_legacy_display_preferences_and_then_takes_precedence`;
+- os casos de Quick Settings do monitor.
+
+### F6 #980, parte 2: menu de pausa
+
+`runner/pause_menu.rs`:
+- `VERSION` 14 → 22.
+- `native_cheats(data, spans, language)` com:
+  - a página Options › Graphics Settings: 5 controles, Restore Defaults com Yes/No, e Apply and
+    Restart;
+  - 8 linhas de Display mais Apply;
+  - 6 linhas de Controls mais Reset/Apply.
+
+  Os rótulos ficam em inglês ou pt, como no Python.
+- `native_scrollbar` clona `gosliderbar3` em `gosliderbar10/11/12`.
+- `block_end` trata o último bloco como terminando na tabela de símbolos.
+- As funções GBL vão de `0xf70` a `0xff7`; `0xfcb` reinicia pelo caminho de restart do runtime.
+
+**Testes** (o novo de `test_pause_menu.py`, os 3 mudados, os 13 novos de `test_native_cheats.py`
+e o renomeado):
+- unit tests em `pause_menu.rs`;
+- `real_menu_*` em `tests/dump.rs`.
+
+O dump real precisa voltar ao verde neste bloco.
+
+### F7 #694: mapeamento de controle USB genérico, port completo
+
+**`core/controller_mappings.rs`** (port de `scripts/controller_mappings.py`):
+- `FILENAME = "gamecontrollerdb.txt"`;
+- `STEPS`, `State` e a máquina `Capture`: 3 frames estáveis, liberação antes do próximo,
+  limiares 7000/18000, inversão `~` e meio eixo `+a`/`-a`;
+- `mapping_line`, `mapping_key`, `load_mapping` (a linha da plataforma primeiro),
+  `mapping_bindings`, `edit_mapping` (um campo, mantém os desconhecidos) e `save_mapping`
+  (atômico, troca só a linha deste GUID e plataforma);
+- `configure_environment(env, data_dir)`: as linhas da pasta de dados, depois
+  `SDL_GAMECONTROLLERCONFIG_FILE`, depois `SDL_GAMECONTROLLERCONFIG`, sem duplicar (vence a
+  última), gravadas em `SDL_GAMECONTROLLERCONFIG`.
+
+**`core/joysticks.rs`**, um seam com dois adapters:
+
+```rust
+pub struct Device { pub id: u32, pub guid: String, pub name: String,
+                    pub buttons: usize, pub axes: usize, pub hats: usize, pub mapped: bool }
+pub trait Joysticks {
+    fn platform(&self) -> &str;
+    fn devices(&mut self) -> Result<Vec<Device>, JoyError>;
+    fn select(&mut self, device: &Device) -> Result<(), JoyError>;
+    fn state(&mut self) -> Result<State, JoyError>;          // "Controller disconnected…" ao perder o pad
+    fn current_mapping(&mut self) -> Option<String>;          // GUID do aparelho + o resto da linha do SDL
+    fn begin_preview(&mut self, line: &str) -> Result<(), JoyError>;
+    fn preview_state(&mut self) -> Option<(Vec<&'static str>, [i16; 6])>;
+    fn end_preview(&mut self);
+    fn close_device(&mut self);
+}
+pub struct Sdl3 { /* libloading::Library + as funções */ }
+impl Sdl3 { pub fn open(port: &Path, data_dir: &Path, library: Option<&Path>) -> Result<Sdl3, JoyError>; }
+```
+
+- O `Sdl3` carrega o SDL3 em runtime com `libloading`, que já está no `Cargo.lock` como
+  dependência transitiva (0.8.9) e passa a ser dependência direta.
+- Ordem de busca, como o Python:
+  1. `port/bin/SDL3.dll`
+  2. `port/out/SDL3.dll`
+  3. `MSYS2_ROOT/clang64/bin/SDL3.dll`
+  4. no unix, `libSDL3.so.0` e depois `libSDL3.so`.
+- Usa as ~30 funções de `controller_mapper.py`, os hints `SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS` e
+  `SDL_GAMECONTROLLERCONFIG` (do `configure_environment`) e restaura os hints antigos no `Drop`.
+- O `FakeJoysticks` dos testes é o segundo adapter.
+
+**UI (`ui/pages/mapper.rs`):**
+- Uma página nova, aberta pelo botão **"Set up a controller"** no topo da página Controls.
+  - O botão é recusado com o jogo vivo (`LiveAction::SetUpController`, ligado ao 08).
+  - Um SDL3 ausente mostra o erro do Python ("SDL3 was not found…").
+- O conteúdo segue a janela Tk:
+  - escolha do aparelho, Refresh e os detalhes (botões, eixos, hats);
+  - a tabela de `STEPS` com Configure e Clear;
+  - o prompt, o status e o preview ("Pressed: …", sticks e gatilhos em %);
+  - Cancel capture e Close.
+- Comportamento:
+  - Esc cancela a captura ou fecha;
+  - um poll a cada 20 ms numa subscription, só com a página aberta;
+  - cada mudança é validada pelo preview do SDL antes de salvar e salva na hora.
+- As ~50 strings novas entram no `i18n.json`.
+
+**Runner:** `configure_environment(&mut env, data)` logo depois da limpeza de `SPARTAN_DERIVED`,
+para que a checagem de CPU, o `--gamepad` e o jogo vejam o mesmo mapeamento.
+
+**Core:** `gamecontrollerdb.txt` entra em `USER_FILES` (10 → 11).
+
+**Testes:**
+- os 15 de `test_controller_mappings.py`, como unit tests;
+- os 3 de `test_controller_mapper_launch.py`: o runner exporta, a atualização preserva o arquivo,
+  a UI recusa com o jogo vivo;
+- os fluxos da página com `FakeJoysticks`: fora de ordem, cancelar, limpar uma linha, falha ao
+  salvar e preservar um mapeamento existente do SDL;
+- os 9 de `test_controller_mapper_sdl.py` em `tests/sdl_mapper.rs`, sobre o SDL3 de verdade com
+  joysticks virtuais. Eles só rodam com `SPARTAN_TEST_SDL3=<caminho do SDL3>`, como o
+  `GOW3_TEST_SDL3` do Python. Localmente: `C:/msys64/clang64/bin/SDL3.dll`.
+
+### F8 #956: barra de título escura
+
+- Primeiro, um screenshot da janela: o iced/winit já pede o tema escuro, então a barra
+  provavelmente já está escura e só faltam as cores exatas.
+- Depois, `platform::dark_title_bar(hwnd)` no seam do 11:
+  - `DwmSetWindowAttribute` 20 (com fallback 19) = escuro;
+  - 35 = cor da barra `0x000b0b0d` (`#0d0b0b`);
+  - 36 = texto branco;
+  - no unix, não faz nada.
+- O handler `WindowOpened` obtém o handle por `window::run`.
+- A feature `Win32_Graphics_Dwm` entra no `Cargo.toml`.
+- `dark_title_bar` chama um `fn dark_title_bar_with(set: &mut dyn FnMut(u32, u32) -> bool)`
+  interno (atributo e valor; devolve se o DWM aceitou), que recebe a função do DWM.
+- **Testes:** o COLORREF e a ordem de fallback, com uma closure que registra as chamadas. Os 10 testes
+  de `test_launcher_titlebar.py` são mecânica do Tk e ficam `dropped`, com o motivo, exceto o das
+  cores.
+
+### F9 #619: PKGBUILD do Arch sem Python
+
+Em `main`, o `packaging/linux/PKGBUILD` depende de `python`/`tk`, instala `run.py` e
+`launcher/*.py` e lê a versão do arquivo Python. Isso quebra a promessa do cutover de não ter
+Python no produto.
+
+- O PKGBUILD passa a compilar o exe Rust (`cargo build --release --locked` no `build()`) e o probe
+  (`build.sh`), sem as dependências Python.
+- A versão vem de `launcher-rust/Cargo.toml`.
+- `tests/test_arch_pkgbuild.py` é ajustado: é um teste estático do arquivo, não do launcher
+  congelado.
+- Não há build de Arch local; o teste estático é o gate.
+
+### F10 Relatório final
+
+Ver §8. Além do conteúdo de lá, o relatório traz:
+- o pedido ao testador para refazer o A/B de FPS (mesmo save e mesmo trecho) e a validação
+  completa sobre o novo HEAD;
+- a nota para o 2.8.0: a primeira sessão em cada área compila shaders;
+- a versão continua 2.8.0. Se `main` lançar um 2.7.x antes do merge, o número é revisto.
+
+## 6. Dependências entre candidatos
 
 | De | Para | O quê |
 |---|---|---|
@@ -985,28 +1271,35 @@ O 03 entrega os tipos e `run_tool` com um adapter só. O 11 acrescenta `Tools`, 
 | 03 | 11 | `core/platform/tool.rs` nasce no 03; o 11 acrescenta `Tools` e `Host: Tools`. |
 | 05 | 06 | `Installation` é a primeira view da tabela do `follow`. |
 | 09 | 11 | `Context.env` é a fonte do `Lookup` nas leituras de env. |
+| 01 | F4, F5 | `controls_layout` e as linhas Ini semeadas de App são linhas do catálogo. |
+| 02 | F5 | `prepare(environment)` entra em `core/graphics_options.rs`. |
+| 08 | F2, F7 | `is_live()` no relógio; `LiveAction::SetUpController`. |
+| 11 | F8 | `dark_title_bar` é uma função simétrica de `platform`. |
+| F3 | F4–F9 | O Python de `main` é a referência dos ports. |
+| F4 | F6 | Os glyphs (VERSION 12) e o menu (VERSION 22) mudam o dump juntos; o dump volta ao verde no fim de F6. |
 
-## 6. Erros
+## 7. Erros
 
 Nenhum texto de erro visível ao jogador muda, salvo:
 - as mensagens de tabela do 04 ("bad symbol/relocation table size");
 - o código `-N` do 07 na linha "The game exited (code …)".
 
-Os erros novos de interface (`ToolError`, `ImageError`, `SceError`) carregam o texto do script
-Python correspondente.
+Os erros novos de interface (`ToolError`, `ImageError`, `SceError`, `JoyError`) carregam o texto do
+script Python correspondente. Os textos novos da Fase 3 são os do Python de `main`.
 
-## 7. Relatório final
+## 8. Relatório final
 
-Ao fim do 11, um relatório HTML local (como o da revisão) com:
-- para cada candidato, o que entrou (commits, interfaces, linhas), as mudanças de comportamento
-  confirmadas e o que ficou fora ou foi adiado, com o motivo;
+Ao fim da Fase 3, um relatório HTML local (como o da revisão) com:
+- para cada candidato e bloco F, o que entrou (commits, interfaces, linhas), as mudanças de
+  comportamento confirmadas e o que ficou fora ou foi adiado, com o motivo;
 - a contagem de testes antes e depois, e o tempo do `cargo test`;
 - quantos testes ainda sobem o exe real;
-- o estado dos mapas de paridade.
+- o estado dos mapas de paridade, incluindo zero linhas `pending port`;
+- os itens de F10.
 
-## 8. Escopo
+## 9. Escopo
 
-**Entra:** §4 inteira, os mapas de paridade, as linhas novas da spec §3.2 do runner e o
+**Entra:** §4 e §5 inteiras, os mapas de paridade, as linhas novas da spec §3.2 do runner e o
 relatório final.
 
 **Fica fora:**
@@ -1015,23 +1308,29 @@ relatório final.
 - o default do Steam Deck;
 - normalizar valores ao salvar;
 - o workspace Cargo;
-- release e pacote.
+- release e pacote (o testador refaz a validação do pacote);
+- as traduções zh/id do mapper, que o Python de `main` também não tem.
 
-## 9. Riscos
+## 10. Riscos
 
 | Risco | Mitigação |
 |---|---|
-| 11 candidatos num PR já em revisão | Um commit por task, gate verde por task, relatório final para o revisor. |
-| Paridade de bytes quebrada sem perceber | `runner_fixtures` em todo gate. O dump real ao fim de 02, 04 e 07. |
+| 11 candidatos e a Fase 3 num PR já em revisão | Um commit por task, gate verde por task, relatório final para o revisor. |
+| Paridade de bytes quebrada sem perceber | `runner_fixtures` em todo gate; o dump real ao fim de 02, 04, 07, F6 e F7. |
 | Teste renomeado quebra os mapas de paridade | O pytest dos mapas entra no gate de toda task. |
 | PC trava no cargo | `jobs = 8`, um `cargo test` e um clippy por task, reruns focados. |
 | `State.store` (01) toca ~150 sites | Task 3 do 01 dedicada só à migração, sem mudança de comportamento além da truthiness. |
 | iced sem `into_stream` | Os testes do 10 alimentam as mensagens à mão, como hoje. |
+| O bug de FPS fica no ar durante o refactor | Escolha do usuário. O contorno do relatório vale até F2: desligar Effects ou ligar `close_on_play`. |
+| SDL3 indisponível no CI | Os testes de SDL real só rodam com `SPARTAN_TEST_SDL3`; os fluxos da página rodam sempre, sobre `FakeJoysticks`. |
+| Menu de pausa (F6) é o maior port | Os testes do dump `real_menu_*` contra o Python de `main` são o aceite. |
 
-## 10. Referências
+## 11. Referências
 
 - Revisão de arquitetura de 2026-10-24 (relatório HTML local, 11 candidatos).
+- Relatório de validação do PR #959 (testador, 2026-10-24).
 - `docs/specs/2026-10-21-rust-launcher-design.md`, `docs/specs/2026-10-22-rust-runner-design.md`,
   `docs/specs/2026-10-23-rust-cutover-design.md` e os três mapas de paridade.
 - `launcher/spartanport_launcher_win.py` (citado como `py:linha`), `run.py` e `scripts/*.py` em
-  `25ea999`.
+  `25ea999`. Para a Fase 3: os mesmos arquivos e `launcher/controller_mapper.py`,
+  `scripts/controller_mappings.py` e `packaging/linux/PKGBUILD` em `origin/main` (`9dd2d12`).
