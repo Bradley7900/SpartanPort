@@ -258,6 +258,7 @@ private:
         u64 programs, permutations, matched, compiled, keys_skipped, keys_written, load_ns;
     } disk_stats{}, disk_reported{};
     std::chrono::steady_clock::time_point disk_report{};
+    u32 disk_report_calls = 0; ///< ReportDiskShaders reads the clock once per 256 lookups
     [[nodiscard]] bool DiskShadersActive() const;
     void IndexDiskShaders();
     struct DiskPrefetch;

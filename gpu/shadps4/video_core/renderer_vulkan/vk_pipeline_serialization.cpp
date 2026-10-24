@@ -1423,8 +1423,12 @@ void PipelineCache::ReportDiskShaders() {
                                            std::vector<u8>{0});
         disk_store_untrusted = true;
     }
+    // Called for every draw: a clock read each time costs the GPU thread ~0.2 ms a frame (#209).
+    if (!disk_shaders || (++disk_report_calls & 255)) {
+        return;
+    }
     const auto now = std::chrono::steady_clock::now();
-    if (!disk_shaders || now - disk_report < std::chrono::seconds(5)) {
+    if (now - disk_report < std::chrono::seconds(5)) {
         return;
     }
     disk_report = now;
