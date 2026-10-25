@@ -42,13 +42,22 @@ pub struct Installation {
 }
 
 /// An empty game folder field means the current folder.
-fn or_here(folder: &str) -> &Path {
-    Path::new(if folder.is_empty() { "." } else { folder })
+fn or_here<'a>(folder: &'a str, here: &'a Path) -> &'a Path {
+    if folder.is_empty() {
+        here
+    } else {
+        Path::new(folder)
+    }
 }
 
 impl Installation {
     pub fn read(game_dir: &str, update_dir: &str) -> Self {
-        let game_path = or_here(game_dir);
+        Self::read_from(game_dir, update_dir, Path::new("."))
+    }
+
+    /// [`Installation::read`] with the folder an empty game field means; tests pass a temp folder.
+    fn read_from(game_dir: &str, update_dir: &str, here: &Path) -> Self {
+        let game_path = or_here(game_dir, here);
         let update_has_eboot =
             !update_dir.is_empty() && Path::new(update_dir).join("eboot.bin").is_file();
         let meta_path = if update_has_eboot {
@@ -58,12 +67,12 @@ impl Installation {
         };
         let meta = GameFolder::read(&meta_path);
         let verdict = Verdict {
-            game_missing: missing_game_files(game_dir, REQUIRED_GAME_FILES),
+            game_missing: missing_game_files(game_path, REQUIRED_GAME_FILES),
             same_folder: !update_dir.is_empty() && same_folder(update_dir, game_path),
             update_missing: if update_dir.is_empty() {
                 Vec::new()
             } else {
-                missing_game_files(update_dir, REQUIRED_UPDATE_FILES)
+                missing_game_files(Path::new(update_dir), REQUIRED_UPDATE_FILES)
             },
         };
         Installation {
@@ -75,6 +84,10 @@ impl Installation {
             has_game: game_path.join("eboot.bin").is_file(),
             verdict,
         }
+    }
+
+    fn typed(&self) -> bool {
+        !self.game.is_empty()
     }
 
     pub fn of(store: &Store) -> Self {
@@ -92,12 +105,14 @@ impl Installation {
         self.info.as_ref()
     }
 
+    /// The facts below need a game folder typed in: an empty field answers nothing, as the
+    /// Python does.
     pub fn title_id(&self) -> Option<&str> {
-        self.meta.title_id()
+        self.typed().then(|| self.meta.title_id()).flatten()
     }
 
     pub fn profile(&self) -> Option<&'static GameProfile> {
-        self.meta.profile()
+        self.typed().then(|| self.meta.profile()).flatten()
     }
 
     pub fn patchable(&self) -> bool {
@@ -115,10 +130,13 @@ impl Installation {
 
     /// A file of `sce_sys`: the update's when it has it, else the game's.
     pub fn system_file(&self, rel: &str) -> Option<PathBuf> {
+        if !self.typed() {
+            return None;
+        }
         let update = (!self.update.is_empty()).then(|| Path::new(self.update.as_str()));
         update
             .into_iter()
-            .chain([or_here(&self.game)])
+            .chain([Path::new(&self.game)])
             .map(|folder| folder.join("sce_sys").join(rel))
             .find(|path| path.is_file())
     }
@@ -283,6 +301,22 @@ mod tests {
         assert!(!verdict.same_folder);
         let without = Installation::read(s(game.path()), "");
         assert!(without.verdict().update_missing.is_empty());
+    }
+
+    #[test]
+    fn an_empty_game_folder_reads_here_for_files_but_gives_no_facts() {
+        let here = tempfile::tempdir().unwrap();
+        complete_dump(here.path());
+        put(here.path(), "sce_sys/trophy/trophy00.trp", b"t");
+        let installation = Installation::read_from("", "", here.path());
+        assert_eq!(installation.title_id(), None);
+        assert!(installation.profile().is_none() && !installation.patchable());
+        assert_eq!(installation.system_file("param.sfo"), None);
+        assert_eq!(installation.trophy_package(), None);
+        assert!(installation.info().is_some() && installation.has_game());
+        assert!(installation.verdict().passes());
+        let same = Installation::read_from("", s(here.path()), here.path());
+        assert!(same.verdict().same_folder);
     }
 
     #[test]

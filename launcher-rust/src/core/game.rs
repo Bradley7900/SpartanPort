@@ -84,8 +84,7 @@ pub static REQUIRED_UPDATE_FILES: &[Requirement] =
 
 /// The required files that do not pass their check in the folder: an incomplete dump, a
 /// placeholder made by hand, a file this user may not read, a `param.sfo` that is not one.
-pub fn missing_game_files(folder: &str, requirements: &[Requirement]) -> Vec<(String, FileState)> {
-    let folder = Path::new(if folder.is_empty() { "." } else { folder });
+pub fn missing_game_files(folder: &Path, requirements: &[Requirement]) -> Vec<(String, FileState)> {
     requirements
         .iter()
         .filter_map(|(name, check)| match check(&folder.join(name)) {
@@ -399,17 +398,13 @@ mod tests {
         put(root, "sce_module/libSceFios2.prx", b"prx");
     }
 
-    fn s(path: &Path) -> &str {
-        path.to_str().unwrap()
-    }
-
     #[test]
     fn an_empty_eboot_counts_as_missing() {
         let dir = tempfile::tempdir().unwrap();
         complete_dump(dir.path());
         put(dir.path(), "eboot.bin", b"");
         assert_eq!(
-            missing_game_files(s(dir.path()), REQUIRED_GAME_FILES),
+            missing_game_files(dir.path(), REQUIRED_GAME_FILES),
             vec![("eboot.bin".to_string(), FileState::Empty)]
         );
         assert_eq!(file_state(&dir.path().join("nothing")), FileState::Missing);
@@ -422,7 +417,7 @@ mod tests {
         fs::remove_file(dir.path().join("sce_sys/param.sfo")).unwrap();
         fs::create_dir(dir.path().join("sce_sys/param.sfo")).unwrap();
         assert_eq!(
-            missing_game_files(s(dir.path()), REQUIRED_GAME_FILES),
+            missing_game_files(dir.path(), REQUIRED_GAME_FILES),
             vec![("sce_sys/param.sfo".to_string(), FileState::Folder)]
         );
     }
@@ -437,7 +432,7 @@ mod tests {
             FileState::Invalid
         );
         assert_eq!(
-            missing_game_files(s(dir.path()), REQUIRED_GAME_FILES),
+            missing_game_files(dir.path(), REQUIRED_GAME_FILES),
             vec![("sce_sys/param.sfo".to_string(), FileState::Invalid)]
         );
     }

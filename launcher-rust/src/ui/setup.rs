@@ -1,6 +1,8 @@
 //! The first-run setup (setup spec): three steps between the splash and the Home, shown while
 //! `State::setup` is `Some`.
 
+use std::path::Path;
+
 use iced::keyboard::key::Named;
 use iced::keyboard::Key;
 use iced::widget::{button, column, container, pick_list, row, space, stack, text};
@@ -121,13 +123,13 @@ impl SetupState {
     fn check_folders(&mut self, settings: &Settings) {
         let game_dir = settings.get_str("game_dir");
         let update_dir = settings.get_str("update_dir");
-        self.game_missing = missing_game_files(&game_dir, REQUIRED_GAME_FILES);
+        self.game_missing = missing_game_files(Path::new(&game_dir), REQUIRED_GAME_FILES);
         self.same_folders =
             !update_dir.is_empty() && !game_dir.is_empty() && same_folder(&update_dir, &game_dir);
         self.update_missing = if update_dir.is_empty() || self.same_folders {
             Vec::new()
         } else {
-            missing_game_files(&update_dir, REQUIRED_UPDATE_FILES)
+            missing_game_files(Path::new(&update_dir), REQUIRED_UPDATE_FILES)
         };
     }
 

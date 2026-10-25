@@ -12,6 +12,7 @@ use iced::{Center, Element, Task};
 
 use crate::core::desktop::{host_environment, windows_shortcut, write_linux_shortcut};
 use crate::core::i18n::{tr, tr_fmt};
+use crate::core::installation::Installation;
 use crate::core::options::{ui_scale_choice, UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
 use crate::core::paths::Paths;
 use crate::core::platform;
@@ -505,7 +506,7 @@ pub fn steam_message(lang: &str, result: &Result<Added, SteamError>) -> Result<S
 /// Adds the game to Steam; on a thread.
 fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String, String> {
     let game = settings.get_str("game_dir");
-    if !Path::new(&game).join("eboot.bin").is_file() {
+    if !Installation::read(&game, "").has_game() {
         return Err(tr(
             lang,
             "Choose the game folder with eboot.bin (CUSA01623).",

@@ -259,7 +259,7 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
         ));
         return Task::none();
     }
-    let missing = missing_game_files(&game_dir, REQUIRED_GAME_FILES);
+    let missing = missing_game_files(Path::new(folder_or_here(&game_dir)), REQUIRED_GAME_FILES);
     if !missing.is_empty() {
         let text = tr_fmt(
             &lang,
@@ -276,7 +276,7 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
     let missing = if update_dir.is_empty() {
         Vec::new()
     } else {
-        missing_game_files(&update_dir, REQUIRED_UPDATE_FILES)
+        missing_game_files(Path::new(&update_dir), REQUIRED_UPDATE_FILES)
     };
     if !missing.is_empty() {
         let text = tr_fmt(
