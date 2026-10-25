@@ -44,8 +44,11 @@ Status:
 
 Rust tests are named `file::name` under `launcher-rust/`: `tests/runner.rs::name` for integration
 tests, `src/runner/prepare.rs::tests::name` for unit tests (the `tests` segment is the module).
-`tests/dump.rs` rows run only with `SPARTAN_GAME_DIR` set. Rows whose Rust tests leave part of the
-Python assertions uncovered are listed under [Partly covered](#partly-covered).
+`tests/dump.rs` rows run only with `SPARTAN_GAME_DIR` set. The Graphics Settings and scrollbar rows
+of `test_native_cheats.py` and `test_pause_menu.py` name unit tests of `src/runner/pause_menu.rs`
+that run the Python assertions on a synthetic script laid out like the game's, not on the dump.
+Rows whose Rust tests leave part of the Python assertions uncovered are listed under
+[Partly covered](#partly-covered).
 `tests/test_graphics_options.py` defines `test_corrupt_state_file_preserves_current_settings` twice;
 the second definition is the live one and has the only row (33 definitions, 32 rows).
 `test_patches.py::test_unavailable_frame_rate_patch_falls_back_to_the_highest_lower_one` tests
@@ -70,12 +73,12 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_guest_memory.py` | 8 | 8 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_graphics_options.py` | 32 | 26 | 6 | 0 | 0 | 0 | 0 |
 | `tests/test_save_backup.py` | 10 | 10 | 0 | 0 | 0 | 0 | 0 |
-| `tests/test_pause_menu.py` | 20 | 15 | 0 | 0 | 0 | 0 | 5 |
-| `tests/test_native_cheats.py` | 21 | 6 | 0 | 0 | 0 | 0 | 15 |
+| `tests/test_pause_menu.py` | 20 | 16 | 0 | 0 | 0 | 0 | 4 |
+| `tests/test_native_cheats.py` | 21 | 15 | 0 | 0 | 0 | 0 | 6 |
 | `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 | 0 |
 | `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 | 0 |
 | `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **326** | **269** | **21** | **4** | **0** | **12** | **20** |
+| **Total** | **326** | **279** | **21** | **4** | **0** | **12** | **10** |
 
 ## Map
 
@@ -307,7 +310,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_pause_menu.py::Labels::test_resolve_label_fallback` | `src/runner/pause_menu.rs::tests::resolve_label_fallback` | ported |
 | `tests/test_pause_menu.py::Labels::test_resolve_label_environment` | `src/runner/pause_menu.rs::tests::resolve_label_environment` | ported |
 | `tests/test_pause_menu.py::Labels::test_build_cache_stamp_tracks_language` | `src/runner/pause_menu.rs::tests::build_cache_stamp_tracks_language` | ported |
-| `tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit` | — | dropped: pending port (Task 48) |
+| `tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit` | `src/runner/pause_menu.rs::tests::display_scrollbar_tracks_viewport_and_is_hidden_on_exit` | ported |
 | `tests/test_pause_menu.py::GameScript::test_enemy_health_bar_follows_screen_y_with_native_animation` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_enemy_health_bar_follows_screen_y_with_native_animation` |
 | `tests/test_pause_menu.py::GameScript::test_display_initializes_health_value_before_the_row_is_selected` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_display_initializes_health_value_before_the_row_is_selected` |
 | `tests/test_pause_menu.py::GameScript::test_pause_row` | `tests/dump.rs::real_menu_pause_row` | ported |
@@ -320,21 +323,21 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_pause_menu.py::GameScript::test_russian_fallback` | `tests/dump.rs::real_menu_russian_fallback` | ported |
 | `tests/test_pause_menu.py::GameScript::test_polish_translated` | `tests/dump.rs::real_menu_polish_translated` | ported |
 | `tests/test_pause_menu.py::GameScript::test_all_supported_languages` | `tests/dump.rs::real_menu_all_supported_languages` | ported |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation` | `src/runner/pause_menu.rs::tests::graphics_anisotropy_and_controls_have_restart_and_reset_confirmation` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_new_controls_labels_and_graphics_restore_are_bilingual` | — | dropped: pending port (Task 49) |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_and_cheats_follow_game_settings_before_audio` | — | dropped: pending port (Task 48); main renamed it from `test_cheats_is_between_game_settings_and_audio`, the 2.7.0 row named `tests/dump.rs::real_menu_cheats_is_between_game_settings_and_audio` |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_initializes_only_its_four_controls_and_returns_to_its_link` | — | dropped: pending port (Task 48) |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_defaults_require_confirmation_and_cancel_preserves_the_selection` | — | dropped: pending port (Task 48) |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_labels_follow_the_game_language` | — | dropped: pending port (Task 48) |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_options_label_animation_and_confirmation_focus` | — | dropped: pending port (Task 48) |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_rows_wrap_and_only_strength_uses_a_slider` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_and_cheats_follow_game_settings_before_audio` | `src/runner/pause_menu.rs::tests::graphics_and_cheats_follow_game_settings_before_audio` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_initializes_only_its_four_controls_and_returns_to_its_link` | `src/runner/pause_menu.rs::tests::graphics_initializes_only_its_four_controls_and_returns_to_its_link` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_defaults_require_confirmation_and_cancel_preserves_the_selection` | `src/runner/pause_menu.rs::tests::graphics_defaults_require_confirmation_and_cancel_preserves_the_selection` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_labels_follow_the_game_language` | `src/runner/pause_menu.rs::tests::graphics_labels_follow_the_game_language` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_options_label_animation_and_confirmation_focus` | `src/runner/pause_menu.rs::tests::graphics_options_label_animation_and_confirmation_focus` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_rows_wrap_and_only_strength_uses_a_slider` | `src/runner/pause_menu.rs::tests::graphics_rows_wrap_and_only_strength_uses_a_slider` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_audio_clears_unused_rows_inherited_from_options` | — | dropped: pending port (Task 49) |
 | `tests/test_native_cheats.py::NativeCheats::test_display_contains_eight_new_controls_and_keeps_its_original_rows` | — | dropped: pending port (Task 49) |
 | `tests/test_native_cheats.py::NativeCheats::test_display_scrolls_without_overwriting_original_setting_values` | — | dropped: pending port (Task 49) |
-| `tests/test_native_cheats.py::NativeCheats::test_graphics_does_not_add_an_informational_row` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_does_not_add_an_informational_row` | `src/runner/pause_menu.rs::tests::graphics_does_not_add_an_informational_row` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_every_cheat_has_native_selection_and_initial_value` | `tests/dump.rs::real_menu_every_cheat_has_native_selection_and_initial_value` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_qte_precedes_multipliers_and_last_row_scrolls` | `tests/dump.rs::real_menu_qte_precedes_multipliers_and_last_row_scrolls` | ported |
-| `tests/test_native_cheats.py::NativeCheats::test_cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit` | `src/runner/pause_menu.rs::tests::cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_multipliers_stays_visible_and_qte_uses_a_visible_value_slot` | `tests/dump.rs::real_menu_multipliers_stays_visible_and_qte_uses_a_visible_value_slot` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_toggling_scrolled_cheats_updates_their_visible_row` | `tests/dump.rs::real_menu_toggling_scrolled_cheats_updates_their_visible_row` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_six_multipliers_have_native_bars_and_directional_controls` | `tests/dump.rs::real_menu_six_multipliers_have_native_bars_and_directional_controls` | ported |
@@ -454,6 +457,8 @@ the Python test:
 - `tests/test_discord_presence.py::SocketIntegration::test_real_socket_reconnect_ping_and_shutdown`: the Rust test runs on Unix only (a UnixListener); on Windows the pipe tests run instead.
 - `tests/test_discord_presence.py::LauncherSwitch::test_off_by_default`: the Rust default is on (R91, launcher deviation 16): the Rust test asserts that default, and that a file without the key and an explicit false give 1 and 0.
 - `tests/test_discord_presence.py::LauncherSwitch::test_checked_enables_it`: an explicit true is not set apart from the default, which is true.
+- `tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit`: the Rust test runs on a synthetic script and asserts the cloned scrollbar (its mesh, instance, reference and the untouched originals); the Display rows that move it and PauseDisplay's exit that hides it are not ported yet (Task 49 of the deepening plan).
+- `tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation`: the Rust test runs on a synthetic script and asserts the Graphics half (Apply and Restart, Restore Defaults, Anisotropic Filtering); the Controls rows, their restart and reset questions and their scrollbar are not ported yet (Task 49 of the deepening plan).
 
 ## Gaps
 

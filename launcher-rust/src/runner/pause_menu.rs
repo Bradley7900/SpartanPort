@@ -1,6 +1,6 @@
 //! "Exit to Desktop" rows in the game's own pause menu and in its Options screen, an Enemy Health
-//! Bar row in Display, and the native Cheats and Multipliers pages (Python `scripts/pause_menu.py`;
-//! `docs/plans/2026-10-15-native-menu-feasibility.md`).
+//! Bar row in Display, and the native Graphics Settings, Cheats and Multipliers pages (Python
+//! `scripts/pause_menu.py`; `docs/plans/2026-10-15-native-menu-feasibility.md`).
 //!
 //! All menus are one compiled state-machine script, the `SMI_R_UI` entry of `R_UI.WAD`. Its header
 //! (LE) gives the code start (+0x0c) and the symbol table (+0x10); fields inside are big-endian:
@@ -41,7 +41,7 @@ use indexmap::IndexMap;
 use crate::core::env::Lookup;
 use crate::core::fs::atomic_write;
 use crate::core::python::python_json;
-use crate::runner::glyphs::entries;
+use crate::runner::glyphs::{entries, Entry};
 
 /// Of the patch: a change rebuilds the cached copy.
 pub const VERSION: u32 = 14;
@@ -253,6 +253,57 @@ const MULTIPLIER_NAMES: [&str; 7] = [
     "Damage Taken",
     "Reset All to 1x",
 ];
+
+/// The texts of the native pages that follow the game's language.
+struct Texts {
+    /// The Graphics Settings page: its title, its five controls, Restore Defaults and Apply.
+    graphics_title: &'static str,
+    graphics_names: [&'static str; 7],
+    /// The question Restore Defaults asks, and its answers.
+    restore_graphics: &'static str,
+    yes_no: [&'static str; 2],
+    /// The question Apply and Restart asks, and its answers.
+    restart: &'static str,
+    restart_answers: [&'static str; 2],
+}
+
+/// Every language but Portuguese.
+static ENGLISH: Texts = Texts {
+    graphics_title: "Graphics Settings",
+    graphics_names: [
+        "Frames Queued",
+        "Async Shader Compilation",
+        "RCAS Sharpening",
+        "Sharpening Strength",
+        "Anisotropic Filtering",
+        "Restore Graphics Defaults",
+        "Apply and Restart",
+    ],
+    restore_graphics: "Restore graphics defaults?",
+    yes_no: ["Yes", "No"],
+    restart: "Apply and restart?",
+    restart_answers: ["Yes, lose unsaved progress", "No"],
+};
+
+static PORTUGUESE: Texts = Texts {
+    graphics_title: "Configurações Gráficas",
+    graphics_names: [
+        "Quadros enfileirados",
+        "Shaders assíncronos",
+        "Nitidez RCAS",
+        "Intensidade da nitidez",
+        "Filtragem anisotrópica",
+        "Restaurar padrões gráficos",
+        "Aplicar e reiniciar",
+    ],
+    restore_graphics: "Restaurar padrões gráficos?",
+    yes_no: ["Sim", "Não"],
+    restart: "Reiniciar o jogo?",
+    restart_answers: ["Sim, perder progresso não salvo", "Não"],
+};
+
+/// The six multiplier sliders (`sliderBar4` to `sliderBar9`).
+const ALL_BARS: [usize; 6] = [0, 1, 2, 3, 4, 5];
 
 /// Code offsets `[(start, end)]` of code blocks: the ones of an unpatched script, then the code
 /// each step adds.
@@ -672,13 +723,13 @@ impl<'a> Script<'a> {
         self.refs.clone()
     }
 
-    /// Where the code block at `code` ends: the next code ref.
+    /// Where the code block at `code` ends: the next code ref; the last one ends at the symbol
+    /// table.
     fn block_end(&self, code: usize) -> Result<usize, MenuError> {
-        self.refs
-            .iter()
-            .copied()
-            .find(|r| *r > code)
-            .ok_or_else(|| script(format!("no code block after {code:#x}")))
+        match self.refs.iter().copied().find(|r| *r > code) {
+            Some(end) => Ok(end),
+            None => pool_end(self),
+        }
     }
 
     /// The bytes of the code block at `code`.
@@ -1242,6 +1293,26 @@ struct Emitter<'s, 'a> {
     handlers: HashMap<(String, &'static str), usize>,
     refs: &'s HashMap<String, usize>,
     relocated: &'s dyn Fn(usize) -> usize,
+    texts: &'static Texts,
+}
+
+/// A state a native handler goes to: one of the new ones (by name) or an existing one (by its
+/// state ref before the patch).
+#[derive(Clone, Copy)]
+enum Target<'n> {
+    New(&'n str),
+    Old(usize),
+}
+
+/// What a native row redraws when it gets the focus, besides its own value.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Redraw {
+    /// Only its value.
+    Row,
+    /// The Cheats page's visible rows (they scroll), then its value.
+    Cheats,
+    /// The Graphics Settings page's titles and values.
+    Graphics,
 }
 
 impl Emitter<'_, '_> {
@@ -1316,6 +1387,13 @@ impl Emitter<'_, '_> {
         Ok(())
     }
 
+    fn goto(&mut self, target: Target) -> Result<(), MenuError> {
+        match target {
+            Target::New(name) => self.goto_new(name),
+            Target::Old(state) => self.goto_old(state),
+        }
+    }
+
     fn sound(&mut self, name: &[u8]) -> Result<(), MenuError> {
         self.string(name)?;
         self.builtin(0x5c, true)
@@ -1345,24 +1423,56 @@ impl Emitter<'_, '_> {
         self.value(index, selected)
     }
 
-    fn slider(&mut self, index: usize) -> Result<(), MenuError> {
+    /// Moves slider `index` to the percent builtin `function` gives (the multiplier's own,
+    /// `0xf50 + index`, when `None`).
+    fn slider(&mut self, index: usize, function: Option<usize>) -> Result<(), MenuError> {
         self.string(format!("sliderBar{}", index + 4).as_bytes())?;
         self.integer(64)?;
         self.string(b"")?;
         self.emit(&[&[0x00][..], &0.0f32.to_be_bytes()].concat());
-        self.builtin(0xf50 + index, false)?;
+        self.builtin(function.unwrap_or(0xf50 + index), false)?;
         // Timeline seconds = percent / 30.
         self.emit(&[&[0x2b, 0x00][..], &30.0f32.to_be_bytes(), &[0x24]].concat());
         self.integer(5)?;
         self.builtin(0x5a, true)
     }
 
-    fn bars(&mut self, show: bool) -> Result<(), MenuError> {
-        for index in 0..6 {
+    /// Shows or hides the sliders `indices`.
+    fn bars(&mut self, show: bool, indices: &[usize]) -> Result<(), MenuError> {
+        for index in indices {
             self.string(format!("sliderBar{}", index + 4).as_bytes())?;
         }
-        self.integer(6)?;
+        self.integer(indices.len())?;
         self.builtin(if show { 0x58 } else { 0x59 }, true)
+    }
+
+    /// Shows scrollbar `index` with its thumb on the `visible` rows of `total` from row `first`.
+    fn scrollbar(
+        &mut self,
+        index: usize,
+        first: usize,
+        total: usize,
+        visible: usize,
+    ) -> Result<(), MenuError> {
+        let bar = format!("sliderBar{index}");
+        self.string(bar.as_bytes())?;
+        self.integer(64)?;
+        self.string(b"")?;
+        self.emit(&[&[0x00][..], &0.0f32.to_be_bytes()].concat());
+        let seconds = (first as f64 + visible as f64 / 2.0) / total as f64 * 100.0 / 30.0;
+        self.emit(&[&[0x00][..], &(seconds as f32).to_be_bytes()].concat());
+        self.integer(5)?;
+        self.builtin(0x5a, true)?;
+        self.string(bar.as_bytes())?;
+        self.integer(1)?;
+        self.builtin(0x58, true)
+    }
+
+    /// Hides scrollbar `index`.
+    fn hide_scrollbar(&mut self, index: usize) -> Result<(), MenuError> {
+        self.string(format!("sliderBar{index}").as_bytes())?;
+        self.integer(1)?;
+        self.builtin(0x59, true)
     }
 
     fn begin(&mut self, name: &str, kind: &'static str) {
@@ -1374,7 +1484,8 @@ impl Emitter<'_, '_> {
         self.emit(&[0x49]);
     }
 
-    /// The Cheats page's eight visible rows from cheat `first`; the last always shows Multipliers.
+    /// The Cheats page's eight visible rows from cheat `first`; the last always shows Multipliers,
+    /// and the scrollbar follows the seven others.
     fn cheat_window(&mut self, first: usize) -> Result<(), MenuError> {
         for slot in 0..8 {
             let row = if slot < 7 { first + slot } else { 8 };
@@ -1387,7 +1498,24 @@ impl Emitter<'_, '_> {
                 self.assign(9 + slot)?;
             }
         }
-        Ok(())
+        self.scrollbar(11, first, 8, 7)
+    }
+
+    /// The Graphics Settings page's title, rows and values (`selected` with its arrows), and the
+    /// Sharpening Strength slider, the only one it shows.
+    fn graphics_values(&mut self, selected: Option<usize>) -> Result<(), MenuError> {
+        self.string(self.texts.graphics_title.as_bytes())?;
+        self.assign(0)?;
+        for slot in 0..8 {
+            let name = self.texts.graphics_names.get(slot).copied().unwrap_or("");
+            self.string(name.as_bytes())?;
+            self.assign(1 + slot)?;
+        }
+        for index in 0..5 {
+            self.query(index, 0xf70 + index, selected == Some(index))?;
+        }
+        self.slider(3, Some(0xfa3))?;
+        self.bars(true, &[3])
     }
 
     fn selection(
@@ -1396,12 +1524,12 @@ impl Emitter<'_, '_> {
         index: usize,
         function: Option<usize>,
         selected: bool,
-        cheat: bool,
+        redraw: Redraw,
     ) -> Result<(), MenuError> {
         self.begin(name, if selected { "entry" } else { "update" });
         if selected {
             self.builtin(0x6b, true)?;
-            if cheat {
+            if redraw == Redraw::Cheats {
                 let scrolled = name == "NativeMultipliersLink"
                     || name
                         .chars()
@@ -1410,7 +1538,9 @@ impl Emitter<'_, '_> {
                         .is_some_and(|digit| digit >= 6);
                 self.cheat_window(usize::from(scrolled))?;
             }
-            if let Some(function) = function {
+            if redraw == Redraw::Graphics {
+                self.graphics_values(Some(index))?;
+            } else if let Some(function) = function {
                 self.query(index, function, true)?;
             }
         } else if function.is_some() {
@@ -1434,6 +1564,38 @@ impl Emitter<'_, '_> {
         }
         Ok(())
     }
+
+    /// The code block at `code`, with the texts of the locals in `replacements` replaced: states
+    /// that move are followed and calls are rebased.
+    fn copy_entry(
+        &mut self,
+        code: usize,
+        replacements: &HashMap<u8, Vec<u8>>,
+    ) -> Result<(), MenuError> {
+        let (s, base) = (self.s, self.s.base);
+        let first = base + s.lit + code;
+        let body = s.block_bytes(code)?;
+        for op in decode(s.data, first, first + body.len())? {
+            let relative = op.offset - base - s.lit;
+            let setter = s.data.get(op.offset + 3..op.offset + 5) == Some(&[0x09, 0xe0][..]);
+            let replacement = s
+                .data
+                .get(op.offset + 5)
+                .filter(|_| setter && op.opcode == 0x16)
+                .and_then(|local| replacements.get(local));
+            match (op.opcode, replacement) {
+                (0x16, Some(text)) => self.string(text)?,
+                (0x47, _) => self.goto_old(op.operand as usize)?,
+                (0x4a, _) => self.call(relative as i64 + 5 + signed32(op.operand)),
+                _ => self.emit(bytes_at(
+                    s.data,
+                    op.offset,
+                    op.offset + LENGTH[usize::from(op.opcode)],
+                )?),
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The literal operand `entry` assigns to `local` (the instruction before `09 e0 <local> 43`).
@@ -1447,9 +1609,19 @@ fn assigned(entry: &[u8], local: u8) -> Result<usize, MenuError> {
     )
 }
 
-/// Native Options > Cheats > Multipliers, sharing the port's existing settings; the code of the
-/// script so far is at `spans`.
-pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(), MenuError> {
+/// The Graphics Settings controls that move left and right (Frames Queued, Sharpening Strength,
+/// Anisotropic Filtering); the two others toggle.
+const SLIDING_GRAPHICS: [usize; 3] = [0, 3, 4];
+
+/// Native Options > Graphics Settings and Options > Cheats > Multipliers, sharing the port's
+/// existing settings; the code of the script so far is at `spans`. The pages are in Portuguese
+/// when `language` (`SPARTAN_LANGUAGE` of `env` when `None`) is, else in English.
+pub fn native_cheats(
+    data: &mut Vec<u8>,
+    spans: &[(usize, usize)],
+    language: Option<&str>,
+    env: Lookup,
+) -> Result<(), MenuError> {
     let s = Script::parse(data)?;
     let base = s.base;
     let options = s.one("PauseOptions")?.clone();
@@ -1461,9 +1633,11 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
     let (left, right) = (vec![0xe6, 0xf2], vec![0xe2, 0xee]);
     let toggle = vec![0xe6, 0xe2, 0xee, 0xf2, 0xe9];
     let link = || vec![up.clone(), down.clone(), confirm.clone()];
+    let back = || vec![vec![0xeb]];
     let mut specs = vec![
+        Spec::new("HLNativeGraphics", "options", link()),
         Spec::new("HLNativeCheats", "options", link()),
-        Spec::new("NativeCheats", "pause", vec![vec![0xeb]]),
+        Spec::new("NativeCheats", "pause", back()),
     ];
     for i in 0..8 {
         let events = vec![toggle.clone(), up.clone(), down.clone()];
@@ -1474,7 +1648,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         ));
     }
     specs.push(Spec::new("NativeMultipliersLink", "NativeCheats", link()));
-    specs.push(Spec::new("NativeMultipliers", "pause", vec![vec![0xeb]]));
+    specs.push(Spec::new("NativeMultipliers", "pause", back()));
     for i in 0..6 {
         let events = vec![left.clone(), right.clone(), up.clone(), down.clone()];
         specs.push(Spec::new(
@@ -1488,7 +1662,32 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         "NativeMultipliers",
         link(),
     ));
-    let option_size = specs[0].size;
+    specs.push(Spec::new("NativeGraphics", "pause", back()));
+    for i in 0..5 {
+        let events = if SLIDING_GRAPHICS.contains(&i) {
+            vec![left.clone(), right.clone(), up.clone(), down.clone()]
+        } else {
+            vec![toggle.clone(), up.clone(), down.clone()]
+        };
+        specs.push(Spec::new(
+            &format!("NativeGraphic{i}"),
+            "NativeGraphics",
+            events,
+        ));
+    }
+    for name in ["NativeGraphicsReset", "NativeGraphicsApply"] {
+        specs.push(Spec::new(name, "NativeGraphics", link()));
+    }
+    specs.push(Spec::new("NativeGraphicsConfirm", "pause", back()));
+    for name in ["NativeGraphicsResetYes", "NativeGraphicsResetNo"] {
+        specs.push(Spec::new(name, "NativeGraphicsConfirm", link()));
+    }
+    specs.push(Spec::new("NativeGraphicsRestart", "pause", back()));
+    for name in ["NativeGraphicsRestartYes", "NativeGraphicsRestartNo"] {
+        specs.push(Spec::new(name, "NativeGraphicsRestart", link()));
+    }
+    // The two Options rows go after Options' subtree, the pages after the pause menu's.
+    let option_size = specs[0].size + specs[1].size;
     let pages_size = specs.iter().map(|spec| spec.size).sum::<usize>() - option_size;
     let relocated = |at: usize| {
         at + (if at >= opt_at { option_size } else { 0 })
@@ -1498,8 +1697,9 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
     refs.insert("options".to_string(), relocated(options.at) - 4);
     refs.insert("pause".to_string(), relocated(enter.at) - 4);
     refs.insert(specs[0].name.clone(), opt_at - 4);
+    refs.insert(specs[1].name.clone(), opt_at + specs[0].size - 4);
     let mut at = pages_at + option_size;
-    for spec in &specs[1..] {
+    for spec in &specs[2..] {
         refs.insert(spec.name.clone(), at - 4);
         at += spec.size;
     }
@@ -1545,6 +1745,11 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         return Err(script("Native repeat gate not found"));
     }
     let repeat = gate as i64 + 5 + i64::from(i32::from_be_bytes(word(body, 1)?));
+    let texts: &'static Texts = if resolve_label(language, env).key == "pt" {
+        &PORTUGUESE
+    } else {
+        &ENGLISH
+    };
 
     let mut e = Emitter {
         s: &s,
@@ -1556,19 +1761,38 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         handlers: HashMap::new(),
         refs: &refs,
         relocated: &relocated,
+        texts,
     };
-    e.selection("HLNativeCheats", 2, None, true, false)?;
-    e.selection("HLNativeCheats", 2, None, false, false)?;
-    for (kind, target) in [("up", game.at - 4), ("down", audio.at - 4)] {
-        e.begin("HLNativeCheats", kind);
-        e.sound(b"SND_MM_NAV_UPDN")?;
-        e.goto_old(target)?;
+    // Graphics Settings, then Cheats, between Game Settings and Audio.
+    for (name, index, up, down, page) in [
+        (
+            "HLNativeGraphics",
+            2,
+            Target::Old(game.at - 4),
+            Target::New("HLNativeCheats"),
+            "NativeGraphics",
+        ),
+        (
+            "HLNativeCheats",
+            3,
+            Target::New("HLNativeGraphics"),
+            Target::Old(audio.at - 4),
+            "NativeCheats",
+        ),
+    ] {
+        e.selection(name, index, None, true, Redraw::Row)?;
+        e.selection(name, index, None, false, Redraw::Row)?;
+        for (kind, target) in [("up", up), ("down", down)] {
+            e.begin(name, kind);
+            e.sound(b"SND_MM_NAV_UPDN")?;
+            e.goto(target)?;
+            e.end();
+        }
+        e.begin(name, "confirm");
+        e.sound(b"SND_MM_SELECT")?;
+        e.goto_new(page)?;
         e.end();
     }
-    e.begin("HLNativeCheats", "confirm");
-    e.sound(b"SND_MM_SELECT")?;
-    e.goto_new("NativeCheats")?;
-    e.end();
 
     let cheat_rows: Vec<String> = (0..8)
         .map(|i| format!("NativeCheat{i}"))
@@ -1616,11 +1840,11 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         for index in 0..shown {
             e.query(index, functions + index, false)?;
             if is_multiplier {
-                e.slider(index)?;
+                e.slider(index, None)?;
             }
         }
         if is_multiplier {
-            e.bars(true)?;
+            e.bars(true, &ALL_BARS)?;
         } else {
             e.cheat_window(0)?;
         }
@@ -1628,7 +1852,9 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         e.end();
         e.begin(page, "update");
         if is_multiplier {
-            e.bars(false)?;
+            e.bars(false, &ALL_BARS)?;
+        } else {
+            e.hide_scrollbar(11)?;
         }
         e.end();
         e.begin(page, "back");
@@ -1639,6 +1865,11 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
             e.goto_old(options.at - 4)?;
         }
         e.end();
+        let redraw = if is_multiplier {
+            Redraw::Row
+        } else {
+            Redraw::Cheats
+        };
         for (index, name) in rows.iter().enumerate() {
             let function = (index + 1 < rows.len()).then_some(functions + index);
             let slot = if !is_multiplier && index == 8 {
@@ -1646,8 +1877,8 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
             } else {
                 index - usize::from(!is_multiplier && (6..8).contains(&index))
             };
-            e.selection(name, slot, function, true, !is_multiplier)?;
-            e.selection(name, slot, function, false, false)?;
+            e.selection(name, slot, function, true, redraw)?;
+            e.selection(name, slot, function, false, Redraw::Row)?;
             e.navigation(name, index, rows)?;
             if function.is_none() {
                 e.begin(name, "confirm");
@@ -1656,7 +1887,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
                     e.builtin(0xf60, true)?;
                     for i in 0..6 {
                         e.query(i, 0xf20 + i, false)?;
-                        e.slider(i)?;
+                        e.slider(i, None)?;
                     }
                 } else {
                     e.goto_new("NativeMultipliers")?;
@@ -1667,7 +1898,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
                     e.begin(name, kind);
                     e.call(repeat);
                     e.query(index, function, true)?;
-                    e.slider(index)?;
+                    e.slider(index, None)?;
                     e.sound(b"SND_MM_NAV_LR")?;
                     e.end();
                 }
@@ -1681,39 +1912,164 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         }
     }
 
-    // Clone Options' entry, adding Cheats at line2 and shifting Audio/Display/Exit down one row.
+    // Graphics Settings: five controls (builtins 0xf70 + i read them, 0xf80 + i and 0xf90 + i
+    // change them), Restore Defaults behind a Yes/No question (0xfb0 restores) and Apply and
+    // Restart, which asks only when a change waits for a restart (0xfc9).
+    let graphics_rows: Vec<String> = (0..5)
+        .map(|i| format!("NativeGraphic{i}"))
+        .chain(["NativeGraphicsReset", "NativeGraphicsApply"].map(String::from))
+        .collect();
+    let confirmation_rows: Vec<String> = ["NativeGraphicsResetYes", "NativeGraphicsResetNo"]
+        .map(String::from)
+        .to_vec();
+    for (page, title, row_names, rows) in [
+        (
+            "NativeGraphics",
+            texts.graphics_title,
+            &texts.graphics_names[..],
+            &graphics_rows,
+        ),
+        (
+            "NativeGraphicsConfirm",
+            texts.restore_graphics,
+            &texts.yes_no[..],
+            &confirmation_rows,
+        ),
+    ] {
+        let graphics = page == "NativeGraphics";
+        e.begin(page, "entry");
+        e.string(title.as_bytes())?;
+        e.assign(0)?;
+        for index in 0..8 {
+            e.string(row_names.get(index).copied().unwrap_or("").as_bytes())?;
+            e.assign(1 + index)?;
+            e.string(b"")?;
+            e.assign(9 + index)?;
+        }
+        for local in 0x19..0x1d {
+            e.string(b"")?;
+            e.assign(local)?;
+        }
+        e.bars(false, &ALL_BARS)?;
+        if graphics {
+            e.graphics_values(None)?;
+        }
+        // The question starts on No.
+        e.goto_new(&rows[usize::from(!graphics)])?;
+        e.end();
+        e.begin(page, "update");
+        e.bars(false, &ALL_BARS)?;
+        e.end();
+        e.begin(page, "back");
+        e.sound(b"SND_MM_BACK")?;
+        e.goto_new(if graphics {
+            "HLNativeGraphics"
+        } else {
+            "NativeGraphicsReset"
+        })?;
+        e.end();
+        let redraw = if graphics {
+            Redraw::Graphics
+        } else {
+            Redraw::Row
+        };
+        for (index, name) in rows.iter().enumerate() {
+            let function = (graphics && index < 5).then_some(0xf70 + index);
+            e.selection(name, index, function, true, redraw)?;
+            e.selection(name, index, function, false, Redraw::Row)?;
+            e.navigation(name, index, rows)?;
+            if function.is_none() {
+                e.begin(name, "confirm");
+                e.sound(b"SND_MM_SELECT")?;
+                if name == "NativeGraphicsResetYes" {
+                    e.builtin(0xfb0, true)?;
+                }
+                if name == "NativeGraphicsApply" {
+                    // No change waits for a restart: the state stays.
+                    e.builtin(0xfc9, false)?;
+                    e.emit(&[&[0x17][..], &be(5, 2)?].concat());
+                    e.goto_new("NativeGraphicsRestart")?;
+                } else if name == "NativeGraphicsReset" {
+                    e.goto_new("NativeGraphicsConfirm")?;
+                } else {
+                    e.goto_new("NativeGraphicsReset")?;
+                }
+                e.end();
+                continue;
+            }
+            let actions = if SLIDING_GRAPHICS.contains(&index) {
+                vec![("left", 0xf80 + index), ("right", 0xf90 + index)]
+            } else {
+                vec![("toggle", 0xf90 + index)]
+            };
+            for (kind, function) in actions {
+                e.begin(name, kind);
+                e.call(repeat);
+                for other in 0..5 {
+                    let read = if other == index {
+                        function
+                    } else {
+                        0xf70 + other
+                    };
+                    e.query(other, read, other == index)?;
+                }
+                e.slider(3, Some(0xfa3))?;
+                e.sound(b"SND_MM_NAV_LR")?;
+                e.end();
+            }
+        }
+    }
+
+    // Apply and Restart's question; yes restarts the game (0xfcb), both go back to the row.
+    let restart_rows = ["NativeGraphicsRestartYes", "NativeGraphicsRestartNo"].map(String::from);
+    e.begin("NativeGraphicsRestart", "entry");
+    e.string(texts.restart.as_bytes())?;
+    e.assign(0)?;
+    for index in 0..8 {
+        let answer = texts.restart_answers.get(index).copied().unwrap_or("");
+        e.string(answer.as_bytes())?;
+        e.assign(1 + index)?;
+        e.string(b"")?;
+        e.assign(9 + index)?;
+    }
+    e.bars(false, &ALL_BARS)?;
+    e.goto_new(&restart_rows[1])?;
+    e.end();
+    e.begin("NativeGraphicsRestart", "update");
+    e.end();
+    e.begin("NativeGraphicsRestart", "back");
+    e.goto_new("NativeGraphicsApply")?;
+    e.end();
+    for (index, name) in restart_rows.iter().enumerate() {
+        e.selection(name, index, None, true, Redraw::Row)?;
+        e.selection(name, index, None, false, Redraw::Row)?;
+        e.navigation(name, index, &restart_rows)?;
+        e.begin(name, "confirm");
+        if index == 0 {
+            e.builtin(0xfcb, true)?;
+        }
+        e.goto_new("NativeGraphicsApply")?;
+        e.end();
+    }
+
+    // Clone Options' entry, adding Graphics Settings at line2 and Cheats at line3 and shifting
+    // Audio/Display/Exit down two rows.
     let old_entry = first_block(&options, 1)?;
     let original_entry = s.block_bytes(old_entry)?;
-    let mut replacements: HashMap<u8, Vec<u8>> = HashMap::from([(3, b"Cheats".to_vec())]);
+    let mut replacements: HashMap<u8, Vec<u8>> = HashMap::from([
+        (3, texts.graphics_title.as_bytes().to_vec()),
+        (4, b"Cheats".to_vec()),
+    ]);
     for old_local in [3u8, 4, 5] {
         let value = assigned(original_entry, old_local)?;
         // The Python reads it as Latin-1 and writes it back as UTF-8.
-        replacements.insert(old_local + 1, s.string(s.lit + value)?.into_bytes());
+        replacements.insert(old_local + 2, s.string(s.lit + value)?.into_bytes());
     }
     // Keep existing non-ASCII Exit labels as bytes (their source encoding is UTF-8).
     let exit = assigned(original_entry, 5)?;
-    replacements.insert(6, until_nul(s.data, base + s.lit + exit).to_vec());
+    replacements.insert(7, until_nul(s.data, base + s.lit + exit).to_vec());
     let options_entry = e.code.len();
-    let first = base + s.lit + old_entry;
-    for op in decode(s.data, first, first + original_entry.len())? {
-        let relative = op.offset - base - s.lit;
-        let setter = s.data.get(op.offset + 3..op.offset + 5) == Some(&[0x09, 0xe0][..]);
-        let replacement = s
-            .data
-            .get(op.offset + 5)
-            .filter(|_| setter && op.opcode == 0x16)
-            .and_then(|local| replacements.get(local));
-        match (op.opcode, replacement) {
-            (0x16, Some(text)) => e.string(text)?,
-            (0x47, _) => e.goto_old(op.operand as usize)?,
-            (0x4a, _) => e.call(relative as i64 + 5 + signed32(op.operand)),
-            _ => e.emit(bytes_at(
-                s.data,
-                op.offset,
-                op.offset + LENGTH[usize::from(op.opcode)],
-            )?),
-        }
-    }
+    e.copy_entry(old_entry, &replacements)?;
     let Emitter {
         start,
         mut code,
@@ -1740,9 +2096,20 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
             }
         }
     }
-    let cheats_ref = opt_at - 4;
-    edits.push(retarget(&s, &game, &DOWN, audio.at - 4, cheats_ref)?);
-    edits.push(retarget(&s, &audio, &UP, game.at - 4, cheats_ref)?);
+    edits.push(retarget(
+        &s,
+        &game,
+        &DOWN,
+        audio.at - 4,
+        refs["HLNativeGraphics"],
+    )?);
+    edits.push(retarget(
+        &s,
+        &audio,
+        &UP,
+        game.at - 4,
+        refs["HLNativeCheats"],
+    )?);
     let entry_item = options
         .items
         .iter()
@@ -1765,7 +2132,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
             let bytes = s.block_bytes(block.code)?;
             let source = push(s.literal(format!("menuItem{old_index}Select").as_bytes())?)?;
             let destination =
-                push(s.literal(format!("menuItem{}Select", old_index + 1).as_bytes())?)?;
+                push(s.literal(format!("menuItem{}Select", old_index + 2).as_bytes())?)?;
             let at = find(bytes, &source, 0, bytes.len())
                 .filter(|_| count(bytes, &source) == 1)
                 .ok_or_else(|| script("Options selection animation not found"))?;
@@ -1798,7 +2165,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
     let mut records = Vec::new();
     for spec in &specs {
         let mut size = spec.size;
-        if spec.name == "NativeCheats" || spec.name == "NativeMultipliers" {
+        if spec.parent == "pause" {
             size += specs
                 .iter()
                 .filter(|child| child.parent == spec.name)
@@ -1826,11 +2193,17 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         ]
         .concat();
         let numbered = spec.name.chars().last().is_some_and(|c| c.is_ascii_digit());
+        let graphic = spec
+            .name
+            .strip_prefix("NativeGraphic")
+            .and_then(|index| index.parse::<usize>().ok());
         let event_names: &[&'static str] = if spec.parent == "pause" {
             &["back"]
-        } else if spec.name.starts_with("NativeMultiplier") && numbered {
+        } else if (spec.name.starts_with("NativeMultiplier") && numbered)
+            || graphic.is_some_and(|index| SLIDING_GRAPHICS.contains(&index))
+        {
             &["left", "right", "up", "down"]
-        } else if spec.name.starts_with("NativeCheat") && numbered {
+        } else if (spec.name.starts_with("NativeCheat") && numbered) || graphic.is_some() {
             &["toggle", "up", "down"]
         } else {
             &["up", "down", "confirm"]
@@ -1847,7 +2220,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         }
         records.extend(record);
     }
-    let (option_record, pages) = records.split_at(option_size.min(records.len()));
+    let (option_records, pages) = records.split_at(option_size.min(records.len()));
     splice(
         data,
         base + symtab,
@@ -1855,7 +2228,7 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
         &[strings.as_slice(), &code, &symbols].concat(),
     );
     splice(data, base + pages_at, base + pages_at, pages);
-    splice(data, base + opt_at, base + opt_at, option_record);
+    splice(data, base + opt_at, base + opt_at, option_records);
     let states = option_size + pages_size;
     let grown = states + strings.len() + code.len() + symbols.len() - (old_size - symtab);
     for (offset, amount) in [
@@ -1868,7 +2241,26 @@ pub fn native_cheats(data: &mut Vec<u8>, spans: &[(usize, usize)]) -> Result<(),
     }
     put_le32(data, base - 0x40 + 4, old_size + grown)?;
     repad(data, base + old_size + grown, old_size, old_size + grown);
-    native_multiplier_bars(data)
+    native_multiplier_bars(data)?;
+    // Display's rows, Cheats' unpinned rows and Controls' rows.
+    native_scrollbar(data, 10, 13, 8)?;
+    native_scrollbar(data, 11, 8, 7)?;
+    native_scrollbar(data, 12, 11, 8)
+}
+
+/// The highest id of the WAD's object instances (148-byte entries of kind 0x1f) that is in the
+/// first group (`>> 16 == 1`).
+fn last_instance_id(data: &[u8], all: &[Entry]) -> Result<usize, MenuError> {
+    let mut ids = Vec::new();
+    for entry in all {
+        if entry.size == 148 && le32(data, entry.offset)? == 0x1f_0001 {
+            ids.push(le32(data, entry.offset + 64 + 0x3c)?);
+        }
+    }
+    ids.into_iter()
+        .filter(|id| id >> 16 == 1)
+        .max()
+        .ok_or_else(|| script("max() iterable argument is empty"))
 }
 
 /// Dedicated sliders left of the values, preserving the original audio/display controls.
@@ -1895,17 +2287,7 @@ pub fn native_multiplier_bars(data: &mut Vec<u8>) -> Result<(), MenuError> {
         .find(|e| e.name == "gosliderbar3" && e.size == 0)
         .ok_or_else(|| script("Native slider template not recognized"))?
         .offset;
-    let mut instance_ids = Vec::new();
-    for entry in &all {
-        if entry.size == 148 && le32(data, entry.offset)? == 0x1f_0001 {
-            instance_ids.push(le32(data, entry.offset + 64 + 0x3c)?);
-        }
-    }
-    let last = instance_ids
-        .into_iter()
-        .filter(|id| id >> 16 == 1)
-        .max()
-        .ok_or_else(|| script("max() iterable argument is empty"))?;
+    let last = last_instance_id(data, &all)?;
     let (mut groups, mut references) = (Vec::new(), Vec::new());
     for index in 4..10usize {
         let mut name = format!("gosliderbar{index}").into_bytes();
@@ -1925,6 +2307,109 @@ pub fn native_multiplier_bars(data: &mut Vec<u8>) -> Result<(), MenuError> {
     splice(data, reference + 64, reference + 64, &references);
     let after = source + 64 + 160 + 64;
     splice(data, after, after, &groups);
+    Ok(())
+}
+
+/// `struct.unpack_from('<f', data, at)[0]`.
+fn le_f32(data: &[u8], at: usize) -> Result<f64, MenuError> {
+    Ok(f64::from(f32::from_le_bytes(word(data, at)?)))
+}
+
+/// A native slider cloned as the vertical scrollbar `gosliderbar{index}` of a page that shows
+/// `visible` of its `total` rows: an isolated mesh whose thumb is that share of the track, its
+/// own model and template (the original animation and materials), and an instance turned
+/// downward beside the rows.
+pub fn native_scrollbar(
+    data: &mut Vec<u8>,
+    index: usize,
+    total: usize,
+    visible: usize,
+) -> Result<(), MenuError> {
+    let all = entries(data);
+    let objects: HashMap<&str, (usize, usize)> = all
+        .iter()
+        .filter(|e| e.size != 0)
+        .map(|e| (e.name.as_str(), (e.offset, e.size)))
+        .collect();
+    let unknown = || script("Native scrollbar template not recognized");
+    let object = |name: &str| objects.get(name).copied().ok_or_else(unknown);
+    let (mesh_at, mesh_size) = object("MG_95eaf70b_0")?;
+    let (instance_at, instance_size) = object("gosliderbar3")?;
+    let (model_at, _) = object("MDL_1d029412")?;
+    let (template_at, template_size) = object("95eaf70b")?;
+    if mesh_size != 880 || instance_size != 148 || template_size != 500 {
+        return Err(unknown());
+    }
+    let template_name = format!("{:08x}", 0x95ea_f70c + index - 10);
+    let model_name = format!("{:08x}", 0x1d02_9413 + index - 10);
+    let mut instance_name = format!("gosliderbar{index}").into_bytes();
+    instance_name.resize(56, 0);
+    let mut mesh = bytes_at(data, mesh_at, mesh_at + 64 + mesh_size)?.to_vec();
+    let mut mesh_name = format!("MG_{template_name}_0").into_bytes();
+    mesh_name.resize(56, 0);
+    put(&mut mesh, 8, &mesh_name)?;
+    let vertex = |i: usize| 64 + 0x220 + i * 20;
+    let xs = (0..4)
+        .map(|i| le_f32(&mesh, vertex(i)))
+        .collect::<Result<Vec<f64>, _>>()?;
+    let high = xs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let low = xs.iter().copied().fold(f64::INFINITY, f64::min);
+    if high == low {
+        return Err(script("float division by zero"));
+    }
+    let center = (high + low) / 2.0;
+    let scale = (2.98 * visible as f64 / total as f64) / (high - low);
+    for (i, x) in xs.into_iter().enumerate() {
+        let moved = (center + (x - center) * scale) as f32;
+        put(&mut mesh, vertex(i), &moved.to_le_bytes())?;
+    }
+    // Keep the original animation and materials; only this model uses the wider thumb.
+    let group_end = all
+        .iter()
+        .find(|e| e.offset > template_at && e.name == "GroupEnd")
+        .map(|e| e.offset + 64)
+        .ok_or_else(unknown)?;
+    let model_start = model_at.checked_sub(64).ok_or_else(unknown)?;
+    let model = replace(
+        bytes_at(data, model_start, group_end)?,
+        b"95eaf70b",
+        template_name.as_bytes(),
+    );
+    let model = replace(&model, b"1d029412", model_name.as_bytes());
+    let animation = [&b"ANM_"[..], template_name.as_bytes()].concat();
+    let model = replace(&model, &animation, b"ANM_95eaf70b");
+    let instance_start = instance_at.checked_sub(64).ok_or_else(unknown)?;
+    let mut instance = bytes_at(data, instance_start, instance_at + 64 + 160 + 64)?.to_vec();
+    put(&mut instance, 72, &instance_name)?;
+    put(&mut instance, 132, template_name.as_bytes())?;
+    put_le32(&mut instance, 128 + 0x3c, last_instance_id(data, &all)? + 1)?;
+    // Rotate local X downward and align the track with the scrollable rows.
+    let length = (visible - 1) as f64 * 0.75 / 2.98;
+    let floats = |values: &[f64]| -> Vec<u8> {
+        values
+            .iter()
+            .flat_map(|value| (*value as f32).to_le_bytes())
+            .collect()
+    };
+    put(&mut instance, 128 + 0x40, &floats(&[0.0, -length, 0.0]))?;
+    put(&mut instance, 128 + 0x4c, &floats(&[0.45, 0.0, 0.0]))?;
+    put(
+        &mut instance,
+        128 + 0x64,
+        &floats(&[406.4, 2.95 - 3.65489149 * length]),
+    )?;
+    let index =
+        u16::try_from(index).map_err(|_| script("ushort format requires 0 <= number <= 65535"))?;
+    put(&mut instance, 128 + 0x76, &index.to_le_bytes())?;
+    let reference = all
+        .iter()
+        .find(|e| e.name == "gosliderbar3" && e.size == 0)
+        .ok_or_else(unknown)?
+        .offset;
+    let entry = [bytes_at(data, reference, reference + 8)?, &instance_name].concat();
+    splice(data, reference + 64, reference + 64, &entry);
+    splice(data, instance_start, instance_start, &instance);
+    splice(data, mesh_at, mesh_at, &[mesh, model].concat());
     Ok(())
 }
 
@@ -2144,7 +2629,7 @@ pub fn patch(data: &[u8], language: Option<&str>, env: Lookup) -> Result<Vec<u8>
         .collect();
     spans.push((pause_pieces.entry, new_code_end));
     display_health_bar(&mut work, &mut spans)?;
-    native_cheats(&mut work, &spans)?;
+    native_cheats(&mut work, &spans, language, env)?;
     Ok(work)
 }
 
@@ -2230,7 +2715,9 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     //! `tests/test_pause_menu.py::Refusals` and `Labels`, which need no files of the game; the tests
-    //! on the real `R_UI.WAD` (`GameScript`, `tests/test_native_cheats.py`) are in `tests/dump.rs`.
+    //! on the real `R_UI.WAD` (`GameScript`, `tests/test_native_cheats.py`) are in `tests/dump.rs`,
+    //! but those of the Graphics Settings page and of the scrollbars, which run here on a synthetic
+    //! script laid out like it.
     use super::*;
 
     /// A WAD of one entry (`tests/test_pause_menu.py::wad`).
@@ -2632,5 +3119,716 @@ mod tests {
         );
         assert_eq!(python_path(Path::new(".")), ".");
         assert_eq!(python_path(Path::new("./a")), "a");
+    }
+
+    #[test]
+    fn the_last_block_ends_at_the_symbol_table() {
+        let data = tiny_script();
+        let s = Script::parse(&data).unwrap();
+        // Child's UP (13) is the last block: it runs over the literal pool up to the symbol table.
+        assert_eq!(s.block_end(13).unwrap(), s.symtab - s.lit);
+        assert_eq!(
+            s.block_bytes(13).unwrap(),
+            [0x47, 0, 0, 0, 0x14, 0x49, 0, b'H', b'i', 0]
+        );
+        assert_eq!(s.block_bytes(8).unwrap(), [0x16, 0x00, 0x14, 0x43, 0x49]);
+    }
+
+    // -- The native pages, on a synthetic script ----------------------------------------------------
+    //
+    // `tests/test_native_cheats.py` and `GameScript` run on the game's R_UI.WAD; these run the same
+    // checks on a script laid out like it, with the states and the slider assets the pages use.
+
+    /// A piece of a synthetic block: bytes, the push of a text, a goto to a state or a call to the
+    /// first block of a state (states by label).
+    enum Code {
+        Raw(Vec<u8>),
+        Text(&'static str),
+        Goto(&'static str),
+        Call(&'static str),
+    }
+
+    /// A state of a synthetic script: its label (unique), its symbol, its parent's label and its
+    /// blocks `(kind, triggers, code)`.
+    struct State {
+        label: &'static str,
+        name: &'static str,
+        parent: Option<&'static str>,
+        blocks: Vec<(u8, Vec<usize>, Vec<Code>)>,
+    }
+
+    fn set(local: u8) -> Code {
+        Code::Raw(vec![0x09, 0xe0, local, 0x43])
+    }
+
+    fn ret() -> Code {
+        Code::Raw(vec![0x49])
+    }
+
+    /// The highlight animation of an Options row (PauseText, layer `layer`, `item`).
+    fn highlight(item: &'static str, layer: u8) -> Vec<Code> {
+        vec![
+            Code::Text("PauseText"),
+            Code::Raw(vec![0x01, 0, 0, 0, layer]),
+            Code::Text(item),
+            Code::Raw(vec![0x01, 0, 0, 0, 3, 0x13, 0x00, 0x5a, 0x43]),
+            ret(),
+        ]
+    }
+
+    /// An Options row: its highlight on `item` and its arrows to `up` and `down`.
+    fn options_row(
+        label: &'static str,
+        name: &'static str,
+        item: &'static str,
+        up: &'static str,
+        down: &'static str,
+    ) -> State {
+        State {
+            label,
+            name,
+            parent: Some("PauseOptions"),
+            blocks: vec![
+                (1, vec![], highlight(item, 8)),
+                (2, vec![], highlight(item, 9)),
+                (3, UP.to_vec(), vec![Code::Goto(up), ret()]),
+                (3, DOWN.to_vec(), vec![Code::Goto(down), ret()]),
+            ],
+        }
+    }
+
+    /// The `SMI_R_UI` of `states` (in preorder; the first is the root): the header, the state
+    /// table, the code, the literal pool (the texts the code pushes, then `extra`) and the symbol
+    /// table.
+    fn smi(states: &[State], extra: &[&'static str]) -> Vec<u8> {
+        let index = |label: &str| states.iter().position(|s| s.label == label).unwrap();
+        let own: Vec<usize> = states
+            .iter()
+            .map(|s| {
+                12 + s
+                    .blocks
+                    .iter()
+                    .map(|(_, t, _)| 4 + 4 * t.len())
+                    .sum::<usize>()
+            })
+            .collect();
+        let (mut at, mut next) = (Vec::new(), 0x18);
+        for size in &own {
+            at.push(next);
+            next += size;
+        }
+        let code = next;
+        let mut subtree = own.clone();
+        for (i, state) in states.iter().enumerate() {
+            let mut parent = state.parent;
+            while let Some(label) = parent {
+                subtree[index(label)] += own[i];
+                parent = states[index(label)].parent;
+            }
+        }
+        let length = |piece: &Code| match piece {
+            Code::Raw(bytes) => bytes.len(),
+            Code::Text(_) => 3,
+            Code::Goto(_) | Code::Call(_) => 5,
+        };
+        let (mut refs, mut offset) = (Vec::new(), 0);
+        for state in states {
+            let mut mine = Vec::new();
+            for (_, _, body) in &state.blocks {
+                mine.push(offset);
+                offset += body.iter().map(length).sum::<usize>();
+            }
+            refs.push(mine);
+        }
+        let mut texts: Vec<&str> = Vec::new();
+        let pushed = states
+            .iter()
+            .flat_map(|s| &s.blocks)
+            .flat_map(|(_, _, body)| body)
+            .filter_map(|piece| match piece {
+                Code::Text(text) => Some(*text),
+                _ => None,
+            });
+        for text in pushed.chain(extra.iter().copied()) {
+            if !texts.contains(&text) {
+                texts.push(text);
+            }
+        }
+        let (mut pool, mut text_at) = (Vec::new(), HashMap::new());
+        for text in texts {
+            text_at.insert(text, offset + pool.len());
+            pool.extend_from_slice(text.as_bytes());
+            pool.push(0);
+        }
+        let symtab = code + 4 + offset + pool.len();
+
+        let mut out = vec![0u8; 0x18];
+        for (i, state) in states.iter().enumerate() {
+            out.extend(be(0x0400_0000 | subtree[i], 4).unwrap());
+            // The game's roots have 0 as their parent.
+            let parent = state.parent.map_or(0, |p| at[index(p)] - 4);
+            out.extend(be(parent, 4).unwrap());
+            out.extend(be(4 + 8 * i, 4).unwrap());
+            for ((kind, triggers, _), code_ref) in state.blocks.iter().zip(&refs[i]) {
+                out.extend(be(usize::from(*kind) << 24 | code_ref, 4).unwrap());
+                out.extend(trigger_words(triggers).unwrap());
+            }
+        }
+        assert_eq!(out.len(), code);
+        out.extend([0; 4]);
+        for (state, starts) in states.iter().zip(&refs) {
+            for ((_, _, body), start) in state.blocks.iter().zip(starts) {
+                let mut here = *start;
+                for piece in body {
+                    match piece {
+                        Code::Raw(bytes) => out.extend(bytes),
+                        Code::Text(text) => out.extend(push(text_at[text]).unwrap()),
+                        Code::Goto(label) => {
+                            out.push(0x47);
+                            out.extend(be(at[index(label)] - 4, 4).unwrap());
+                        }
+                        Code::Call(label) => {
+                            out.extend(call(refs[index(label)][0] as i64, here).unwrap())
+                        }
+                    }
+                    here += length(piece);
+                }
+            }
+        }
+        out.extend(pool);
+        assert_eq!(out.len(), symtab);
+        out.extend([0; 8]);
+        let mut names = Vec::new();
+        for state in states {
+            out.extend([0; 4]);
+            out.extend(be(4 + 8 * states.len() + names.len(), 4).unwrap());
+            names.extend_from_slice(state.name.as_bytes());
+            names.push(0);
+        }
+        out.extend(names);
+        let size = out.len();
+        for (offset, value) in [(0x08, size - 4), (0x0c, code), (0x10, symtab)] {
+            put_le32(&mut out, offset, value).unwrap();
+        }
+        out
+    }
+
+    /// A WAD of entries `(tag, kind, name, data)`; one without data is a reference.
+    fn wad_of(entries: &[(u16, u16, &str, Vec<u8>)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (tag, kind, name, payload) in entries {
+            out.extend(tag.to_le_bytes());
+            out.extend(kind.to_le_bytes());
+            out.extend((payload.len() as u32).to_le_bytes());
+            let mut field = name.as_bytes().to_vec();
+            field.resize(56, 0);
+            out.extend(field);
+            let mut data = payload.clone();
+            data.resize((payload.len() + 15) & !15, 0);
+            out.extend(data);
+        }
+        out
+    }
+
+    /// A WAD laid out as the game's R_UI.WAD around what the native pages use: the menu script
+    /// (the pause page with Options and Game Settings), then the slider the bars and scrollbars clone:
+    /// its animation, its mesh, the groups of its model and of its template, the group of its
+    /// instance and, last, the instance's reference.
+    fn native_wad() -> Vec<u8> {
+        use Code::{Call, Goto, Raw, Text};
+        let mut options_entry = Vec::new();
+        let rows = [
+            "Options",
+            "Controls",
+            "Game Settings",
+            "Audio",
+            "Display",
+            "Exit to Desktop",
+            "",
+            "",
+            "",
+        ];
+        for (local, text) in rows.into_iter().enumerate() {
+            options_entry.extend([Text(text), set(local as u8)]);
+        }
+        options_entry.extend([Call("EnterPause"), ret()]);
+        let mut game = options_row(
+            "HLGSettings",
+            "HLGSettings",
+            "menuItem1Select",
+            "HLControls",
+            "HLAudio",
+        );
+        game.blocks
+            .push((3, CONFIRM.to_vec(), vec![Goto("PauseGSettings"), ret()]));
+        let states = [
+            State {
+                label: "EnterPause",
+                name: "EnterPause",
+                parent: None,
+                blocks: vec![(1, vec![], vec![ret()])],
+            },
+            State {
+                label: "PauseOptions",
+                name: "PauseOptions",
+                parent: Some("EnterPause"),
+                blocks: vec![
+                    (1, vec![], options_entry),
+                    (3, vec![0xeb], vec![Goto("EnterPause"), ret()]),
+                ],
+            },
+            options_row(
+                "HLControls",
+                "HLControls",
+                "menuItem0Select",
+                "Exit",
+                "HLGSettings",
+            ),
+            game,
+            options_row(
+                "HLAudio",
+                "HLAudio",
+                "menuItem2Select",
+                "HLGSettings",
+                "Display",
+            ),
+            options_row("Display", "HLDisplay", "menuItem3Select", "HLAudio", "Exit"),
+            options_row(
+                "Exit",
+                "HLDisplay",
+                "menuItem4Select",
+                "Display",
+                "HLControls",
+            ),
+            State {
+                label: "PauseGSettings",
+                name: "PauseGSettings",
+                parent: Some("EnterPause"),
+                blocks: vec![
+                    (1, vec![], vec![ret()]),
+                    (3, vec![0xeb], vec![Goto("PauseOptions"), ret()]),
+                ],
+            },
+            State {
+                label: "HLSubtitleDis",
+                name: "HLSubtitleDis",
+                parent: Some("PauseGSettings"),
+                blocks: vec![
+                    (1, vec![], highlight("menuItem0Select", 8)),
+                    (
+                        3,
+                        vec![0xe6, 0xe2, 0xee, 0xf2],
+                        vec![Call("EnterPause"), Raw(vec![0x13, 0x00, 0x6b, 0x43]), ret()],
+                    ),
+                    (3, UP.to_vec(), vec![Goto("HLSubtitleDis"), ret()]),
+                ],
+            },
+        ];
+        let extra = [
+            "menuItem5Select",
+            "menuItem6Select",
+            "menuItem7Select",
+            "SND_MM_NAV_UPDN",
+            "SND_MM_SELECT",
+        ];
+        let floats = |data: &mut Vec<u8>, at: usize, values: &[f32]| {
+            for (i, value) in values.iter().enumerate() {
+                data[at + 4 * i..at + 4 * i + 4].copy_from_slice(&value.to_le_bytes());
+            }
+        };
+        let mut mesh = vec![0u8; 880];
+        for (i, x) in [0.154f32, -0.153, -0.153, 0.153].into_iter().enumerate() {
+            floats(&mut mesh, 0x220 + i * 20, &[x]);
+        }
+        let mut instance = vec![0u8; 148];
+        instance[..12].copy_from_slice(b"\x01\x00\x02\x0095eaf70b");
+        instance[0x3c..0x40].copy_from_slice(&0x1_007bu32.to_le_bytes());
+        floats(&mut instance, 0x40, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        floats(&mut instance, 0x64, &[404.3, 0.7]);
+        instance[0x76..0x78].copy_from_slice(&3u16.to_le_bytes());
+        let mut template = vec![0u8; 500];
+        template[..13].copy_from_slice(b"ANM_95eaf70b\0");
+        wad_of(&[
+            (1, 0x09, "SMI_R_UI", smi(&states, &extra)),
+            (1, 0x34, "ANM_95eaf70b", vec![0xa5; 20]),
+            (1, 0x52, "MG_95eaf70b_0", mesh),
+            (2, 0, "GroupStart", vec![]),
+            (1, 0x52, "MDL_1d029412", b"MG_95eaf70b_0\0".to_vec()),
+            (1, 0, "MG_95eaf70b_0", vec![]),
+            (3, 0, "GroupEnd", vec![]),
+            (2, 0, "GroupStart", vec![]),
+            (1, 0x1f, "95eaf70b", template),
+            (1, 0, "ANM_95eaf70b", vec![]),
+            (1, 0, "MDL_1d029412", vec![]),
+            (3, 0, "GroupEnd", vec![]),
+            (2, 0, "GroupStart", vec![]),
+            (1, 0x1f, "gosliderbar3", instance),
+            (3, 0, "GroupEnd", vec![]),
+            (1, 0, "gosliderbar3", vec![]),
+            (3, 0, "GroupEnd", vec![]),
+        ])
+    }
+
+    /// [`native_wad`] with the native pages in `language`.
+    fn native(language: &str) -> Vec<u8> {
+        let mut data = native_wad();
+        let spans = Script::parse(&data).unwrap().spans().unwrap();
+        native_cheats(&mut data, &spans, Some(language), &no_env).unwrap();
+        data
+    }
+
+    /// The instructions of `record`'s first block of `kind` (with `triggers`)
+    /// (`tests/test_native_cheats.py::NativeCheats.block`).
+    fn block(s: &Script, record: &Record, kind: u8, triggers: Option<&[usize]>) -> Vec<Op> {
+        let at = Script::blocks(record)
+            .into_iter()
+            .find(|b| b.kind == kind && triggers.is_none_or(|t| b.triggers == t))
+            .unwrap()
+            .code;
+        let first = s.base + s.lit + at;
+        decode(s.data(), first, first + s.block_bytes(at).unwrap().len()).unwrap()
+    }
+
+    /// The state `name` goes to when `triggers` fire.
+    fn target(s: &Script, name: &str, triggers: &[usize]) -> usize {
+        let code = block(s, s.one(name).unwrap(), 3, Some(triggers));
+        code.iter().find(|op| op.opcode == 0x47).unwrap().operand as usize
+    }
+
+    /// The state ref of the state `name`.
+    fn state_ref(s: &Script, name: &str) -> usize {
+        s.one(name).unwrap().at - 4
+    }
+
+    /// The texts `code` pushes.
+    fn texts(s: &Script, code: &[Op]) -> Vec<String> {
+        code.iter()
+            .filter(|op| op.opcode == 0x16)
+            .map(|op| s.string(s.lit + op.operand as usize).unwrap())
+            .collect()
+    }
+
+    /// The builtins `code` calls.
+    fn calls(code: &[Op]) -> Vec<usize> {
+        code.iter()
+            .filter(|op| op.opcode == 0x13)
+            .map(|op| op.operand as usize)
+            .collect()
+    }
+
+    /// The texts `entry` assigns, by local.
+    fn assignments(s: &Script, entry: &[Op]) -> HashMap<u64, String> {
+        entry
+            .windows(2)
+            .filter(|pair| pair[0].opcode == 0x16 && pair[1].opcode == 0x09)
+            .map(|pair| {
+                let text = s.string(s.lit + pair[0].operand as usize).unwrap();
+                (pair[1].operand & 0xff, text)
+            })
+            .collect()
+    }
+
+    /// `{name: (data offset, size)}` of the WAD entries with data (the last of a name wins).
+    fn objects(data: &[u8]) -> HashMap<String, (usize, usize)> {
+        entries(data)
+            .into_iter()
+            .filter(|e| e.size != 0)
+            .map(|e| (e.name, (e.offset + 64, e.size)))
+            .collect()
+    }
+
+    /// The width of the thumb of the mesh at `mesh` (its four vertices' x).
+    fn thumb_width(data: &[u8], mesh: usize) -> f64 {
+        let xs: Vec<f32> = (0..4)
+            .map(|i| f32::from_le_bytes(word(data, mesh + 0x220 + i * 20).unwrap()))
+            .collect();
+        let high = xs.iter().copied().fold(f32::MIN, f32::max);
+        let low = xs.iter().copied().fold(f32::MAX, f32::min);
+        f64::from(high) - f64::from(low)
+    }
+
+    /// The scrollbar time `code` sets on `bar` (the float four instructions after its name).
+    fn scrollbar_time(s: &Script, code: &[Op], bar: &str) -> f32 {
+        let marker = code
+            .iter()
+            .position(|op| {
+                op.opcode == 0x16 && s.string(s.lit + op.operand as usize).unwrap() == bar
+            })
+            .unwrap();
+        f32::from_bits(code[marker + 4].operand as u32)
+    }
+
+    #[test]
+    fn graphics_and_cheats_follow_game_settings_before_audio() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        let (graphics, cheats) = (
+            state_ref(&s, "HLNativeGraphics"),
+            state_ref(&s, "HLNativeCheats"),
+        );
+        assert_eq!(target(&s, "HLGSettings", &DOWN), graphics);
+        assert_eq!(
+            target(&s, "HLNativeGraphics", &UP),
+            state_ref(&s, "HLGSettings")
+        );
+        assert_eq!(target(&s, "HLNativeGraphics", &DOWN), cheats);
+        assert_eq!(target(&s, "HLAudio", &UP), cheats);
+        assert_eq!(target(&s, "HLNativeCheats", &UP), graphics);
+        assert_eq!(
+            target(&s, "HLNativeCheats", &DOWN),
+            state_ref(&s, "HLAudio")
+        );
+        // A goto to a state after the new Options rows follows it.
+        assert_eq!(
+            target(&s, "HLGSettings", &CONFIRM),
+            state_ref(&s, "PauseGSettings")
+        );
+    }
+
+    #[test]
+    fn graphics_initializes_only_its_four_controls_and_returns_to_its_link() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        let page = s.one("NativeGraphics").unwrap();
+        let entry = calls(&block(&s, page, 1, None));
+        for index in 0..4 {
+            assert!(entry.contains(&(0xf70 + index)), "{index}");
+            let row = s.one(&format!("NativeGraphic{index}")).unwrap();
+            assert_eq!(row.parent, page.at - 4);
+        }
+        assert!(entry.contains(&0xfa3));
+        assert!(!entry.contains(&0xfc0));
+        assert_eq!(
+            target(&s, "NativeGraphics", &[0xeb]),
+            state_ref(&s, "HLNativeGraphics")
+        );
+        for index in [0, 3] {
+            let row = s.one(&format!("NativeGraphic{index}")).unwrap();
+            for (trigger, function) in [(&[0xe6, 0xf2], 0xf80), (&[0xe2, 0xee], 0xf90)] {
+                let code = block(&s, row, 3, Some(trigger));
+                assert!(calls(&code).contains(&(function + index)), "{index}");
+            }
+        }
+    }
+
+    #[test]
+    fn graphics_defaults_require_confirmation_and_cancel_preserves_the_selection() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        assert_eq!(
+            target(&s, "NativeGraphicsReset", &CONFIRM),
+            state_ref(&s, "NativeGraphicsConfirm")
+        );
+        let reset = state_ref(&s, "NativeGraphicsReset");
+        for name in ["NativeGraphicsResetYes", "NativeGraphicsResetNo"] {
+            assert_eq!(target(&s, name, &CONFIRM), reset, "{name}");
+            let code = block(&s, s.one(name).unwrap(), 3, Some(&CONFIRM));
+            assert_eq!(
+                calls(&code).contains(&0xfb0),
+                name.ends_with("Yes"),
+                "{name}"
+            );
+        }
+        assert_eq!(target(&s, "NativeGraphicsConfirm", &[0xeb]), reset);
+    }
+
+    #[test]
+    fn graphics_labels_follow_the_game_language() {
+        let contains = |data: &[u8], text: &str| {
+            let needle = [text.as_bytes(), &[0]].concat();
+            find(data, &needle, 0, data.len()).is_some()
+        };
+        assert!(contains(&native("en"), "Graphics Settings"));
+        let portuguese = native("17");
+        for text in [
+            "Configurações Gráficas",
+            "Restaurar padrões gráficos",
+            "Quadros enfileirados",
+        ] {
+            assert!(contains(&portuguese, text), "{text}");
+        }
+    }
+
+    #[test]
+    fn graphics_options_label_animation_and_confirmation_focus() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        let entry = block(&s, s.one("PauseOptions").unwrap(), 1, None);
+        let assigned = assignments(&s, &entry);
+        assert_eq!(assigned[&3], "Graphics Settings");
+        assert_eq!(assigned[&4], "Cheats");
+        for (name, index) in [("HLNativeGraphics", 2), ("HLNativeCheats", 3)] {
+            for kind in [1, 2] {
+                let code = block(&s, s.one(name).unwrap(), kind, None);
+                let item = format!("menuItem{index}Select");
+                assert!(texts(&s, &code).contains(&item), "{name} {kind}");
+            }
+        }
+        let confirmation = block(&s, s.one("NativeGraphicsConfirm").unwrap(), 1, None);
+        let goto = confirmation.iter().find(|op| op.opcode == 0x47).unwrap();
+        assert_eq!(
+            goto.operand as usize,
+            state_ref(&s, "NativeGraphicsResetNo")
+        );
+    }
+
+    #[test]
+    fn graphics_rows_wrap_and_only_strength_uses_a_slider() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        assert_eq!(
+            target(&s, "NativeGraphic0", &UP),
+            state_ref(&s, "NativeGraphicsApply")
+        );
+        assert_eq!(
+            target(&s, "NativeGraphicsApply", &DOWN),
+            state_ref(&s, "NativeGraphic0")
+        );
+        let entry = texts(&s, &block(&s, s.one("NativeGraphics").unwrap(), 1, None));
+        // Hidden with the others, positioned, shown.
+        assert_eq!(entry.iter().filter(|t| *t == "sliderBar7").count(), 3);
+        assert!(entry.iter().any(|t| t == "Restore Graphics Defaults"));
+        for name in ["NativeGraphic1", "NativeGraphic2"] {
+            let toggle = Script::blocks(s.one(name).unwrap())
+                .into_iter()
+                .find(|b| b.kind == 3 && b.triggers.contains(&0xe9))
+                .unwrap();
+            assert_eq!(toggle.triggers, [0xe6, 0xe2, 0xee, 0xf2, 0xe9], "{name}");
+        }
+    }
+
+    #[test]
+    fn graphics_does_not_add_an_informational_row() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        let names = ["NativeGraphics", "NativeGraphicsReset"]
+            .map(String::from)
+            .into_iter()
+            .chain((0..4).map(|i| format!("NativeGraphic{i}")));
+        for name in names {
+            let record = s.one(&name).unwrap();
+            for b in Script::blocks(record) {
+                let code = block(&s, record, b.kind, Some(&b.triggers));
+                assert!(!calls(&code).contains(&0xfc0), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn graphics_anisotropy_and_controls_have_restart_and_reset_confirmation() {
+        // The Graphics half; the Controls page has its own rows.
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        s.one("NativeGraphicsReset").unwrap();
+        let apply = block(&s, s.one("NativeGraphicsApply").unwrap(), 3, Some(&CONFIRM));
+        assert!(calls(&apply).contains(&0xfc9));
+        assert_eq!(
+            target(&s, "NativeGraphicsApply", &CONFIRM),
+            state_ref(&s, "NativeGraphicsRestart")
+        );
+        let entry = block(&s, s.one("NativeGraphicsRestart").unwrap(), 1, None);
+        let goto = entry.iter().find(|op| op.opcode == 0x47).unwrap();
+        assert_eq!(
+            goto.operand as usize,
+            state_ref(&s, "NativeGraphicsRestartNo")
+        );
+        for name in ["NativeGraphicsRestartYes", "NativeGraphicsRestartNo"] {
+            let code = block(&s, s.one(name).unwrap(), 3, Some(&CONFIRM));
+            assert_eq!(
+                calls(&code).contains(&0xfcb),
+                name.ends_with("Yes"),
+                "{name}"
+            );
+            assert_eq!(
+                target(&s, name, &CONFIRM),
+                state_ref(&s, "NativeGraphicsApply")
+            );
+        }
+        // Anisotropic Filtering moves left and right.
+        let anisotropy = s.one("NativeGraphic4").unwrap();
+        for (trigger, function) in [(&[0xe6, 0xf2], 0xf84), (&[0xe2, 0xee], 0xf94)] {
+            assert!(calls(&block(&s, anisotropy, 3, Some(trigger))).contains(&function));
+        }
+        let starts: HashSet<usize> = s.records.iter().map(|r| r.at - 4).collect();
+        for name in [
+            "NativeGraphicsRestart",
+            "NativeGraphicsRestartYes",
+            "NativeGraphicsRestartNo",
+        ] {
+            let record = s.one(name).unwrap();
+            for b in Script::blocks(record) {
+                for op in block(&s, record, b.kind, Some(&b.triggers)) {
+                    if op.opcode == 0x47 {
+                        assert!(starts.contains(&(op.operand as usize)), "{name}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        let objects = objects(&data);
+        assert!(objects.contains_key("gosliderbar11"));
+        let (mesh, _) = objects["MG_95eaf70d_0"];
+        assert!((thumb_width(&data, mesh) - 2.98 * 7.0 / 8.0).abs() < 5e-5);
+        let times: Vec<f32> = ["NativeCheat0", "NativeCheat7", "NativeMultipliersLink"]
+            .into_iter()
+            .map(|name| {
+                let code = block(&s, s.one(name).unwrap(), 1, None);
+                scrollbar_time(&s, &code, "sliderBar11")
+            })
+            .collect();
+        assert!(times[0] < times[1], "{times:?}");
+        assert_eq!(times[1], times[2]);
+        let exit = block(&s, s.one("NativeCheats").unwrap(), 2, None);
+        assert!(exit
+            .iter()
+            .any(|op| op.opcode == 0x13 && op.operand == 0x59));
+        assert!(texts(&s, &exit).iter().any(|t| t == "sliderBar11"));
+    }
+
+    #[test]
+    fn display_scrollbar_tracks_viewport_and_is_hidden_on_exit() {
+        // The scrollbar's clone; the Display rows that move it are the Display page's.
+        let original = native_wad();
+        let data = native("en");
+        let objects = objects(&data);
+        assert!(objects.contains_key("gosliderbar10"));
+        let (mesh, size) = objects["MG_95eaf70c_0"];
+        assert_eq!(size, 880);
+        assert!((thumb_width(&data, mesh) - 2.98 * 8.0 / 13.0).abs() < 5e-5);
+        let (go, _) = objects["gosliderbar10"];
+        assert_eq!(le16(&data, go + 0x76).unwrap(), 10);
+        assert_eq!(le32(&data, go + 0x3c).unwrap() >> 16, 1);
+        assert!(f32::from_le_bytes(word(&data, go + 0x44).unwrap()) < 0.0);
+        let references: Vec<String> = entries(&data)
+            .into_iter()
+            .filter(|e| e.size == 0)
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(
+            references.iter().filter(|n| *n == "gosliderbar10").count(),
+            1
+        );
+        // Its own model and template; the animation stays the original's.
+        assert!(objects.contains_key("MDL_1d029413"));
+        let (template, _) = objects["95eaf70c"];
+        assert_eq!(&data[template..template + 13], b"ANM_95eaf70b\0");
+        for name in ["ANM_95eaf70b", "MG_95eaf70b_0", "gosliderbar3"] {
+            let before = entries(&original)
+                .into_iter()
+                .find(|e| e.name == name && e.size != 0)
+                .unwrap();
+            let (after, _) = objects[name];
+            let at = before.offset + 64;
+            assert_eq!(
+                original[at..at + before.size],
+                data[after..after + before.size],
+                "{name}"
+            );
+        }
     }
 }

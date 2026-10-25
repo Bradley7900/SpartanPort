@@ -26,17 +26,6 @@ ALLOWED_DROPS = {
 # Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
 # each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
 PENDING_PORTS = {
-    # Task 48
-    'tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_and_cheats_follow_game_settings_before_audio',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_initializes_only_its_four_controls_and_returns_to_its_link',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_defaults_require_confirmation_and_cancel_preserves_the_selection',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_labels_follow_the_game_language',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_options_label_animation_and_confirmation_focus',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_rows_wrap_and_only_strength_uses_a_slider',
-    'tests/test_native_cheats.py::NativeCheats::test_graphics_does_not_add_an_informational_row',
-    'tests/test_native_cheats.py::NativeCheats::test_cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit',
     # Task 49
     'tests/test_pause_menu.py::GameScript::test_enemy_health_bar_follows_screen_y_with_native_animation',
     'tests/test_pause_menu.py::GameScript::test_display_initializes_health_value_before_the_row_is_selected',
