@@ -14,8 +14,8 @@ use crate::core::catalog::setting;
 use crate::core::fs::atomic_write;
 use crate::core::ini::{read_ini, save_ini};
 use crate::core::options::{
-    ENGINE_FPS_CHOICES, FRAME_RATE_PATCH_PREFIX, RESOLUTIONS, RESOLUTION_PATCH_PREFIX,
-    TEXTURE_FIX_PATCH,
+    Choice, ANISOTROPY, ENGINE_FPS_CHOICES, FRAME_RATE_PATCH_PREFIX, GLYPH_STYLES, RESOLUTIONS,
+    RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH,
 };
 use crate::core::python::ensure_ascii;
 
@@ -25,6 +25,14 @@ pub const STEAM_DECK_RESOLUTION: &str = "1280x800";
 const DMI: &str = "/sys/devices/virtual/dmi/id";
 const REVERT_MESSAGE: &str =
     "Graphics: the last restart never reached the game; previous options restored";
+/// The options the launcher used to pass only as variables (key, variable, default): `prepare`
+/// copies them into the ini once, so the in-game menu shares them.
+const LAUNCH_CHOICES: [(&str, &str, &str); 4] = [
+    ("monitor", "SPARTAN_MONITOR", ""),
+    ("hdr", "SPARTAN_HDR", "0"),
+    ("glyph_style", "SPARTAN_GLYPH_STYLE", "off"),
+    ("anisotropy", "SPARTAN_ANISOTROPY", "0"),
+];
 
 /// True on a Steam Deck running Linux (SteamOS or another distribution), from its DMI names.
 pub fn steam_deck(dmi: &Path) -> bool {
@@ -87,6 +95,11 @@ pub struct Options {
     pub deferred_readback: String,
     pub stale_readback: String,
     pub async_shaders: String,
+    /// The display the game opens on: its index in SDL's list, or `""` for the primary one.
+    pub monitor: String,
+    pub hdr: String,
+    pub glyph_style: String,
+    pub anisotropy: String,
 }
 
 impl Options {
@@ -98,10 +111,31 @@ impl Options {
             ("deferred_readback", &self.deferred_readback),
             ("stale_readback", &self.stale_readback),
             ("async_shaders", &self.async_shaders),
+            ("monitor", &self.monitor),
+            ("hdr", &self.hdr),
+            ("glyph_style", &self.glyph_style),
+            ("anisotropy", &self.anisotropy),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.clone()))
         .collect()
+    }
+}
+
+/// A display index the game can take: ASCII digits only, at most 10 of them, up to `i32::MAX`.
+fn valid_monitor(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 10
+        && value.bytes().all(|b| b.is_ascii_digit())
+        && value.parse::<i32>().is_ok()
+}
+
+/// `value` when it is one of `choices`, else `default`.
+fn choice_or(value: String, choices: &[Choice], default: &str) -> String {
+    if choices.iter().any(|c| c.value == value) {
+        value
+    } else {
+        default.to_string()
     }
 }
 
@@ -110,6 +144,7 @@ impl Options {
 pub fn startup_options(ini: &IndexMap<String, String>, extra: &[String]) -> Options {
     let get = |key: &str, default: &str| ini.get(key).map_or(default, String::as_str).to_string();
     let flag = |key: &str| if get(key, "1") == "0" { "0" } else { "1" }.to_string();
+    let monitor = get("monitor", "");
     let mut render_resolution = get(
         "render_resolution",
         default_render_resolution(Path::new(DMI)),
@@ -128,6 +163,14 @@ pub fn startup_options(ini: &IndexMap<String, String>, extra: &[String]) -> Opti
         deferred_readback: flag("deferred_readback"),
         stale_readback: flag("stale_readback"),
         async_shaders: flag("async_shaders"),
+        monitor: if valid_monitor(&monitor) {
+            monitor
+        } else {
+            String::new()
+        },
+        hdr: if get("hdr", "0") == "1" { "1" } else { "0" }.to_string(),
+        glyph_style: choice_or(get("glyph_style", "off"), GLYPH_STYLES, "off"),
+        anisotropy: choice_or(get("anisotropy", "0"), ANISOTROPY, "0"),
     }
 }
 
@@ -170,11 +213,49 @@ fn python_json(state: &Map<String, Value>) -> String {
     ensure_ascii(&serde_json::to_string_pretty(state).unwrap_or_else(|_| "{}".to_string()))
 }
 
+/// Copies the launch choices `environment` holds (or their defaults) into the ini, normalized, for
+/// the keys the ini lacks: once, so from then on the ini wins and they follow the restart reversion.
+fn migrate_launch_choices(
+    config: &Path,
+    ini: &mut IndexMap<String, String>,
+    extra: &[String],
+    environment: &IndexMap<String, String>,
+) {
+    let migrated: Vec<(&str, String)> = LAUNCH_CHOICES
+        .iter()
+        .filter(|(key, _, _)| !ini.contains_key(*key))
+        .map(|(key, variable, default)| {
+            let value = environment.get(*variable).map_or(*default, String::as_str);
+            (*key, value.to_string())
+        })
+        .collect();
+    if migrated.is_empty() {
+        return;
+    }
+    for (key, value) in &migrated {
+        ini.insert((*key).to_string(), value.clone());
+    }
+    let normalized = startup_options(ini, extra).keys();
+    let updates: IndexMap<String, String> = migrated
+        .iter()
+        .filter_map(|(key, _)| Some(((*key).to_string(), normalized.get(*key)?.clone())))
+        .collect();
+    let _ = write_keys(config, &updates);
+}
+
 /// The start-up options of this launch, restoring the last confirmed ones when the previous launch
 /// after a restart never confirmed its own. Keeps `state_path` (`graphics_state.json`) up to date.
 /// A file that cannot be written is left as it was: the options of this launch are still returned.
-pub fn prepare(config: &Path, state_path: &Path, extra: &[String]) -> Prepared {
-    let ini = read_file_values(config);
+/// `environment`: the game's, whose `SPARTAN_MONITOR`, `SPARTAN_HDR`, `SPARTAN_GLYPH_STYLE` and
+/// `SPARTAN_ANISOTROPY` fill the keys the ini does not have yet.
+pub fn prepare(
+    config: &Path,
+    state_path: &Path,
+    extra: &[String],
+    environment: &IndexMap<String, String>,
+) -> Prepared {
+    let mut ini = read_file_values(config);
+    migrate_launch_choices(config, &mut ini, extra, environment);
     let mut state = match std::fs::read(state_path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
@@ -313,6 +394,10 @@ pub fn environment(options: &Options) -> IndexMap<String, String> {
         ("SPARTAN_DEFERRED_READBACK", &options.deferred_readback),
         ("SPARTAN_STALE_READBACK", &options.stale_readback),
         ("SPARTAN_ASYNC_SHADERS", &options.async_shaders),
+        ("SPARTAN_MONITOR", &options.monitor),
+        ("SPARTAN_HDR", &options.hdr),
+        ("SPARTAN_GLYPH_STYLE", &options.glyph_style),
+        ("SPARTAN_ANISOTROPY", &options.anisotropy),
     ]
     .into_iter()
     .map(|(key, value)| (key.to_string(), value.clone()))
@@ -369,6 +454,111 @@ mod tests {
         file_values(&fs::read_to_string(path).unwrap())
     }
 
+    /// A start that set none of the launch choices' variables.
+    fn no_env() -> IndexMap<String, String> {
+        IndexMap::new()
+    }
+
+    #[test]
+    fn glyphs_and_anisotropy_survive_restart_and_recover_after_failure() {
+        let f = folder();
+        let launcher = map(&[("SPARTAN_GLYPH_STYLE", "xbox")]);
+        let options = prepare(&f.ini, &f.state, &[], &launcher).options;
+        assert_eq!(options.glyph_style, "xbox");
+        write_keys(
+            &f.ini,
+            &map(&[
+                ("glyph_style", "keyboard"),
+                ("anisotropy", "16"),
+                ("restart_unconfirmed", "1"),
+            ]),
+        )
+        .unwrap();
+        let tried = prepare(&f.ini, &f.state, &[], &launcher);
+        assert!(!tried.reverted);
+        let env = environment(&tried.options);
+        assert_eq!(env["SPARTAN_GLYPH_STYLE"], "keyboard");
+        assert_eq!(env["SPARTAN_ANISOTROPY"], "16");
+        let restored = prepare(&f.ini, &f.state, &[], &no_env());
+        assert!(restored.reverted);
+        assert_eq!(
+            (
+                restored.options.glyph_style.as_str(),
+                restored.options.anisotropy.as_str()
+            ),
+            ("xbox", "0")
+        );
+    }
+
+    #[test]
+    fn invalid_glyphs_and_anisotropy_fall_back_to_defaults() {
+        let options = startup(&[("glyph_style", "bad"), ("anisotropy", "3")]);
+        assert_eq!(
+            (options.glyph_style.as_str(), options.anisotropy.as_str()),
+            ("off", "0")
+        );
+    }
+
+    #[test]
+    fn monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart() {
+        let f = folder();
+        fs::write(&f.ini, "monitor=0\nhdr=0\n").unwrap();
+        let good = prepare(&f.ini, &f.state, &[], &no_env());
+        assert_eq!(environment(&good.options)["SPARTAN_MONITOR"], "0");
+        write_keys(
+            &f.ini,
+            &map(&[("monitor", "2"), ("hdr", "1"), ("restart_unconfirmed", "1")]),
+        )
+        .unwrap();
+        let tried = prepare(&f.ini, &f.state, &[], &no_env());
+        assert!(!tried.reverted);
+        assert_eq!(environment(&tried.options)["SPARTAN_HDR"], "1");
+        let restored = prepare(&f.ini, &f.state, &[], &no_env());
+        assert!(restored.reverted);
+        assert_eq!(
+            (
+                restored.options.monitor.as_str(),
+                restored.options.hdr.as_str()
+            ),
+            ("0", "0")
+        );
+    }
+
+    #[test]
+    fn legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart() {
+        let f = folder();
+        let launcher = map(&[("SPARTAN_MONITOR", "2"), ("SPARTAN_HDR", "1")]);
+        let options = prepare(&f.ini, &f.state, &[], &launcher).options;
+        assert_eq!((options.monitor.as_str(), options.hdr.as_str()), ("2", "1"));
+        // Written once, for the keys the ini lacked; a variable that is not set gives the default.
+        assert_eq!(
+            fs::read_to_string(&f.ini).unwrap(),
+            "# spartanport settings (in-game menu: Insert / R3+L2)\n\
+             monitor=2\nhdr=1\nglyph_style=off\nanisotropy=0\n"
+        );
+        write_keys(&f.ini, &map(&[("monitor", "0"), ("hdr", "0")])).unwrap();
+        let options = prepare(&f.ini, &f.state, &[], &launcher).options;
+        assert_eq!((options.monitor.as_str(), options.hdr.as_str()), ("0", "0"));
+    }
+
+    #[test]
+    fn invalid_monitor_and_hdr_fall_back_safely() {
+        for value in [
+            "1x",
+            "99999999999",
+            "-1",
+            "bad",
+            "2147483648",
+            &"1".repeat(100),
+            "²",
+        ] {
+            assert_eq!(startup(&[("monitor", value)]).monitor, "", "{value}");
+        }
+        assert_eq!(startup(&[("monitor", "2147483647")]).monitor, "2147483647");
+        assert_eq!(startup(&[("hdr", "bad")]).hdr, "0");
+        assert_eq!(startup(&[("glyph_style", "ps")]).glyph_style, "off");
+    }
+
     #[test]
     fn defaults_and_invalid_values() {
         let f = folder();
@@ -377,7 +567,7 @@ mod tests {
             "render_resolution=invalid\nengine_fps=90\nstale_readback=yes\n",
         )
         .unwrap();
-        let prepared = prepare(&f.ini, &f.state, &[]);
+        let prepared = prepare(&f.ini, &f.state, &[], &no_env());
         assert!(!prepared.reverted);
         assert_eq!(
             prepared.options,
@@ -387,6 +577,10 @@ mod tests {
                 deferred_readback: "1".into(),
                 stale_readback: "1".into(),
                 async_shaders: "1".into(),
+                monitor: "".into(),
+                hdr: "0".into(),
+                glyph_style: "off".into(),
+                anisotropy: "0".into(),
             }
         );
     }
@@ -396,7 +590,7 @@ mod tests {
         let f = folder();
         fs::write(&f.ini, "render_resolution=1440p\nengine_fps=240\n").unwrap();
         fs::write(&f.state, "{invalid json").unwrap();
-        let prepared = prepare(&f.ini, &f.state, &[]);
+        let prepared = prepare(&f.ini, &f.state, &[], &no_env());
         assert!(!prepared.reverted);
         assert_eq!(prepared.options.render_resolution, "1440p");
         assert_eq!(prepared.options.engine_fps, "240");
@@ -442,7 +636,7 @@ mod tests {
     fn unconfirmed_restart_is_tried_once_then_reverted() {
         let f = folder();
         fs::write(&f.ini, "render_resolution=1440p\nengine_fps=120\n").unwrap();
-        let good = prepare(&f.ini, &f.state, &[]).options;
+        let good = prepare(&f.ini, &f.state, &[], &no_env()).options;
         write_keys(
             &f.ini,
             &map(&[
@@ -453,7 +647,7 @@ mod tests {
         )
         .unwrap();
 
-        let tried = prepare(&f.ini, &f.state, &[]);
+        let tried = prepare(&f.ini, &f.state, &[], &no_env());
         assert!(!tried.reverted);
         assert_eq!(
             (
@@ -463,7 +657,7 @@ mod tests {
             ("4K", "240")
         );
 
-        let back = prepare(&f.ini, &f.state, &[]);
+        let back = prepare(&f.ini, &f.state, &[], &no_env());
         assert!(back.reverted);
         assert_eq!(back.options, good);
         assert_eq!(
@@ -479,15 +673,15 @@ mod tests {
     #[test]
     fn confirmed_restart_becomes_the_last_good() {
         let f = folder();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
         write_keys(
             &f.ini,
             &map(&[("engine_fps", "240"), ("restart_unconfirmed", "1")]),
         )
         .unwrap();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
         write_keys(&f.ini, &map(&[("restart_unconfirmed", "0")])).unwrap();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
 
         let state: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&f.state).unwrap()).unwrap();
@@ -588,7 +782,7 @@ mod tests {
             &map(&[("render_resolution", "3840x1080"), ("engine_fps", "60")]),
         )
         .unwrap();
-        let tried = prepare(&f.ini, &f.state, &extra);
+        let tried = prepare(&f.ini, &f.state, &extra, &no_env());
         assert_eq!(tried.options.render_resolution, "3840x1080");
         write_keys(
             &f.ini,
@@ -597,11 +791,13 @@ mod tests {
         .unwrap();
         // The attempt.
         assert_eq!(
-            prepare(&f.ini, &f.state, &extra).options.render_resolution,
+            prepare(&f.ini, &f.state, &extra, &no_env())
+                .options
+                .render_resolution,
             "4K"
         );
         // The restart never confirmed.
-        let back = prepare(&f.ini, &f.state, &extra);
+        let back = prepare(&f.ini, &f.state, &extra, &no_env());
         assert!(back.reverted);
         assert_eq!(back.options.render_resolution, "3840x1080");
     }
@@ -693,6 +889,10 @@ mod tests {
                 ("SPARTAN_DEFERRED_READBACK", "1"),
                 ("SPARTAN_STALE_READBACK", "0"),
                 ("SPARTAN_ASYNC_SHADERS", "1"),
+                ("SPARTAN_MONITOR", ""),
+                ("SPARTAN_HDR", "0"),
+                ("SPARTAN_GLYPH_STYLE", "off"),
+                ("SPARTAN_ANISOTROPY", "0"),
             ])
         );
         assert_eq!(
@@ -700,7 +900,11 @@ mod tests {
             [
                 "SPARTAN_DEFERRED_READBACK",
                 "SPARTAN_STALE_READBACK",
-                "SPARTAN_ASYNC_SHADERS"
+                "SPARTAN_ASYNC_SHADERS",
+                "SPARTAN_MONITOR",
+                "SPARTAN_HDR",
+                "SPARTAN_GLYPH_STYLE",
+                "SPARTAN_ANISOTROPY"
             ]
         );
     }
@@ -820,11 +1024,11 @@ mod tests {
     fn the_state_file_is_written_as_python_json() {
         let f = folder();
         fs::write(&f.ini, "render_resolution=1440p\n").unwrap();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
         // indent 2, no trailing newline; unknown keys of a state that is kept stay in place.
         fs::write(&f.state, "{\"x\": \"é\", \"attempt\": false}").unwrap();
         write_keys(&f.ini, &map(&[("restart_unconfirmed", "1")])).unwrap();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
         assert_eq!(
             fs::read_to_string(&f.state).unwrap(),
             "{\n  \"x\": \"\\u00e9\",\n  \"attempt\": true\n}"
@@ -836,10 +1040,10 @@ mod tests {
         // json.dumps escapes every character outside ' '..'~', DEL (0x7f) too.
         let f = folder();
         fs::write(&f.ini, "render_resolution=1440p\n").unwrap();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
         fs::write(&f.state, "{\"x\": \"A\\u007fB\", \"attempt\": false}").unwrap();
         write_keys(&f.ini, &map(&[("restart_unconfirmed", "1")])).unwrap();
-        prepare(&f.ini, &f.state, &[]);
+        prepare(&f.ini, &f.state, &[], &no_env());
         assert_eq!(
             fs::read_to_string(&f.state).unwrap(),
             "{\n  \"x\": \"A\\u007fB\",\n  \"attempt\": true\n}"

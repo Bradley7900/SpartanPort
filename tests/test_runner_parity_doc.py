@@ -28,14 +28,6 @@ ALLOWED_DROPS = {
 PENDING_PORTS = {
     # Task 45
     'tests/test_glyphs.py::GlyphTableTest::test_key_map_moves_the_key',
-    # Task 46
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_glyphs_and_anisotropy_survive_restart_and_recover_after_failure',
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_glyphs_and_anisotropy_fall_back_to_defaults',
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart',
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart',
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_monitor_and_hdr_fall_back_safely',
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_defaults_and_invalid_values',
-    'tests/test_graphics_options.py::GraphicsOptionsTest::test_environment',
     # Task 48
     'tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit',
     'tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation',

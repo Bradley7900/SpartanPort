@@ -27,8 +27,9 @@ generator stops when one does).
             (ModPatchTests.MOD). patches.py main() runs with --mod-patches mod.xml --extra "Found;Call;Missing;Data"
             and SPARTAN_PATCHES_ONLY=1. expected: patches-merged.xml, patches.bin, patch_status.json (Missing is
             skipped: its second signature is absent).
-  graphics  input: spartanport.ini, graphics_state.json ({}) and edit.json, the keys written between the
-            launches. graphics_options.prepare runs three times, as in
+  graphics  input: spartanport.ini, graphics_state.json ({}), edit.json, the keys written between the
+            launches, and environment.json, the game environment every launch passes (its launch choices
+            migrate into the ini at the first). graphics_options.prepare runs three times, as in
             test_unconfirmed_restart_is_tried_once_then_reverted; expected/<good|tried|reverted>/ holds the ini,
             the state file and environment.json after each launch.
   dxt       input: gradient, edges, alpha, noise and flat, 64 x 64 RGBA PNGs (noise from a fixed seed), and
@@ -81,7 +82,11 @@ from test_probe import package  # noqa: E402
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]: what the linkers rewrite to GS
 PARAMS = {'USER_DEFINED_PARAM_1': 13, 'USER_DEFINED_PARAM_2': 0, 'USER_DEFINED_PARAM_3': 7,
           'USER_DEFINED_PARAM_4': 0xffffffff}
-EDIT = {'render_resolution': '4K', 'engine_fps': '240', 'restart_unconfirmed': '1'}
+EDIT = {'render_resolution': '4K', 'engine_fps': '240', 'hdr': '0', 'restart_unconfirmed': '1'}
+# The launch choices the launcher passed as variables before the ini held them: no SPARTAN_GLYPH_STYLE
+# (the default), an anisotropy that is not a choice, and a switch that is not migrated.
+ENVIRONMENT = {'SPARTAN_MONITOR': '1', 'SPARTAN_HDR': '1', 'SPARTAN_ANISOTROPY': '3',
+               'SPARTAN_STALE_READBACK': '0'}
 
 
 # -- Synthetic files ----------------------------------------------------------------------------------------
@@ -407,6 +412,7 @@ def case_graphics():
     put(inputs / 'spartanport.ini', b'render_resolution=1440p\nengine_fps=120\n')
     put(inputs / 'graphics_state.json', b'{}\n')
     put(inputs / 'edit.json', text(EDIT).encode())
+    put(inputs / 'environment.json', text(ENVIRONMENT).encode())
     work = WORK / 'graphics'
     work.mkdir()
     ini, state = work / 'spartanport.ini', work / 'graphics_state.json'
@@ -415,7 +421,7 @@ def case_graphics():
     for step in ('good', 'tried', 'reverted'):
         if step == 'tried':
             graphics_options.write_keys(ini, EDIT)  # the in-game menu asking for a restart
-        options, _ = graphics_options.prepare(ini, state)
+        options, _ = graphics_options.prepare(ini, state, environment=ENVIRONMENT)
         put(expected / step / 'spartanport.ini', lf(ini))
         put(expected / step / 'graphics_state.json', lf(state))
         put(expected / step / 'environment.json', text(graphics_options.environment(options)).encode())

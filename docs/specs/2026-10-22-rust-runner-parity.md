@@ -68,14 +68,14 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_glyphs.py` | 37 | 36 | 0 | 0 | 0 | 0 | 1 |
 | `tests/test_content.py` | 5 | 2 | 0 | 3 | 0 | 0 | 0 |
 | `tests/test_guest_memory.py` | 8 | 8 | 0 | 0 | 0 | 0 | 0 |
-| `tests/test_graphics_options.py` | 32 | 19 | 6 | 0 | 0 | 0 | 7 |
+| `tests/test_graphics_options.py` | 32 | 26 | 6 | 0 | 0 | 0 | 0 |
 | `tests/test_save_backup.py` | 10 | 10 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_pause_menu.py` | 20 | 15 | 0 | 0 | 0 | 0 | 5 |
 | `tests/test_native_cheats.py` | 21 | 6 | 0 | 0 | 0 | 0 | 15 |
 | `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 | 0 |
 | `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 | 0 |
 | `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **326** | **261** | **21** | **4** | **0** | **12** | **28** |
+| **Total** | **326** | **268** | **21** | **4** | **0** | **12** | **21** |
 
 ## Map
 
@@ -258,12 +258,12 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_guest_memory.py::GuestMemoryTest::test_1440p_warns_on_8_gb` | `src/runner/guest_memory.rs::tests::warns_for_1440p_on_8_gb` | ported |
 | `tests/test_guest_memory.py::GuestMemoryTest::test_unknown_ram_is_silent` | `src/runner/guest_memory.rs::tests::unknown_ram_is_silent` | ported |
 | `tests/test_guest_memory.py::GuestMemoryTest::test_unknown_stream_memory_counts_as_cached` | `src/runner/guest_memory.rs::tests::unknown_stream_memory_counts_as_cached` | ported |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_glyphs_and_anisotropy_survive_restart_and_recover_after_failure` | — | dropped: pending port (Task 46) |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_glyphs_and_anisotropy_fall_back_to_defaults` | — | dropped: pending port (Task 46) |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart` | — | dropped: pending port (Task 46) |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart` | — | dropped: pending port (Task 46) |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_monitor_and_hdr_fall_back_safely` | — | dropped: pending port (Task 46) |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_defaults_and_invalid_values` | — | dropped: pending port (Task 46); main changed it, the 2.7.0 row named `src/runner/graphics_options.rs::tests::defaults_and_invalid_values` |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_glyphs_and_anisotropy_survive_restart_and_recover_after_failure` | `src/core/graphics_options.rs::tests::glyphs_and_anisotropy_survive_restart_and_recover_after_failure` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_glyphs_and_anisotropy_fall_back_to_defaults` | `src/core/graphics_options.rs::tests::invalid_glyphs_and_anisotropy_fall_back_to_defaults` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart` | `src/core/graphics_options.rs::tests::monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart` | `src/core/graphics_options.rs::tests::legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_monitor_and_hdr_fall_back_safely` | `src/core/graphics_options.rs::tests::invalid_monitor_and_hdr_fall_back_safely` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_defaults_and_invalid_values` | `src/core/graphics_options.rs::tests::defaults_and_invalid_values` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_corrupt_state_file_preserves_current_settings` | `src/core/graphics_options.rs::tests::corrupt_state_file_preserves_current_settings` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_8k_selection_replaces_previous_resolution` | `src/core/graphics_options.rs::tests::the_8k_selection_replaces_previous_resolution` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_write_keys_keeps_other_lines` | `src/core/graphics_options.rs::tests::write_keys_keeps_other_lines` | ported |
@@ -279,7 +279,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_engine_rate_180_for_high_refresh_displays` | `src/core/graphics_options.rs::tests::engine_rate_180_for_high_refresh_displays` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_engine_rate_144_for_144hz_displays` | `src/core/graphics_options.rs::tests::engine_rate_144_for_144hz_displays` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_applied_engine_fps` | `src/core/graphics_options.rs::tests::applied_engine_fps_reads_the_highest_frame_rate_patch` | ported |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_environment` | — | dropped: pending port (Task 46); main changed it, the 2.7.0 row named `src/runner/graphics_options.rs::tests::environment_carries_the_readback_switches` |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_environment` | `src/core/graphics_options.rs::tests::environment_carries_the_readback_switches` | ported |
 | `tests/test_graphics_options.py::WindowSizeTest::test_the_game_knows_the_launcher_sizes` | `src/core/graphics_options.rs::tests::the_game_knows_the_launcher_sizes` | ported |
 | `tests/test_graphics_options.py::AspectRatioTest::test_aspect_of_a_resolution` | `src/core/options.rs::tests::aspect_of_2560x1080_is_21_9` | replaced by `src/core/options.rs::tests::aspect_of_2560x1080_is_21_9` |
 | `tests/test_graphics_options.py::AspectRatioTest::test_aspects_in_a_fixed_order_with_the_others_last` | `src/core/options.rs::tests::closest_resolution_moves_to_the_nearest_pixel_count`, `tests/ui_pages.rs::aspect_follows_and_filters_the_render_resolution` | replaced by `src/core/options.rs::tests::closest_resolution_moves_to_the_nearest_pixel_count`, `tests/ui_pages.rs::aspect_follows_and_filters_the_render_resolution` |

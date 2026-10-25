@@ -224,26 +224,30 @@ fn patches_match_python() {
 
 #[test]
 fn graphics_matches_python() {
-    // As the generator ran graphics_options: prepare three times; before the second the in-game
-    // menu wrote input/edit.json (a restart request) into the ini.
+    // As the generator ran graphics_options: prepare three times with input/environment.json (its
+    // launch choices migrate into the ini at the first); before the second the in-game menu wrote
+    // input/edit.json (a restart request) into the ini.
     let input = fixture_dir("graphics").join("input");
     let dir = tempfile::tempdir().unwrap();
     let ini = dir.path().join("spartanport.ini");
     let state = dir.path().join("graphics_state.json");
     fs::copy(input.join("spartanport.ini"), &ini).unwrap();
     fs::copy(input.join("graphics_state.json"), &state).unwrap();
-    let edit: Value = serde_json::from_slice(&fs::read(input.join("edit.json")).unwrap()).unwrap();
-    let edit: indexmap::IndexMap<String, String> = edit
-        .as_object()
-        .unwrap()
-        .iter()
-        .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
-        .collect();
+    let strings = |name: &str| -> indexmap::IndexMap<String, String> {
+        let value: Value = serde_json::from_slice(&fs::read(input.join(name)).unwrap()).unwrap();
+        value
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(key, value)| (key.clone(), value.as_str().unwrap().to_string()))
+            .collect()
+    };
+    let (edit, game_environment) = (strings("edit.json"), strings("environment.json"));
     for step in ["good", "tried", "reverted"] {
         if step == "tried" {
             graphics_options::write_keys(&ini, &edit).unwrap();
         }
-        let prepared = graphics_options::prepare(&ini, &state, &[]);
+        let prepared = graphics_options::prepare(&ini, &state, &[], &game_environment);
         let environment = graphics_options::environment(&prepared.options);
         let mut environment_json = serde_json::to_string_pretty(&environment).unwrap();
         environment_json.push('\n');

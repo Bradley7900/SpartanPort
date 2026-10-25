@@ -374,8 +374,12 @@ impl<'a> Runner<'a> {
             .collect();
         self.derive("SPARTAN_EXTRA_RESOLUTIONS", extra.join(";"));
         // 5. The start-up graphics options of spartanport.ini.
-        let graphics =
-            graphics_options::prepare(&plan.config, &out.join("graphics_state.json"), &extra);
+        let graphics = graphics_options::prepare(
+            &plan.config,
+            &out.join("graphics_state.json"),
+            &extra,
+            &self.env,
+        );
         if let Some(message) = &graphics.message {
             self.say(message);
         }
