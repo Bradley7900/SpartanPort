@@ -48,7 +48,6 @@ pub struct RunPlan {
     pub content_sku: String,
     pub timeout: String,
     pub stream_memory: String,
-    pub glyph_style: String,
     pub language: Option<String>,
     pub fsr411_dir: Option<String>,
     pub msys2_root: PathBuf,
@@ -102,7 +101,6 @@ impl RunPlan {
             content_sku: text("SPARTAN_CONTENT_SKU", CONTENT_SKU),
             timeout: text("SPARTAN_TIMEOUT", TIMEOUT),
             stream_memory: catalog_text("SPARTAN_STREAM_MEMORY"),
-            glyph_style: catalog_text("SPARTAN_GLYPH_STYLE"),
             language: value("SPARTAN_LANGUAGE").map(str::to_string),
             fsr411_dir: value("SPARTAN_FSR411_DIR").map(str::to_string),
             msys2_root: PathBuf::from(text("MSYS2_ROOT", MSYS2_ROOT)),
@@ -134,7 +132,6 @@ mod tests {
         let default = |key| catalog::run_default(key).unwrap();
         assert_eq!(plan.mods_switch, default("SPARTAN_MODS_ENABLED"));
         assert_eq!(plan.stream_memory, default("SPARTAN_STREAM_MEMORY"));
-        assert_eq!(plan.glyph_style, default("SPARTAN_GLYPH_STYLE"));
     }
 
     #[test]
@@ -188,7 +185,6 @@ mod tests {
             ("SPARTAN_CONTENT_SKU", "demo".to_string()),
             ("SPARTAN_TIMEOUT", "5".to_string()),
             ("SPARTAN_STREAM_MEMORY", "2".to_string()),
-            ("SPARTAN_GLYPH_STYLE", "xbox".to_string()),
             ("SPARTAN_LANGUAGE", "3".to_string()),
             ("SPARTAN_FSR411_DIR", "fsr".to_string()),
         ];
@@ -213,7 +209,6 @@ mod tests {
         assert_eq!(plan.content_sku, "demo");
         assert_eq!(plan.timeout, "5");
         assert_eq!(plan.stream_memory, "2");
-        assert_eq!(plan.glyph_style, "xbox");
         assert_eq!(plan.language.as_deref(), Some("3"));
         assert_eq!(plan.fsr411_dir.as_deref(), Some("fsr"));
         let (_, forced) = read(dir.path(), &[("SPARTAN_ISA_REWRITE", "1")]);
