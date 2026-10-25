@@ -723,8 +723,18 @@ impl<'a> Script<'a> {
         self.refs.clone()
     }
 
-    /// Where the code block at `code` ends: the next code ref; the last one ends at the symbol
-    /// table.
+    /// The code ref of the block after the one at `code`; an error for the last block, whose code
+    /// is not known to end before the literal pool.
+    fn next_block(&self, code: usize) -> Result<usize, MenuError> {
+        self.refs
+            .iter()
+            .copied()
+            .find(|r| *r > code)
+            .ok_or_else(|| script(format!("no code block after {code:#x}")))
+    }
+
+    /// Where [`Script::block_bytes`] stops reading the block at `code`: the next code ref; the
+    /// last one runs up to the symbol table.
     fn block_end(&self, code: usize) -> Result<usize, MenuError> {
         match self.refs.iter().copied().find(|r| *r > code) {
             Some(end) => Ok(end),
@@ -953,7 +963,7 @@ pub fn moved_copy(
     relocated: &dyn Fn(usize) -> usize,
 ) -> Result<Vec<u8>, MenuError> {
     let first = s.base + s.lit + code;
-    let last = s.base + s.lit + s.block_end(code)?;
+    let last = s.base + s.lit + s.next_block(code)?;
     let mut out = bytes_at(s.data, first, last)?.to_vec();
     for op in decode(s.data, first, last)? {
         let i = op.offset - first;
@@ -2470,7 +2480,8 @@ pub fn patch(data: &[u8], language: Option<&str>, env: Lookup) -> Result<Vec<u8>
     let (Some(&start), Some(&last)) = (own.iter().min(), own.iter().max()) else {
         return Err(script("min() iterable argument is empty"));
     };
-    let end = s.block_end(last)?;
+    // Its dead code ends at the next block: the room the new rows may take.
+    let end = s.next_block(last)?;
     if refs
         .iter()
         .any(|r| !own.contains(r) && (start..end).contains(r))
@@ -3556,6 +3567,96 @@ mod tests {
             })
             .unwrap();
         f32::from_bits(code[marker + 4].operand as u32)
+    }
+
+    #[test]
+    fn moved_copy_refuses_the_last_block() {
+        // Only a block's own bytes are read as its code: the last one has no end to copy up to.
+        let data = tiny_script();
+        let s = Script::parse(&data).unwrap();
+        assert_eq!(
+            moved_copy(&s, 13, 40, &|at: usize| at)
+                .unwrap_err()
+                .to_string(),
+            "no code block after 0xd"
+        );
+        assert_eq!(
+            moved_copy(&s, 8, 40, &|at: usize| at).unwrap(),
+            [0x16, 0x00, 0x14, 0x43, 0x49]
+        );
+    }
+
+    fn state(
+        label: &'static str,
+        parent: Option<&'static str>,
+        blocks: Vec<(u8, Vec<usize>, Vec<Code>)>,
+    ) -> State {
+        State {
+            label,
+            name: label,
+            parent,
+            blocks,
+        }
+    }
+
+    #[test]
+    fn a_script_whose_wadchoose_code_is_last_is_refused() {
+        // WadChoose's code is where the rows go; with no block after it, its end (and the room
+        // left) is unknown, so nothing is written.
+        let entry = || vec![(1, vec![], vec![ret()])];
+        let load = vec![Code::Text("Load"), Code::Raw(vec![0x43]), ret()];
+        let states = [
+            state("PauseMenu", None, entry()),
+            state("PauseMain", Some("PauseMenu"), entry()),
+            state("HLContinue", Some("PauseMain"), entry()),
+            state("HLQuitGame", Some("PauseMain"), entry()),
+            state("WadChoose", Some("PauseMenu"), vec![(1, vec![], load)]),
+            state("PauseOptions", Some("PauseMenu"), vec![]),
+            state("HLControls", Some("PauseOptions"), vec![]),
+            state("HLDisplay", Some("PauseOptions"), vec![]),
+        ];
+        let data = wad_of(&[(1, 0x09, "SMI_R_UI", smi(&states, &[]))]);
+        let s = Script::parse(&data).unwrap();
+        let last = first_block(s.one("WadChoose").unwrap(), 1).unwrap();
+        assert_eq!(s.code_refs().last(), Some(&last));
+        let refused = format!("no code block after {last:#x}");
+        match patch(&data, Some("en"), &no_env) {
+            Err(MenuError::Script(error)) => assert_eq!(error, refused),
+            other => panic!("{:?}", other.map(|patched| patched.len())),
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("R_UI.WAD");
+        std::fs::write(&source, &data).unwrap();
+        let mut log = Vec::new();
+        let made = build(
+            dir.path(),
+            dir.path(),
+            Some(&source),
+            Some("en"),
+            &no_env,
+            &mut |line| log.push(line),
+        );
+        assert_eq!(made.unwrap(), None);
+        assert!(!dir.path().join("pause_menu").join("R_UI.WAD").exists());
+        assert_eq!(
+            log,
+            [format!("Pause menu: {refused}; no Exit to Desktop row")]
+        );
+    }
+
+    #[test]
+    fn graphics_labels_follow_the_environment_without_a_language() {
+        let mut data = native_wad();
+        let spans = Script::parse(&data).unwrap().spans().unwrap();
+        let portuguese = |name: &str| (name == "SPARTAN_LANGUAGE").then(|| "pt".to_string());
+        native_cheats(&mut data, &spans, None, &portuguese).unwrap();
+        let has = |text: &str| {
+            let needle = [text.as_bytes(), &[0]].concat();
+            find(&data, &needle, 0, data.len()).is_some()
+        };
+        assert!(has("Configurações Gráficas"));
+        assert!(has("Quadros enfileirados"));
+        assert!(!has("Graphics Settings"));
     }
 
     #[test]
