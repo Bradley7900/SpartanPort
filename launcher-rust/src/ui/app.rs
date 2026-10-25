@@ -249,7 +249,9 @@ impl State {
         // Every view the start reads, at once: the Mods page's lists too, as the Python launcher
         // reads them, so the first visit does not count as a change. Nothing is left to arrive
         // from a thread (the Trophies list waits for its page), so the task is empty.
-        let _ = follow(&mut state, Cause::Start);
+        let task = follow(&mut state, Cause::Start);
+        // Dropped: a view read in a thread would never arrive.
+        debug_assert_eq!(task.units(), 0);
         // Nothing to save after opening.
         state.saved = Some(persist::gather(&state));
         state.modal = persist::unreadable_warning(&state.lang, &unreadable);

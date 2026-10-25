@@ -254,7 +254,9 @@ pub fn collect(state: &mut State) -> Result<(), PersistError> {
     // Only the ini is read back (settings.json gets what the store holds), and the views of its
     // keys are read at once, so nothing is left to arrive from a thread.
     let keys: Vec<&str> = changed.iter().map(String::as_str).collect();
-    let _ = follow(state, Cause::Keys(&keys));
+    let task = follow(state, Cause::Keys(&keys));
+    // Dropped: a view read in a thread would never arrive.
+    debug_assert_eq!(task.units(), 0);
     state.saved = Some(gather(state));
     // The files now hold what the window shows.
     state.settings_unreadable = false;
