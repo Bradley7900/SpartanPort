@@ -25,8 +25,7 @@ ALLOWED_DROPS = {
 
 # Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
 # each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
-PENDING_PORTS = {
-}
+PENDING_PORTS = set()
 
 
 class RunnerParityDocTest(unittest.TestCase):
