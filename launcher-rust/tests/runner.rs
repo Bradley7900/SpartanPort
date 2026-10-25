@@ -981,10 +981,10 @@ fn a_restart_from_the_game_starts_the_exe_again() {
     }
 }
 
-/// A port's settings for `--play`: its game, `user_dir`, English and no Discord presence.
-fn play_settings(port: &Port, user: &Path) -> Settings {
+/// The settings for `--play`: a game folder, `user_dir`, English and no Discord presence.
+fn play_settings(game: &Path, user: &Path) -> Settings {
     let values = json!({
-        "game_dir": text(&port.game()),
+        "game_dir": text(game),
         "user_dir": text(user),
         "ui_language": "en",
         "discord_rpc": false,
@@ -993,39 +993,49 @@ fn play_settings(port: &Port, user: &Path) -> Settings {
     Settings(values.as_object().unwrap().clone())
 }
 
+/// `play_with` running the fake game with `args`; gives the exit code, the console, the run log
+/// and what `notify` was told.
+fn played(
+    settings: &Settings,
+    root: &Path,
+    user: &Path,
+    env: IndexMap<String, String>,
+    args: &[&str],
+) -> (i32, String, String, Vec<String>) {
+    let paths = Paths::from_env(root, &|_| None);
+    let mut command = vec![FAKE_GAME.to_string()];
+    command.extend(args.iter().map(|arg| arg.to_string()));
+    let mut console = Vec::new();
+    let mut told = Vec::new();
+    let program = Context {
+        paths: paths.clone(),
+        env,
+    };
+    let context = RunContext {
+        context: &program,
+        args: Vec::new(),
+        out: &mut console,
+    };
+    let code = play_with(context, settings, &paths, &command, &mut |hint| {
+        told.push(hint.to_string())
+    });
+    let log = fs::read_to_string(user.join("last_run.log")).unwrap();
+    (code, String::from_utf8(console).unwrap(), log, told)
+}
+
 #[test]
 fn play_writes_last_run_log_with_the_advice() {
-    let port = Port::with_probe();
-    let user = port.root.join("saves");
-    let settings = play_settings(&port, &user);
-    let paths = Paths::from_env(&port.root, &|_| None);
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("saves");
+    let settings = play_settings(dir.path(), &user);
     let line = "Runtime: cannot create 6080 MiB of guest memory (error 12)";
     let play = |exit: &str| {
-        let program = port.program(&[
-            ("FAKE_PROBE_PRINT", "FAKE_LINE"),
-            ("FAKE_LINE", line),
-            ("FAKE_PROBE_EXIT", exit),
-        ]);
-        let mut console = Vec::new();
-        let mut told = Vec::new();
-        let context = RunContext {
-            context: &program,
-            args: Vec::new(),
-            out: &mut console,
-        };
-        let code = play_with(
-            context,
-            &settings,
-            &paths,
-            Path::new(LAUNCHER),
-            &mut |hint| told.push(hint.to_string()),
-        );
-        let log = fs::read_to_string(user.join("last_run.log")).unwrap();
-        (code, String::from_utf8(console).unwrap(), log, told)
+        let args = ["--say", line, "--lines", "1", "--exit", exit];
+        played(&settings, dir.path(), &user, clean_environment(), &args)
     };
     let (code, console, log, told) = play("21");
     assert_eq!(code, 21, "{log}");
-    assert!(log.contains(&format!("FAKE_LINE={line}\n")), "{log}");
+    assert!(log.contains(&format!("{line}\n")), "{log}");
     let advice = if cfg!(windows) {
         ExitHint::GuestMemory
     } else {
@@ -1045,26 +1055,17 @@ fn play_writes_last_run_log_with_the_advice() {
 #[test]
 fn play_starts_the_game_with_the_saved_stream_memory() {
     // The saved choice, whatever the launcher inherited.
-    let port = Port::with_probe();
-    let user = port.root.join("saves");
-    let paths = Paths::from_env(&port.root, &|_| None);
+    let dir = tempfile::tempdir().unwrap();
+    let user = dir.path().join("saves");
     for value in ["cached", "host", "device"] {
-        let mut settings = play_settings(&port, &user);
+        let mut settings = play_settings(dir.path(), &user);
         settings.0.insert("stream_memory".into(), json!(value));
-        let program = port.program(&[
-            ("FAKE_PROBE_PRINT", "SPARTAN_STREAM_MEMORY"),
-            ("SPARTAN_STREAM_MEMORY", "inherited"),
-        ]);
-        let mut console = Vec::new();
-        let context = RunContext {
-            context: &program,
-            args: Vec::new(),
-            out: &mut console,
-        };
-        let code = play_with(context, &settings, &paths, Path::new(LAUNCHER), &mut |_| {});
-        let log = fs::read_to_string(user.join("last_run.log")).unwrap();
+        let mut env = clean_environment();
+        env.insert("SPARTAN_STREAM_MEMORY".into(), "inherited".into());
+        let args = ["--env", "SPARTAN_STREAM_MEMORY"];
+        let (code, _, log, _) = played(&settings, dir.path(), &user, env, &args);
         assert_eq!(code, 0, "{log}");
-        assert_eq!(printed(&log, "SPARTAN_STREAM_MEMORY"), [value], "{log}");
+        assert_eq!(log.lines().next(), Some(value), "{log}");
     }
 }
 

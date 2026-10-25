@@ -23,16 +23,15 @@ mod packages;
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use crate::core::env::{game_environment, Lookup};
 use crate::core::i18n::{launcher_language, system_language, tr};
-use crate::core::launch::returncode;
+use crate::core::launch::{run_command, spawn_game, GameEvent, Group, Launch, LaunchError};
 use crate::core::legacy;
-use crate::core::log::{exit_hint, RunLog};
+use crate::core::log::RunLog;
 use crate::core::mods::{self, Overlay};
 use crate::core::options::RESOLUTIONS;
 use crate::core::patches::{self, py_int, PatchJob, PatchStatus};
@@ -190,7 +189,8 @@ fn shlex_join(words: &[String]) -> String {
 /// the log and, on Windows without a console, shown in a dialog. Returns the game's exit code.
 /// (`main` attached the output to a parent console first: Python's `attach_stdio`.)
 pub fn play(context: RunContext<'_>, settings: &Settings, paths: &Paths) -> i32 {
-    play_with(context, settings, paths, &this_exe(), &mut |advice| {
+    let command = run_command(&this_exe(), &[]);
+    play_with(context, settings, paths, &command, &mut |advice| {
         #[cfg(windows)]
         if !platform::has_console() {
             platform::show_error(crate::APP_NAME, advice);
@@ -200,12 +200,12 @@ pub fn play(context: RunContext<'_>, settings: &Settings, paths: &Paths) -> i32 
     })
 }
 
-/// [`play`] starting `exe --run` and handing the advice to `notify` instead of showing it.
+/// [`play`] starting `command` and handing the advice to `notify` instead of showing it.
 pub fn play_with(
     context: RunContext<'_>,
     settings: &Settings,
     paths: &Paths,
-    exe: &Path,
+    command: &[String],
     notify: &mut dyn FnMut(&str),
 ) -> i32 {
     let RunContext {
@@ -216,53 +216,45 @@ pub fn play_with(
     let (port_dir, env) = (program.paths.port_dir.as_path(), &program.env);
     let lang = launcher_language(&settings.get_str("ui_language"), system_language);
     let env = game_environment(settings, paths, &lang, env, cfg!(windows));
-    let mut log = RunLog::open(&paths.run_log_path(&settings.get_str("user_dir")));
-    let started = io::pipe().and_then(|(reader, writer)| {
-        let mut command = Command::new(exe);
-        command
-            .arg("--run")
-            .current_dir(port_dir)
-            .env_clear()
-            .envs(&env)
-            .stdin(Stdio::null())
-            .stdout(writer.try_clone()?)
-            .stderr(writer);
-        platform::no_window(&mut command);
-        // `command` holds the pipe's writing ends; once it is gone only the game's remain, so the
-        // reader sees the end when the game and what it started are gone.
-        let child = command.spawn()?;
-        Ok((child, reader))
+    let run_log = RunLog::open(&paths.run_log_path(&settings.get_str("user_dir")));
+    let started = spawn_game(Launch {
+        command,
+        cwd: port_dir,
+        env: &env,
+        run_log,
+        lang: &lang,
+        group: Group::Caller,
     });
-    let (mut child, reader) = match started {
-        Ok(started) => started,
+    let game = match started {
+        Ok(game) => game,
         Err(error) => {
-            say(out, &format!("{}: {error}", exe.display()));
+            let program = command.first().map_or("", String::as_str);
+            // The OS's own message, as before, without the session's prefix.
+            let error = match error {
+                LaunchError::Spawn(error) => error.to_string(),
+                error => error.to_string(),
+            };
+            say(out, &format!("{program}: {error}"));
             return 1;
         }
     };
-    let mut hint = None;
-    let mut reader = BufReader::new(reader);
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        match reader.read_until(b'\n', &mut line) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {}
+    // The run log is written by the session; the console gets the same lines.
+    while let Ok(event) = game.events.recv() {
+        match event {
+            GameEvent::Output(text) => {
+                // A console that went away is no reason to stop reading the game.
+                let _ = out.write_all(text.as_bytes());
+                let _ = out.flush();
+            }
+            GameEvent::Exited(exit) => {
+                if let Some(hint) = exit.hint.filter(|_| exit.code != 0) {
+                    notify(&tr(&lang, hint.text_en()));
+                }
+                return exit.code;
+            }
         }
-        let text = String::from_utf8_lossy(&line);
-        hint = exit_hint(&text).or(hint);
-        log.write(&text);
-        // A console that went away is no reason to stop reading the game.
-        let _ = out.write_all(text.as_bytes());
-        let _ = out.flush();
     }
-    let code = child.wait().map_or(1, returncode);
-    if let Some(hint) = hint.filter(|_| code != 0) {
-        let advice = tr(&lang, hint.text_en());
-        log.write(&format!("\n{advice}\n"));
-        notify(&advice);
-    }
-    code
+    1
 }
 
 /// This program (Python's `sys.executable`), by its name when the system cannot say where it is.
