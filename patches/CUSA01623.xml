@@ -370,7 +370,7 @@
             <Line Type="bytes" Address="0x005f0b57" Value="cdcccc3fcdcccc3f" Pattern="48 b8 39 8e e3 3f 39 8e e3 3f 49 89 45 00 b9 00 00 01 00" At="2"/>
         </PatchList>
     </Metadata>
-    <Metadata Title="SpartanPort" Name="Resolution Patch - 1280x800" Note="1280x800 (1.600:1). Sets the game output resolution and the display aspect ratio; the horizontal field of view is the game's own, so this taller picture shows more at the top and bottom and sets the Video Arena to 2.75 GiB. Requires setting DMEM to 3072 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix. Not tested in game yet: please report how it looks." Author="SpartanPort ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
+    <Metadata Title="SpartanPort" Name="Resolution Patch - 1280x800" Note="1280x800 (1.600:1). Sets the game output resolution and the display aspect ratio; the horizontal field of view is the game's own, so this taller picture shows more at the top and bottom and sets the Video Arena to 2.25 GiB. (2.25 GiB like 900p, which draws more pixels: fits 2 GB GPUs.) Requires setting DMEM to 2048 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix. Not tested in game yet: please report how it looks." Author="SpartanPort ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
         <PatchList>
             <Line Type="bytes" Address="0x005f0b3b" Value="00050000" Pattern="48 8d 75 a0 89 c7 e8 ?? ?? ?? ?? 41 c7 45 0c 80 07 00 00" At="15"/>
             <Line Type="bytes" Address="0x005f0b43" Value="20030000" Pattern="41 c7 45 10 38 04 00 00 66 41 c7 45 14 80 07 66 41 c7 45 16 38 04" At="4"/>
@@ -386,7 +386,7 @@
             <Line Type="bytes" Address="0x0060953d" Value="20030000" Pattern="83 39 00 74 19 48 8b 78 38 ba 38 04 00 00 48 89 de" At="10"/>
             <Line Type="bytes" Address="0x007f2a3c" Value="80020000" Pattern="00 00 00 00 0a e0 f2 00 c0 03 00 00 1c 02 00 00 01 00 00 00" At="8"/>
             <Line Type="bytes" Address="0x007f2a40" Value="90010000" Pattern="0a e0 f2 00 c0 03 00 00 1c 02 00 00 01 00 00 00 00 00 00 00" At="8"/>
-            <Line Type="bytes" Address="0x007cd918" Value="000000b0" Pattern="00 00 00 43 00 00 80 3f 00 00 00 50 00 00 00 00 00 04 00 00" At="8"/>
+            <Line Type="bytes" Address="0x007cd918" Value="00000090" Pattern="00 00 00 43 00 00 80 3f 00 00 00 50 00 00 00 00 00 04 00 00" At="8"/>
             <Line Type="bytes" Address="0x005f0b57" Value="cdcccc3fcdcccc3f" Pattern="48 b8 39 8e e3 3f 39 8e e3 3f 49 89 45 00 b9 00 00 01 00" At="2"/>
         </PatchList>
     </Metadata>
@@ -536,7 +536,7 @@
             <Line Type="bytes" Address="0x005f0b57" Value="abaaaa3facaaaa3f" Pattern="48 b8 39 8e e3 3f 39 8e e3 3f 49 89 45 00 b9 00 00 01 00" At="2"/>
         </PatchList>
     </Metadata>
-    <Metadata Title="SpartanPort" Name="Resolution Patch - 1360x768" Note="1360x768 (1.771:1). Sets the game output resolution and the display aspect ratio; the picture has the shape of the original 16:9 one and sets the Video Arena to 2.75 GiB. Requires setting DMEM to 3072 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix. Not tested in game yet: please report how it looks." Author="SpartanPort ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
+    <Metadata Title="SpartanPort" Name="Resolution Patch - 1360x768" Note="1360x768 (1.771:1). Sets the game output resolution and the display aspect ratio; the picture has the shape of the original 16:9 one and sets the Video Arena to 2.25 GiB. (2.25 GiB like 900p, which draws more pixels: fits 2 GB GPUs.) Requires setting DMEM to 2048 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix. Not tested in game yet: please report how it looks." Author="SpartanPort ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
         <PatchList>
             <Line Type="bytes" Address="0x005f0b3b" Value="50050000" Pattern="48 8d 75 a0 89 c7 e8 ?? ?? ?? ?? 41 c7 45 0c 80 07 00 00" At="15"/>
             <Line Type="bytes" Address="0x005f0b43" Value="00030000" Pattern="41 c7 45 10 38 04 00 00 66 41 c7 45 14 80 07 66 41 c7 45 16 38 04" At="4"/>
@@ -552,11 +552,11 @@
             <Line Type="bytes" Address="0x0060953d" Value="00030000" Pattern="83 39 00 74 19 48 8b 78 38 ba 38 04 00 00 48 89 de" At="10"/>
             <Line Type="bytes" Address="0x007f2a3c" Value="a8020000" Pattern="00 00 00 00 0a e0 f2 00 c0 03 00 00 1c 02 00 00 01 00 00 00" At="8"/>
             <Line Type="bytes" Address="0x007f2a40" Value="80010000" Pattern="0a e0 f2 00 c0 03 00 00 1c 02 00 00 01 00 00 00 00 00 00 00" At="8"/>
-            <Line Type="bytes" Address="0x007cd918" Value="000000b0" Pattern="00 00 00 43 00 00 80 3f 00 00 00 50 00 00 00 00 00 04 00 00" At="8"/>
+            <Line Type="bytes" Address="0x007cd918" Value="00000090" Pattern="00 00 00 43 00 00 80 3f 00 00 00 50 00 00 00 00 00 04 00 00" At="8"/>
             <Line Type="bytes" Address="0x005f0b57" Value="abaae23fabaae23f" Pattern="48 b8 39 8e e3 3f 39 8e e3 3f 49 89 45 00 b9 00 00 01 00" At="2"/>
         </PatchList>
     </Metadata>
-    <Metadata Title="SpartanPort" Name="Resolution Patch - 1440x900" Note="1440x900 (1.600:1). Sets the game output resolution and the display aspect ratio; the horizontal field of view is the game's own, so this taller picture shows more at the top and bottom and sets the Video Arena to 2.75 GiB. Requires setting DMEM to 3072 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix. Not tested in game yet: please report how it looks." Author="SpartanPort ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
+    <Metadata Title="SpartanPort" Name="Resolution Patch - 1440x900" Note="1440x900 (1.600:1). Sets the game output resolution and the display aspect ratio; the horizontal field of view is the game's own, so this taller picture shows more at the top and bottom and sets the Video Arena to 2.25 GiB. (2.25 GiB like 900p, which draws more pixels: fits 2 GB GPUs.) Requires setting DMEM to 2048 MB or more. Only leave one resolution patch enabled; do not enable it with Bug Fix - Texture Corruption Fix. Not tested in game yet: please report how it looks." Author="SpartanPort ultrawide" PatchVer="1.0" AppVer="01.02" AppElf="eboot.bin" isEnabled="false">
         <PatchList>
             <Line Type="bytes" Address="0x005f0b3b" Value="a0050000" Pattern="48 8d 75 a0 89 c7 e8 ?? ?? ?? ?? 41 c7 45 0c 80 07 00 00" At="15"/>
             <Line Type="bytes" Address="0x005f0b43" Value="84030000" Pattern="41 c7 45 10 38 04 00 00 66 41 c7 45 14 80 07 66 41 c7 45 16 38 04" At="4"/>
@@ -572,7 +572,7 @@
             <Line Type="bytes" Address="0x0060953d" Value="84030000" Pattern="83 39 00 74 19 48 8b 78 38 ba 38 04 00 00 48 89 de" At="10"/>
             <Line Type="bytes" Address="0x007f2a3c" Value="d0020000" Pattern="00 00 00 00 0a e0 f2 00 c0 03 00 00 1c 02 00 00 01 00 00 00" At="8"/>
             <Line Type="bytes" Address="0x007f2a40" Value="c2010000" Pattern="0a e0 f2 00 c0 03 00 00 1c 02 00 00 01 00 00 00 00 00 00 00" At="8"/>
-            <Line Type="bytes" Address="0x007cd918" Value="000000b0" Pattern="00 00 00 43 00 00 80 3f 00 00 00 50 00 00 00 00 00 04 00 00" At="8"/>
+            <Line Type="bytes" Address="0x007cd918" Value="00000090" Pattern="00 00 00 43 00 00 80 3f 00 00 00 50 00 00 00 00 00 04 00 00" At="8"/>
             <Line Type="bytes" Address="0x005f0b57" Value="cdcccc3fcdcccc3f" Pattern="48 b8 39 8e e3 3f 39 8e e3 3f 49 89 45 00 b9 00 00 01 00" At="2"/>
         </PatchList>
     </Metadata>
@@ -635,5 +635,10 @@
             <Line Type="bytes32" Address="0x018ba600" Target="frame_index" Value="0x00000002"/>
         </PatchList>
         <Target Name="frame_index" Address="0x018ba600" Pattern="8b 05 ?? ?? ?? ?? 89 05 ?? ?? ?? ?? 44 89 35 ?? ?? ?? ?? c6 05 ?? ?? ?? ?? 01" At="15" Ref="1" Tail="0"/>
+    </Metadata>
+    <Metadata Title="SpartanPort" Name="Engine Floor - 25 FPS" Note="For frame limits under 50 FPS (30 FPS caps on slow GPUs): the engine constant 50.0 beside the maximum framerate (59.94, which the Frame Rate Patches replace) is read here as the slowest rate the game simulates at; at a 30 FPS limit the game would then run at 60% speed and cutscenes drift from their audio. Sets it to 25.0. Not verified against the disassembly: turn it off if anything looks wrong. No effect at 50 FPS and above if that reading is right." Author="fp32-gcn1" PatchVer="0.1" AppVer="01.02" AppElf="eboot.bin" isEnabled="true">
+        <PatchList>
+            <Line Type="bytes" Address="0x0075dbe0" Value="0000c841" Pattern="00 00 80 3f 00 00 48 42 8f c2 6f 42 00 00 c8 42 00 00 00 5f" At="4"/>
+        </PatchList>
     </Metadata>
 </Patch>
