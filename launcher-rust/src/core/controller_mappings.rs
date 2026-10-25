@@ -4,7 +4,7 @@
 
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use indexmap::{IndexMap, IndexSet};
 use tempfile::{NamedTempFile, TempPath};
@@ -49,8 +49,18 @@ pub enum MappingError {
     /// What the Python raises as `ValueError`: the message the mapper shows.
     #[error("{0}")]
     Invalid(&'static str),
-    #[error(transparent)]
-    Io(#[from] io::Error),
+    /// A file or folder that could not be read or written. The text holds the reason, so it is
+    /// not also the `source` (an error chain would repeat it).
+    #[error("{}: {error}", path.display())]
+    Io { path: PathBuf, error: io::Error },
+}
+
+/// The [`MappingError::Io`] of a failure on `path`.
+fn at(path: &Path) -> impl Fn(io::Error) -> MappingError + '_ {
+    move |error| MappingError::Io {
+        path: path.to_path_buf(),
+        error,
+    }
 }
 
 /// One poll of a raw joystick: its buttons, its axes (-32768 to 32767) and its hats (SDL's
@@ -344,7 +354,7 @@ pub fn load_mapping(
     if !path.is_file() {
         return Ok(None);
     }
-    let text = read_text(path)?;
+    let text = read_text(path).map_err(at(path))?;
     let lines = splitlines(&text);
     let guid = guid.to_ascii_lowercase();
     Ok(
@@ -439,7 +449,7 @@ fn save_mapping_with(
         return Err(MappingError::Invalid("Invalid controller mapping."));
     }
     let old = if path.exists() {
-        read_text(path)?
+        read_text(path).map_err(at(path))?
     } else {
         String::new()
     };
@@ -452,11 +462,12 @@ fn save_mapping_with(
         .parent()
         .filter(|folder| !folder.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    fs::create_dir_all(folder)?;
-    let mut temporary = NamedTempFile::new_in(folder)?;
-    temporary.write_all((lines.join("\n") + "\n").as_bytes())?;
-    replace(temporary.into_temp_path(), path)?;
-    Ok(())
+    fs::create_dir_all(folder).map_err(at(folder))?;
+    let mut temporary = NamedTempFile::new_in(folder).map_err(at(folder))?;
+    temporary
+        .write_all((lines.join("\n") + "\n").as_bytes())
+        .map_err(at(path))?;
+    replace(temporary.into_temp_path(), path).map_err(at(path))
 }
 
 /// Hands the saved profiles to SDL (Python `configure_environment`). Without a
@@ -798,9 +809,16 @@ mod tests {
         })
         .unwrap_err();
         assert!(
-            matches!(&error, MappingError::Io(error) if error.kind() == io::ErrorKind::PermissionDenied),
+            matches!(&error, MappingError::Io { path: failed, error }
+                if *failed == path && error.kind() == io::ErrorKind::PermissionDenied),
             "{error:?}"
         );
+        // The text names the file, for the mapper's status line; the reason is not also a source.
+        assert!(
+            error.to_string().starts_with(&format!("{}: ", path.display())),
+            "{error}"
+        );
+        assert!(std::error::Error::source(&error).is_none());
         assert_eq!(fs::read_to_string(&path).unwrap(), "old profile\n");
         assert_eq!(entries(dir.path()), [path]);
     }
@@ -909,8 +927,13 @@ mod tests {
         fs::write(&path, b"\xff\xfe not UTF-8").unwrap();
         let error = load_mapping(&path, GUID, "Windows").unwrap_err();
         assert!(
-            matches!(&error, MappingError::Io(error) if error.kind() == io::ErrorKind::InvalidData),
+            matches!(&error, MappingError::Io { path: failed, error }
+                if *failed == path && error.kind() == io::ErrorKind::InvalidData),
             "{error:?}"
+        );
+        assert!(
+            error.to_string().starts_with(&format!("{}: ", path.display())),
+            "{error}"
         );
     }
 
