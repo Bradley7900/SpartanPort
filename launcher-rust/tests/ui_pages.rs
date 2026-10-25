@@ -11,6 +11,7 @@ use spartanport_launcher::core::env::game_environment;
 use spartanport_launcher::core::gpu::{display_label, parse_display_list};
 use spartanport_launcher::core::options::DISPLAY_MODES;
 use spartanport_launcher::ui::app::{self, Message};
+use spartanport_launcher::ui::follow::{follow, Cause};
 use spartanport_launcher::ui::pages::{performance, Page};
 use spartanport_launcher::ui::widgets::{self, select_message};
 
@@ -543,14 +544,14 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     // 3440x1440 is built in: the mod adds nothing new and the saved size stays chosen.
     write_mod_patch(&patches, "3440x1440");
     set(&mut state, "render_resolution", "3440x1440");
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["mods_dir"]));
     assert_eq!(performance::resolution_options(&state).len(), builtin);
     assert_eq!(state.store.text("render_resolution"), "3440x1440");
 
     // A size that is not built in carries the (mod) label while its mod is on.
     write_mod_patch(&patches, "3840x1080");
     set(&mut state, "render_resolution", "3840x1080");
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["mods_dir"]));
     let options = performance::resolution_options(&state);
     assert_eq!(options.len(), builtin + 1);
     let label = options.iter().find(|(v, _)| v == "3840x1080").unwrap();
@@ -566,14 +567,16 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
         r#"{"disabled": ["Ultrawide"], "order": []}"#,
     )
     .unwrap();
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["mods_dir"]));
     assert_eq!(performance::resolution_options(&state).len(), builtin);
     // Ticked again, then "Load mods" off.
     std::fs::remove_file(state.paths.mods_json()).unwrap();
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["mods_dir"]));
     assert_eq!(performance::resolution_options(&state).len(), builtin + 1);
-    state.store.set("mods_enabled", false.into());
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = app::update(
+        &mut state,
+        Message::Set("mods_enabled".into(), false.into()),
+    );
     assert_eq!(performance::resolution_options(&state).len(), builtin);
 }
 
@@ -1828,7 +1831,7 @@ fn preset_round_trip() {
 fn the_list_follows_the_mods() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = mods_state(dir.path());
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["mods_dir"]));
     let builtin = performance::resolution_options(&state).len();
     // No mod yet.
     load_mods(&mut state);
@@ -1881,7 +1884,7 @@ fn the_bundled_ultrawide_mod_lists_with_its_patches() {
     let mut state = mods_state(dir.path());
     let root = state.paths.mods_dir("");
     copy_tree(&bundled, &root.join("Ultrawide"));
-    performance::refresh_mod_resolutions(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["mods_dir"]));
     let builtin = performance::resolution_options(&state).len();
     load_mods(&mut state);
     assert_eq!(state.mods.order, ["Ultrawide"]);

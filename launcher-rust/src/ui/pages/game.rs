@@ -15,7 +15,7 @@ use crate::core::options::LANGUAGES;
 use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta};
 use crate::core::save_backup::{list_backups, restore, KEEP};
 use crate::ui::app::{Message, State};
-use crate::ui::home;
+use crate::ui::follow::{follow, Cause};
 use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
@@ -70,7 +70,7 @@ fn user_dir(state: &State) -> PathBuf {
 // --- Save backups ---
 
 /// Lists the backups of the saves folder and chooses the newest.
-pub fn refresh_backups(state: &mut State) {
+pub(crate) fn refresh_backups(state: &mut State) {
     state.backups = list_backups(&user_dir(state));
     state.backup_choice = state.backups.first().cloned().unwrap_or_default();
 }
@@ -116,15 +116,16 @@ pub fn backup_update(state: &mut State, message: BackupMessage) -> Task<Message>
                 .map(|result| Message::Backup(BackupMessage::Restored(result)));
         }
         BackupMessage::Restored(Ok(safety)) => {
-            // The list is rebuilt below, which moves the choice: name the backup first.
+            // Every view of the saves folder follows, the trophies included; the backups are
+            // listed again, which moves the choice: name the backup first.
             let name = state.backup_choice.clone();
-            refresh_backups(state);
-            home::refresh_facts(state);
+            let saves = follow(state, Cause::Keys(&["user_dir"]));
             let mut body = tr_fmt(&lang, "Saves restored from {}.", &[&name]);
             if let Some(safety) = safety {
                 body += &tr_fmt(&lang, " Previous saves: {}.", &[&safety]);
             }
             state.modal = Some(Modal::info(body));
+            return saves;
         }
         BackupMessage::Restored(Err(error)) => {
             state.modal = Some(Modal::error(tr_fmt(
@@ -175,7 +176,7 @@ pub fn store_game_patches(state: &mut State) {
 
 /// Reads the built-in patches of the game in `state.installation` into `state.patches`, keeping
 /// the selection of the game that was shown until now.
-pub fn refresh_game_patches(state: &mut State) {
+pub(crate) fn refresh_game_patches(state: &mut State) {
     store_game_patches(state);
     let (title_id, profile) = (
         state.installation.title_id().map(str::to_string),

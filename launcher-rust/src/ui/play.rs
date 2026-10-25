@@ -24,8 +24,7 @@ use crate::core::log::{line_status, LineStatus, RunLog};
 use crate::core::paths::Paths;
 use crate::ui::app::{refresh_installation, show_page, Message, State};
 use crate::ui::follow::{follow, Cause};
-use crate::ui::home;
-use crate::ui::pages::{log, trophies, Page};
+use crate::ui::pages::{log, Page};
 use crate::ui::persist;
 use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::Modal;
@@ -502,8 +501,9 @@ fn output(state: &mut State, lines: Vec<String>) -> Task<Message> {
     log::scroll_to_end()
 }
 
-/// The game ended: the exit line and its advice, PLAY back, and the Home chips and trophies read
-/// again; a launcher hidden for the game closes instead.
+/// The game ended: the exit line and its advice, PLAY back, and the views of the saves folder read
+/// again (the Home facts, the backups, the trophies); a launcher hidden for the game closes
+/// instead.
 fn exited(state: &mut State, Exit { code, hint }: Exit) -> Task<Message> {
     let exit = exit_after_game(state);
     let mut handle = match std::mem::take(&mut state.game) {
@@ -527,8 +527,10 @@ fn exited(state: &mut State, Exit { code, hint }: Exit) -> Task<Message> {
     if exit && hint.is_none() {
         return iced::exit();
     }
-    home::refresh_facts(state);
-    let mut tasks = vec![log::scroll_to_end(), trophies::refresh(state)];
+    // The game wrote the saves, the trophies and the patch report, and the runner backed the saves
+    // up before the start: every view of the saves folder follows.
+    let saves = follow(state, Cause::Keys(&["user_dir"]));
+    let mut tasks = vec![log::scroll_to_end(), saves];
     if hint.is_some() {
         // The advice is read on the Log page (the Python's `show_log`), and a window hidden for
         // the game comes back to show it instead of closing.

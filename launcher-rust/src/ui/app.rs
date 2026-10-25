@@ -19,7 +19,6 @@ use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Displa
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
 use crate::core::installation::Installation;
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
-use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
 use crate::core::platform;
 use crate::core::platform::tool::SystemTools;
@@ -184,8 +183,6 @@ impl State {
         let scale = theme::ui_scale(&store.text("ui_scale"));
         let now = Instant::now();
         let rtl = is_rtl(&lang);
-        let aspect =
-            aspect_of(&store.text("render_resolution")).unwrap_or_else(|| "16:9".to_string());
         let controls = ControlsView::new(store.app());
         let installation = Installation::of(&store);
         // `start_monitor_listing` lists them under this one.
@@ -213,7 +210,9 @@ impl State {
             launcher_exe: None,
             log: LogBuffer::new(MAX_LOG_LINES),
             gpus: Vec::new(),
-            aspect,
+            // What a render resolution without an aspect shows; the start's read below sets the
+            // aspect of the saved one.
+            aspect: "16:9".to_string(),
             mod_resolutions: Vec::new(),
             displays: Vec::new(),
             displays_backend,
@@ -247,13 +246,10 @@ impl State {
             window: None,
             now,
         };
-        home::read_facts(&mut state);
-        // The Mods page's lists now, as the Python launcher does, so the first visit does not count
-        // as a change.
-        state.mods = mods::load(&state.paths, &state.store, &state.installation);
-        performance::refresh_mod_resolutions(&mut state);
-        game::refresh_game_patches(&mut state);
-        game::refresh_backups(&mut state);
+        // Every view the start reads, at once: the Mods page's lists too, as the Python launcher
+        // reads them, so the first visit does not count as a change. Nothing is left to arrive
+        // from a thread (the Trophies list waits for its page), so the task is empty.
+        let _ = follow(&mut state, Cause::Start);
         // Nothing to save after opening.
         state.saved = Some(persist::gather(&state));
         state.modal = persist::unreadable_warning(&state.lang, &unreadable);
@@ -480,9 +476,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 return controls::update(state, ControlsMessage::CaptureTimeout);
             }
             // The player may have copied the game files in a file manager meanwhile: the setup
-            // checks them again.
+            // checks them again, and every view of the game folders follows.
             if state.setup.is_some() {
-                refresh_installation(state);
+                return follow(state, Cause::Keys(&["game_dir", "update_dir"]));
             }
         }
         Message::Splash(message) => splash::apply(state, message),
@@ -559,7 +555,7 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) -> Task<Message> {
 }
 
 /// Reads the game and update folders of the settings again into `state.installation`.
-pub fn refresh_installation(state: &mut State) {
+pub(crate) fn refresh_installation(state: &mut State) {
     state.installation = Installation::of(&state.store);
 }
 

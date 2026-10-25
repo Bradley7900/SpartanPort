@@ -30,7 +30,7 @@ pub const NO_MSAA_HINT: &str = "The game's 2-sample depth buffer, read as a text
 
 /// Reads the sizes the enabled mods add (the "Resolution Patch - <size>" entries of their patch
 /// files) into `state.mod_resolutions`. Task 29 calls it again when a mod is toggled.
-pub fn refresh_mod_resolutions(state: &mut State) {
+pub(crate) fn refresh_mod_resolutions(state: &mut State) {
     state.mod_resolutions = mod_sizes(state);
 }
 
@@ -133,7 +133,7 @@ pub fn choose_aspect(state: &mut State, aspect: &str) {
 }
 
 /// After the render resolution changed: the aspect box follows it.
-pub fn resolution_chosen(state: &mut State) {
+pub(crate) fn resolution_chosen(state: &mut State) {
     if let Some(aspect) = aspect_of(&current_resolution(state)) {
         if aspect != state.aspect {
             state.aspect = aspect;

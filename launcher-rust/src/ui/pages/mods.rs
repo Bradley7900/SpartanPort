@@ -200,7 +200,7 @@ fn read(paths: &Paths, settings: &Settings, installation: &Installation) -> Mods
 }
 
 /// Reads the lists again in the background.
-pub fn refresh(state: &State) -> Task<Message> {
+pub(crate) fn refresh(state: &State) -> Task<Message> {
     let paths = state.paths.clone();
     let settings = state.store.app().clone();
     let installation = state.installation.clone();

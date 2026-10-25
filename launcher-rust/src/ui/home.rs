@@ -21,8 +21,7 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS};
 use crate::core::patches::patch_status;
 use crate::ui::app::{
-    home_interactive_enabled, home_interactive_opacity, refresh_installation, scene_size, Message,
-    State,
+    home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
 };
 use crate::ui::lang_menu;
 use crate::ui::version_menu;
@@ -142,14 +141,8 @@ pub struct HomeFacts {
     pub skipped: usize,
 }
 
-/// Re-reads the game folders, then the Home facts.
-pub fn refresh_facts(state: &mut State) {
-    refresh_installation(state);
-    read_facts(state);
-}
-
 /// Re-reads the saves folder and the last start's patch report; the game is `State::installation`.
-pub fn read_facts(state: &mut State) {
+pub(crate) fn read_facts(state: &mut State) {
     let savedata = user_dir(state).join("savedata");
     state.home = HomeFacts {
         saves: has_files(&savedata),

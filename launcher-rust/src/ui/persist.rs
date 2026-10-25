@@ -22,9 +22,7 @@ use crate::core::ini::{load_ini, save_ini};
 use crate::core::platform::tool::SystemTools;
 use crate::core::settings::{save_settings, Settings};
 use crate::ui::app::{self, Message, State};
-use crate::ui::home;
-use crate::ui::pages::mods::{self, ModsMessage};
-use crate::ui::pages::{game, performance};
+use crate::ui::follow::{follow, Cause};
 use crate::ui::theme;
 use crate::ui::widgets::Modal;
 
@@ -177,7 +175,7 @@ pub fn dirty(state: &State) -> bool {
 /// under (Python `refresh_monitors`), so the stored choice belongs to the backend the file carries.
 /// Never on Windows, where no window system is selectable. The choice on screen is kept when the
 /// new list has it, else the collected one, else the primary default. True when it listed again.
-pub fn refresh_monitors(state: &mut State) -> bool {
+fn refresh_monitors(state: &mut State) -> bool {
     let backend = state.store.text("video_backend");
     if cfg!(windows) || backend == state.displays_backend {
         return false;
@@ -252,10 +250,11 @@ pub fn collect(state: &mut State) -> Result<(), PersistError> {
     let changed = state
         .store
         .replace(Settings(pending.app), load_ini(&ini_path));
-    // The ini may hold a size changed outside the launcher: the Aspect ratio box follows it.
-    if changed.iter().any(|key| key == "render_resolution") {
-        performance::resolution_chosen(state);
-    }
+    // The ini may hold a size changed outside the launcher: the views of what changed follow.
+    // Only the ini is read back (settings.json gets what the store holds), and the views of its
+    // keys are read at once, so nothing is left to arrive from a thread.
+    let keys: Vec<&str> = changed.iter().map(String::as_str).collect();
+    let _ = follow(state, Cause::Keys(&keys));
     state.saved = Some(gather(state));
     // The files now hold what the window shows.
     state.settings_unreadable = false;
@@ -347,20 +346,19 @@ pub fn save(state: &mut State) -> Task<Message> {
 
 /// The window in another language or zoom (Python `rebuild`). The views are functions of the
 /// state, so rebuilding is only this update: the language, its direction and the zoom change, and
-/// what the views show from the disk (the Home facts, the mod and patch lists, the game patches) is
-/// read again. Every setting, the page, the drawer, the log, the game, the update state (the
-/// release list, a check or a download under way) and an open dialog stay as they were.
+/// what the views show from the disk is read again (`follow`'s Rebuild column: the game folders,
+/// the Home facts, the game patches and the Mods lists). Every setting, the page, the drawer, the
+/// log, the game, the update state (the release list, a check or a download under way) and an
+/// open dialog stay as they were.
 pub fn rebuild(state: &mut State, language: String, scale: f32) -> Task<Message> {
     state.rtl = is_rtl(&language);
     state.lang = language;
     state.scale = scale;
-    home::refresh_facts(state);
-    // Read now, as the Python does, so the lists are in place before the new baseline.
-    let lists = mods::load(&state.paths, &state.store, &state.installation);
-    let conflicts = mods::update(state, ModsMessage::Loaded(Box::new(lists)));
-    game::refresh_game_patches(state);
+    // The Mods lists are read at once, as the Python does, so they are in place before the new
+    // baseline.
+    let read = follow(state, Cause::Rebuild);
     state.saved = Some(gather(state));
-    conflicts
+    read
 }
 
 /// Python's `json.dumps(value, indent=2)`: two-space indent, `": "` after keys, no final newline,

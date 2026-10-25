@@ -16,7 +16,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::follow::{follow, Cause};
 use crate::ui::home;
 use crate::ui::pages::game::folder_row;
-use crate::ui::pages::performance::{self, aspect_options, select_row};
+use crate::ui::pages::performance::{aspect_options, select_row};
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::describe_missing;
 use crate::ui::splash::SPLASH_BG;
@@ -163,15 +163,15 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
             let mut values = state.store.ini().values.clone();
             values.extend(defaults.ini);
             let lines = state.store.ini().lines.clone();
-            state
+            let changed = state
                 .store
                 .replace(Settings(defaults.app), Ini { values, lines });
-            // The Aspect ratio box follows the restored resolution.
-            performance::resolution_chosen(state);
             state.store.set("ui_language", json!(state.lang));
-            // The restored folders are read first: a failed save leaves the setup open over them.
-            let folders = follow(state, Cause::Keys(&["game_dir", "update_dir", "user_dir"]));
-            return Task::batch([folders, finish(state)]);
+            // The views of what was put back follow (the folders, the Aspect ratio box of the
+            // resolution) before the save: a failed save leaves the setup open over them.
+            let keys: Vec<&str> = changed.iter().map(String::as_str).collect();
+            let restored = follow(state, Cause::Keys(&keys));
+            return Task::batch([restored, finish(state)]);
         }
         SetupMessage::Next => {
             if let Some(step) = setup.step.next() {

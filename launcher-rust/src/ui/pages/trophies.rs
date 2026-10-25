@@ -121,7 +121,7 @@ fn read(paths: &Paths, settings: &Settings, installation: &Installation) -> Trop
 }
 
 /// Marks the list as loading and reads it in the background.
-pub fn refresh(state: &mut State) -> Task<Message> {
+pub(crate) fn refresh(state: &mut State) -> Task<Message> {
     state.trophies.loading = true;
     let paths = state.paths.clone();
     let settings = state.store.app().clone();

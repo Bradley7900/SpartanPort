@@ -19,6 +19,7 @@ use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::core::update::InstallTarget;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::drawer::DrawerState;
+use spartanport_launcher::ui::follow::{follow, Cause};
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::Page;
@@ -205,11 +206,11 @@ fn the_hint_line_names_the_patches_the_last_start_left_out() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     let dump = common::dump_with_patches(dir.path());
-    state
-        .store
-        .set("game_dir", json!(dump.display().to_string()));
     last_start_skipped(&state, &["Fix Beta", "Fix Gamma"]);
-    home::refresh_facts(&mut state);
+    let _ = app::update(
+        &mut state,
+        Message::Set("game_dir".into(), json!(dump.display().to_string())),
+    );
     let note = "2 patches not found in this eboot.bin at the last start (see Log)";
     assert_eq!(home::status_line(&state), note);
     assert!(simulator(app::view(&state)).find(note).is_ok());
@@ -222,12 +223,11 @@ fn the_hint_line_names_the_patches_the_last_start_left_out() {
     let hint = "In the game: Insert or R3+L2 opens the port's menu.";
     // Every patch applied: the hint.
     last_start_skipped(&state, &[]);
-    home::refresh_facts(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["user_dir"]));
     assert_eq!(home::status_line(&state), hint);
     // As the Python's summary: no note without a game in the game folder.
     last_start_skipped(&state, &["Fix Beta"]);
-    state.store.set("game_dir", json!(""));
-    home::refresh_facts(&mut state);
+    let _ = app::update(&mut state, Message::Set("game_dir".into(), json!("")));
     assert_eq!(home::status_line(&state), hint);
 }
 
@@ -235,8 +235,7 @@ fn the_hint_line_names_the_patches_the_last_start_left_out() {
 fn the_home_shows_the_launcher_key_art_without_a_game_folder() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.store.set("game_dir", "".into());
-    home::refresh_facts(&mut state);
+    let _ = app::update(&mut state, Message::Set("game_dir".into(), "".into()));
     let mut ui = simulator(app::view(&state));
     assert!(
         ui.find(iced_test::selector::id(home::ART_ID)).is_ok(),
@@ -407,7 +406,7 @@ fn saves_chip_follows_the_savedata_folder() {
         .join("savedata");
     std::fs::create_dir_all(&saves).unwrap();
     std::fs::write(saves.join("slot0"), b"x").unwrap();
-    home::refresh_facts(&mut state);
+    let _ = follow(&mut state, Cause::Keys(&["user_dir"]));
     // Only that saves exist: the folder is on the Game page.
     assert_eq!(home::chips(&state)[0], "✓ Saves found");
     state.lang = "pt".into();
