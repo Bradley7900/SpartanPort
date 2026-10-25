@@ -14,6 +14,7 @@ use serde_json::json;
 use spartanport_launcher::core::log::ExitHint;
 use spartanport_launcher::core::patches::{patch_status, PatchStatus};
 use spartanport_launcher::core::paths::Paths;
+use spartanport_launcher::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, Window};
 use spartanport_launcher::core::settings::Settings;
 use spartanport_launcher::runner::{
     isa_rewrite, patch_environment, play_with, restart_command, RunContext,
@@ -937,4 +938,22 @@ fn ctrl_c_cleans_up_and_ends_with_130() {
     assert_eq!(child.wait().unwrap().code(), Some(130), "{seen}");
     let overlay = app0(&probe_runs(&seen)[0]);
     assert!(!overlay.exists());
+}
+
+#[test]
+fn a_hanging_tool_is_stopped_at_its_limit() {
+    let call = ToolCall {
+        program: FAKE_PROBE.into(),
+        args: vec!["hang".into()],
+        env: None,
+        cwd: None,
+        limit: Some(Duration::from_secs(1)),
+        stderr: Stderr::Null,
+        window: Window::Hidden,
+    };
+    let start = Instant::now();
+    let err = run_tool(&call).unwrap_err();
+    assert!(matches!(err, ToolError::TimedOut { .. }));
+    assert!(err.to_string().ends_with("timed out after 1 seconds"));
+    assert!(start.elapsed() < Duration::from_secs(5));
 }

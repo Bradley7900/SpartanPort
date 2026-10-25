@@ -3,6 +3,7 @@
 //! - `--cpu-features`: prints `CPU: missing <FAKE_PROBE_MISSING>` when that list is set, and
 //!   exits with `FAKE_PROBE_CPU_EXIT` (default 0).
 //! - `--gamepad`: prints `FAKE_PROBE_GAMEPAD`; hangs when it is `hang`.
+//! - `hang`: sleeps until killed.
 //! - `--displays`: prints nothing.
 //! - Any other run (the game): prints `fake-probe argv:`, its argv one per line and
 //!   `fake-probe argv end`; then `NAME=value` (or `NAME is unset`) for each variable named in
@@ -59,6 +60,9 @@ fn main() {
             std::process::exit(0);
         }
         Some("--displays") => std::process::exit(0),
+        Some("hang") => loop {
+            std::thread::sleep(Duration::from_secs(60));
+        },
         _ => {}
     }
     let _ = writeln!(out, "fake-probe argv:");

@@ -1,5 +1,7 @@
 //! The few calls that need the operating system.
 
+pub mod tool;
+
 #[cfg(not(windows))]
 mod unix;
 #[cfg(windows)]

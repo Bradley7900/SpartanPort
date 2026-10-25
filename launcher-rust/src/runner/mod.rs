@@ -21,10 +21,10 @@ mod packages;
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::core::catalog;
 use crate::core::env::game_environment;
@@ -33,9 +33,10 @@ use crate::core::legacy;
 use crate::core::log::{exit_hint, RunLog};
 use crate::core::mods::{self, Overlay};
 use crate::core::options::RESOLUTIONS;
-use crate::core::patches::{self, py_int, py_list, PatchJob, PatchStatus};
+use crate::core::patches::{self, py_int, PatchJob, PatchStatus};
 use crate::core::paths::Paths;
 use crate::core::platform;
+use crate::core::platform::tool::{run_tool, Stderr, ToolCall, Window};
 use crate::core::save_backup;
 use crate::core::settings::Settings;
 use crate::core::sfo::SfoValue;
@@ -489,17 +490,21 @@ impl<'a> Runner<'a> {
         }
         // 7. Instruction sets this CPU lacks (MOVBE, BMI1, LZCNT): the ISA rewrite covers them;
         // exit 20 is a set nothing covers.
-        let features = self
-            .command(&probe_text)
-            .arg("--cpu-features")
-            .stderr(Stdio::inherit())
-            .output();
+        let features = run_tool(&ToolCall {
+            program: probe_text.clone().into(),
+            args: vec!["--cpu-features".into()],
+            env: Some(&self.env),
+            cwd: None,
+            limit: None,
+            stderr: Stderr::Inherit,
+            window: Window::LikeConsole,
+        });
         let features = match features {
             Ok(features) => features,
             Err(error) => return self.fail(&format!("{probe_text}: {error}")),
         };
-        let stdout = String::from_utf8_lossy(&features.stdout).into_owned();
-        if features.status.code() == Some(UNSUPPORTED_CPU) {
+        let stdout = features.stdout;
+        if features.code == Some(UNSUPPORTED_CPU) {
             let _ = self.out.write_all(stdout.as_bytes());
             let _ = self.out.flush();
             return UNSUPPORTED_CPU;
@@ -976,45 +981,17 @@ fn run_within(
     let Some((program, args)) = command.split_first() else {
         return Err("no command".to_string());
     };
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .env_clear()
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped());
-    platform::no_console_window(&mut cmd);
-    let mut child = cmd.spawn().map_err(|error| error.to_string())?;
-    let Some(mut stdout) = child.stdout.take() else {
-        return Err("no output".to_string());
-    };
-    let reader = std::thread::spawn(move || {
-        let mut text = Vec::new();
-        let _ = stdout.read_to_end(&mut text);
-        text
-    });
-    let deadline = Instant::now() + limit;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
-                    "Command '{}' timed out after {} seconds",
-                    py_list(command),
-                    limit.as_secs()
-                ));
-            }
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error.to_string());
-            }
-        }
-    }
-    let text = reader.join().unwrap_or_default();
-    Ok(String::from_utf8_lossy(&text).into_owned())
+    run_tool(&ToolCall {
+        program: program.into(),
+        args: args.iter().map(OsString::from).collect(),
+        env: Some(env),
+        cwd: None,
+        limit: Some(limit),
+        stderr: Stderr::Inherit,
+        window: Window::LikeConsole,
+    })
+    .map(|output| output.stdout)
+    .map_err(|error| error.to_string())
 }
 
 /// Instruction sets `spartanport-probe --cpu-features` reports missing (empty when complete).
