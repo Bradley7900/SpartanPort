@@ -1174,7 +1174,7 @@ mod tests {
         // glyphs::build got the controller's style and letters and the gamepad map, no key map.
         let faces = r#"{"south": "a", "east": "b", "west": "x", "north": "y"}"#;
         assert!(
-            stamp(&run).starts_with(&format!("[11, \"xbox\", {faces}, \"cross=b\", 1")),
+            stamp(&run).starts_with(&format!("[12, \"xbox\", {faces}, \"cross=b\", 1")),
             "{}",
             stamp(&run)
         );
@@ -1205,7 +1205,7 @@ mod tests {
         assert_eq!(result, (vec![], None));
         assert!(calls.is_empty());
         assert!(
-            stamp(&run).starts_with("[11, \"nintendo\", null, \"\", 1"),
+            stamp(&run).starts_with("[12, \"nintendo\", null, \"\", 1"),
             "{}",
             stamp(&run)
         );
@@ -1223,7 +1223,7 @@ mod tests {
         assert_eq!(style.as_deref(), Some("keyboard"));
         assert!(calls.is_empty());
         assert!(
-            stamp(&run).starts_with("[11, \"keyboard\", null, \"\", \"cross=Q\", null, "),
+            stamp(&run).starts_with("[12, \"keyboard\", null, \"\", \"cross=Q\", null, "),
             "{}",
             stamp(&run)
         );
@@ -1239,7 +1239,7 @@ mod tests {
         let ((_, style), _, _) = mounts_with(&run, &env, Ok("Gamepad: none\n"));
         assert_eq!(style.as_deref(), Some("keyboard"));
         assert!(
-            stamp(&run).starts_with("[11, \"keyboard\", null, \"\", \"square=G\", null, "),
+            stamp(&run).starts_with("[12, \"keyboard\", null, \"\", \"square=G\", null, "),
             "{}",
             stamp(&run)
         );
