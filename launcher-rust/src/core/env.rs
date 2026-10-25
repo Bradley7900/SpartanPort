@@ -9,8 +9,8 @@ use serde_json::Value;
 
 use crate::core::catalog::{run_default, setting, Kind};
 use crate::core::controls::{control_map, keyboard_map, Kind as ControlKind};
-use crate::core::game::{meta_folder, GameFolder};
 use crate::core::i18n::{tr, trophy_text};
+use crate::core::installation::Installation;
 use crate::core::legacy::forward_environment;
 use crate::core::options::Choice;
 use crate::core::paths::Paths;
@@ -160,8 +160,8 @@ pub fn environment(
     }
     // The launcher's patch selection is the whole list (derived: no 1:1 catalog row).
     let game_dir = settings.get_str("game_dir");
-    let folder = GameFolder::read(Path::new(&meta_folder(&game_dir, &update_dir)));
-    let (title_id, profile) = (folder.title_id(), folder.profile());
+    let installation = Installation::read(&game_dir, &update_dir);
+    let (title_id, profile) = (installation.title_id(), installation.profile());
     let chosen = title_id.and_then(|id| settings.get("game_patches")?.get(id)?.as_array());
     if let (Some(_), Some(chosen)) = (profile, chosen) {
         let names: Vec<&str> = chosen.iter().filter_map(Value::as_str).collect();

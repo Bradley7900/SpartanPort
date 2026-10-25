@@ -19,6 +19,7 @@ use crate::core::game::{
     GameFolder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{tr, tr_fmt};
+use crate::core::installation::SEPARATE_FOLDERS;
 use crate::core::launch::{
     run_command, spawn_game, Exit, GameEvent, GameHandle, Group, Launch, LaunchError,
 };
@@ -204,9 +205,7 @@ fn system_files_offer(
         .skip(after)
         .find_map(|(folder, is_update)| {
             // The update's candidate must be the base game's title.
-            let reference = is_update
-                .then(|| GameFolder::read(Path::new(game)))
-                .and_then(|folder| folder.sfo_values().cloned());
+            let reference = is_update.then(|| GameFolder::read(Path::new(game)));
             let base = is_update.then(|| Path::new(game));
             system_files_beside(folder, reference.as_ref(), base)
                 .map(|source| (folder.to_string(), source))
@@ -271,11 +270,7 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
         return refuse(state, text);
     }
     if !update_dir.is_empty() && same_folder(&update_dir, folder_or_here(&game_dir)) {
-        let text = tr(
-            &lang,
-            "Choose two separate folders for the game and its update, or leave the update \
-             folder empty.",
-        );
+        let text = tr(&lang, SEPARATE_FOLDERS);
         return refuse(state, text);
     }
     let missing = if update_dir.is_empty() {

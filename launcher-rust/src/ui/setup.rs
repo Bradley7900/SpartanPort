@@ -12,6 +12,7 @@ use crate::core::game::{
 };
 use crate::core::i18n::{launcher_language, system_language, tr, tr_fmt};
 use crate::core::ini::Ini;
+use crate::core::installation::SEPARATE_FOLDERS;
 use crate::core::options::DISPLAY_MODES;
 use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
@@ -162,10 +163,7 @@ pub fn folder_problems(state: &State, key: &str) -> Vec<String> {
     let missing = match key {
         "game_dir" => &setup.game_missing,
         "update_dir" if setup.same_folders => {
-            return vec![tr(
-                lang,
-                "Choose two separate folders for the game and its update, or leave the update folder empty.",
-            )];
+            return vec![tr(lang, SEPARATE_FOLDERS)];
         }
         "update_dir" => &setup.update_missing,
         _ => return Vec::new(),

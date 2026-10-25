@@ -75,7 +75,7 @@ fn game_sfo() -> Vec<u8> {
     ])
 }
 
-/// `eboot.bin` and a tiny `param.sfo`: what `game_info` needs, without the modules.
+/// `eboot.bin` and a tiny `param.sfo`: what `GameFolder::info` needs, without the modules.
 fn eboot_and_sfo(folder: &Path) {
     fs::create_dir_all(folder.join("sce_sys")).unwrap();
     fs::write(folder.join("eboot.bin"), b"elf").unwrap();

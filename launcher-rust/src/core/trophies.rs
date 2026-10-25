@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::i18n::tr;
 
@@ -149,15 +149,6 @@ pub fn reset_trophies(path: &Path) -> io::Result<usize> {
     Ok(unlocked)
 }
 
-/// The game's `trophy00.trp`: in the update folder when it has one, else in the game folder.
-pub fn trophy_package(game_dir: &str, update_dir: &str) -> Option<PathBuf> {
-    [update_dir, game_dir]
-        .into_iter()
-        .filter(|folder| !folder.is_empty())
-        .map(|folder| Path::new(folder).join("sce_sys/trophy/trophy00.trp"))
-        .find(|path| path.is_file())
-}
-
 /// The name of a tier in `lang`.
 pub fn tier_label(tier: Tier, lang: &str) -> String {
     let en = match tier {
@@ -183,6 +174,7 @@ pub fn tier_color(tier: Tier) -> &'static str {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use std::path::PathBuf;
 
     fn trp_with(entries: &[(&str, &[u8])], magic: [u8; 4], element: usize) -> Vec<u8> {
         let header_size = 0x60;
@@ -337,20 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn package_prefers_the_update_folder_and_labels_exist() {
-        let game = tempfile::tempdir().unwrap();
-        let update = tempfile::tempdir().unwrap();
-        let g = game.path().join("sce_sys/trophy");
-        fs::create_dir_all(&g).unwrap();
-        fs::write(g.join("trophy00.trp"), b"g").unwrap();
-        let gs = game.path().to_str().unwrap();
-        let us = update.path().to_str().unwrap();
-        assert_eq!(trophy_package(gs, us), Some(g.join("trophy00.trp")));
-        let u = update.path().join("sce_sys/trophy");
-        fs::create_dir_all(&u).unwrap();
-        fs::write(u.join("trophy00.trp"), b"u").unwrap();
-        assert_eq!(trophy_package(gs, us), Some(u.join("trophy00.trp")));
-        assert_eq!(trophy_package("", ""), None);
+    fn tier_labels_and_colors_exist() {
         assert_eq!(tier_label(Tier::Gold, "en"), "Gold");
         assert_eq!(tier_color(Tier::Platinum), "#8fd3e8");
     }

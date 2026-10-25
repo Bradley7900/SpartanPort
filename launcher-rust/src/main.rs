@@ -5,8 +5,8 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use spartanport_launcher::core::game::ready_to_play;
 use spartanport_launcher::core::i18n::{launcher_language, system_language};
+use spartanport_launcher::core::installation::Installation;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::platform;
 use spartanport_launcher::core::settings::load_app_settings;
@@ -44,10 +44,13 @@ fn main() {
             startup::prepare(paths, migrate);
             let settings = load_app_settings(paths);
             // Without a usable game folder there is nothing to play yet: the window opens instead.
-            if ready_to_play(
+            if Installation::read(
                 &settings.get_str("game_dir"),
                 &settings.get_str("update_dir"),
-            ) {
+            )
+            .verdict()
+            .passes()
+            {
                 let run = RunContext {
                     context: &context,
                     // The Python's `--play` starts the runner without arguments.

@@ -82,14 +82,10 @@ pub static REQUIRED_GAME_FILES: &[Requirement] = &[
 pub static REQUIRED_UPDATE_FILES: &[Requirement] =
     &[("eboot.bin", file_state), (PARAM_SFO, sfo_state)];
 
-fn folder_or_here(folder: &str) -> &Path {
-    Path::new(if folder.is_empty() { "." } else { folder })
-}
-
 /// The required files that do not pass their check in the folder: an incomplete dump, a
 /// placeholder made by hand, a file this user may not read, a `param.sfo` that is not one.
 pub fn missing_game_files(folder: &str, requirements: &[Requirement]) -> Vec<(String, FileState)> {
-    let folder = folder_or_here(folder);
+    let folder = Path::new(if folder.is_empty() { "." } else { folder });
     requirements
         .iter()
         .filter_map(|(name, check)| match check(&folder.join(name)) {
@@ -97,17 +93,6 @@ pub fn missing_game_files(folder: &str, requirements: &[Requirement]) -> Vec<(St
             state => Some(((*name).to_string(), state)),
         })
         .collect()
-}
-
-/// Whether `--play` may start the game at once; anything the Play button would refuse needs
-/// the launcher window instead.
-pub fn ready_to_play(game_dir: &str, update_dir: &str) -> bool {
-    if !update_dir.is_empty() && same_folder(Path::new(update_dir), folder_or_here(game_dir)) {
-        return false;
-    }
-    missing_game_files(game_dir, REQUIRED_GAME_FILES).is_empty()
-        && (update_dir.is_empty()
-            || missing_game_files(update_dir, REQUIRED_UPDATE_FILES).is_empty())
 }
 
 /// Whether two paths name one folder (links and 8.3 spellings included).
@@ -193,18 +178,9 @@ impl GameFolder {
         })
     }
 
-    /// The `param.sfo` values, `None` when there are none.
-    pub fn sfo_values(&self) -> Option<&IndexMap<String, SfoValue>> {
-        Some(&self.values).filter(|values| !values.is_empty())
-    }
-}
-
-/// The folder the title, version and patches are read from: the update when there is one.
-pub fn meta_folder(game_dir: &str, update_dir: &str) -> String {
-    if !update_dir.is_empty() && Path::new(update_dir).join("eboot.bin").is_file() {
-        update_dir.to_string()
-    } else {
-        game_dir.to_string()
+    /// Whether the folder has a readable `param.sfo`.
+    fn has_sfo(&self) -> bool {
+        !self.values.is_empty()
     }
 }
 
@@ -255,13 +231,14 @@ fn same_name(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
 /// `Sc0/` beside the game files (`Image0/`), while the port reads them from `sce_sys/`: the Sc0
 /// folder beside `folder` holding a SpartanPort `param.sfo`, while `folder` has none worth
 /// keeping (an unreadable one is a different problem). For an update folder the title must be
-/// that of `reference` (the base game's values); an Sc0 beside the base game itself (`base`) is
+/// that of `reference` (the base game); an Sc0 beside the base game itself (`base`) is
 /// the base game's own unless the base game's `param.sfo` says another version.
 pub fn system_files_beside(
     folder: impl AsRef<Path>,
-    reference: Option<&IndexMap<String, SfoValue>>,
+    reference: Option<&GameFolder>,
     base: Option<&Path>,
 ) -> Option<PathBuf> {
+    let reference = reference.filter(|r| r.has_sfo()).map(|r| &r.values);
     let folder = std::path::absolute(folder.as_ref()).ok()?;
     if matches!(
         sfo_state(&folder.join(PARAM_SFO)),
@@ -427,14 +404,6 @@ mod tests {
     }
 
     #[test]
-    fn a_complete_dump_is_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        complete_dump(dir.path());
-        assert!(missing_game_files(s(dir.path()), REQUIRED_GAME_FILES).is_empty());
-        assert!(ready_to_play(s(dir.path()), ""));
-    }
-
-    #[test]
     fn an_empty_eboot_counts_as_missing() {
         let dir = tempfile::tempdir().unwrap();
         complete_dump(dir.path());
@@ -443,7 +412,6 @@ mod tests {
             missing_game_files(s(dir.path()), REQUIRED_GAME_FILES),
             vec![("eboot.bin".to_string(), FileState::Empty)]
         );
-        assert!(!ready_to_play(s(dir.path()), ""));
         assert_eq!(file_state(&dir.path().join("nothing")), FileState::Missing);
     }
 
@@ -472,21 +440,6 @@ mod tests {
             missing_game_files(s(dir.path()), REQUIRED_GAME_FILES),
             vec![("sce_sys/param.sfo".to_string(), FileState::Invalid)]
         );
-    }
-
-    #[test]
-    fn update_in_the_same_folder_is_not_ready() {
-        let dir = tempfile::tempdir().unwrap();
-        complete_dump(dir.path());
-        assert!(!ready_to_play(s(dir.path()), s(dir.path())));
-        assert!(same_folder(dir.path(), dir.path().join(".")));
-
-        let update = tempfile::tempdir().unwrap();
-        assert!(!ready_to_play(s(dir.path()), s(update.path())));
-        put(update.path(), "eboot.bin", b"elf");
-        put(update.path(), "sce_sys/param.sfo", &gow("01.02"));
-        assert!(ready_to_play(s(dir.path()), s(update.path())));
-        assert!(!same_folder(dir.path(), update.path()));
     }
 
     #[test]
@@ -536,11 +489,6 @@ mod tests {
                 version: "01.02".into()
             })
         );
-        assert_eq!(meta_folder("game", ""), "game");
-        let update = tempfile::tempdir().unwrap();
-        assert_eq!(meta_folder("game", s(update.path())), "game");
-        put(update.path(), "eboot.bin", b"elf");
-        assert_eq!(meta_folder("game", s(update.path())), s(update.path()));
     }
 
     #[test]
@@ -559,9 +507,6 @@ mod tests {
         assert_eq!(folder.title_id(), Some("CUSA01623"));
         assert!(folder.profile().is_some());
         assert!(GameFolder::read(Path::new("")).profile().is_none());
-        assert!(GameFolder::read(&dir.path().join("none"))
-            .sfo_values()
-            .is_none());
     }
 
     #[test]
@@ -573,14 +518,21 @@ mod tests {
         let sc0 = system_files_beside(&image, None, None).unwrap();
         assert_eq!(sc0.file_name().unwrap(), "Sc0");
 
-        let reference = read_sfo(&root.path().join("Sc0/param.sfo"));
-        assert!(system_files_beside(&image, reference.as_ref(), None).is_some());
-        let foreign =
-            IndexMap::from([("TITLE_ID".to_string(), SfoValue::Text("CUSA00001".into()))]);
+        let reference_dir = root.path().join("Ref");
+        put(&reference_dir, "sce_sys/param.sfo", &gow("01.00"));
+        let reference = GameFolder::read(&reference_dir);
+        assert!(system_files_beside(&image, Some(&reference), None).is_some());
+        let foreign_dir = root.path().join("Foreign");
+        put(
+            &foreign_dir,
+            "sce_sys/param.sfo",
+            &sfo(&[("TITLE_ID", "CUSA00001")]),
+        );
+        let foreign = GameFolder::read(&foreign_dir);
         assert!(system_files_beside(&image, Some(&foreign), None).is_none());
 
         // The base game's own Sc0 when its version matches the base game's.
-        assert!(system_files_beside(&image, reference.as_ref(), Some(image.as_path())).is_none());
+        assert!(system_files_beside(&image, Some(&reference), Some(image.as_path())).is_none());
 
         // A usable param.sfo in the folder means nothing to adopt.
         put(&image, "sce_sys/param.sfo", &gow("01.00"));

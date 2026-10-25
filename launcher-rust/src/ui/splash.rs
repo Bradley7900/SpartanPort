@@ -15,9 +15,9 @@ use iced::{
     Theme,
 };
 
-use crate::core::game::ready_to_play;
 use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
+use crate::core::installation::Installation;
 use crate::core::platform::tool::SystemTools;
 use crate::core::release::Release;
 use crate::ui::app::{scene_size, Message, State};
@@ -190,8 +190,12 @@ pub fn start_checks(state: &State) -> Task<Message> {
         blocking(move || list_gpus(&SystemTools, &paths)).map(move |rows| done(Check::Gpus(rows)));
     let game_dir = state.store.text("game_dir");
     let update_dir = state.store.text("update_dir");
-    let game = blocking(move || ready_to_play(&game_dir, &update_dir))
-        .map(move |ready| done(Check::GameFolder(ready)));
+    let game = blocking(move || {
+        Installation::read(&game_dir, &update_dir)
+            .verdict()
+            .passes()
+    })
+    .map(move |ready| done(Check::GameFolder(ready)));
     let update = update::start_up_check(state);
     Task::batch([gpus, game, update])
 }

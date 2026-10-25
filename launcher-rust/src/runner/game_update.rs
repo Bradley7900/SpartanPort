@@ -213,7 +213,7 @@ mod tests {
         }
 
         /// The view with the title IDs given in call order (the base first), as the Python's
-        /// mock of `game_title_id` gives them.
+        /// mock of the title-ID reader gives them.
         fn view_with(
             &self,
             update: &Path,

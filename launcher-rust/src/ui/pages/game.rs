@@ -10,8 +10,8 @@ use iced::widget::{button, column, pick_list, row as layout, text};
 use iced::{Center, Element, Left, Right, Task};
 use serde_json::{Map, Value};
 
-use crate::core::game::{meta_folder, GameFolder};
 use crate::core::i18n::{tr, tr_fmt};
+use crate::core::installation::Installation;
 use crate::core::options::LANGUAGES;
 use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta};
 use crate::core::save_backup::{list_backups, restore, KEEP};
@@ -207,12 +207,11 @@ pub fn store_game_patches(state: &mut State) {
 /// the game that was shown until now.
 pub fn refresh_game_patches(state: &mut State) {
     store_game_patches(state);
-    let meta = meta_folder(
-        &state.store.text("game_dir"),
-        &state.store.text("update_dir"),
+    let installation = Installation::of(&state.store);
+    let (title_id, profile) = (
+        installation.title_id().map(str::to_string),
+        installation.profile(),
     );
-    let folder = GameFolder::read(std::path::Path::new(&meta));
-    let (title_id, profile) = (folder.title_id().map(str::to_string), folder.profile());
     let (Some(title_id), Some(profile)) = (title_id, profile) else {
         state.patches = PatchesView::default();
         return;

@@ -11,11 +11,12 @@ use iced::widget::{button, column, container, image, pick_list, row, space, text
 use iced::{Center, Color, Element, Fill, Task};
 
 use crate::core::i18n::{tr, tr_fmt, trophy_text};
+use crate::core::installation::Installation;
 use crate::core::paths::Paths;
 use crate::core::settings::Settings;
 use crate::core::trophies::{
-    read_trp_icons, read_unlocked_trophies, reset_trophies, tier_color, tier_label, trophy_package,
-    trophy_tier, Tier,
+    read_trp_icons, read_unlocked_trophies, reset_trophies, tier_color, tier_label, trophy_tier,
+    Tier,
 };
 use crate::ui::app::{Message, State};
 use crate::ui::play::{refuse_while_live, LiveAction};
@@ -103,10 +104,11 @@ pub fn load(paths: &Paths, settings: &Settings) -> TrophiesView {
         folders: folders(settings),
         ..TrophiesView::default()
     };
-    let package = trophy_package(
+    let package = Installation::read(
         &settings.get_str("game_dir"),
         &settings.get_str("update_dir"),
-    );
+    )
+    .trophy_package();
     let pngs = package
         .map(|path| read_trp_icons(&path))
         .unwrap_or_default();

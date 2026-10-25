@@ -12,6 +12,7 @@ pub mod gpu;
 pub mod graphics_options;
 pub mod i18n;
 pub mod ini;
+pub mod installation;
 pub mod joysticks;
 pub mod launch;
 pub mod legacy;

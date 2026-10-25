@@ -16,9 +16,10 @@ use iced::{
     Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
-use crate::core::game::{meta_folder, GameFolder, GameInfo};
+use crate::core::game::GameInfo;
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
+use crate::core::installation::Installation;
 use crate::core::options::{short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS};
 use crate::core::patches::patch_status;
 use crate::ui::app::{
@@ -146,16 +147,12 @@ pub struct HomeFacts {
 
 /// Re-reads the game folder, the saves folder and the last start's patch report.
 pub fn refresh_facts(state: &mut State) {
-    let meta = meta_folder(
-        &state.store.text("game_dir"),
-        &state.store.text("update_dir"),
-    );
-    let folder = GameFolder::read(std::path::Path::new(&meta));
+    let installation = Installation::of(&state.store);
     let savedata = user_dir(state).join("savedata");
     state.home = HomeFacts {
-        info: folder.info(),
-        title_id: folder.title_id().map(str::to_string),
-        patchable: folder.profile().is_some(),
+        info: installation.info().cloned(),
+        title_id: installation.title_id().map(str::to_string),
+        patchable: installation.patchable(),
         saves: has_files(&savedata),
         skipped: patch_status(&state.paths.data_dir.join("out"))
             .map_or(0, |status| status.skipped.len()),
