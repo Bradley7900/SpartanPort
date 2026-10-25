@@ -1264,7 +1264,7 @@ pub mod tests {
     }
 
     #[test]
-    fn code_is_sliced_from_the_executable_segment() {
+    fn code_is_read_from_the_executable_segment() {
         let mut bytes = vec![0; 0x20];
         bytes[0x11] = 0xc3;
         let module = read_loads(
