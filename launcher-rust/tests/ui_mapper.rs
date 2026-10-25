@@ -384,9 +384,15 @@ fn failed_save_keeps_previous_profile_and_row_values() {
     let shown = state.modal.take().expect("an error dialog");
     assert!(matches!(shown.kind, ModalKind::Error), "{:?}", shown.kind);
     assert_eq!(shown.title, "Could not save mapping");
-    // The error names the file that could not be written.
+    // The error names what could not be written: the read-only file on Windows, its read-only
+    // folder elsewhere (block_saves), where the temporary file cannot be created.
+    let failed = if cfg!(windows) {
+        path.clone()
+    } else {
+        path.parent().unwrap().to_path_buf()
+    };
     assert!(
-        shown.text.contains(&path.display().to_string()),
+        shown.text.contains(&failed.display().to_string()),
         "{}",
         shown.text
     );
