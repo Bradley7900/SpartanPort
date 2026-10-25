@@ -92,7 +92,7 @@ pub fn run_with(context: RunContext<'_>, host: &dyn Host) -> i32 {
         out,
     } = context;
     let mut runner = super::Runner::new(out, program.env.clone(), host);
-    let code = runner.start(&program.paths.port_dir, args);
+    let code = runner.start(&program.paths, args);
     if host.interrupted() {
         super::INTERRUPTED
     } else {

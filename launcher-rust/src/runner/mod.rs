@@ -12,6 +12,7 @@ pub mod isa_rewrite;
 pub mod link_libc;
 pub mod link_modules;
 pub mod pause_menu;
+pub mod plan;
 pub mod prepare;
 pub mod window_icon;
 
@@ -27,7 +28,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
-use crate::core::catalog;
 use crate::core::env::game_environment;
 use crate::core::i18n::{launcher_language, system_language, tr};
 use crate::core::legacy;
@@ -45,6 +45,7 @@ use crate::startup::Context;
 use content_profile::Sku;
 pub use host::{run_with, Host, SystemHost};
 use pause_menu::python_path;
+use plan::RunPlan;
 
 use indexmap::IndexMap;
 
@@ -353,11 +354,6 @@ impl<'a> Runner<'a> {
         self.get(key).unwrap_or(default).to_string()
     }
 
-    /// `Path(env.get(key, default))`, a relative value from the port (`run.py` changed into it).
-    fn path_or(&self, key: &str, default: PathBuf) -> PathBuf {
-        self.get(key).map_or(default, |value| self.port.join(value))
-    }
-
     fn set(&mut self, key: &str, value: impl Into<String>) {
         self.env.insert(key.to_string(), value.into());
     }
@@ -381,7 +377,7 @@ impl<'a> Runner<'a> {
     }
 
     /// Spec §5, steps 1 to 16, in `run.py`'s order.
-    fn start(&mut self, port_dir: &Path, args: Vec<OsString>) -> i32 {
+    fn start(&mut self, paths: &Paths, args: Vec<OsString>) -> i32 {
         // 1. `--after <pid>`: the previous game process has gone (its GPU device and memory).
         let args = match self.after(args) {
             Ok(args) => args,
@@ -390,16 +386,18 @@ impl<'a> Runner<'a> {
         // 2. As run.sh: relative paths (SPARTAN_GAME_DIR, SPARTAN_DATA_DIR, fsr4_shaders/) are
         // from the port. The working folder is not changed: they are joined to it, and every tool
         // starts in it.
-        let port = mods::resolve(port_dir).unwrap_or_else(|_| port_dir.to_path_buf());
+        let plan = RunPlan::read(paths, &self.env);
+        let port = plan.port.clone();
         self.port.clone_from(&port);
         // 3. The data folder, its out/ and the ini.
-        let data = self.path_or("SPARTAN_DATA_DIR", port.clone());
-        legacy::copy_game_settings(&data);
-        let out = data.join("out");
-        if let Err(error) = fs::create_dir_all(&out) {
-            return self.fail(&format!("{}: {error}", python_path(&out)));
+        let (data, out) = (&plan.data, &plan.out);
+        legacy::copy_game_settings(data);
+        if let Err(error) = fs::create_dir_all(out) {
+            return self.fail(&format!("{}: {error}", python_path(out)));
         }
-        self.set_default("SPARTAN_CONFIG", python_path(&data.join("spartanport.ini")));
+        if self.get("SPARTAN_CONFIG").is_none_or(str::is_empty) {
+            self.set("SPARTAN_CONFIG", python_path(&plan.config));
+        }
         // Values the previous start derived ("Apply and restart" inherits them) are derived again
         // from the new options.
         if let Some(keys) = self.env.shift_remove("SPARTAN_DERIVED") {
@@ -410,21 +408,14 @@ impl<'a> Runner<'a> {
         // 4. The enabled mods' patch files: their "Resolution Patch - <size>" entries are render
         // resolutions too (SPARTAN_EXTRA_RESOLUTIONS tells the game). A selection that cannot be
         // read stops the start, as run.py's.
-        let mods_dir = self.path_or("SPARTAN_MODS_DIR", data.join("mods"));
-        let mods_config = self.path_or("SPARTAN_MODS_CONFIG", data.join("mods.json"));
-        let mods_enabled = self.get_or(
-            "SPARTAN_MODS_ENABLED",
-            catalog::run_default("SPARTAN_MODS_ENABLED").unwrap_or_default(),
-        );
-        let parent = port.parent().unwrap_or(&port).to_path_buf();
-        let mut game = self.path_or("SPARTAN_GAME_DIR", parent.join("CUSA01623"));
-        let mod_patch_files: Vec<PathBuf> = if mods_enabled == "0" {
+        let mut game = plan.game.clone();
+        let mod_patch_files: Vec<PathBuf> = if plan.mods_switch == "0" {
             Vec::new()
         } else {
-            match mods::selected(&mods_dir, Some(&mods_config), Some(&game)) {
+            match mods::selected(&plan.mods_dir, Some(&plan.mods_config), Some(&game)) {
                 Ok(names) => names
                     .iter()
-                    .flat_map(|name| mods::patch_files(&mods_dir.join(name)))
+                    .flat_map(|name| mods::patch_files(&plan.mods_dir.join(name)))
                     .collect(),
                 Err(error) => return self.fail(&format!("Mods: {error}")),
             }
@@ -435,23 +426,24 @@ impl<'a> Runner<'a> {
             .collect();
         self.derive("SPARTAN_EXTRA_RESOLUTIONS", extra.join(";"));
         // 5. The start-up graphics options of spartanport.ini.
-        let config = self.path_or("SPARTAN_CONFIG", PathBuf::new());
-        let graphics = graphics_options::prepare(&config, &out.join("graphics_state.json"), &extra);
+        let graphics =
+            graphics_options::prepare(&plan.config, &out.join("graphics_state.json"), &extra);
         if let Some(message) = &graphics.message {
             self.say(message);
         }
         for (key, value) in graphics_options::environment(&graphics.options) {
             self.set(&key, value);
         }
-        if self.get("SPARTAN_FSR411_DIR").is_none_or(str::is_empty)
+        if plan.fsr411_dir.is_none()
             && !port.join("fsr4_411").is_dir()
             && data.join("fsr4_411").is_dir()
         {
             self.set("SPARTAN_FSR411_DIR", python_path(&data.join("fsr4_411")));
         }
         // 6. The probe.
-        let ports = Paths::from_env(&port, &|_| None);
-        let probe = find_executable(&ports, &self.lookup())
+        let probe = plan
+            .probe
+            .as_ref()
             .map(|probe| port.join(probe))
             .filter(|probe| probe.is_file());
         let Some(probe) = probe else {
@@ -463,8 +455,7 @@ impl<'a> Runner<'a> {
         let probe_text = python_path(&probe);
         // Development builds run from the MSYS2 tree: its CLANG64 DLLs (SDL3, FFmpeg, ...).
         if cfg!(windows) && !probe.with_file_name("SDL3.dll").is_file() {
-            let msys = PathBuf::from(self.get_or("MSYS2_ROOT", r"C:\msys64"));
-            let clang64 = msys.join("clang64").join("bin");
+            let clang64 = plan.msys2_root.join("clang64").join("bin");
             if clang64.is_dir() {
                 let path = format!("{};{}", python_path(&clang64), self.get_or("PATH", ""));
                 self.set("PATH", path);
@@ -503,9 +494,8 @@ impl<'a> Runner<'a> {
             ));
         }
         let mut views = Views::default();
-        if let Some(update) = self.get("SPARTAN_PATCH_DIR").filter(|dir| !dir.is_empty()) {
-            let update = port.join(update);
-            match game_update::create_view(&game, &update, &out) {
+        if let Some(update) = &plan.update {
+            match game_update::create_view(&game, update, out) {
                 Ok(view) => {
                     game = view.clone();
                     views.update = Some(view);
@@ -514,11 +504,11 @@ impl<'a> Runner<'a> {
             }
             self.say(&format!(
                 "Game and update combined from {}",
-                python_path(&update)
+                python_path(update)
             ));
         }
         // 9. The mods overlay, then what were the preparation scripts.
-        let enabled = match mods_enabled.as_str() {
+        let enabled = match plan.mods_switch.as_str() {
             "0" => false,
             "1" => true,
             other => {
@@ -529,8 +519,8 @@ impl<'a> Runner<'a> {
                 return 2;
             }
         };
-        let layers = mods::overlay_layers(&game, &mods_dir, Some(&mods_config), enabled)
-            .and_then(|layers| mods::build_overlay(&game, &out, &layers));
+        let layers = mods::overlay_layers(&game, &plan.mods_dir, Some(&plan.mods_config), enabled)
+            .and_then(|layers| mods::build_overlay(&game, out, &layers));
         match layers {
             Ok(overlay) => {
                 game = overlay.root.clone();
@@ -538,13 +528,13 @@ impl<'a> Runner<'a> {
             }
             Err(error) => return self.fail(&format!("Mods: {error}")),
         }
-        if let Err(code) = self.prepare_image(&game, &out) {
+        if let Err(code) = self.prepare_image(&game, out) {
             return code;
         }
         // A failed rewrite prints its reason and the game starts without the table.
         let mut isa_args: Vec<OsString> = Vec::new();
-        if isa_rewrite_wanted(&missing, &self.lookup()) {
-            match isa_rewrite::rewrite(&out.join("boot-linked.bin"), &out) {
+        if plan.isa_rewrite.unwrap_or(!missing.is_empty()) {
+            match isa_rewrite::rewrite(&out.join("boot-linked.bin"), out) {
                 Ok(sites) => {
                     self.say(&isa_rewrite::summary(&sites));
                     let table = python_path(&out.join("isa-rewrite.bin"));
@@ -553,7 +543,7 @@ impl<'a> Runner<'a> {
                 Err(error) => self.say(&format!("ISA: rewrite table unavailable ({error})")),
             }
         }
-        if let Err(code) = self.content_profile(&game, &out) {
+        if let Err(code) = self.content_profile(&plan, &game) {
             return code;
         }
         if self.host.interrupted() {
@@ -576,7 +566,7 @@ impl<'a> Runner<'a> {
         }
         self.set_default("SPARTAN_READBACK_LINEAR", "1");
         // 11 and 12. The patches.
-        let status = match self.patches(&port, &data, &game, &out, &mod_patch_files, &graphics) {
+        let status = match self.patches(&plan, &game, &mod_patch_files, &graphics) {
             Ok(status) => status,
             Err(code) => return code,
         };
@@ -600,7 +590,7 @@ impl<'a> Runner<'a> {
             chosen.min(engine_fps)
         ));
         // 13. The controller glyphs and the pause menu's Exit to Desktop row.
-        let mount_args = self.mounts(&port, &probe_text, &game, &out);
+        let mount_args = self.mounts(&plan, &probe_text, &game);
         if self.host.interrupted() {
             return INTERRUPTED;
         }
@@ -612,15 +602,11 @@ impl<'a> Runner<'a> {
             .and_then(|text| py_int(text, 10))
             .and_then(|mb| u64::try_from(mb).ok())
             .unwrap_or(0);
-        let stream = self.get_or(
-            "SPARTAN_STREAM_MEMORY",
-            catalog::run_default("SPARTAN_STREAM_MEMORY").unwrap_or_default(),
-        );
         let physical = self.host.physical_memory_mb();
-        if let Some(warning) = guest_memory::memory_warning(dmem, physical, &stream) {
+        if let Some(warning) = guest_memory::memory_warning(dmem, physical, &plan.stream_memory) {
             self.say(&warning);
         }
-        let user = self.path_or("SPARTAN_USER_DIR", data.join("user"));
+        let user = plan.user.clone();
         let user = mods::resolve_in(&user, &port).unwrap_or(user);
         if let Err(error) = fs::create_dir_all(&user) {
             return self.fail(&format!("{}: {error}", python_path(&user)));
@@ -645,7 +631,6 @@ impl<'a> Runner<'a> {
         if !cfg!(windows) && self.get("SPARTAN_GAMEMODE") == Some("1") && prefix.is_empty() {
             self.say("GameMode: gamemoderun not found, starting without it");
         }
-        let timeout = self.get_or("SPARTAN_TIMEOUT", "0");
         let path = |name: &str| OsString::from(python_path(&out.join(name)));
         let mut command: Vec<OsString> = prefix.into_iter().map(OsString::from).collect();
         command.extend([
@@ -660,7 +645,7 @@ impl<'a> Runner<'a> {
             "--user".into(),
             python_path(&user).into(),
             "--timeout".into(),
-            timeout.into(),
+            plan.timeout.clone().into(),
         ]);
         command.extend(isa_args);
         command.extend(mount_args.into_iter().map(OsString::from));
@@ -758,8 +743,8 @@ impl<'a> Runner<'a> {
     }
 
     /// `content_profile` with `SPARTAN_CONTENT_SKU`, and its line.
-    fn content_profile(&mut self, game: &Path, out: &Path) -> Result<(), i32> {
-        let sku = self.get_or("SPARTAN_CONTENT_SKU", "full");
+    fn content_profile(&mut self, plan: &RunPlan, game: &Path) -> Result<(), i32> {
+        let sku = &plan.content_sku;
         let choice: Sku = match sku.parse() {
             Ok(choice) => choice,
             Err(error) => {
@@ -770,7 +755,7 @@ impl<'a> Runner<'a> {
                 return Err(2);
             }
         };
-        let profile = content_profile::prepare(game, out, choice)
+        let profile = content_profile::prepare(game, &plan.out, choice)
             .map_err(|error| self.fail(&format!("content_profile failed: {error}")))?;
         let params: Vec<String> = profile.user_params.iter().map(u32::to_string).collect();
         self.say(&format!(
@@ -786,13 +771,12 @@ impl<'a> Runner<'a> {
     /// and VBlank rate); `None` for a game without a patch profile.
     fn patches(
         &mut self,
-        port: &Path,
-        data: &Path,
+        plan: &RunPlan,
         game: &Path,
-        out: &Path,
         mod_patch_files: &[PathBuf],
         graphics: &graphics_options::Prepared,
     ) -> Result<Option<PatchStatus>, i32> {
+        let (port, out) = (&plan.port, &plan.out);
         let builtin = port.join("patches");
         let profile = patches::game_profile_for(game);
         let mut xml = profile.map(|profile| builtin.join(profile.xml));
@@ -806,10 +790,9 @@ impl<'a> Runner<'a> {
         }
         if let (Some(profile), Some(xml)) = (profile, &xml) {
             let tag = profile.app_version;
-            let chosen = split_patches(&self.get_or("SPARTAN_PATCHES", ""));
-            let only = self.get("SPARTAN_PATCHES_ONLY") == Some("1");
-            let mut names = patches::selected_patches(xml, tag, &chosen, only)
-                .map_err(|error| self.fail(&format!("Patches: {error}")))?;
+            let mut names =
+                patches::selected_patches(xml, tag, &plan.chosen_patches, plan.patches_only)
+                    .map_err(|error| self.fail(&format!("Patches: {error}")))?;
             // A mod's patches that are on by default stay on when the launcher chose the list.
             let defaults: Vec<String> = patches::default_enabled(mod_patch_files, tag)
                 .into_iter()
@@ -834,8 +817,6 @@ impl<'a> Runner<'a> {
             }
         }
         let extra = split_patches(&self.get_or("SPARTAN_PATCHES", ""));
-        let patches_dir = self.path_or("SPARTAN_PATCHES_DIR", data.join("patches"));
-        let patches_config = self.path_or("SPARTAN_PATCHES_CONFIG", data.join("patches.json"));
         let job = PatchJob {
             out,
             game,
@@ -843,8 +824,8 @@ impl<'a> Runner<'a> {
             mod_patches: mod_patch_files,
             extra: &extra,
             only: self.get("SPARTAN_PATCHES_ONLY") == Some("1"),
-            patches_dir: Some(&patches_dir),
-            patches_config: Some(&patches_config),
+            patches_dir: Some(&plan.patches_dir),
+            patches_config: Some(&plan.patches_config),
         };
         patches::write_game_patches(&job, &mut *self.out)
             .map_err(|error| self.fail(&format!("Patches: {error}")))?;
@@ -865,7 +846,8 @@ impl<'a> Runner<'a> {
     /// Step 13: the probe arguments of the glyph copies and of the pause menu's copy; sets
     /// `SPARTAN_GLYPHS` (the in-game menu names the buttons the same way). Failures only reach the
     /// output: the game then keeps its own icons, or starts without the row.
-    fn mounts(&mut self, port: &Path, probe: &str, game: &Path, out: &Path) -> Vec<String> {
+    fn mounts(&mut self, plan: &RunPlan, probe: &str, game: &Path) -> Vec<String> {
+        let (port, out) = (&plan.port, &plan.out);
         let assets = glyphs::Assets::in_port(port);
         let (glyph_args, style) = {
             let (env, log) = (&self.env, &mut *self.out);
@@ -886,11 +868,14 @@ impl<'a> Runner<'a> {
         if let Some(style) = style {
             self.derive("SPARTAN_GLYPHS", style);
         }
-        let language = self.get("SPARTAN_LANGUAGE").map(str::to_string);
         let log = &mut *self.out;
-        let menu_args = pause_menu_args(game, out, &glyph_args, language.as_deref(), &mut |line| {
-            say(log, &line)
-        });
+        let menu_args = pause_menu_args(
+            game,
+            out,
+            &glyph_args,
+            plan.language.as_deref(),
+            &mut |line| say(log, &line),
+        );
         [glyph_args, menu_args].concat()
     }
 
@@ -984,15 +969,6 @@ fn parse_cpu_features(output: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// `SPARTAN_ISA_REWRITE=1` forces the ISA rewrite table, `0` disables it; otherwise the CPU decides.
-fn isa_rewrite_wanted(missing: &[String], env: &dyn Fn(&str) -> Option<String>) -> bool {
-    match env("SPARTAN_ISA_REWRITE").as_deref() {
-        Some("1") => true,
-        Some("0") => false,
-        _ => !missing.is_empty(),
-    }
-}
-
 /// The command that starts the game on Linux when GameMode is chosen in the launcher (empty on
 /// Windows, without the choice, or when `gamemoderun` is not on `PATH`).
 fn launch_prefix(env: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
@@ -1022,14 +998,6 @@ fn is_executable(path: &Path) -> bool {
 #[cfg(not(unix))]
 fn is_executable(path: &Path) -> bool {
     path.is_file()
-}
-
-/// The probe: `SPARTAN_PROBE` when set (taken as is, like `run.py`), else `bin/` or `out/` of the port.
-fn find_executable(paths: &Paths, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    env("SPARTAN_PROBE")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .or_else(|| paths.find_tool("spartanport-probe"))
 }
 
 /// Runs a command within a time limit: its output, or the error to print.

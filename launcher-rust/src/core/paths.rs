@@ -51,9 +51,11 @@ impl Paths {
                 |dir| std::path::absolute(&dir).unwrap_or_else(|_| PathBuf::from(dir)),
             );
         let data_dir = env("SPARTAN_DATA_DIR")
+            .filter(|dir| !dir.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| port_dir.clone());
         let ini = env("SPARTAN_CONFIG")
+            .filter(|file| !file.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| data_dir.join("spartanport.ini"));
         let home = || platform::home(env).unwrap_or_else(|| PathBuf::from("."));
