@@ -125,6 +125,16 @@ mod tests {
     }
 
     #[test]
+    fn plan_reads_the_catalog_run_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_, plan) = read(&dir.path().canonicalize().unwrap(), &[]);
+        let default = |key| catalog::run_default(key).unwrap();
+        assert_eq!(plan.mods_switch, default("SPARTAN_MODS_ENABLED"));
+        assert_eq!(plan.stream_memory, default("SPARTAN_STREAM_MEMORY"));
+        assert_eq!(plan.glyph_style, default("SPARTAN_GLYPH_STYLE"));
+    }
+
+    #[test]
     fn defaults_are_the_paths_ones() {
         let dir = tempfile::tempdir().unwrap();
         // A port folder already in its resolved form, so Paths and the plan agree on it.
