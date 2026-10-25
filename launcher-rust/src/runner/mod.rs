@@ -7,6 +7,7 @@ pub mod game_update;
 pub mod glyphs;
 pub mod graphics_options;
 pub mod guest_memory;
+pub mod host;
 pub mod isa_rewrite;
 pub mod link_libc;
 pub mod link_modules;
@@ -19,11 +20,11 @@ pub mod window_icon;
 #[path = "../../tests/common/packages.rs"]
 mod packages;
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use crate::core::catalog;
@@ -36,11 +37,12 @@ use crate::core::options::RESOLUTIONS;
 use crate::core::patches::{self, py_int, PatchJob, PatchStatus};
 use crate::core::paths::Paths;
 use crate::core::platform;
-use crate::core::platform::tool::{run_tool, Stderr, ToolCall, Window};
+use crate::core::platform::tool::{Stderr, ToolCall, Window};
 use crate::core::save_backup;
 use crate::core::settings::Settings;
 use crate::core::sfo::SfoValue;
 use content_profile::Sku;
+pub use host::{run_with, Host, SystemHost};
 use pause_menu::python_path;
 
 use indexmap::IndexMap;
@@ -72,19 +74,7 @@ const DEFAULT_RATE: u32 = 60;
 /// `run.sh` does: relative paths in the environment are taken from there.
 pub fn run(context: RunContext<'_>) -> i32 {
     platform::catch_interrupt();
-    let RunContext {
-        port_dir,
-        env,
-        args,
-        out,
-    } = context;
-    let mut runner = Runner::new(out, env);
-    let code = runner.start(port_dir, args);
-    if platform::interrupted() {
-        INTERRUPTED
-    } else {
-        code
-    }
+    run_with(context, &SystemHost)
 }
 
 /// The variables the applied patches decide after `patches.py` (`run.py`), in the order it sets
@@ -320,14 +310,17 @@ struct Runner<'a> {
     out: &'a mut dyn Write,
     env: IndexMap<String, String>,
     derived: Vec<String>,
-    /// Whether Ctrl+C came (`platform::interrupted`; the tests set their own).
-    interrupted: fn() -> bool,
+    host: &'a dyn Host,
 }
 
 impl<'a> Runner<'a> {
     /// On Windows the names are upper case, as `os.environ` makes them: the names there are not
     /// case sensitive, and `Path` must be found as `PATH`.
-    fn new(out: &'a mut dyn Write, env: IndexMap<String, String>) -> Runner<'a> {
+    fn new(
+        out: &'a mut dyn Write,
+        env: IndexMap<String, String>,
+        host: &'a dyn Host,
+    ) -> Runner<'a> {
         let env = if cfg!(windows) {
             env.into_iter()
                 .map(|(key, value)| (key.to_uppercase(), value))
@@ -339,7 +332,7 @@ impl<'a> Runner<'a> {
             out,
             env,
             derived: Vec::new(),
-            interrupted: platform::interrupted,
+            host,
         }
     }
 
@@ -387,15 +380,6 @@ impl<'a> Runner<'a> {
     fn lookup(&self) -> impl Fn(&str) -> Option<String> + '_ {
         let env = &self.env;
         move |key| env.get(key).cloned()
-    }
-
-    /// A program started with this run's environment, no input and, without a console, no window
-    /// of its own (`run.py`'s `stdin=DEVNULL, creationflags=no_console()`).
-    fn command(&self, program: impl AsRef<OsStr>) -> Command {
-        let mut command = Command::new(program);
-        command.env_clear().envs(&self.env).stdin(Stdio::null());
-        platform::no_console_window(&mut command);
-        command
     }
 
     /// Spec §5, steps 1 to 16, in `run.py`'s order.
@@ -490,7 +474,7 @@ impl<'a> Runner<'a> {
         }
         // 7. Instruction sets this CPU lacks (MOVBE, BMI1, LZCNT): the ISA rewrite covers them;
         // exit 20 is a set nothing covers.
-        let features = run_tool(&ToolCall {
+        let features = self.host.tool(&ToolCall {
             program: probe_text.clone().into(),
             args: vec!["--cpu-features".into()],
             env: Some(&self.env),
@@ -510,7 +494,7 @@ impl<'a> Runner<'a> {
             return UNSUPPORTED_CPU;
         }
         let missing = parse_cpu_features(&stdout);
-        if (self.interrupted)() {
+        if self.host.interrupted() {
             return INTERRUPTED;
         }
         // 8. The game, and the update over it.
@@ -571,7 +555,7 @@ impl<'a> Runner<'a> {
         if let Err(code) = self.content_profile(&game, &out) {
             return code;
         }
-        if (self.interrupted)() {
+        if self.host.interrupted() {
             return INTERRUPTED;
         }
         // 10. The window icon (BMP: the format SDL loads without extra libraries); on Linux also
@@ -616,7 +600,7 @@ impl<'a> Runner<'a> {
         ));
         // 13. The controller glyphs and the pause menu's Exit to Desktop row.
         let mount_args = self.mounts(&port, &probe_text, &game, &out);
-        if (self.interrupted)() {
+        if self.host.interrupted() {
             return INTERRUPTED;
         }
         // 14. What this run derived; the guest memory check; the saves.
@@ -631,7 +615,7 @@ impl<'a> Runner<'a> {
             "SPARTAN_STREAM_MEMORY",
             catalog::run_default("SPARTAN_STREAM_MEMORY").unwrap_or_default(),
         );
-        let physical = guest_memory::physical_memory_mb();
+        let physical = self.host.physical_memory_mb();
         if let Some(warning) = guest_memory::memory_warning(dmem, physical, &stream) {
             self.say(&warning);
         }
@@ -648,7 +632,8 @@ impl<'a> Runner<'a> {
             Err(error) => self.say(&format!("Save backup failed, starting anyway: {error}")),
         }
         // 15. The in-game restart starts this program again once this process is gone.
-        let restart = restart_command(&this_exe(), std::process::id(), &args);
+        let (this_exe, this_pid) = self.host.this_process();
+        let restart = restart_command(&this_exe, this_pid, &args);
         self.set("SPARTAN_RESTART_COMMAND", restart);
         // 16. The game. MangoHud is a Vulkan layer (a variable), GameMode a command that starts
         // the game.
@@ -694,7 +679,7 @@ impl<'a> Runner<'a> {
         let Some(pid) = py_int(&text, 10).and_then(|pid| u32::try_from(pid).ok()) else {
             return Err(self.fail(&format!("--after needs a process id, not {text}")));
         };
-        wait_for_pid(pid, AFTER_LIMIT);
+        self.host.wait_for_pid(pid, AFTER_LIMIT);
         args.drain(..2);
         Ok(args)
     }
@@ -883,7 +868,8 @@ impl<'a> Runner<'a> {
         let assets = glyphs::Assets::in_port(port);
         let (glyph_args, style) = {
             let (env, log) = (&self.env, &mut *self.out);
-            let gamepad = |command: &[&str], limit: Duration| run_within(command, limit, env);
+            let host = self.host;
+            let gamepad = |command: &[&str], limit: Duration| run_within(host, command, limit, env);
             glyph_mounts(
                 env,
                 Path::new(probe),
@@ -913,24 +899,20 @@ impl<'a> Runner<'a> {
         let Some((program, rest)) = command.split_first() else {
             return 1;
         };
-        if (self.interrupted)() {
+        if self.host.interrupted() {
             return INTERRUPTED;
         }
-        let started = self.command(program).args(rest).spawn();
-        let mut child = match started {
-            Ok(child) => child,
-            Err(error) => {
-                let program = program.to_string_lossy().into_owned();
-                return self.fail(&format!("{program}: {error}"));
-            }
+        let call = ToolCall {
+            program: program.clone(),
+            args: rest.to_vec(),
+            env: Some(&self.env),
+            cwd: None,
+            limit: None,
+            stderr: Stderr::Inherit,
+            window: Window::LikeConsole,
         };
-        let (env, log, interrupted) = (&self.env, &mut *self.out, self.interrupted);
-        let ended = discord::while_running(
-            child.id(),
-            &|key| env.get(key).cloned(),
-            &mut |line| say(log, &line),
-            || wait_or_interrupt(&mut child, interrupted),
-        );
+        let log = &mut *self.out;
+        let ended = self.host.play(&call, &mut |line| say(log, &line));
         match ended {
             Ok(Some(code)) => code,
             Ok(None) => INTERRUPTED,
@@ -957,23 +939,11 @@ fn thousands(value: u64) -> String {
     text
 }
 
-/// Waits for the game: its exit code, or `None` once `interrupted` says Ctrl+C came.
-fn wait_or_interrupt(child: &mut Child, interrupted: fn() -> bool) -> io::Result<Option<i32>> {
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Some(exit_code(status)));
-        }
-        if interrupted() {
-            return Ok(None);
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
 /// Runs `command` with `env`, no input and, without a console, no window of its own, and returns
 /// what it printed; the error to print when it cannot start or has not ended within `limit` (it is
 /// then stopped), with the text of Python's `subprocess.TimeoutExpired`.
 fn run_within(
+    host: &dyn Host,
     command: &[&str],
     limit: Duration,
     env: &IndexMap<String, String>,
@@ -981,7 +951,7 @@ fn run_within(
     let Some((program, args)) = command.split_first() else {
         return Err("no command".to_string());
     };
-    run_tool(&ToolCall {
+    host.tool(&ToolCall {
         program: program.into(),
         args: args.iter().map(OsString::from).collect(),
         env: Some(env),
@@ -1181,6 +1151,7 @@ pub fn wait_for_pid(pid: u32, limit: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::platform::tool::{ToolError, ToolOutput};
 
     fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let pairs: Vec<(String, String)> = pairs
@@ -1283,16 +1254,40 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let command = [dir.path().join("no-such-probe").into_os_string()];
         let mut out = Vec::new();
-        let mut runner = Runner::new(&mut out, IndexMap::new());
-        runner.interrupted = || true;
+        let host = CtrlC(true);
+        let mut runner = Runner::new(&mut out, IndexMap::new(), &host);
         assert_eq!(runner.play_game(&command), INTERRUPTED);
         assert!(out.is_empty(), "{}", String::from_utf8_lossy(&out));
         // Without Ctrl+C the start is tried, and here fails.
         let mut out = Vec::new();
-        let mut runner = Runner::new(&mut out, IndexMap::new());
-        runner.interrupted = || false;
+        let host = CtrlC(false);
+        let mut runner = Runner::new(&mut out, IndexMap::new(), &host);
         assert_eq!(runner.play_game(&command), 1);
         assert!(!out.is_empty());
+    }
+
+    /// The real system, with its own answer to "did Ctrl+C come".
+    struct CtrlC(bool);
+
+    impl Host for CtrlC {
+        fn tool(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
+            SystemHost.tool(call)
+        }
+        fn play(&self, call: &ToolCall, log: &mut dyn FnMut(String)) -> io::Result<Option<i32>> {
+            SystemHost.play(call, log)
+        }
+        fn wait_for_pid(&self, pid: u32, limit: Duration) -> bool {
+            SystemHost.wait_for_pid(pid, limit)
+        }
+        fn interrupted(&self) -> bool {
+            self.0
+        }
+        fn this_process(&self) -> (PathBuf, u32) {
+            SystemHost.this_process()
+        }
+        fn physical_memory_mb(&self) -> Option<u64> {
+            SystemHost.physical_memory_mb()
+        }
     }
 
     #[test]

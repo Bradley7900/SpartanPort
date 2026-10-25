@@ -5,6 +5,7 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -17,8 +18,12 @@ use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, Window};
 use spartanport_launcher::core::settings::Settings;
 use spartanport_launcher::runner::{
-    isa_rewrite, patch_environment, play_with, restart_command, RunContext,
+    isa_rewrite, patch_environment, play_with, restart_command, run_with, RunContext,
 };
+
+#[path = "common/host.rs"]
+mod host;
+use host::FakeHost;
 
 /// The launcher program cargo built for these tests.
 const LAUNCHER: &str = env!("CARGO_BIN_EXE_spartanport-launcher");
@@ -131,6 +136,16 @@ impl Port {
             env.insert(key.to_string(), value.to_string());
         }
         env
+    }
+
+    /// The context of an in-process run in this port: [`Port::environment`] and no arguments.
+    fn context<'a>(&'a self, out: &'a mut dyn Write) -> RunContext<'a> {
+        RunContext {
+            port_dir: &self.root,
+            env: self.environment(&[]),
+            args: Vec::new(),
+            out,
+        }
     }
 
     /// `LAUNCHER --run <args>` in this port with `extra` variables.
@@ -473,13 +488,14 @@ fn a_broken_mods_json_stops_with_the_mods_message() {
     // run.py:192 reads the selection before anything else and stops on its error.
     let port = Port::new();
     fs::write(port.root.join("mods.json"), "{").unwrap();
-    let ran = port.run(&[], &[]);
-    assert_eq!(ran.code, Some(1), "{ran}");
-    assert!(
-        ran.stdout.lines().any(|line| line.starts_with("Mods: ")),
-        "{ran}"
-    );
-    assert!(probe_runs(&ran.stdout).is_empty());
+    let host = FakeHost::default();
+    let mut out = Vec::new();
+    let code = run_with(port.context(&mut out), &host);
+    let out = String::from_utf8_lossy(&out);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.lines().any(|line| line.starts_with("Mods: ")), "{out}");
+    // It stopped before the probe.
+    assert!(host.calls.borrow().is_empty());
 }
 
 #[test]
