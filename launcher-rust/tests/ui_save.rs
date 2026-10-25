@@ -127,6 +127,9 @@ fn listing_the_monitors_after_opening_is_not_a_change() {
 fn a_python_settings_file_saves_unchanged_but_for_the_key_set() {
     // Review Focus 1: a settings.json the Python launcher wrote. The fixture holds
     // "close_on_play": true, so the one key set turns it off. (Its "hdr" only seeds the ini now.)
+    // It is a layout-4 file, the current controls table. A file of the 2.6/2.7 releases holds
+    // "controls_layout": 2 and is migrated on load, exactly as main's Python does: the layout
+    // becomes 4 and the new rows are bound, so its first save writes those keys too.
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/collected/settings.json");
     let original: Value = serde_json::from_slice(&fs::read(&fixture).unwrap()).unwrap();
     assert_eq!(original["close_on_play"], json!(true));
