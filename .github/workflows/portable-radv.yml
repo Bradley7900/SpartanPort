@@ -1,0 +1,109 @@
+# fp32-gcn1: a portable Mesa RADV (AMD Vulkan) driver for players who cannot install a newer Mesa.
+# GCN 1.0 cards need Mesa 26+ for sparse buffers (RADV_EXPERIMENTAL=sparse). This builds only RADV
+# (no OpenGL, no LLVM) on Ubuntu 24.04 so it runs on glibc 2.39+ (Mint 22, Ubuntu 24.04), bundles
+# the newer libdrm it needs, and ships a script that points the Vulkan loader at it for one run.
+# Nothing is installed: unzip anywhere, run the script, delete the folder to undo.
+name: Portable RADV
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa:
+        description: Mesa tag
+        default: mesa-26.2.5
+      libdrm:
+        description: libdrm tag
+        default: libdrm-2.4.134
+      tag:
+        description: Release to attach the zip to; a new tag makes a test pre-release. Empty builds only.
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build pkg-config \
+            python3-pip python3-mako python3-yaml python3-ply python3-packaging bison flex \
+            glslang-tools libzstd-dev zlib1g-dev libexpat1-dev libudev-dev libpciaccess-dev \
+            libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxrandr-dev libxshmfence-dev \
+            libxcb1-dev libxcb-dri3-dev libxcb-present-dev libxcb-sync-dev libxcb-randr0-dev \
+            libxcb-shm0-dev libxcb-xfixes0-dev libxcb-keysyms1-dev libxxf86vm-dev \
+            libwayland-dev wayland-protocols libwayland-egl-backend-dev patchelf zip
+          pip3 install --user --break-system-packages 'meson>=1.4,<2'
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: libdrm
+        run: |
+          git clone --depth 1 --branch "${{ inputs.libdrm }}" https://gitlab.freedesktop.org/mesa/drm.git libdrm
+          meson setup libdrm/build libdrm --prefix="$PWD/prefix" --libdir=lib -Dbuildtype=release \
+            -Damdgpu=enabled -Dradeon=disabled -Dintel=disabled -Dnouveau=disabled -Dvmwgfx=disabled \
+            -Dfreedreno=disabled -Dvc4=disabled -Detnaviv=disabled -Dexynos=disabled -Domap=disabled \
+            -Dtegra=disabled -Dcairo-tests=disabled -Dman-pages=disabled -Dvalgrind=disabled -Dtests=false \
+            -Dinstall-test-programs=false
+          ninja -C libdrm/build install
+      - name: Mesa (RADV only)
+        run: |
+          git clone --depth 1 --branch "${{ inputs.mesa }}" https://gitlab.freedesktop.org/mesa/mesa.git mesa
+          export PKG_CONFIG_PATH="$PWD/prefix/lib/pkgconfig"
+          meson setup mesa/build mesa --prefix="$PWD/prefix" --libdir=lib -Dbuildtype=release \
+            -Dvulkan-drivers=amd -Dgallium-drivers= -Dplatforms=x11,wayland -Dllvm=disabled \
+            -Damd-use-llvm=false -Dvideo-codecs= -Dopengl=false -Dgles1=disabled -Dgles2=disabled \
+            -Dglx=disabled -Degl=disabled -Dgbm=disabled -Dvulkan-layers= -Dtools= \
+            -Dbuild-tests=false -Dvalgrind=disabled -Dlibunwind=disabled \
+            -Dc_link_args='-Wl,-rpath,$ORIGIN' -Dcpp_link_args='-Wl,-rpath,$ORIGIN'
+          ninja -C mesa/build install
+      - name: Package
+        run: |
+          out=radv-${{ inputs.mesa }}-portable
+          mkdir -p "$out"
+          cp -L prefix/lib/libvulkan_radeon.so "$out/"
+          cp -L prefix/lib/libdrm_amdgpu.so.1 prefix/lib/libdrm.so.2 "$out/"
+          patchelf --set-rpath '$ORIGIN' "$out"/*.so*
+          cat > "$out/radeon_icd.json" <<'EOF'
+          {
+              "ICD": {
+                  "api_version": "1.4.0",
+                  "library_path": "./libvulkan_radeon.so"
+              },
+              "file_format_version": "1.0.1"
+          }
+          EOF
+          cat > "$out/run-with-this-driver.sh" <<'EOF'
+          #!/bin/sh
+          # Runs one program with this folder's RADV instead of the system Mesa. Nothing is installed.
+          #   ./run-with-this-driver.sh vulkaninfo --summary
+          #   ./run-with-this-driver.sh /path/to/spartanport-x86_64.AppImage
+          here="$(cd "$(dirname "$0")" && pwd)"
+          export VK_DRIVER_FILES="$here/radeon_icd.json"
+          export VK_ICD_FILENAMES="$here/radeon_icd.json"
+          export LD_LIBRARY_PATH="$here${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          export RADV_EXPERIMENTAL="${RADV_EXPERIMENTAL:+$RADV_EXPERIMENTAL,}sparse"
+          exec "$@"
+          EOF
+          chmod +x "$out/run-with-this-driver.sh"
+          ldd "$out/libvulkan_radeon.so"
+          objdump -T "$out"/*.so* | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1
+          zip -r "$out.zip" "$out"
+          sha256sum "$out.zip" > "$out.zip.sha256"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.OUT }}
+          path: ${{ env.OUT }}.zip*
+          if-no-files-found: error
+      - name: Release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" --prerelease --target "$GITHUB_SHA" \
+              --title "${{ inputs.tag }}" \
+              --notes "Portable RADV from ${{ inputs.mesa }} + ${{ inputs.libdrm }} for GCN 1.0 cards. Unzip, then ./run-with-this-driver.sh <program>. Nothing is installed."
+          gh release upload "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" "$OUT.zip" "$OUT.zip.sha256" --clobber
