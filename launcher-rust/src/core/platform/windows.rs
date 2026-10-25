@@ -11,8 +11,11 @@ use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use windows_sys::core::BOOL;
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+};
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
+use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, MAXIMUM_REPARSE_DATA_BUFFER_SIZE,
 };
@@ -252,6 +255,41 @@ pub fn close_std_streams() {
     }
 }
 
+/// DWM window attributes: dark mode (20, or 19 before Windows 10 20H1), bar color, text color.
+const DARK_MODE: u32 = 20;
+const DARK_MODE_OLD: u32 = 19;
+const CAPTION_COLOR: u32 = 35;
+const TEXT_COLOR: u32 = 36;
+/// COLORREF is 0x00BBGGRR: this is `#0d0b0b`, the theme's background.
+const BAR_COLOR: u32 = 0x000b_0b0d;
+const WHITE: u32 = 0x00ff_ffff;
+
+/// Darkens the title bar of the window `hwnd`: dark mode, the theme's bar color and white text.
+/// An old Windows that refuses an attribute keeps its own bar.
+pub fn dark_title_bar(hwnd: isize) {
+    dark_title_bar_with(&mut |attribute, value| {
+        // SAFETY: `value` outlives the call and the size is its own; a stale or foreign window
+        // handle only makes the call return an error.
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd as HWND,
+                attribute,
+                std::ptr::from_ref(&value).cast(),
+                std::mem::size_of::<u32>() as u32,
+            ) == 0
+        }
+    });
+}
+
+/// The same, through `set(attribute, value)`, which says whether the DWM took it.
+fn dark_title_bar_with(set: &mut dyn FnMut(u32, u32) -> bool) {
+    if !set(DARK_MODE, 1) {
+        set(DARK_MODE_OLD, 1);
+    }
+    set(CAPTION_COLOR, BAR_COLOR);
+    set(TEXT_COLOR, WHITE);
+}
+
 /// Waits up to `limit` for process `pid` to end. `true` when it ended or does not exist (it
 /// cannot be opened), `false` when it still runs after `limit`.
 pub fn wait_for_process(pid: u32, limit: Duration) -> bool {
@@ -391,6 +429,41 @@ fn mount_point_buffer(substitute: &[u16], print: &[u16]) -> io::Result<Vec<u8>> 
 
 #[cfg(test)]
 mod tests {
+
+    /// What `dark_title_bar_with` asks of a DWM that takes every attribute except `refused`.
+    fn dwm_calls(refused: &[u32]) -> Vec<(u32, u32)> {
+        let mut calls = Vec::new();
+        dark_title_bar_with(&mut |attribute, value| {
+            calls.push((attribute, value));
+            !refused.contains(&attribute)
+        });
+        calls
+    }
+
+    #[test]
+    fn dwm_attribute_20_success() {
+        assert_eq!(
+            dwm_calls(&[]),
+            [(20, 1), (35, 0x000b_0b0d), (36, 0x00ff_ffff)]
+        );
+    }
+
+    #[test]
+    fn dwm_attribute_20_fail_fallback_19() {
+        assert_eq!(
+            dwm_calls(&[20]),
+            [(20, 1), (19, 1), (35, 0x000b_0b0d), (36, 0x00ff_ffff)]
+        );
+    }
+
+    #[test]
+    fn a_dwm_that_fails_every_call_still_gets_every_attribute() {
+        // No panic, and the colors are asked for even when dark mode was refused.
+        assert_eq!(
+            dwm_calls(&[20, 19, 35, 36]),
+            [(20, 1), (19, 1), (35, 0x000b_0b0d), (36, 0x00ff_ffff)]
+        );
+    }
     use super::super::{which, Exec};
     use super::*;
     use std::os::windows::fs::MetadataExt;

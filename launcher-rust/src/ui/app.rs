@@ -20,6 +20,7 @@ use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
+use crate::core::platform;
 use crate::core::platform::tool::SystemTools;
 use crate::core::settings::SettingsFile;
 use crate::core::store::Store;
@@ -378,7 +379,19 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::WindowOpened(id, size) => {
             state.window = Some(id);
             state.window_size = size;
-            return window::scale_factor(id).map(Message::DesktopScale);
+            return Task::batch([
+                window::scale_factor(id).map(Message::DesktopScale),
+                // The title bar takes the theme's colors (Windows only; elsewhere a no-op).
+                window::run(id, |window| {
+                    use iced::window::raw_window_handle::RawWindowHandle;
+                    if let Ok(handle) = window.window_handle() {
+                        if let RawWindowHandle::Win32(win32) = handle.as_raw() {
+                            platform::dark_title_bar(win32.hwnd.get());
+                        }
+                    }
+                })
+                .discard(),
+            ]);
         }
         // The monitor the window opened on: the zoom takes its scale out of GUI Scale.
         Message::DesktopScale(factor) => {

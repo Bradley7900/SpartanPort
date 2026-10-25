@@ -67,9 +67,6 @@ PENDING_PORTS = {
     'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_clear_only_one_row_and_allow_an_empty_profile',
     'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_failed_save_keeps_previous_profile_and_row_values',
     'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_parent_destroy_closes_sdl_without_saving',
-    # Task 53 (the rest of the file is Tk window mechanics, allowed above)
-    'tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_success',
-    'tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_fail_fallback_19',
 }
 
 

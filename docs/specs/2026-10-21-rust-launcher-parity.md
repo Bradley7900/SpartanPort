@@ -61,7 +61,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_scaling.py` | 17 | 0 | 4 | 9 | 1 | 3 | 0 |
 | `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 | 0 | 0 |
 | `tests/test_launcher_stream_memory.py` | 4 | 1 | 3 | 0 | 0 | 0 | 0 |
-| `tests/test_launcher_titlebar.py` | 10 | 0 | 0 | 8 | 0 | 0 | 2 |
+| `tests/test_launcher_titlebar.py` | 10 | 3 | 0 | 7 | 0 | 0 | 0 |
 | `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 0 | 8 | 0 |
 | `tests/test_launcher_update.py` | 15 | 11 | 1 | 0 | 0 | 3 | 0 |
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 | 0 |
@@ -70,7 +70,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_controller_mappings.py` | 15 | 0 | 0 | 0 | 0 | 0 | 15 |
 | `tests/test_controller_mapper_launch.py` | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
 | `tests/test_controller_mapper_sdl.py` | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **382** | **125** | **85** | **28** | **2** | **98** | **44** |
+| **Total** | **382** | **128** | **85** | **27** | **2** | **98** | **42** |
 
 ## Map
 
@@ -383,11 +383,11 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_every_selection_overrides_inherited_environment_without_changing_it` | `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_play_without_window_uses_saved_selection` | `tests/runner.rs::play_starts_the_game_with_the_saved_stream_memory` | ported |
 | `tests/test_launcher_stream_memory.py::StreamMemoryLauncherTest::test_ui_selection_persists_reopens_and_reverts_on_next_launch` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
-| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_non_windows_guard` | — | dropped: Tk window mechanics — toplevel_hwnd and native_dark_titlebar of a Tk root give None and False off Windows |
-| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_success` | — | dropped: pending port (Task 53) |
-| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_fail_fallback_19` | — | dropped: pending port (Task 53) |
-| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_exception_handled_gracefully` | — | dropped: Tk window mechanics — an OSError from the ctypes DwmSetWindowAttribute makes native_dark_titlebar return False |
-| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_invalid_bg_hex_does_not_crash` | — | dropped: Tk window mechanics — a Tk background that is not a hex color skips the caption color (35) and keeps the dark mode (20) |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_non_windows_guard` | — | dropped: Rust has a unix no-op in place of a runtime guard, and no Tk window to pass it |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_success` | `src/core/platform/windows.rs::tests::dwm_attribute_20_success` | ported |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_fail_fallback_19` | `src/core/platform/windows.rs::tests::dwm_attribute_20_fail_fallback_19` | ported |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_exception_handled_gracefully` | `src/core/platform/windows.rs::tests::a_dwm_that_fails_every_call_still_gets_every_attribute` | ported |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_invalid_bg_hex_does_not_crash` | — | dropped: Rust uses fixed colors, so there is no hex input to test |
 | `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_toplevel_hwnd_returns_valid_frame` | — | dropped: Tk window mechanics — toplevel_hwnd is the frame around the Tk child window (GetAncestor of winfo_id) |
 | `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_native_dark_titlebar_applies_immersive_dark_mode` | — | dropped: Tk window mechanics — a real Tk window reads back attribute 20 = 1 after native_dark_titlebar |
 | `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_native_titlebar_visual_pixel_contrast` | — | dropped: Tk window mechanics — PrintWindow of a real Tk window shows a dark title bar pixel |

@@ -38,6 +38,9 @@ pub fn attach_parent_console() {}
 /// Console programs never open a window of their own here.
 pub fn hide_console_window(_cmd: &mut Command) {}
 
+/// The window manager draws the title bar here.
+pub fn dark_title_bar(_hwnd: isize) {}
+
 /// The program runs from a terminal or a launcher that takes its output: it counts as having one.
 pub fn has_console() -> bool {
     true

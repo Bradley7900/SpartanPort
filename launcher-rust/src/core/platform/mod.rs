@@ -15,15 +15,15 @@ mod windows;
 
 #[cfg(not(windows))]
 pub use unix::{
-    attach_parent_console, catch_interrupt, close_std_streams, create_junction, has_console,
-    hide_console_window, hide_window, interrupted, is_executable, make_executable,
+    attach_parent_console, catch_interrupt, close_std_streams, create_junction, dark_title_bar,
+    has_console, hide_console_window, hide_window, interrupted, is_executable, make_executable,
     physical_memory_mb, prepare, show_error, steam_path_from_registry, user_default_ui_language,
     wait_for_process, Job,
 };
 #[cfg(windows)]
 pub use windows::{
-    attach_parent_console, catch_interrupt, close_std_streams, create_junction, has_console,
-    hide_console_window, hide_window, interrupted, is_executable, make_executable,
+    attach_parent_console, catch_interrupt, close_std_streams, create_junction, dark_title_bar,
+    has_console, hide_console_window, hide_window, interrupted, is_executable, make_executable,
     physical_memory_mb, prepare, show_error, steam_path_from_registry, user_default_ui_language,
     wait_for_process, Job,
 };
