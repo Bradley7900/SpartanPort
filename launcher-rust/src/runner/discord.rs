@@ -18,8 +18,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Map, Value};
 
-#[cfg(windows)]
-use crate::core::platform;
+use crate::core::platform::ipc::{self, Transport};
 
 /// The SpartanPort application on Discord; `SPARTAN_DISCORD_ID` replaces it.
 pub const CLIENT_ID: &str = "1560048868677132431";
@@ -219,126 +218,6 @@ fn nonce() -> String {
     text
 }
 
-/// A connection to the Discord client.
-pub trait Transport {
-    /// Writes all of `data`, or fails.
-    fn write(&mut self, data: &[u8]) -> io::Result<()>;
-    /// At most `size` bytes, waiting up to `timeout` (None: as long as it takes) for some. A read
-    /// that finds nothing in time fails with `TimedOut` or `WouldBlock`; once the connection has
-    /// ended a read returns nothing.
-    fn read(&mut self, size: usize, timeout: Option<Duration>) -> io::Result<Vec<u8>>;
-    /// Lets the connection go.
-    fn close(&mut self);
-}
-
-/// A Discord named pipe (Python `PipeTransport`), in non-blocking mode: a read polls the pipe
-/// every 10 ms until something arrives or its time is up, and a write the pipe cannot take whole
-/// fails at once, so a silent or stalled Discord client holds up neither the thread nor `close`.
-#[cfg(windows)]
-pub struct PipeTransport {
-    pipe: Option<std::fs::File>,
-}
-
-#[cfg(windows)]
-impl PipeTransport {
-    pub fn open(path: &Path) -> io::Result<PipeTransport> {
-        let pipe = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)?;
-        platform::set_pipe_nowait(&pipe)?;
-        Ok(PipeTransport { pipe: Some(pipe) })
-    }
-
-    fn pipe(&mut self) -> io::Result<&mut std::fs::File> {
-        self.pipe
-            .as_mut()
-            .ok_or_else(|| io::ErrorKind::NotConnected.into())
-    }
-}
-
-#[cfg(windows)]
-impl Transport for PipeTransport {
-    fn write(&mut self, data: &[u8]) -> io::Result<()> {
-        use std::io::Write;
-        if self.pipe()?.write(data)? != data.len() {
-            return Err(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "Discord pipe could not accept the frame",
-            ));
-        }
-        Ok(())
-    }
-
-    fn read(&mut self, size: usize, timeout: Option<Duration>) -> io::Result<Vec<u8>> {
-        use std::io::Read;
-        let deadline = timeout.map(|timeout| Instant::now() + timeout);
-        let pipe = self.pipe()?;
-        loop {
-            let available = platform::pipe_bytes_available(pipe)? as usize;
-            if available > 0 {
-                let mut data = vec![0; size.min(available)];
-                let read = pipe.read(&mut data)?;
-                data.truncate(read);
-                return Ok(data);
-            }
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-                return Err(io::ErrorKind::TimedOut.into());
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    fn close(&mut self) {
-        self.pipe = None;
-    }
-}
-
-/// A Discord Unix socket (Python `SocketTransport`); a write gives up after POLL.
-#[cfg(not(windows))]
-pub struct SocketTransport {
-    stream: Option<std::os::unix::net::UnixStream>,
-}
-
-#[cfg(not(windows))]
-impl SocketTransport {
-    pub fn open(path: &Path) -> io::Result<SocketTransport> {
-        let stream = std::os::unix::net::UnixStream::connect(path)?;
-        stream.set_write_timeout(Some(POLL))?;
-        Ok(SocketTransport {
-            stream: Some(stream),
-        })
-    }
-
-    fn stream(&mut self) -> io::Result<&mut std::os::unix::net::UnixStream> {
-        self.stream
-            .as_mut()
-            .ok_or_else(|| io::ErrorKind::NotConnected.into())
-    }
-}
-
-#[cfg(not(windows))]
-impl Transport for SocketTransport {
-    fn write(&mut self, data: &[u8]) -> io::Result<()> {
-        use std::io::Write;
-        self.stream()?.write_all(data)
-    }
-
-    fn read(&mut self, size: usize, timeout: Option<Duration>) -> io::Result<Vec<u8>> {
-        use std::io::Read;
-        let stream = self.stream()?;
-        stream.set_read_timeout(timeout)?;
-        let mut data = vec![0; size];
-        let read = stream.read(&mut data)?;
-        data.truncate(read);
-        Ok(data)
-    }
-
-    fn close(&mut self) {
-        self.stream = None;
-    }
-}
-
 /// Where a Discord client listens (Python `candidates`): the pipes `\\?\pipe\discord-ipc-0` … `9`
 /// on Windows; elsewhere the sockets `discord-ipc-0` … `9` in `XDG_RUNTIME_DIR`, `TMPDIR`, `TMP`,
 /// `TEMP` and `/tmp` (each folder once), and in their `app/com.discordapp.Discord` (Flatpak) and
@@ -383,21 +262,11 @@ pub fn open_transport(paths: &[PathBuf], stop: &AtomicBool) -> Option<Box<dyn Tr
         if stop.load(Ordering::SeqCst) {
             break;
         }
-        if let Ok(transport) = open(path) {
+        if let Ok(transport) = ipc::connect(path) {
             return Some(transport);
         }
     }
     None
-}
-
-#[cfg(windows)]
-fn open(path: &Path) -> io::Result<Box<dyn Transport>> {
-    Ok(Box::new(PipeTransport::open(path)?))
-}
-
-#[cfg(not(windows))]
-fn open(path: &Path) -> io::Result<Box<dyn Transport>> {
-    Ok(Box::new(SocketTransport::open(path)?))
 }
 
 /// Introduces the application `client_id` and waits up to READ for Discord's READY.
@@ -1388,7 +1257,7 @@ mod tests {
             let mut starts = Vec::new();
             for index in 0..2 {
                 let conn = accept(&listener, Duration::from_secs(2));
-                let mut transport = SocketTransport { stream: Some(conn) };
+                let mut transport = ipc::from_stream(conn);
                 let hello = pack(Opcode::Handshake, &json!({"v": 1, "client_id": "123"}));
                 let got = read_exact(&mut transport, hello.len(), &never, Some(READ)).unwrap();
                 assert_eq!(got, hello);
@@ -1568,9 +1437,9 @@ mod tests {
     /// Python `WindowsPipeTransport.setUp`: the server, and the presence's transport on the client
     /// end, connected.
     #[cfg(windows)]
-    fn pipe_pair() -> (PipeServer, PipeTransport) {
+    fn pipe_pair() -> (PipeServer, Box<dyn Transport>) {
         let server = PipeServer::new();
-        let transport = PipeTransport::open(&server.path).unwrap();
+        let transport = ipc::connect(&server.path).unwrap();
         server.connect();
         (server, transport)
     }
@@ -1601,9 +1470,7 @@ mod tests {
         let counted = Arc::clone(&calls);
         let opener: Opener = Box::new(move |_stop: &AtomicBool| {
             counted.fetch_add(1, Ordering::SeqCst);
-            handed
-                .take()
-                .map(|transport| Box::new(transport) as Box<dyn Transport>)
+            handed.take()
         });
         let mut presence = start(1, &[("SPARTAN_DISCORD", "1")], setup(opener, RETRY));
         let deadline = Instant::now() + SECOND;
