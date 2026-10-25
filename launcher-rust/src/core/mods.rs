@@ -702,22 +702,20 @@ pub fn selected(
 }
 
 /// The patch files of the enabled mods, in load order (a later file wins where patches share a
-/// name); none when mods are off. A selection that cannot be read gives none: building the overlay
-/// from the same selection reports why.
+/// name); none when mods are off. A selection that cannot be read is an error.
 pub fn enabled_patch_files(
     root: &Path,
     config: &Path,
     enabled: bool,
     game: Option<&Path>,
-) -> Vec<PathBuf> {
+) -> Result<Vec<PathBuf>, ModsError> {
     if !enabled {
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    selected(root, Some(config), game)
-        .unwrap_or_default()
+    Ok(selected(root, Some(config), game)?
         .iter()
         .flat_map(|name| patch_files(&root.join(name)))
-        .collect()
+        .collect())
 }
 
 /// The folders `build_overlay` lays over the game, in load order (Python `mods.py`'s `main`):
@@ -1493,9 +1491,23 @@ mod tests {
             error.to_string(),
             "Mod order must be a list of folder names"
         );
-        // An unreadable selection gives no patch files (the overlay reports the error).
+    }
+
+    #[test]
+    fn enabled_patch_files_reports_a_bad_selection() {
+        let f = Fixture::new();
         f.patch_mod("P", &["mine.xml"], None);
-        assert!(enabled_patch_files(&f.moddir, &config, true, None).is_empty());
+        let config = f.root.join("mods.json");
+        fs::write(&config, r#"{"order":[1]}"#).unwrap();
+        let error = enabled_patch_files(&f.moddir, &config, true, None).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Mod order must be a list of folder names"
+        );
+        // Mods off never reads the selection.
+        assert!(enabled_patch_files(&f.moddir, &config, false, None)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -1520,6 +1532,7 @@ mod tests {
         fs::write(&config, r#"{"order": ["B", "A"], "disabled": []}"#).unwrap();
         let names = |enabled: bool| -> Vec<String> {
             enabled_patch_files(&f.moddir, &config, enabled, None)
+                .unwrap()
                 .iter()
                 .map(|file| {
                     let owner = file.parent().and_then(Path::parent).unwrap();

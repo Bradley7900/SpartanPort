@@ -361,16 +361,14 @@ impl<'a> Runner<'a> {
         // resolutions too (SPARTAN_EXTRA_RESOLUTIONS tells the game). A selection that cannot be
         // read stops the start, as run.py's.
         let mut game = plan.game.clone();
-        let mod_patch_files: Vec<PathBuf> = if plan.mods_switch == "0" {
-            Vec::new()
-        } else {
-            match mods::selected(&plan.mods_dir, Some(&plan.mods_config), Some(&game)) {
-                Ok(names) => names
-                    .iter()
-                    .flat_map(|name| mods::patch_files(&plan.mods_dir.join(name)))
-                    .collect(),
-                Err(error) => return self.fail(&format!("Mods: {error}")),
-            }
+        let mod_patch_files: Vec<PathBuf> = match mods::enabled_patch_files(
+            &plan.mods_dir,
+            &plan.mods_config,
+            plan.mods_switch != "0",
+            Some(&game),
+        ) {
+            Ok(files) => files,
+            Err(error) => return self.fail(&format!("Mods: {error}")),
         };
         let extra: Vec<String> = patches::resolution_names(&mod_patch_files)
             .into_iter()
