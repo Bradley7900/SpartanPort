@@ -18,11 +18,11 @@ tasks of that plan ported them to. The pause menu and glyph stamps of `main` cha
 §5 F3): the `real_menu_*` tests of `tests/dump.rs` match the Python of `main` (pause menu `VERSION`
 22), and so do the `real_glyph_*` ones (glyph `VERSION` 12).
 
-Release gate: checked on 2026-10-23 at the end of the runner work, on Windows, against the real game
-dump `CUSA01623` (`APP_VER` 01.02, `VERSION` 01.00), read only:
-`SPARTAN_GAME_DIR=<game> cargo test --no-fail-fast` in `launcher-rust/`.
+Release gate: checked on 2026-10-25 at the end of the deepening plan, on Windows, against the real
+game dump `CUSA01623` (`APP_VER` 01.02, `VERSION` 01.00), read only: `cargo test` in
+`launcher-rust/`, and `SPARTAN_GAME_DIR=<game> cargo test --test dump` for the dump.
 
-Result: 864 tests passed, 0 failed, with the dump set. All 27 tests of `tests/dump.rs` ran on the real files (the image files `prepare`, `link_libc`, `link_modules` and `isa_rewrite` make from the real `eboot.bin`, `boot-linked.bin` included, its patches, the pause menu and cheat scripts of `R_UI.WAD` and the glyph WADs, each compared with the Python's). The launcher's settings take `SPARTAN_GAME_DIR` from the environment the `Paths` were built with, so the UI tests, which build theirs without it, do not see the dump.
+Result: `cargo test` 1129 passed, 0 failed, and 1134 passed, 0 failed, after the fixes of the plan's final review. All 28 tests of `tests/dump.rs` ran on the real files (the image files `prepare`, `link_libc`, `link_modules` and `isa_rewrite` make from the real `eboot.bin`, `boot-linked.bin` included, its patches, the pause menu and cheat scripts of `R_UI.WAD` and the glyph WADs, each compared with the Python's). The launcher's settings take `SPARTAN_GAME_DIR` from the environment the `Paths` were built with, so the UI tests, which build theirs without it, do not see the dump.
 
 The tests that need the dump return at once without `SPARTAN_GAME_DIR`, as the Python ones skip; with
 it they run on the real `eboot.bin` and `R_UI.WAD`. The Unix paths (Linux sockets, `kill(pid, 0)`,
