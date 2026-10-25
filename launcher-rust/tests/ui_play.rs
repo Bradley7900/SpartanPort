@@ -22,6 +22,7 @@ use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::core::update::ReleaseHost;
 use spartanport_launcher::ui::app::{self, Message, State};
+use spartanport_launcher::ui::fire;
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::play::{self, GameMessage, GameState, LiveAction};
@@ -1175,6 +1176,22 @@ fn the_fire_does_not_advance_while_the_game_runs() {
     assert_eq!(state.fire.particle_count(), particles);
     send(&mut state, Message::Stop);
     pump(&mut state, Duration::from_secs(5), idle);
+}
+
+#[test]
+fn the_fire_layer_leaves_the_view_while_the_game_runs() {
+    // The slow clock still redraws the window while the game is live: without the layer, no fire
+    // is drawn on the game's GPU.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = running_with_effects(
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    let id = fire::layer_id();
+    assert_eq!(common::count_ids(app::view(&state), &id), 0);
+    send(&mut state, Message::Stop);
+    pump(&mut state, Duration::from_secs(5), idle);
+    assert_eq!(common::count_ids(app::view(&state), &id), 1);
 }
 
 #[test]

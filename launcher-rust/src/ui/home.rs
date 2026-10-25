@@ -23,6 +23,7 @@ use crate::core::patches::patch_status;
 use crate::ui::app::{
     home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
 };
+use crate::ui::fire;
 use crate::ui::lang_menu;
 use crate::ui::version_menu;
 
@@ -466,7 +467,7 @@ pub fn background(state: &State) -> Element<'_, Message> {
     .push(layer(Layer::Fog))
     .push(layer(Layer::Heat(elapsed)))
     // The only fire layer (R96): the splash's dark background covers it until the flight.
-    .push(state.fire.view())
+    .extend(fire::layer(state))
     .into()
 }
 

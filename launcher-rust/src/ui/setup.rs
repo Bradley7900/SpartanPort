@@ -13,6 +13,7 @@ use crate::core::installation::SEPARATE_FOLDERS;
 use crate::core::options::DISPLAY_MODES;
 use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
+use crate::ui::fire;
 use crate::ui::follow::{follow, Cause};
 use crate::ui::home;
 use crate::ui::pages::game::folder_row;
@@ -233,8 +234,8 @@ pub fn background(state: &State) -> Element<'_, Message> {
                 background: Some(Background::Color(SPLASH_BG)),
                 ..container::Style::default()
             }),
-        state.fire.view(),
     ]
+    .extend(fire::layer(state))
     .width(Fill)
     .height(Fill)
     .into()

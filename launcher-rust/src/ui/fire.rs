@@ -9,7 +9,7 @@ use iced::widget::canvas::{self, Geometry, Path};
 use iced::widget::{canvas as canvas_widget, container, shader as shader_widget, Id};
 use iced::{Color, Element, Fill, Point, Rectangle, Renderer, Size, Theme, Vector};
 
-use crate::ui::app::Message;
+use crate::ui::app::{Message, State};
 
 mod shader;
 
@@ -81,6 +81,12 @@ impl Fire {
             .height(Fill)
             .into()
     }
+}
+
+/// The fire's layer of the window, left out while a game is live: the slow clock still redraws
+/// the window then, and the fire would be drawn on the game's GPU.
+pub fn layer(state: &State) -> Option<Element<'_, Message>> {
+    (!state.game.is_live()).then(|| state.fire.view())
 }
 
 /// The id of the fire's layer.
