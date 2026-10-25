@@ -356,7 +356,7 @@ impl<'a> Runner<'a> {
         }
         // The controller profiles of the data folder: the CPU check, `--gamepad` and the game see
         // the same mappings.
-        for line in controller_mappings::configure_environment(&mut self.env, data) {
+        for line in controller_mappings::configure_environment(&mut self.env, &port, data) {
             self.say(&line);
         }
         // 4. The enabled mods' patch files: their "Resolution Patch - <size>" entries are render

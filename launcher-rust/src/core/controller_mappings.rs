@@ -335,23 +335,29 @@ pub fn mapping_key(line: &str) -> Option<(String, String)> {
 }
 
 /// The saved line of device `guid` (Python `load_mapping`): the last one for `platform`, else the
-/// last one without a platform. A missing or unreadable file has none.
-pub fn load_mapping(path: &Path, guid: &str, platform: &str) -> Option<String> {
+/// last one without a platform. A missing file has none; one that cannot be read is an error.
+pub fn load_mapping(
+    path: &Path,
+    guid: &str,
+    platform: &str,
+) -> Result<Option<String>, MappingError> {
     if !path.is_file() {
-        return None;
+        return Ok(None);
     }
-    let text = read_text(path).ok()?;
+    let text = read_text(path)?;
     let lines = splitlines(&text);
     let guid = guid.to_ascii_lowercase();
-    [(guid.clone(), platform.to_string()), (guid, String::new())]
-        .into_iter()
-        .find_map(|key| {
-            let found = lines
-                .iter()
-                .rev()
-                .find(|line| mapping_key(line).as_ref() == Some(&key));
-            found.map(|line| py_strip(line).to_string())
-        })
+    Ok(
+        [(guid.clone(), platform.to_string()), (guid, String::new())]
+            .into_iter()
+            .find_map(|key| {
+                let found = lines
+                    .iter()
+                    .rev()
+                    .find(|line| mapping_key(line).as_ref() == Some(&key));
+                found.map(|line| py_strip(line).to_string())
+            }),
+    )
 }
 
 /// The inputs a line binds (Python `mapping_bindings`), by SDL name; the other fields (the GUID,
@@ -458,8 +464,13 @@ fn save_mapping_with(
 /// becomes its lines, then those of the file `SDL_GAMECONTROLLERCONFIG_FILE` names, then the
 /// variable's own, without blanks, comments or repeats. A repeated line keeps its last place, so
 /// an explicit mapping still wins on the same GUID and a restarted game gets the same value.
+/// A relative `SDL_GAMECONTROLLERCONFIG_FILE` is in `port` (run.py had moved there).
 /// Returns what to print for a file that could not be read (it counts as empty).
-pub fn configure_environment(env: &mut IndexMap<String, String>, data_dir: &Path) -> Vec<String> {
+pub fn configure_environment(
+    env: &mut IndexMap<String, String>,
+    port: &Path,
+    data_dir: &Path,
+) -> Vec<String> {
     let path = data_dir.join(FILENAME);
     if !path.is_file() {
         return Vec::new();
@@ -476,7 +487,7 @@ pub fn configure_environment(env: &mut IndexMap<String, String>, data_dir: &Path
     };
     let local = read(&path);
     let explicit = match env.get("SDL_GAMECONTROLLERCONFIG_FILE") {
-        Some(file) if !file.is_empty() && Path::new(file).is_file() => read(Path::new(file)),
+        Some(file) if !file.is_empty() && port.join(file).is_file() => read(&port.join(file)),
         _ => String::new(),
     };
     let hint = env
@@ -726,12 +737,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(FILENAME);
         save_mapping(&path, &line).unwrap();
-        assert_eq!(load_mapping(&path, GUID, "Windows"), Some(line.clone()));
-        assert_eq!(load_mapping(&path, GUID, "Linux"), None);
+        assert_eq!(
+            load_mapping(&path, GUID, "Windows").unwrap(),
+            Some(line.clone())
+        );
+        assert_eq!(load_mapping(&path, GUID, "Linux").unwrap(), None);
         let edited = edit_mapping(Some(&line), GUID, "USB", "Windows", "b", Some("b1")).unwrap();
         save_mapping(&path, &edited).unwrap();
         assert_eq!(
-            mapping_bindings(load_mapping(&path, GUID, "Windows").as_deref()),
+            mapping_bindings(load_mapping(&path, GUID, "Windows").unwrap().as_deref()),
             map(&[("x", "b3"), ("b", "b1")])
         );
     }
@@ -743,8 +757,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(FILENAME);
         fs::write(&path, format!("{specific}\n{generic}\n")).unwrap();
-        assert_eq!(load_mapping(&path, GUID, "Windows"), Some(specific));
-        assert_eq!(load_mapping(&path, GUID, "Linux"), Some(generic));
+        assert_eq!(
+            load_mapping(&path, GUID, "Windows").unwrap(),
+            Some(specific)
+        );
+        assert_eq!(load_mapping(&path, GUID, "Linux").unwrap(), Some(generic));
     }
 
     #[test]
@@ -814,7 +831,7 @@ mod tests {
             ("SDL_GAMECONTROLLERCONFIG_FILE", custom.as_str()),
             ("SDL_GAMECONTROLLERCONFIG", external_hint.as_str()),
         ]);
-        configure_environment(&mut env, dir.path());
+        configure_environment(&mut env, dir.path(), dir.path());
         assert_eq!(
             env["SDL_GAMECONTROLLERCONFIG"].lines().collect::<Vec<_>>(),
             [
@@ -824,7 +841,7 @@ mod tests {
             ]
         );
         let before = env.clone();
-        configure_environment(&mut env, dir.path());
+        configure_environment(&mut env, dir.path(), dir.path());
         assert_eq!(env, before);
         assert_eq!(env["SDL_GAMECONTROLLERCONFIG_FILE"], custom);
     }
@@ -833,7 +850,7 @@ mod tests {
     fn no_profile_leaves_environment_untouched() {
         let dir = tempfile::tempdir().unwrap();
         let mut env = map(&[("SDL_GAMECONTROLLERCONFIG", "user value")]);
-        configure_environment(&mut env, dir.path());
+        configure_environment(&mut env, dir.path(), dir.path());
         assert_eq!(env, map(&[("SDL_GAMECONTROLLERCONFIG", "user value")]));
     }
 
@@ -844,7 +861,7 @@ mod tests {
         fs::write(dir.path().join(FILENAME), &local).unwrap();
         let custom = "xinput,Custom Xbox,a:b1,b:b0,platform:Windows,";
         let mut env = map(&[("SDL_GAMECONTROLLERCONFIG", custom)]);
-        configure_environment(&mut env, dir.path());
+        configure_environment(&mut env, dir.path(), dir.path());
         assert_eq!(
             env["SDL_GAMECONTROLLERCONFIG"].lines().collect::<Vec<_>>(),
             [local.as_str(), custom]
@@ -858,7 +875,7 @@ mod tests {
         fs::write(dir.path().join(FILENAME), b"\xff\xfe not UTF-8").unwrap();
         let custom = "xinput,Custom Xbox,a:b1,b:b0,platform:Windows,";
         let mut env = map(&[("SDL_GAMECONTROLLERCONFIG", custom)]);
-        let said = configure_environment(&mut env, dir.path());
+        let said = configure_environment(&mut env, dir.path(), dir.path());
         assert_eq!(env, map(&[("SDL_GAMECONTROLLERCONFIG", custom)]));
         assert_eq!(said.len(), 1, "{said:?}");
         let shown = dir.path().join(FILENAME);
@@ -878,6 +895,39 @@ mod tests {
         let path = dir.path().join(FILENAME);
         let line = mapping_line(GUID, "USB", &map(&[("a", "b2")]), "Windows", true).unwrap();
         fs::write(&path, format!("\u{feff}{line}\r# note")).unwrap();
-        assert_eq!(load_mapping(&path, GUID, "Windows"), Some(line));
+        assert_eq!(load_mapping(&path, GUID, "Windows").unwrap(), Some(line));
+    }
+
+    #[test]
+    fn an_unreadable_saved_mapping_is_an_error() {
+        // Python's `read_text` raises, and the mapper shows the error.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILENAME);
+        assert_eq!(load_mapping(&path, GUID, "Windows").unwrap(), None);
+        fs::write(&path, b"\xff\xfe not UTF-8").unwrap();
+        let error = load_mapping(&path, GUID, "Windows").unwrap_err();
+        assert!(
+            matches!(&error, MappingError::Io(error) if error.kind() == io::ErrorKind::InvalidData),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_relative_explicit_file_is_read_from_the_port() {
+        // run.py had moved to the port folder, so a relative SDL_GAMECONTROLLERCONFIG_FILE was
+        // the port's.
+        let port = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let local = mapping_line(GUID, "USB", &map(&[("a", "b0")]), "Windows", true).unwrap();
+        let external = mapping_line(GUID, "USB", &map(&[("a", "b1")]), "Windows", true).unwrap();
+        fs::write(data.path().join(FILENAME), &local).unwrap();
+        fs::write(port.path().join("custom.txt"), &external).unwrap();
+        let mut env = map(&[("SDL_GAMECONTROLLERCONFIG_FILE", "custom.txt")]);
+        let said = configure_environment(&mut env, port.path(), data.path());
+        assert!(said.is_empty(), "{said:?}");
+        assert_eq!(
+            env["SDL_GAMECONTROLLERCONFIG"].lines().collect::<Vec<_>>(),
+            [local.as_str(), external.as_str()]
+        );
     }
 }

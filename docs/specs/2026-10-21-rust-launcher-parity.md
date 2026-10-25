@@ -69,8 +69,8 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 | 0 |
 | `tests/test_controller_mappings.py` | 15 | 15 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_controller_mapper_launch.py` | 3 | 2 | 0 | 0 | 0 | 0 | 1 |
-| `tests/test_controller_mapper_sdl.py` | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **382** | **156** | **85** | **27** | **2** | **98** | **14** |
+| `tests/test_controller_mapper_sdl.py` | 9 | 4 | 0 | 0 | 0 | 0 | 5 |
+| **Total** | **382** | **160** | **85** | **27** | **2** | **98** | **10** |
 
 ## Map
 
@@ -449,14 +449,14 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_controller_mapper_launch.py::LaunchTest::test_direct_run_loads_profile_before_native_detection` | `tests/runner.rs::direct_run_loads_profile_before_native_detection` | ported |
 | `tests/test_controller_mapper_launch.py::LaunchTest::test_updater_preserves_profiles` | `src/core/update.rs::tests::updater_preserves_profiles` | ported |
 | `tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game` | — | dropped: pending port (Task 52) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_raw_capture_gamepad_preview_inversion_and_analog_trigger` | — | dropped: pending port (Task 51) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_saved_mapping_loads_and_explicit_user_file_wins` | — | dropped: pending port (Task 51) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_disconnect_reports_error_instead_of_reading_a_stale_pad` | — | dropped: pending port (Task 51) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_raw_capture_gamepad_preview_inversion_and_analog_trigger` | `tests/sdl_mapper.rs::raw_capture_gamepad_preview_inversion_and_analog_trigger` | ported |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_saved_mapping_loads_and_explicit_user_file_wins` | `tests/sdl_mapper.rs::saved_mapping_loads_and_explicit_user_file_wins` | ported |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_disconnect_reports_error_instead_of_reading_a_stale_pad` | `tests/sdl_mapper.rs::disconnect_reports_error_instead_of_reading_a_stale_pad` | ported |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_rows_save_out_of_order_and_reload_without_losing_other_bindings` | — | dropped: pending port (Task 52) |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_cancel_capture_and_close_keep_already_saved_rows` | — | dropped: pending port (Task 52) |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_clear_only_one_row_and_allow_an_empty_profile` | — | dropped: pending port (Task 52) |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_failed_save_keeps_previous_profile_and_row_values` | — | dropped: pending port (Task 52) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons` | — | dropped: pending port (Task 51) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons` | `tests/sdl_mapper.rs::editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons` | ported |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_parent_destroy_closes_sdl_without_saving` | — | dropped: pending port (Task 52) |
 
 ## Known deviations from the Python

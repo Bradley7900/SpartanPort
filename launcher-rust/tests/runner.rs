@@ -598,6 +598,43 @@ fn direct_run_loads_profile_before_native_detection() {
 }
 
 #[test]
+fn a_relative_controller_file_is_the_ports() {
+    // run.py moved to the port folder first, so a relative SDL_GAMECONTROLLERCONFIG_FILE named a
+    // file there; the explicit file still comes after the data folder's profile.
+    let port = Port::new();
+    let data = port.root.join("profiles");
+    fs::create_dir_all(&data).unwrap();
+    let guid = "0300457e790000000600000000000000";
+    let line = |button: &str| {
+        let bindings = [("a".to_string(), button.to_string())]
+            .into_iter()
+            .collect();
+        mapping_line(guid, "USB", &bindings, "Windows", true).unwrap()
+    };
+    let (profile, custom) = (line("b2"), line("b3"));
+    fs::write(data.join(FILENAME), &profile).unwrap();
+    fs::write(port.root.join("custom.txt"), &custom).unwrap();
+    let mut host = FakeHost::default();
+    host.cpu = "CPU check stopped for test\n".into();
+    host.cpu_exit = 20;
+    let mut program = port.program(&[
+        ("SPARTAN_DATA_DIR", &text(&data)),
+        ("SDL_GAMECONTROLLERCONFIG_FILE", "custom.txt"),
+    ]);
+    program.env.shift_remove("SDL_GAMECONTROLLERCONFIG");
+    let mut out = Vec::new();
+    let code = run_with(Port::context(&program, &mut out), &host);
+    let out = String::from_utf8_lossy(&out);
+    assert_eq!(code, 20, "{out}");
+    let calls = host.calls.borrow();
+    let env = calls[0].env.as_ref().unwrap();
+    assert_eq!(
+        env.get("SDL_GAMECONTROLLERCONFIG"),
+        Some(&format!("{profile}\n{custom}"))
+    );
+}
+
+#[test]
 fn a_missing_eboot_fails_with_the_python_message() {
     let port = Port::new();
     let empty = port.root.join("not a game");

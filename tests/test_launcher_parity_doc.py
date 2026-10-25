@@ -25,11 +25,6 @@ PENDING_PORTS = {
     'tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence',
     'tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice',
     'tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening',
-    # Task 51
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_raw_capture_gamepad_preview_inversion_and_analog_trigger',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_saved_mapping_loads_and_explicit_user_file_wins',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_disconnect_reports_error_instead_of_reading_a_stale_pad',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons',
     # Task 52
     'tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game',
     'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_rows_save_out_of_order_and_reload_without_losing_other_bindings',

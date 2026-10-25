@@ -32,6 +32,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 indexmap = { version = "2", features = ["serde"] }
 tempfile = "3"
+# SDL3 for the controller mapper (`core/joysticks.rs`), loaded at run time as Python's ctypes did.
+libloading = "0.8.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 # The button icons' text in `runner/draw.rs`, as Pillow draws it with FreeType: skrifa ports
 # FreeType's auto-hinter (without `autohint_shaping`, as FreeType's default build has no HarfBuzz)

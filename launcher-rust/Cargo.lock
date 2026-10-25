@@ -3765,6 +3765,7 @@ dependencies = [
  "iced_test",
  "image",
  "indexmap",
+ "libloading",
  "md-5",
  "nix 0.30.1",
  "rfd",
