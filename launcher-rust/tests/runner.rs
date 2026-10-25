@@ -5,13 +5,12 @@
 //! probe's working folder and `--play` start the launcher, with `fake-probe` in place of
 //! `spartanport-probe`.
 
-use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
@@ -293,15 +292,15 @@ fn argv(call: &Called) -> Vec<String> {
 
 /// A host whose game reads `file` under its `--app0` folder, as `FAKE_PROBE_SHOW` did, and the
 /// text it read (`missing` without the file) once the game has started.
-fn showing(file: &'static str) -> (FakeHost, Rc<RefCell<Option<String>>>) {
-    let shown = Rc::new(RefCell::new(None));
-    let into = Rc::clone(&shown);
+fn showing(file: &'static str) -> (FakeHost, Arc<Mutex<Option<String>>>) {
+    let shown = Arc::new(Mutex::new(None));
+    let into = Arc::clone(&shown);
     let mut host = FakeHost::default();
     host.on_play = Some(Box::new(move |call: &ToolCall| {
         let at = call.args.iter().position(|arg| arg == "--app0").unwrap();
         let text = fs::read_to_string(Path::new(&call.args[at + 1]).join(file))
             .unwrap_or_else(|_| "missing".to_string());
-        *into.borrow_mut() = Some(text);
+        *into.lock().unwrap() = Some(text);
     }));
     (host, shown)
 }
@@ -538,7 +537,7 @@ fn the_probes_exit_code_is_returned() {
         "{ran}"
     );
     assert_eq!(overlay.parent(), Some(port.out().as_path()));
-    assert_eq!(shown.borrow().as_deref(), Some("mod"), "{ran}");
+    assert_eq!(shown.lock().unwrap().as_deref(), Some("mod"), "{ran}");
     assert!(!overlay.exists(), "the overlay is left in out/");
     assert_eq!(fs::read(&wad).unwrap(), original);
 }
@@ -1141,7 +1140,7 @@ fn an_update_folder_is_combined_into_a_view() {
         "{ran}"
     );
     assert_eq!(view.parent(), Some(port.out().as_path()));
-    assert_eq!(shown.borrow().as_deref(), Some("update"), "{ran}");
+    assert_eq!(shown.lock().unwrap().as_deref(), Some("update"), "{ran}");
     assert!(!view.exists(), "the view is left in out/");
     assert_ne!(
         fs::read(port.game().join("dvdroot_ps4/PART1.WAD")).unwrap(),

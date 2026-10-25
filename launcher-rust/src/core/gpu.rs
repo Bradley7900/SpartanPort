@@ -1,11 +1,14 @@
 //! The probes the launcher runs for lists: Vulkan GPUs, SDL displays and the gamepad.
 
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use indexmap::IndexMap;
 
 use super::env::Lookup;
 use super::paths::Paths;
+use super::platform::tool::{inherited_env_with, Stderr, ToolCall, Tools, Window};
 
 /// One line of `spartanport-gpu-capabilities --list`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,56 +98,41 @@ pub fn no_msaa_decision(rows: &[GpuRow], gpu_id: &str) -> MsaaDecision {
     }
 }
 
-/// Runs `command` for at most `timeout`; `None` on a spawn error, a timeout or, when
-/// `must_succeed`, a non-zero exit. The output is read lossily as UTF-8.
-fn run_tool(command: &mut Command, timeout: Duration, must_succeed: bool) -> Option<String> {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
-    let mut child = command.spawn().ok()?;
-    let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        bytes
-    });
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    };
-    let bytes = reader.join().ok()?;
-    if must_succeed && !status.success() {
+/// Runs `program` for at most `limit`; `None` on a spawn error, a timeout or, when `must_succeed`,
+/// a non-zero exit. The output is read lossily as UTF-8.
+fn run(
+    tools: &dyn Tools,
+    program: PathBuf,
+    args: &[&str],
+    env: Option<&IndexMap<String, String>>,
+    limit: Duration,
+    must_succeed: bool,
+) -> Option<String> {
+    let out = tools
+        .run(&ToolCall {
+            program: program.into(),
+            args: args.iter().map(OsString::from).collect(),
+            env,
+            cwd: None,
+            limit: Some(limit),
+            stderr: Stderr::Null,
+            window: Window::Hidden,
+        })
+        .ok()?;
+    if must_succeed && out.code != Some(0) {
         return None;
     }
-    Some(String::from_utf8_lossy(&bytes).into_owned())
+    Some(out.stdout)
 }
 
 /// The Vulkan GPUs in the order the game numbers them, or empty when the tool cannot tell.
-pub fn list_gpus(paths: &Paths) -> Vec<GpuRow> {
+pub fn list_gpus(tools: &dyn Tools, paths: &Paths) -> Vec<GpuRow> {
     let Some(tool) = paths.find_tool("spartanport-gpu-capabilities") else {
         return Vec::new();
     };
-    run_tool(
-        Command::new(tool).arg("--list"),
-        Duration::from_secs(5),
-        true,
-    )
-    .map(|out| parse_gpu_list(&out))
-    .unwrap_or_default()
+    run(tools, tool, &["--list"], None, Duration::from_secs(5), true)
+        .map(|out| parse_gpu_list(&out))
+        .unwrap_or_default()
 }
 
 /// One monitor per line of `spartanport-probe --displays`: index, name, primary, x, y, width,
@@ -226,26 +214,32 @@ pub fn monitor_selection(displays: &[Display], saved: &str) -> String {
 /// The monitors the game can open on, in the order `spartanport-probe --displays` numbers them, or
 /// empty when the tool cannot tell. On Linux the probe runs under the SDL video driver the game will
 /// use (`auto` lets SDL choose).
-pub fn list_displays(paths: &Paths, backend: &str) -> Vec<Display> {
+pub fn list_displays(tools: &dyn Tools, paths: &Paths, backend: &str) -> Vec<Display> {
     let Some(tool) = paths.find_tool("spartanport-probe") else {
         return Vec::new();
     };
-    let mut command = Command::new(tool);
-    command.arg("--displays");
-    if cfg!(not(windows)) && matches!(backend, "wayland" | "x11") {
-        command.env("SDL_VIDEO_DRIVER", backend);
-        command.env("SDL_VIDEODRIVER", backend);
-    }
-    run_tool(&mut command, Duration::from_secs(5), true)
-        .map(|out| parse_display_list(&out))
-        .unwrap_or_default()
+    let env = (cfg!(not(windows)) && matches!(backend, "wayland" | "x11")).then(|| {
+        inherited_env_with(&[
+            ("SDL_VIDEO_DRIVER", backend.to_string()),
+            ("SDL_VIDEODRIVER", backend.to_string()),
+        ])
+    });
+    run(
+        tools,
+        tool,
+        &["--displays"],
+        env.as_ref(),
+        Duration::from_secs(5),
+        true,
+    )
+    .map(|out| parse_display_list(&out))
+    .unwrap_or_default()
 }
 
 /// Whether `spartanport-probe` sees a gamepad now; `None` when the probe is missing or fails.
-pub fn connected_gamepad(paths: &Paths, env: Lookup) -> Option<bool> {
+pub fn connected_gamepad(tools: &dyn Tools, paths: &Paths, env: Lookup) -> Option<bool> {
     let probe = paths.find_tool("spartanport-probe")?;
-    let mut command = Command::new(&probe);
-    command.arg("--gamepad");
+    let mut env = None;
     // A development build loads the MSYS2 CLANG64 DLLs (SDL3, FFmpeg); without them Windows would
     // show a missing-DLL dialog, so the probe is not run at all.
     if cfg!(windows) && !probe.parent()?.join("SDL3.dll").is_file() {
@@ -258,15 +252,24 @@ pub fn connected_gamepad(paths: &Paths, env: Lookup) -> Option<bool> {
         if let Some(path) = env("PATH") {
             dirs.extend(std::env::split_paths(&path));
         }
-        command.env("PATH", std::env::join_paths(dirs).ok()?);
+        let path = std::env::join_paths(dirs).ok()?.into_string().ok()?;
+        env = Some(inherited_env_with(&[("PATH", path)]));
     }
-    let out = run_tool(&mut command, Duration::from_secs(15), false)?;
+    let out = run(
+        tools,
+        probe,
+        &["--gamepad"],
+        env.as_ref(),
+        Duration::from_secs(15),
+        false,
+    )?;
     Some(out.contains("Gamepad: type="))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::platform::tool::FakeTools;
 
     const TWO_DISPLAYS: &str =
         "0\tMonitor A\t1\t0\t0\t1920\t1080\n1\tMonitor B\t0\t1920\t0\t2560\t1440\n";
@@ -551,8 +554,129 @@ mod tests {
     fn a_missing_tool_lists_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::from_env(dir.path(), &|_| None);
-        assert_eq!(list_gpus(&paths), vec![]);
-        assert_eq!(list_displays(&paths, "auto"), vec![]);
-        assert_eq!(connected_gamepad(&paths, &|_| None), None);
+        let tools = FakeTools::printing(
+            0, "0	x	y
+",
+        );
+        assert_eq!(list_gpus(&tools, &paths), vec![]);
+        assert_eq!(list_displays(&tools, &paths, "auto"), vec![]);
+        assert_eq!(connected_gamepad(&tools, &paths, &|_| None), None);
+        assert!(tools.calls().is_empty());
+    }
+
+    /// A port folder with `bin/<name>` for each of `names`.
+    fn port_with(names: &[&str]) -> (tempfile::TempDir, Paths) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("bin")).unwrap();
+        for name in names {
+            let file = if cfg!(windows) {
+                format!("{name}.exe")
+            } else {
+                name.to_string()
+            };
+            std::fs::write(dir.path().join("bin").join(file), b"").unwrap();
+        }
+        let paths = Paths::from_env(dir.path(), &|_| None);
+        (dir, paths)
+    }
+
+    #[test]
+    fn gpus_come_from_the_tool_rows() {
+        let (_dir, paths) = port_with(&["spartanport-gpu-capabilities"]);
+        let tools = FakeTools::printing(
+            0,
+            "0	AMD	integrated	off	1
+1	NVIDIA	discrete	on	0
+",
+        );
+        assert_eq!(
+            list_gpus(&tools, &paths),
+            vec![
+                gpu("0", "AMD", "integrated", Some("off"), true),
+                gpu("1", "NVIDIA", "discrete", Some("on"), false),
+            ]
+        );
+        let calls = tools.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].args, ["--list"]);
+        assert_eq!(calls[0].limit, Some(Duration::from_secs(5)));
+        assert_eq!(calls[0].env, None);
+    }
+
+    #[test]
+    fn a_failing_gpu_tool_lists_nothing() {
+        let (_dir, paths) = port_with(&["spartanport-gpu-capabilities"]);
+        let failed = FakeTools::printing(
+            1,
+            "0	AMD	integrated
+",
+        );
+        assert_eq!(list_gpus(&failed, &paths), vec![]);
+        let hung = FakeTools::timing_out();
+        assert_eq!(list_gpus(&hung, &paths), vec![]);
+    }
+
+    #[test]
+    fn displays_run_under_the_chosen_backend() {
+        let (_dir, paths) = port_with(&["spartanport-probe"]);
+        let tools = FakeTools::printing(0, TWO_DISPLAYS);
+        let shown = list_displays(&tools, &paths, "wayland");
+        assert_eq!(shown.len(), 2);
+        list_displays(&tools, &paths, "auto");
+        let calls = tools.calls();
+        assert_eq!(calls[0].args, ["--displays"]);
+        assert_eq!(calls[0].limit, Some(Duration::from_secs(5)));
+        let driver = |call: &crate::core::platform::tool::Called| {
+            call.env
+                .as_ref()
+                .and_then(|env| env.get("SDL_VIDEO_DRIVER").cloned())
+        };
+        if cfg!(windows) {
+            assert_eq!(driver(&calls[0]), None);
+        } else {
+            assert_eq!(driver(&calls[0]).as_deref(), Some("wayland"));
+            assert_eq!(
+                calls[0]
+                    .env
+                    .as_ref()
+                    .unwrap()
+                    .get("SDL_VIDEODRIVER")
+                    .map(String::as_str),
+                Some("wayland")
+            );
+        }
+        assert_eq!(driver(&calls[1]), None);
+    }
+
+    #[test]
+    fn a_gamepad_line_means_connected() {
+        let (dir, paths) = port_with(&["spartanport-probe"]);
+        // The probe finds its libraries next to it, so a development build's MSYS2 is not needed.
+        std::fs::write(dir.path().join("bin").join("SDL3.dll"), b"").unwrap();
+        let yes = FakeTools::printing(
+            0,
+            "Gamepad: type=xbox name=Pad
+",
+        );
+        assert_eq!(connected_gamepad(&yes, &paths, &|_| None), Some(true));
+        let none = FakeTools::printing(
+            0,
+            "No gamepad
+",
+        );
+        assert_eq!(connected_gamepad(&none, &paths, &|_| None), Some(false));
+        // A failed probe is read by its output too, as before.
+        let failed = FakeTools::printing(
+            3,
+            "Gamepad: type=ps5
+",
+        );
+        assert_eq!(connected_gamepad(&failed, &paths, &|_| None), Some(true));
+        assert_eq!(yes.calls()[0].args, ["--gamepad"]);
+        assert_eq!(yes.calls()[0].limit, Some(Duration::from_secs(15)));
+        assert_eq!(
+            connected_gamepad(&FakeTools::timing_out(), &paths, &|_| None),
+            None
+        );
     }
 }

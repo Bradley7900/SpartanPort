@@ -19,6 +19,7 @@ use crate::core::fs::{atomic_write, load_json};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display};
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr, tr_fmt};
 use crate::core::ini::{load_ini, save_ini};
+use crate::core::platform::tool::SystemTools;
 use crate::core::settings::{save_settings, Settings};
 use crate::ui::app::{self, Message, State};
 use crate::ui::home;
@@ -181,7 +182,7 @@ pub fn refresh_monitors(state: &mut State) -> bool {
     if cfg!(windows) || backend == state.displays_backend {
         return false;
     }
-    let displays = list_displays(&state.paths, &backend);
+    let displays = list_displays(&SystemTools, &state.paths, &backend);
     state.monitor_pairs = monitor_options(&displays);
     let visible = state.store.text("monitor");
     let selected = if state

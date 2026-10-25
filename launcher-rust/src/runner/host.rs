@@ -9,12 +9,14 @@ use std::time::Duration;
 
 use super::{discord, guest_memory, this_exe, RunContext};
 use crate::core::launch::returncode;
-use crate::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, ToolOutput, Window};
+use crate::core::platform::tool::{
+    run_tool, Stderr, ToolCall, ToolError, ToolOutput, Tools, Window,
+};
 use crate::core::platform::{self, no_console_window, no_window};
 
-pub trait Host {
-    /// Runs a tool to its end (`--cpu-features`, `--gamepad`).
-    fn tool(&self, call: &ToolCall) -> Result<ToolOutput, ToolError>;
+/// The system around the runner; its [`Tools`] run the tools to their end (`--cpu-features`,
+/// `--gamepad`).
+pub trait Host: Tools {
     /// Starts the game and waits for it, with the Discord presence while it runs: its exit code;
     /// `None` once Ctrl+C came first. `log` gets the presence's lines.
     fn play(&self, call: &ToolCall, log: &mut dyn FnMut(String)) -> io::Result<Option<i32>>;
@@ -31,11 +33,13 @@ pub trait Host {
 /// The real system.
 pub struct SystemHost;
 
-impl Host for SystemHost {
-    fn tool(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
+impl Tools for SystemHost {
+    fn run(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
         run_tool(call)
     }
+}
 
+impl Host for SystemHost {
     fn play(&self, call: &ToolCall, log: &mut dyn FnMut(String)) -> io::Result<Option<i32>> {
         let mut command = Command::new(&call.program);
         command.args(&call.args).stdin(Stdio::null());

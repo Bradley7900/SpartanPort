@@ -5,13 +5,15 @@
 //! Everything here copies; nothing a player made is moved, overwritten or deleted. Each step runs
 //! once (`MARKER` in the launcher's settings folder).
 
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use indexmap::IndexMap;
 
+use super::platform::tool::{inherited_env_with, Stderr, ToolCall, Tools, Window};
 use crate::core::platform;
 
 pub const LEGACY_NAME: &str = "gow3";
@@ -313,6 +315,7 @@ fn write_marker(data_dir: &Path, marker: &Path) {
 /// `SpartanPort.lnk` pointing to `SpartanPort.exe`. User-created, renamed, or customized
 /// shortcuts are preserved. Runs once. `false` elsewhere.
 pub fn retarget_desktop_shortcut(
+    tools: &dyn Tools,
     port_dir: &Path,
     desktop: Option<&Path>,
     data_dir: Option<&Path>,
@@ -337,36 +340,27 @@ pub fn retarget_desktop_shortcut(
     if !target.is_file() {
         return false;
     }
-    let mut command = Command::new("powershell");
-    command
-        .args(["-NoProfile", "-NonInteractive", "-Command", RETARGET_SCRIPT])
-        .env("SP_OLD", &old)
-        .env("SP_NEW", &new)
-        .env("SP_PORT", plain(port_dir))
-        .env("SP_TARGET", plain(&target))
-        .env("SP_LEGACY", plain(&legacy_target))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    no_window(&mut command);
-    let Ok(mut child) = command.spawn() else {
+    let env = inherited_env_with(&[
+        ("SP_OLD", old.display().to_string()),
+        ("SP_NEW", new.display().to_string()),
+        ("SP_PORT", plain(port_dir).display().to_string()),
+        ("SP_TARGET", plain(&target).display().to_string()),
+        ("SP_LEGACY", plain(&legacy_target).display().to_string()),
+    ]);
+    let Ok(status) = tools.run(&ToolCall {
+        program: "powershell".into(),
+        args: ["-NoProfile", "-NonInteractive", "-Command", RETARGET_SCRIPT]
+            .map(OsString::from)
+            .to_vec(),
+        env: Some(&env),
+        cwd: None,
+        limit: Some(Duration::from_secs(20)),
+        stderr: Stderr::Null,
+        window: Window::Hidden,
+    }) else {
         return false;
     };
-    let started = Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < Duration::from_secs(20) => {
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    };
-    if !status.success() {
+    if status.code != Some(0) {
         return false;
     }
     write_marker(data_dir, &marker);
@@ -376,6 +370,7 @@ pub fn retarget_desktop_shortcut(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::platform::tool::{FakeTools, SystemTools};
 
     const OLD: &str = LEGACY_NAME;
 
@@ -685,14 +680,24 @@ mod tests {
     fn shortcut_migration_skips_when_marker_exists() {
         let f = fixture();
         put(&f.root.join(SHORTCUT_MARKER), b"");
-        assert!(!retarget_desktop_shortcut(&f.root, None, None));
+        assert!(!retarget_desktop_shortcut(
+            &SystemTools,
+            &f.root,
+            None,
+            None
+        ));
     }
 
     #[cfg(not(windows))]
     #[test]
     fn shortcut_migration_returns_false_on_non_windows() {
         let f = fixture();
-        assert!(!retarget_desktop_shortcut(&f.root, None, None));
+        assert!(!retarget_desktop_shortcut(
+            &SystemTools,
+            &f.root,
+            None,
+            None
+        ));
     }
 
     #[cfg(windows)]
@@ -738,7 +743,12 @@ mod tests {
             let s = setup();
             let custom = s.desktop.join("God of War 3.lnk");
             create_shortcut(&custom, &s.port.join(LEGACY_PLAY_EXE), "", None);
-            assert!(!retarget_desktop_shortcut(&s.port, Some(&s.desktop), None));
+            assert!(!retarget_desktop_shortcut(
+                &SystemTools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
             assert!(custom.is_file());
             assert!(!s.desktop.join("SpartanPort.lnk").exists());
             let _ = &s.f;
@@ -750,7 +760,12 @@ mod tests {
             let old = s.desktop.join("God of War III.lnk");
             let work = plain(&s.port);
             create_shortcut(&old, &s.port.join(LEGACY_EXE), "--play", Some(&work));
-            assert!(!retarget_desktop_shortcut(&s.port, Some(&s.desktop), None));
+            assert!(!retarget_desktop_shortcut(
+                &SystemTools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
             assert!(old.is_file());
             assert!(!s.desktop.join("SpartanPort.lnk").exists());
         }
@@ -761,14 +776,44 @@ mod tests {
             let old = s.desktop.join("God of War III.lnk");
             let work = plain(&s.port);
             create_shortcut(&old, &s.port.join(LEGACY_EXE), "", Some(&work));
-            assert!(retarget_desktop_shortcut(&s.port, Some(&s.desktop), None));
+            assert!(retarget_desktop_shortcut(
+                &SystemTools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
             assert!(old.is_file(), "the original shortcut is kept");
             assert!(s.desktop.join("SpartanPort.lnk").is_file());
             assert!(s.port.join(SHORTCUT_MARKER).is_file());
             // The player deletes the new one: later starts do not make it again.
             fs::remove_file(s.desktop.join("SpartanPort.lnk")).unwrap();
-            assert!(!retarget_desktop_shortcut(&s.port, Some(&s.desktop), None));
+            assert!(!retarget_desktop_shortcut(
+                &SystemTools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
             assert!(!s.desktop.join("SpartanPort.lnk").exists());
+        }
+
+        #[test]
+        fn retarget_gives_up_on_timeout() {
+            let s = setup();
+            let old = s.desktop.join("God of War III.lnk");
+            put(&old, b"shortcut");
+            let tools = FakeTools::timing_out();
+            assert!(!retarget_desktop_shortcut(
+                &tools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
+            let calls = tools.calls();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].limit, Some(Duration::from_secs(20)));
+            // Nothing was made and the step is not marked done: the next start tries again.
+            assert!(!s.desktop.join("SpartanPort.lnk").exists());
+            assert!(!s.port.join(SHORTCUT_MARKER).exists());
         }
 
         #[test]
@@ -777,11 +822,21 @@ mod tests {
             fs::remove_file(s.port.join("SpartanPort.exe")).unwrap();
             let old = s.desktop.join("God of War III.lnk");
             create_shortcut(&old, &s.port.join(LEGACY_EXE), "", None);
-            assert!(!retarget_desktop_shortcut(&s.port, Some(&s.desktop), None));
+            assert!(!retarget_desktop_shortcut(
+                &SystemTools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
             assert!(old.is_file());
             put(&s.port.join("SpartanPort.exe"), b"exe");
             fs::remove_file(&old).unwrap();
-            assert!(!retarget_desktop_shortcut(&s.port, Some(&s.desktop), None));
+            assert!(!retarget_desktop_shortcut(
+                &SystemTools,
+                &s.port,
+                Some(&s.desktop),
+                None
+            ));
             assert!(s.port.join(SHORTCUT_MARKER).is_file());
         }
     }

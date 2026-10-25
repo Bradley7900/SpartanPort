@@ -24,6 +24,7 @@ use crate::core::gpu::connected_gamepad;
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::ini::INI_DEFAULTS;
 use crate::core::options::{AIM_STYLES, GLYPH_STYLES, STICK_PROMPTS};
+use crate::core::platform::tool::SystemTools;
 use crate::core::settings::Settings;
 use crate::ui::app::{apply_set, Message, State};
 use crate::ui::tasks::blocking;
@@ -283,7 +284,7 @@ pub fn opened(state: &mut State) -> Task<Message> {
     }
     state.controls.gamepad_probe_started = true;
     let paths = state.paths.clone();
-    blocking(move || connected_gamepad(&paths, &|key| std::env::var(key).ok()))
+    blocking(move || connected_gamepad(&SystemTools, &paths, &|key| std::env::var(key).ok()))
         .map(|found| Message::Controls(ControlsMessage::GamepadDetected(found.unwrap_or(false))))
 }
 

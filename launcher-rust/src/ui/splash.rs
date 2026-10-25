@@ -18,6 +18,7 @@ use iced::{
 use crate::core::game::ready_to_play;
 use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
+use crate::core::platform::tool::SystemTools;
 use crate::core::release::Release;
 use crate::ui::app::{scene_size, Message, State};
 use crate::ui::home;
@@ -185,7 +186,8 @@ pub fn start_up_offer(state: &mut State, releases: Vec<Release>) {
 pub fn start_checks(state: &State) -> Task<Message> {
     let done = |check| Message::Splash(SplashMessage::CheckDone(check));
     let paths = state.paths.clone();
-    let gpus = blocking(move || list_gpus(&paths)).map(move |rows| done(Check::Gpus(rows)));
+    let gpus =
+        blocking(move || list_gpus(&SystemTools, &paths)).map(move |rows| done(Check::Gpus(rows)));
     let game_dir = state.store.text("game_dir");
     let update_dir = state.store.text("update_dir");
     let game = blocking(move || ready_to_play(&game_dir, &update_dir))

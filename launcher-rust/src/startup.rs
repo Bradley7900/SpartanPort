@@ -12,6 +12,7 @@ use crate::core::env::{environment_of, start_up_environment};
 use crate::core::i18n::tr;
 use crate::core::mods;
 use crate::core::paths::{default_port_dir, Paths};
+use crate::core::platform::tool::SystemTools;
 use crate::core::settings::load_app_settings;
 use crate::core::update::{self, is_packaged, update_dir};
 use crate::core::{desktop, legacy, platform};
@@ -209,7 +210,12 @@ fn move_from_legacy_name(paths: &Paths, installed: bool) {
     if installed {
         legacy::remove_leftovers(&paths.port_dir);
         legacy::remove_python_leftovers(&paths.port_dir);
-        legacy::retarget_desktop_shortcut(&paths.port_dir, None, Some(&paths.data_dir));
+        legacy::retarget_desktop_shortcut(
+            &SystemTools,
+            &paths.port_dir,
+            None,
+            Some(&paths.data_dir),
+        );
     }
 }
 

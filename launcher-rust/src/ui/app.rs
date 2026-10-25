@@ -20,6 +20,7 @@ use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
+use crate::core::platform::tool::SystemTools;
 use crate::core::settings::SettingsFile;
 use crate::core::store::Store;
 use crate::core::update::{GitHubReleases, ReleaseHost};
@@ -546,7 +547,7 @@ fn browse(state: &State, key: String) -> Task<Message> {
 pub fn start_monitor_listing(state: &State) -> Task<Message> {
     let paths = state.paths.clone();
     let backend = state.store.text("video_backend");
-    blocking(move || list_displays(&paths, &backend)).map(Message::MonitorsListed)
+    blocking(move || list_displays(&SystemTools, &paths, &backend)).map(Message::MonitorsListed)
 }
 
 /// Advances the clock, the fire and the splash.

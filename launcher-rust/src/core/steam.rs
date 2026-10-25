@@ -3,12 +3,13 @@
 //! Binary VDF: 0 = map (key, entries, 8), 1 = string, 2 = uint32, 8 = end of the map.
 
 use crate::core::platform;
+use crate::core::platform::tool::{Stderr, ToolCall, Tools, Window};
 use indexmap::IndexMap;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// A value of the binary VDF.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,18 +168,20 @@ pub fn running_from(windows: bool, code: Option<i32>, stdout: &str) -> bool {
 }
 
 /// Whether Steam is open. A command that cannot start counts as not running.
-pub fn steam_running() -> bool {
+pub fn steam_running(tools: &dyn Tools) -> bool {
     let windows = cfg!(windows);
     let query = steam_query(windows);
-    let mut cmd = Command::new(query[0]);
-    cmd.args(&query[1..]);
-    platform::no_window(&mut cmd);
-    match cmd.output() {
-        Ok(out) => running_from(
-            windows,
-            out.status.code(),
-            &String::from_utf8_lossy(&out.stdout),
-        ),
+    let call = ToolCall {
+        program: query[0].into(),
+        args: query[1..].iter().map(OsString::from).collect(),
+        env: None,
+        cwd: None,
+        limit: None,
+        stderr: Stderr::Null,
+        window: Window::Hidden,
+    };
+    match tools.run(&call) {
+        Ok(out) => running_from(windows, out.code, &out.stdout),
         Err(_) => false,
     }
 }
@@ -285,9 +288,10 @@ pub fn add_to_steam(
     icon: &Path,
     fonts: &[PathBuf],
     steam_root: Option<&Path>,
+    tools: &dyn Tools,
     running: Option<bool>,
 ) -> Result<Added, SteamError> {
-    if running.unwrap_or_else(steam_running) {
+    if running.unwrap_or_else(|| steam_running(tools)) {
         return Err(SteamError::Running);
     }
     let roots = match steam_root {
@@ -369,6 +373,7 @@ pub fn add_to_steam(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::platform::tool::{FakeTools, ToolError, Window};
     use indexmap::IndexMap;
     use std::path::{Path, PathBuf};
 
@@ -439,6 +444,31 @@ mod tests {
                 home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"),
             ]
         );
+    }
+
+    #[test]
+    fn steam_running_reads_the_task_list() {
+        let (program, listing, absent) = if cfg!(windows) {
+            (
+                "tasklist",
+                "steam.exe   1234 Console   1   150,000 K",
+                "INFO: No tasks are running which match the specified criteria.",
+            )
+        } else {
+            ("pgrep", "", "")
+        };
+        let open = FakeTools::printing(0, listing);
+        assert!(steam_running(&open));
+        let call = &open.calls()[0];
+        assert_eq!(call.program, program);
+        assert_eq!(call.window, Window::Hidden);
+        let closed = FakeTools::printing(if cfg!(windows) { 0 } else { 1 }, absent);
+        assert!(!steam_running(&closed));
+        // A tool that cannot start counts as not running.
+        let broken = FakeTools::answering(|_| {
+            Err(ToolError::Spawn(io::Error::from(io::ErrorKind::NotFound)))
+        });
+        assert!(!steam_running(&broken));
     }
 
     #[test]
@@ -591,6 +621,7 @@ mod tests {
             &f.icon,
             &f.fonts,
             Some(&f.root),
+            &FakeTools::printing(0, ""),
             Some(false),
         )
     }
@@ -729,6 +760,7 @@ mod tests {
             &f.icon,
             &f.fonts,
             Some(&f.root),
+            &FakeTools::printing(0, ""),
             Some(true),
         );
         assert!(matches!(open, Err(SteamError::Running)));
@@ -739,6 +771,7 @@ mod tests {
             &f.icon,
             &f.fonts,
             Some(&none),
+            &FakeTools::printing(0, ""),
             Some(false),
         );
         assert!(matches!(missing, Err(SteamError::NoSteam)));

@@ -443,7 +443,7 @@ impl<'a> Runner<'a> {
         }
         // 7. Instruction sets this CPU lacks (MOVBE, BMI1, LZCNT): the ISA rewrite covers them;
         // exit 20 is a set nothing covers.
-        let features = self.host.tool(&ToolCall {
+        let features = self.host.run(&ToolCall {
             program: probe_text.clone().into(),
             args: vec!["--cpu-features".into()],
             env: Some(&self.env),
@@ -923,7 +923,7 @@ fn run_within(
     let Some((program, args)) = command.split_first() else {
         return Err("no command".to_string());
     };
-    host.tool(&ToolCall {
+    host.run(&ToolCall {
         program: program.into(),
         args: args.iter().map(OsString::from).collect(),
         env: Some(env),

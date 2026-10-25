@@ -15,6 +15,7 @@ use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{ui_scale_choice, UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
 use crate::core::paths::Paths;
 use crate::core::platform;
+use crate::core::platform::tool::SystemTools;
 use crate::core::settings::Settings;
 use crate::core::steam::{self, Added, Shortcut, SteamError};
 use crate::core::steam_art;
@@ -516,6 +517,7 @@ fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String
         &paths.port_dir.join("launcher").join("spartanport.png"),
         &steam_art::fonts(&paths.port_dir),
         None,
+        &SystemTools,
         None,
     );
     steam_message(lang, &result)

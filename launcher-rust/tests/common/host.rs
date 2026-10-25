@@ -2,14 +2,14 @@
 //! for and answers from its fields, so no program starts and no wait happens.
 #![allow(dead_code)]
 
-use std::cell::{Cell, RefCell};
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
 use indexmap::IndexMap;
-use spartanport_launcher::core::platform::tool::{ToolCall, ToolError, ToolOutput};
+use spartanport_launcher::core::platform::tool::{ToolCall, ToolError, ToolOutput, Tools};
 use spartanport_launcher::runner::Host;
 
 /// An owned copy of a [`ToolCall`] the runner made.
@@ -35,6 +35,35 @@ impl Called {
     }
 }
 
+/// A value the host changes behind `&self`, safe to share (a [`Tools`] must be `Sync`).
+#[derive(Default)]
+pub struct Shared<T>(RwLock<T>);
+
+impl<T> Shared<T> {
+    fn new(value: T) -> Shared<T> {
+        Shared(RwLock::new(value))
+    }
+
+    /// Reads may overlap, as with a `RefCell`.
+    pub fn borrow(&self) -> RwLockReadGuard<'_, T> {
+        self.0.read().unwrap()
+    }
+
+    pub fn borrow_mut(&self) -> RwLockWriteGuard<'_, T> {
+        self.0.write().unwrap()
+    }
+}
+
+impl<T: Copy> Shared<T> {
+    pub fn get(&self) -> T {
+        *self.borrow()
+    }
+
+    pub fn set(&self, value: T) {
+        *self.borrow_mut() = value;
+    }
+}
+
 /// When Ctrl+C comes.
 #[derive(Clone, Copy, Default)]
 pub enum Interrupt {
@@ -50,7 +79,7 @@ pub enum Interrupt {
 
 pub struct FakeHost {
     /// Every tool and game start, in order.
-    pub calls: RefCell<Vec<Called>>,
+    pub calls: Shared<Vec<Called>>,
     /// What `--cpu-features` prints.
     pub cpu: String,
     /// The exit code of `--cpu-features`.
@@ -62,19 +91,19 @@ pub struct FakeHost {
     pub interrupt: Interrupt,
     pub memory_mb: Option<u64>,
     /// Runs when the game starts, before it ends.
-    pub on_play: Option<Box<dyn Fn(&ToolCall)>>,
+    pub on_play: Option<Box<dyn Fn(&ToolCall) + Send + Sync>>,
     /// Every `(pid, limit)` the runner waited for.
-    pub waited: RefCell<Vec<(u32, Duration)>>,
+    pub waited: Shared<Vec<(u32, Duration)>>,
     /// How many times the runner had looked for Ctrl+C when the game started; `None` until then.
-    pub polls_before_game: Cell<Option<usize>>,
+    pub polls_before_game: Shared<Option<usize>>,
     /// How many times the runner looked for Ctrl+C.
-    polls: Cell<usize>,
+    polls: Shared<usize>,
 }
 
 impl Default for FakeHost {
     fn default() -> FakeHost {
         FakeHost {
-            calls: RefCell::default(),
+            calls: Shared::default(),
             cpu: String::new(),
             cpu_exit: 0,
             gamepad: Ok(String::new()),
@@ -82,15 +111,15 @@ impl Default for FakeHost {
             interrupt: Interrupt::Never,
             memory_mb: None,
             on_play: None,
-            waited: RefCell::default(),
-            polls_before_game: Cell::new(None),
-            polls: Cell::new(0),
+            waited: Shared::default(),
+            polls_before_game: Shared::new(None),
+            polls: Shared::new(0),
         }
     }
 }
 
-impl Host for FakeHost {
-    fn tool(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
+impl Tools for FakeHost {
+    fn run(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
         self.calls.borrow_mut().push(Called::of(call));
         let (code, stdout) = if call.args.iter().any(|arg| arg == "--gamepad") {
             match &self.gamepad {
@@ -122,7 +151,9 @@ impl Host for FakeHost {
             stdout,
         })
     }
+}
 
+impl Host for FakeHost {
     fn play(&self, call: &ToolCall, _log: &mut dyn FnMut(String)) -> io::Result<Option<i32>> {
         self.calls.borrow_mut().push(Called::of(call));
         self.polls_before_game.set(Some(self.polls.get()));
