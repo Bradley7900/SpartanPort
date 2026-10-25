@@ -21,8 +21,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
-use crate::ui::widgets::{Modal, ModalKind, ModalMessage, SELECT_TEXT};
-use crate::APP_NAME;
+use crate::ui::widgets::{Modal, SELECT_TEXT};
 
 /// Side of a trophy icon, in logical pixels.
 const ICON_SIZE: f32 = 56.0;
@@ -132,14 +131,6 @@ pub fn refresh(state: &mut State) -> Task<Message> {
         .map(|view| Message::Trophies(TrophiesMessage::Loaded(Box::new(view))))
 }
 
-fn dialog(state: &mut State, kind: ModalKind, body: String) {
-    state.modal = Some(Modal {
-        kind,
-        title: APP_NAME.to_string(),
-        text: body,
-    });
-}
-
 fn trophies_dat(state: &State) -> PathBuf {
     state
         .paths
@@ -166,7 +157,7 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
                 return Task::none();
             }
             if state.trophies.unlocked.is_empty() {
-                dialog(state, ModalKind::Info, tr(&lang, "No trophy is unlocked."));
+                state.modal = Some(Modal::info(tr(&lang, "No trophy is unlocked.")));
             } else {
                 let count = state.trophies.unlocked.len().to_string();
                 let body = tr_fmt(
@@ -174,11 +165,8 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
                     "Lock all {} unlocked trophies again? A copy is kept as trophies.dat.bak.",
                     &[&count],
                 );
-                let kind = ModalKind::YesNo {
-                    yes: Message::Trophies(TrophiesMessage::ResetConfirmed),
-                    no: Message::Modal(ModalMessage::Dismiss),
-                };
-                dialog(state, kind, body);
+                let yes = Message::Trophies(TrophiesMessage::ResetConfirmed);
+                state.modal = Some(Modal::confirm(body, yes));
             }
         }
         TrophiesMessage::ResetConfirmed => {
@@ -190,7 +178,7 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
         TrophiesMessage::ResetDone(result) => {
             if let Err(error) = result {
                 let body = tr_fmt(&lang, "Could not reset the trophies: {}", &[&error]);
-                dialog(state, ModalKind::Error, body);
+                state.modal = Some(Modal::error(body));
             }
             return refresh(state);
         }

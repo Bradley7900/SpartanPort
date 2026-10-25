@@ -28,8 +28,7 @@ use crate::ui::pages::game::game_changed;
 use crate::ui::pages::{log, trophies, Page};
 use crate::ui::persist;
 use crate::ui::tasks::{blocking, blocking_or};
-use crate::ui::widgets::{Modal, ModalKind};
-use crate::APP_NAME;
+use crate::ui::widgets::Modal;
 
 /// Why a copy or a download ended when its thread stopped without an answer.
 pub const WORKER_LOST: &str = "the work stopped unexpectedly";
@@ -149,11 +148,7 @@ pub fn refuse_while_live(state: &mut State, action: LiveAction) -> bool {
         LiveAction::ClearShaderCache => "Close the game before deleting the shader cache.",
         LiveAction::Update => "Close the game before updating.",
     };
-    state.modal = Some(Modal {
-        kind: ModalKind::Info,
-        title: APP_NAME.to_string(),
-        text: tr(&state.lang, english),
-    });
+    state.modal = Some(Modal::info(tr(&state.lang, english)));
     true
 }
 
@@ -182,17 +177,9 @@ pub fn describe_missing(lang: &str, missing: &[(String, FileState)]) -> Vec<Stri
         .collect()
 }
 
-fn show_error(state: &mut State, text: String) {
-    state.modal = Some(Modal {
-        kind: ModalKind::Error,
-        title: APP_NAME.to_string(),
-        text,
-    });
-}
-
 /// The error dialog over the Game page, where the folders are chosen.
 fn refuse(state: &mut State, text: String) -> Task<Message> {
-    show_error(state, text);
+    state.modal = Some(Modal::error(text));
     show_page(state, Page::Game)
 }
 
@@ -270,18 +257,15 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
              Files already there are kept.",
             &[&folder, &source.display().to_string()],
         );
-        state.modal = Some(Modal {
-            kind: ModalKind::YesNo {
-                yes: Message::Game(GameMessage::AdoptAnswer(
-                    true,
-                    source.clone(),
-                    folder.clone(),
-                )),
-                no: Message::Game(GameMessage::AdoptAnswer(false, source, folder)),
-            },
-            title: APP_NAME.to_string(),
+        state.modal = Some(Modal::ask(
             text,
-        });
+            Message::Game(GameMessage::AdoptAnswer(
+                true,
+                source.clone(),
+                folder.clone(),
+            )),
+            Message::Game(GameMessage::AdoptAnswer(false, source, folder)),
+        ));
         return Task::none();
     }
     let missing = missing_game_files(&game_dir, REQUIRED_GAME_FILES);

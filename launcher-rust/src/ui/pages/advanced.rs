@@ -27,7 +27,6 @@ use crate::ui::update::UpdateMessage;
 use crate::ui::widgets::row::actions;
 use crate::ui::widgets::{
     checkbox, choice_pairs, row, section, select_pairs, select_pairs_small, toggle_row, Modal,
-    ModalKind, ModalMessage,
 };
 use crate::{APP_NAME, VERSION};
 
@@ -375,14 +374,6 @@ pub fn view(state: &State) -> Element<'_, Message> {
 
 // --- Actions ---
 
-fn modal(state: &mut State, kind: ModalKind, body: String) {
-    state.modal = Some(Modal {
-        kind,
-        title: APP_NAME.to_string(),
-        text: body,
-    });
-}
-
 /// The shader and pipeline caches of `user_dir`.
 fn cache_dir(user_dir: &Path) -> PathBuf {
     user_dir.join("cache")
@@ -533,7 +524,6 @@ fn add_to_steam(paths: &Paths, settings: &Settings, lang: &str) -> Result<String
 pub fn update(state: &mut State, message: Message) -> Task<Message> {
     let lang = state.lang.clone();
     match message {
-
         Message::ClearShaderCache => {
             if refuse_while_live(state, LiveAction::ClearShaderCache) {
                 return Task::none();
@@ -541,11 +531,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             let user = state.paths.user_dir(&state.store.text("user_dir"));
             return blocking(move || cache_size(&user)).map(Message::ShaderCacheSized);
         }
-        Message::ShaderCacheSized(0) => modal(
-            state,
-            ModalKind::Info,
-            tr(&lang, "The shader cache is already empty."),
-        ),
+        Message::ShaderCacheSized(0) => {
+            state.modal = Some(Modal::info(tr(&lang, "The shader cache is already empty.")));
+        }
         Message::ShaderCacheSized(bytes) => {
             let cache = cache_dir(&state.paths.user_dir(&state.store.text("user_dir")));
             let body = tr_fmt(
@@ -553,32 +541,26 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 "Delete the shader cache ({} MB in {})? The game compiles the shaders again, so the next start stutters for a few minutes.",
                 &[&megabytes(bytes).to_string(), &cache.display().to_string()],
             );
-            let kind = ModalKind::YesNo {
-                yes: Message::ClearShaderCacheConfirmed,
-                no: Message::Modal(ModalMessage::Dismiss),
-            };
-            modal(state, kind, body);
+            state.modal = Some(Modal::confirm(body, Message::ClearShaderCacheConfirmed));
         }
         Message::ClearShaderCacheConfirmed => {
             state.modal = None;
             let user = state.paths.user_dir(&state.store.text("user_dir"));
             return blocking(move || clear_cache(&user)).map(Message::ShaderCacheCleared);
         }
-        Message::ShaderCacheCleared(Ok(())) => modal(
-            state,
-            ModalKind::Info,
-            tr(
+        Message::ShaderCacheCleared(Ok(())) => {
+            state.modal = Some(Modal::info(tr(
                 &lang,
                 "Shader cache cleared. The next start stutters for a few minutes while it is rebuilt.",
-            ),
-        ),
+            )));
+        }
         Message::ShaderCacheCleared(Err(cache)) => {
             let body = tr_fmt(
                 &lang,
                 "Could not delete all of the shader cache; another program may be using it: {}",
                 &[&cache],
             );
-            modal(state, ModalKind::Error, body);
+            state.modal = Some(Modal::error(body));
         }
         Message::DesktopShortcut => {
             let paths = state.paths.clone();
@@ -590,9 +572,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             } else {
                 format!("{}\n{}", tr(&lang, "Shortcut created:"), files.join("\n"))
             };
-            modal(state, ModalKind::Info, body);
+            state.modal = Some(Modal::info(body));
         }
-        Message::ShortcutDone(Err(error)) => modal(state, ModalKind::Error, error),
+        Message::ShortcutDone(Err(error)) => state.modal = Some(Modal::error(error)),
         Message::AddToSteam => {
             // The shortcut starts `--play`, which reads the files: they get the window's settings
             // first (Python `add_to_steam`).
@@ -603,8 +585,8 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             return blocking(move || add_to_steam(&paths, &settings, &lang))
                 .map(Message::SteamDone);
         }
-        Message::SteamDone(Ok(body)) => modal(state, ModalKind::Info, body),
-        Message::SteamDone(Err(error)) => modal(state, ModalKind::Error, error),
+        Message::SteamDone(Ok(body)) => state.modal = Some(Modal::info(body)),
+        Message::SteamDone(Err(error)) => state.modal = Some(Modal::error(error)),
         _ => {}
     }
     Task::none()

@@ -25,8 +25,7 @@ use crate::ui::home;
 use crate::ui::pages::mods::{self, ModsMessage};
 use crate::ui::pages::{game, performance};
 use crate::ui::theme;
-use crate::ui::widgets::{Modal, ModalKind};
-use crate::APP_NAME;
+use crate::ui::widgets::Modal;
 
 /// The `spartanport.ini` keys the window has a control for, in the order the Python launcher
 /// creates their variables (Home, Graphics, Performance, Game, Controls): `collect` writes only
@@ -58,11 +57,7 @@ pub fn unreadable_warning(lang: &str, files: &[PathBuf]) -> Option<Modal> {
         .iter()
         .map(|file| file.display().to_string())
         .collect();
-    Some(Modal {
-        kind: ModalKind::Error,
-        title: APP_NAME.to_string(),
-        text: tr_fmt(lang, UNREADABLE, &[&names.join("\n")]),
-    })
+    Some(Modal::error(tr_fmt(lang, UNREADABLE, &[&names.join("\n")])))
 }
 
 /// What `collect` writes, as data: `settings.json`, the ini values, and `mods.json` and
@@ -305,11 +300,7 @@ fn write_files(
 
 /// The error dialog of a failed `collect` (Save and PLAY).
 pub fn show_save_failed(state: &mut State) {
-    state.modal = Some(Modal {
-        kind: ModalKind::Error,
-        title: APP_NAME.to_string(),
-        text: tr(&state.lang, SAVE_FAILED),
-    });
+    state.modal = Some(Modal::error(tr(&state.lang, SAVE_FAILED)));
 }
 
 /// `collect`, with the error dialog when it fails (Python's `if not self.collect(): return`):

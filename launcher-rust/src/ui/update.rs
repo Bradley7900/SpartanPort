@@ -21,8 +21,7 @@ use crate::core::update::{
 use crate::ui::app::{Message, State};
 use crate::ui::play::{self, WORKER_LOST};
 use crate::ui::tasks::{blocking, blocking_or};
-use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
-use crate::APP_NAME;
+use crate::ui::widgets::Modal;
 
 /// The file name of the packaged Windows launcher (ruling R47: a source tree is not packaged).
 const PACKAGED_EXE: &str = "SpartanPort.exe";
@@ -170,14 +169,6 @@ pub fn install_decision(
     }
 }
 
-fn show(state: &mut State, kind: ModalKind, text: String) {
-    state.modal = Some(Modal {
-        kind,
-        title: APP_NAME.to_string(),
-        text,
-    });
-}
-
 fn can_write(folder: &Path) -> bool {
     tempfile::NamedTempFile::new_in(folder).is_ok()
 }
@@ -219,7 +210,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                             "You have the latest version ({}).",
                             &[&state.installed.version],
                         );
-                        show(state, ModalKind::Info, text);
+                        state.modal = Some(Modal::info(text));
                     }
                 }
                 Err(error) => {
@@ -232,7 +223,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                     }
                     if manual {
                         let text = tr_fmt(&lang, "Could not check for updates: {}", &[&error]);
-                        show(state, ModalKind::Error, text);
+                        state.modal = Some(Modal::error(text));
                     }
                 }
             }
@@ -261,7 +252,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             match plan {
                 InstallPlan::Blocked => {
                     let text = tr(&lang, "Close the game before updating.");
-                    show(state, ModalKind::Info, text);
+                    state.modal = Some(Modal::info(text));
                     Task::none()
                 }
                 InstallPlan::OpenPage => open_page(release.page),
@@ -271,20 +262,14 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                         "The launcher cannot write to {}, so it cannot replace itself there. Open the releases page to download the new version by hand?",
                         &[&folder.display().to_string()],
                     );
-                    let kind = ModalKind::YesNo {
-                        yes: Message::Update(UpdateMessage::OpenPage(release.page)),
-                        no: Message::Modal(ModalMessage::Dismiss),
-                    };
-                    show(state, kind, text);
+                    let yes = Message::Update(UpdateMessage::OpenPage(release.page));
+                    state.modal = Some(Modal::confirm(text, yes));
                     Task::none()
                 }
                 InstallPlan::Confirm => {
                     let text = confirm_text(&lang, &release, &state.installed);
-                    let kind = ModalKind::YesNo {
-                        yes: Message::Update(UpdateMessage::Confirmed(release)),
-                        no: Message::Modal(ModalMessage::Dismiss),
-                    };
-                    show(state, kind, text);
+                    let yes = Message::Update(UpdateMessage::Confirmed(release));
+                    state.modal = Some(Modal::confirm(text, yes));
                     Task::none()
                 }
             }
@@ -328,7 +313,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                 state.update = UpdateState::Ready(std::mem::take(releases));
             }
             let text = tr_fmt(&lang, "Update failed: {}", &[&error]);
-            show(state, ModalKind::Error, text);
+            state.modal = Some(Modal::error(text));
             Task::none()
         }
     }

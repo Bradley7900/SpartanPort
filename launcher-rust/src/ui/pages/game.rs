@@ -22,10 +22,8 @@ use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::widgets::{
-    checkbox, folder, min_width, row, section, select, toggle_row, Modal, ModalKind, ModalMessage,
-    SELECT_MIN, SELECT_TEXT,
+    checkbox, folder, min_width, row, section, select, toggle_row, Modal, SELECT_MIN, SELECT_TEXT,
 };
-use crate::APP_NAME;
 
 /// The note under the Game language row; the translation tables key on this text.
 pub const LANGUAGE_NOTE: &str = "Used on the game's first start. After that, the game keeps its own text and speech languages in its settings save: change them in the game, in Options → Game Settings → Game Text and Options → Audio → Speech.";
@@ -116,14 +114,6 @@ pub fn restore_saves(user_dir: &Path, name: &str) -> Result<Option<String>, Stri
         .map_err(|error| error.to_string())
 }
 
-fn info(state: &mut State, body: String) {
-    state.modal = Some(Modal {
-        kind: ModalKind::Info,
-        title: APP_NAME.to_string(),
-        text: body,
-    });
-}
-
 /// Applies a save backups event.
 pub fn backup_update(state: &mut State, message: BackupMessage) -> Task<Message> {
     let lang = state.lang.clone();
@@ -138,18 +128,15 @@ pub fn backup_update(state: &mut State, message: BackupMessage) -> Task<Message>
             if refuse_while_live(state, LiveAction::RestoreSaves) {
                 return Task::none();
             }
-            state.modal = Some(Modal {
-                kind: ModalKind::YesNo {
-                    yes: Message::Backup(BackupMessage::RestoreConfirmed),
-                    no: Message::Modal(ModalMessage::Dismiss),
-                },
-                title: APP_NAME.to_string(),
-                text: tr_fmt(
-                    &lang,
-                    "Replace the current saves with the backup {}? The current saves are backed up first.",
-                    &[&name],
-                ),
-            });
+            let text = tr_fmt(
+                &lang,
+                "Replace the current saves with the backup {}? The current saves are backed up first.",
+                &[&name],
+            );
+            state.modal = Some(Modal::confirm(
+                text,
+                Message::Backup(BackupMessage::RestoreConfirmed),
+            ));
         }
         BackupMessage::RestoreConfirmed => {
             state.modal = None;
@@ -167,14 +154,14 @@ pub fn backup_update(state: &mut State, message: BackupMessage) -> Task<Message>
             if let Some(safety) = safety {
                 body += &tr_fmt(&lang, " Previous saves: {}.", &[&safety]);
             }
-            info(state, body);
+            state.modal = Some(Modal::info(body));
         }
         BackupMessage::Restored(Err(error)) => {
-            state.modal = Some(Modal {
-                kind: ModalKind::Error,
-                title: APP_NAME.to_string(),
-                text: tr_fmt(&lang, "Could not restore: {}", &[&error]),
-            });
+            state.modal = Some(Modal::error(tr_fmt(
+                &lang,
+                "Could not restore: {}",
+                &[&error],
+            )));
         }
     }
     Task::none()

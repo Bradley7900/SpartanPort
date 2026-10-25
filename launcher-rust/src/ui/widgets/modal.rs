@@ -26,6 +26,36 @@ pub struct Modal {
     pub text: String,
 }
 
+impl Modal {
+    fn titled(kind: ModalKind, text: String) -> Self {
+        Self {
+            kind,
+            title: crate::APP_NAME.to_string(),
+            text,
+        }
+    }
+
+    /// An OK-only notice.
+    pub fn info(text: String) -> Self {
+        Self::titled(ModalKind::Info, text)
+    }
+
+    /// An OK-only failure notice.
+    pub fn error(text: String) -> Self {
+        Self::titled(ModalKind::Error, text)
+    }
+
+    /// A Yes/No question with explicit answers.
+    pub fn ask(text: String, yes: Message, no: Message) -> Self {
+        Self::titled(ModalKind::YesNo { yes, no }, text)
+    }
+
+    /// A Yes/No question where No just closes the dialog.
+    pub fn confirm(text: String, yes: Message) -> Self {
+        Self::ask(text, yes, Message::Modal(ModalMessage::Dismiss))
+    }
+}
+
 /// Dialog events.
 #[derive(Debug, Clone)]
 pub enum ModalMessage {
@@ -85,4 +115,32 @@ pub fn modal<'a>(kind: ModalKind, title: &str, body: &str, lang: &str) -> Elemen
         });
     // Swallows clicks so nothing under the dialog reacts.
     mouse_area(layer).on_press(Message::Noop).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::APP_NAME;
+
+    #[test]
+    fn constructors_title_the_dialog_with_the_app_name() {
+        let info = Modal::info("a".to_string());
+        assert!(matches!(info.kind, ModalKind::Info));
+        let error = Modal::error("b".to_string());
+        assert!(matches!(error.kind, ModalKind::Error));
+        let ask = Modal::ask("c".to_string(), Message::Noop, Message::Noop);
+        assert!(matches!(ask.kind, ModalKind::YesNo { .. }));
+        let confirm = Modal::confirm("d".to_string(), Message::Noop);
+        match &confirm.kind {
+            ModalKind::YesNo { yes, no } => {
+                assert!(matches!(yes, Message::Noop));
+                assert!(matches!(no, Message::Modal(ModalMessage::Dismiss)));
+            }
+            other => panic!("expected YesNo, got {other:?}"),
+        }
+        for (modal, text) in [(&info, "a"), (&error, "b"), (&ask, "c"), (&confirm, "d")] {
+            assert_eq!(modal.title, APP_NAME);
+            assert_eq!(modal.text, text);
+        }
+    }
 }

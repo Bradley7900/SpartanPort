@@ -733,9 +733,9 @@ fn every_live_action_is_refused_while_the_game_runs() {
         if running {
             send(
                 &mut state,
-                Message::Game(GameMessage::Output(vec!["Entering original x86-64 code
-"
-                .to_string()])),
+                Message::Game(GameMessage::Output(vec![
+                    "Entering original x86-64 code\n".to_string()
+                ])),
             );
         }
         assert!(state.game.is_live());
@@ -892,7 +892,6 @@ fn a_restart_keeps_the_running_game() {
     assert_eq!(state.status, "The game is running.");
     assert!(state.game.is_live());
     assert!(play::exit_after_game(&state));
-    assert!(state.game.is_live());
     // PLAY stays RUNNING, STOP stays.
     assert!(click(&state, "RUNNING").is_empty());
     assert!(click(&state, "STOP")

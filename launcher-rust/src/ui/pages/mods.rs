@@ -30,8 +30,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::pages::performance;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
-use crate::ui::widgets::{checkbox_beside, folder, section, toggle_row, Modal, ModalKind};
-use crate::APP_NAME;
+use crate::ui::widgets::{checkbox_beside, folder, section, toggle_row, Modal};
 
 /// Width of the details card picture, in logical pixels; it is at most 4:3.
 const PICTURE_WIDTH: f32 = 268.0;
@@ -283,14 +282,6 @@ fn edited(state: &mut State) -> Task<Message> {
     refresh_conflicts(state)
 }
 
-fn dialog(state: &mut State, kind: ModalKind, body: String) {
-    state.modal = Some(Modal {
-        kind,
-        title: APP_NAME.to_string(),
-        text: body,
-    });
-}
-
 fn write_presets(state: &mut State, presets: &Map<String, Value>) {
     let written = serde_json::to_string_pretty(presets)
         .map_err(std::io::Error::other)
@@ -300,7 +291,7 @@ fn write_presets(state: &mut State, presets: &Map<String, Value>) {
             &state.lang,
             "Could not save all settings. Check write permissions and free disk space, then try again.",
         );
-        dialog(state, ModalKind::Error, body);
+        state.modal = Some(Modal::error(body));
     }
 }
 
@@ -308,12 +299,12 @@ fn save_preset(state: &mut State) {
     let name = state.mods.preset_name.trim().to_string();
     if name.is_empty() {
         let body = tr(&state.lang, "Type a name for the preset first.");
-        dialog(state, ModalKind::Info, body);
+        state.modal = Some(Modal::info(body));
         return;
     }
     let Some(mut presets) = read_presets(&state.paths) else {
         let body = tr(&state.lang, PRESETS_UNREADABLE);
-        dialog(state, ModalKind::Error, body);
+        state.modal = Some(Modal::error(body));
         return;
     };
     let disabled: Vec<&String> = state
@@ -350,7 +341,7 @@ fn load_preset(state: &mut State) -> Task<Message> {
 fn delete_preset(state: &mut State) {
     let Some(mut presets) = read_presets(&state.paths) else {
         let body = tr(&state.lang, PRESETS_UNREADABLE);
-        dialog(state, ModalKind::Error, body);
+        state.modal = Some(Modal::error(body));
         return;
     };
     if presets
