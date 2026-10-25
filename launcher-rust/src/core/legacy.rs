@@ -366,7 +366,7 @@ pub fn retarget_desktop_shortcut(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::platform::tool::{FakeTools, SystemTools};
+    use crate::core::platform::tool::SystemTools;
 
     const OLD: &str = LEGACY_NAME;
 
@@ -699,6 +699,7 @@ mod tests {
     #[cfg(windows)]
     mod windows_shortcuts {
         use super::*;
+        use crate::core::platform::tool::FakeTools;
         use std::process::Command;
 
         struct Setup {
@@ -807,10 +808,7 @@ mod tests {
                 Ok(ToolOutput {
                     code: Some(0),
                     stdout: if asked {
-                        format!(
-                            "{desktop}
-"
-                        )
+                        format!("{desktop}\n")
                     } else {
                         String::new()
                     },
