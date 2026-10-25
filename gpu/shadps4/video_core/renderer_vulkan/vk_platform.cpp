@@ -13,6 +13,9 @@
 #define VK_USE_PLATFORM_XLIB_KHR
 #endif
 
+#include <cstdlib>
+#include <cstring>
+#include <string>
 #include <vector>
 #include <fmt/ranges.h>
 
@@ -269,6 +272,18 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
         return std::filesystem::path(path).parent_path();
     }();
     setenv("VK_DRIVER_FILES", icd_path.c_str(), true);
+#endif
+
+#if defined(__linux__) && !defined(ANDROID)
+    // fp32-gcn1: the buffer cache needs sparse residency buffers. RADV only exposes sparse on
+    // GFX7+ by default (ac_gpu_info.c has_sparse); GFX6 (Oland, Pitcairn, Tahiti, Cape Verde) has
+    // it behind RADV_EXPERIMENTAL=sparse. A no-op on every GPU that already has it. Must be set
+    // before the driver reads it at vkCreateInstance; the user's own value is kept.
+    if (const char* exp = std::getenv("RADV_EXPERIMENTAL"); !exp || !*exp) {
+        setenv("RADV_EXPERIMENTAL", "sparse", 0);
+    } else if (!std::strstr(exp, "sparse")) {
+        setenv("RADV_EXPERIMENTAL", (std::string{exp} + ",sparse").c_str(), 1);
+    }
 #endif
 
     static vk::detail::DynamicLoader dl;
