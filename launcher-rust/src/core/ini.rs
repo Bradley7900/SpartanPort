@@ -2,48 +2,30 @@
 
 use std::io;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use indexmap::IndexMap;
 
+use super::catalog::{ini_rows, Kind};
 use super::fs::atomic_write;
 
-/// Keys that hold a `0`/`1` switch.
-pub static INI_FLAGS: &[&str] = &[
-    "cheat_double_jumps",
-    "cheat_very_hard",
-    "object_motion",
-    "show_fps",
-    "vsync",
-    "async_shaders",
-    "deferred_readback",
-    "stale_readback",
-];
+/// Keys that hold a `0`/`1` switch, from the catalog.
+pub static INI_FLAGS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    ini_rows()
+        .into_iter()
+        .filter(|row| matches!(row.kind, Kind::Flag))
+        .map(|row| row.key)
+        .collect()
+});
 
-pub static INI_DEFAULTS: &[(&str, &str)] = &[
-    ("upscaler", "fsr3"),
-    ("preset", "1"),
-    ("object_motion", "1"),
-    ("show_fps", "1"),
-    ("output_res", "1920x1080"),
-    ("live_resolution", "auto"),
-    ("display_mode", "windowed"),
-    ("vsync", "1"),
-    ("fps_limit", "0"),
-    ("async_shaders", "1"),
-    ("deferred_readback", "1"),
-    ("stale_readback", "1"),
-    ("render_resolution", "native"),
-    ("engine_fps", "120"),
-    ("frames_queued", "1"),
-    ("cheat_very_hard", "0"),
-    ("cheat_double_jumps", "0"),
-    ("anisotropy", "0"),
-    ("vibration", "100"),
-    ("mouse_prompt_distance", "48"),
-    ("mouse_lock", "1"),
-    ("mouse_aim_style", "0"),
-    ("mouse_aim_sensitivity", "100"),
-];
+/// Every ini key with its default, in the order a fresh file gets them, from the catalog.
+pub static INI_DEFAULTS: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock::new(|| {
+    ini_rows()
+        .into_iter()
+        // Built once and kept for the whole run, so the text may be `'static`.
+        .map(|row| (row.key, &*Box::leak(row.default.as_text().into_boxed_str())))
+        .collect()
+});
 
 const HEADER: &str = "# spartanport settings (in-game menu: Insert / R3+L2)";
 

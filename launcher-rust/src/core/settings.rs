@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
-use crate::core::catalog::setting;
+use crate::core::catalog::{setting, Default, File, SETTINGS};
 use crate::core::controls::migrate_controls;
 use crate::core::fs::{atomic_write, read_json};
 use crate::core::paths::Paths;
@@ -71,56 +71,22 @@ impl Settings {
 /// starts empty on every system unless `SPARTAN_GAME_DIR` names one (ruling R83: the Python
 /// guesses `<port parent>/CUSA01623` on Windows).
 pub fn app_defaults(env: &dyn Fn(&str) -> Option<String>) -> Map<String, Value> {
-    let game_dir = env("SPARTAN_GAME_DIR").unwrap_or_default();
-    let defaults = json!({
-        "ui_language": "en",
-        "ui_scale": "1",
-        "game_dir": game_dir,
-        "update_dir": "",
-        "experimental_upscaler": false,
-        "video_backend": "auto",
-        "gamemode": false,
-        "mangohud": false,
-        "desktop_integration": true,
-        "user_dir": "",
-        "mods_dir": "",
-        "mods_enabled": true,
-        "patches_dir": "",
-        "language": "1",
-        "hdr": false,
-        "draw_pipe": "",
-        "readbacks": "",
-        "no_msaa": "",
-        "stream_memory": "cached",
-        "gpu_id": "",
-        "monitor": "",
-        "partial_height_views": true,
-        "disk_shaders": true,
-        "shader_prefetch": true,
-        "shader_notes": false,
-        "background_warmup": true,
-        "parallel_warmup": true,
-        "pipeline_binary_cache": true,
-        "perf_diag": false,
-        "frame_capture_key": false,
-        "frame_stats": false,
-        "gpu_profile": false,
-        "vk_validation": false,
-        "close_on_play": false,
-        "discord_rpc": true,
-        "check_updates": false,
-        "game_patches": {},
-        "controls": {},
-        "pad_style": "playstation",
-        "rage_one_input": true,
-        "stick_prompts": "keyboard",
-        "controls_layout": 2,
-        "glyph_style": "off",
-    });
-    match defaults {
-        Value::Object(map) => map,
-        _ => Map::new(),
-    }
+    SETTINGS
+        .iter()
+        .filter(|row| row.file == File::App && row.written)
+        .map(|row| {
+            let value = match row.default {
+                Default::Bool(on) => Value::Bool(on),
+                Default::Int(n) => json!(n),
+                Default::Object => Value::Object(Map::new()),
+                Default::Text(_) if row.key == "game_dir" => {
+                    Value::String(env("SPARTAN_GAME_DIR").unwrap_or_default())
+                }
+                Default::Text(text) => Value::String(text.to_string()),
+            };
+            (row.key.to_string(), value)
+        })
+        .collect()
 }
 
 /// Copies the previous launcher's `settings.json` into the data folder, once. Never overwrites;

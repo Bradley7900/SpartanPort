@@ -491,7 +491,7 @@ fn every_setting_lights_save_persists_and_comes_back() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     let mut expected_ini = Vec::new();
-    for key in SHOWN_INI_KEYS {
+    for key in SHOWN_INI_KEYS.iter() {
         let current = state.ini.values[*key].clone();
         let value = if INI_FLAGS.contains(key) {
             if current == "1" { "0" } else { "1" }.to_string()

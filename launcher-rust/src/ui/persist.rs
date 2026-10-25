@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use iced::Task;
 use indexmap::IndexMap;
@@ -12,6 +13,7 @@ use serde::Serialize;
 use serde_json::ser::{Formatter, PrettyFormatter};
 use serde_json::{Map, Value};
 
+use crate::core::catalog::{File, SETTINGS};
 use crate::core::controls::{control_changes, Kind};
 use crate::core::fs::{atomic_write, load_json};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display};
@@ -30,27 +32,14 @@ use crate::APP_NAME;
 /// creates their variables (Home, Graphics, Performance, Game, Controls): `collect` writes only
 /// these, in this order, so a first save appends the same lines. The parked Upscaling keys
 /// (`upscaler`, `preset`, `object_motion`, `output_res`, `live_resolution`) have no control and are
-/// never written: a file keeps whatever it holds for them.
-pub const SHOWN_INI_KEYS: &[&str] = &[
-    "display_mode",
-    "fps_limit",
-    "engine_fps",
-    "render_resolution",
-    "vsync",
-    "anisotropy",
-    "show_fps",
-    "frames_queued",
-    "async_shaders",
-    "stale_readback",
-    "deferred_readback",
-    "cheat_double_jumps",
-    "cheat_very_hard",
-    "mouse_prompt_distance",
-    "mouse_aim_style",
-    "mouse_aim_sensitivity",
-    "mouse_lock",
-    "vibration",
-];
+/// never written: a file keeps whatever it holds for them. Taken from the catalog's written Ini rows.
+pub static SHOWN_INI_KEYS: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
+    SETTINGS
+        .iter()
+        .filter(|row| row.file == File::Ini && row.written)
+        .map(|row| row.key)
+        .collect()
+});
 
 /// The error dialog of a failed save.
 const SAVE_FAILED: &str =
@@ -256,7 +245,7 @@ pub fn collect(state: &mut State) -> Result<(), PersistError> {
         .as_ref()
         .map_or(&disk.values, |saved| &saved.ini);
     let mut edited = IndexMap::new();
-    for key in SHOWN_INI_KEYS {
+    for key in SHOWN_INI_KEYS.iter() {
         let Some(value) = pending.ini.get(*key) else {
             continue;
         };
@@ -465,39 +454,7 @@ impl Formatter for AsciiFormatter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ini::INI_DEFAULTS;
     use serde_json::json;
-
-    #[test]
-    fn shown_ini_keys_are_the_18_controls_of_the_window() {
-        assert_eq!(SHOWN_INI_KEYS.len(), 18);
-        for key in SHOWN_INI_KEYS {
-            assert!(
-                INI_DEFAULTS.iter().any(|(name, _)| name == key),
-                "{key} is not an ini key"
-            );
-        }
-        for parked in [
-            "upscaler",
-            "preset",
-            "object_motion",
-            "output_res",
-            "live_resolution",
-        ] {
-            assert!(!SHOWN_INI_KEYS.contains(&parked), "{parked}");
-        }
-    }
-
-    #[test]
-    fn the_catalog_writes_the_shown_ini_keys_in_order() {
-        use crate::core::catalog::{File, SETTINGS};
-        let written: Vec<&str> = SETTINGS
-            .iter()
-            .filter(|row| row.file == File::Ini && row.written)
-            .map(|row| row.key)
-            .collect();
-        assert_eq!(written, SHOWN_INI_KEYS);
-    }
 
     #[test]
     fn python_json_escapes_like_ensure_ascii() {

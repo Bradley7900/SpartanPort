@@ -72,6 +72,8 @@ pub struct Setting {
     pub default: Default,
     /// App: goes into a new settings.json. Ini: a control of the window writes it.
     pub written: bool,
+    /// Ini: where the key sits in `INI_DEFAULTS` (a fresh file's key order). Unused for App.
+    pub ini_order: u8,
     pub env: Option<Env>,
 }
 
@@ -86,6 +88,7 @@ const fn app(key: &'static str, kind: Kind, default: Default, env: Option<Env>) 
         kind,
         default,
         written: true,
+        ini_order: 0,
         env,
     }
 }
@@ -98,13 +101,20 @@ const fn app_unwritten(key: &'static str, kind: Kind, default: Default) -> Setti
     }
 }
 
-const fn ini(key: &'static str, kind: Kind, default: Default, written: bool) -> Setting {
+const fn ini(
+    key: &'static str,
+    kind: Kind,
+    default: Default,
+    written: bool,
+    ini_order: u8,
+) -> Setting {
     Setting {
         key,
         file: File::Ini,
         kind,
         default,
         written,
+        ini_order,
         env: None,
     }
 }
@@ -291,35 +301,55 @@ pub static SETTINGS: &[Setting] = &[
     ),
     app_unwritten("launcher_effects", Flag, Bool(true)),
     app_unwritten("controls_device", Kind::Text, Text("")),
-    ini("display_mode", Pick(DISPLAY_MODES), Text("windowed"), true),
-    ini("fps_limit", Pick(FPS_LIMITS), Text("0"), true),
-    ini("engine_fps", Pick(ENGINE_FPS_CHOICES), Text("120"), true),
-    ini("render_resolution", Kind::Text, Text("native"), true),
-    ini("vsync", Flag, Bool(true), true),
-    ini("anisotropy", Pick(ANISOTROPY), Text("0"), true),
-    ini("show_fps", Flag, Bool(true), true),
-    ini("frames_queued", Pick(FRAMES_QUEUED), Text("1"), true),
-    ini("async_shaders", Flag, Bool(true), true),
-    ini("stale_readback", Flag, Bool(true), true),
-    ini("deferred_readback", Flag, Bool(true), true),
-    ini("cheat_double_jumps", Flag, Bool(false), true),
-    ini("cheat_very_hard", Flag, Bool(false), true),
-    ini("mouse_prompt_distance", Kind::Int, Int(48), true),
-    ini("mouse_aim_style", Pick(AIM_STYLES), Text("0"), true),
-    ini("mouse_aim_sensitivity", Kind::Int, Int(100), true),
-    ini("mouse_lock", Kind::Int, Int(1), true),
-    ini("vibration", Kind::Int, Int(100), true),
-    ini("upscaler", Pick(UPSCALERS), Text("fsr3"), false),
-    ini("preset", Pick(PRESETS), Text("1"), false),
-    ini("object_motion", Flag, Bool(true), false),
-    ini("output_res", Pick(OUTPUTS), Text("1920x1080"), false),
+    ini(
+        "display_mode",
+        Pick(DISPLAY_MODES),
+        Text("windowed"),
+        true,
+        6,
+    ),
+    ini("fps_limit", Pick(FPS_LIMITS), Text("0"), true, 8),
+    ini(
+        "engine_fps",
+        Pick(ENGINE_FPS_CHOICES),
+        Text("120"),
+        true,
+        13,
+    ),
+    ini("render_resolution", Kind::Text, Text("native"), true, 12),
+    ini("vsync", Flag, Bool(true), true, 7),
+    ini("anisotropy", Pick(ANISOTROPY), Text("0"), true, 17),
+    ini("show_fps", Flag, Bool(true), true, 3),
+    ini("frames_queued", Pick(FRAMES_QUEUED), Text("1"), true, 14),
+    ini("async_shaders", Flag, Bool(true), true, 9),
+    ini("stale_readback", Flag, Bool(true), true, 11),
+    ini("deferred_readback", Flag, Bool(true), true, 10),
+    ini("cheat_double_jumps", Flag, Bool(false), true, 16),
+    ini("cheat_very_hard", Flag, Bool(false), true, 15),
+    ini("mouse_prompt_distance", Kind::Int, Int(48), true, 19),
+    ini("mouse_aim_style", Pick(AIM_STYLES), Text("0"), true, 21),
+    ini("mouse_aim_sensitivity", Kind::Int, Int(100), true, 22),
+    ini("mouse_lock", Kind::Int, Int(1), true, 20),
+    ini("vibration", Kind::Int, Int(100), true, 18),
+    ini("upscaler", Pick(UPSCALERS), Text("fsr3"), false, 0),
+    ini("preset", Pick(PRESETS), Text("1"), false, 1),
+    ini("object_motion", Flag, Bool(true), false, 2),
+    ini("output_res", Pick(OUTPUTS), Text("1920x1080"), false, 4),
     ini(
         "live_resolution",
         Pick(LIVE_RESOLUTION),
         Text("auto"),
         false,
+        5,
     ),
 ];
+
+/// The Ini rows in the order of `INI_DEFAULTS`.
+pub fn ini_rows() -> Vec<&'static Setting> {
+    let mut rows: Vec<_> = SETTINGS.iter().filter(|s| s.file == File::Ini).collect();
+    rows.sort_by_key(|s| s.ini_order);
+    rows
+}
 
 /// The row of `key`, if the launcher knows it.
 pub fn setting(key: &str) -> Option<&'static Setting> {
@@ -340,6 +370,7 @@ mod tests {
     use super::*;
     use crate::core::ini::{INI_DEFAULTS, INI_FLAGS};
     use crate::core::settings::{app_defaults, Settings};
+    use crate::ui::persist::SHOWN_INI_KEYS;
     use serde_json::json;
 
     #[test]
@@ -369,9 +400,13 @@ mod tests {
             };
             assert!(same, "{key}");
         }
-        let ini_rows: Vec<_> = SETTINGS.iter().filter(|s| s.file == File::Ini).collect();
-        assert_eq!(ini_rows.len(), INI_DEFAULTS.len());
-        for (key, value) in INI_DEFAULTS {
+    }
+
+    #[test]
+    fn ini_lists_follow_the_table() {
+        let rows: Vec<_> = SETTINGS.iter().filter(|s| s.file == File::Ini).collect();
+        assert_eq!(rows.len(), INI_DEFAULTS.len());
+        for (key, value) in INI_DEFAULTS.iter() {
             let row = setting(key).unwrap();
             assert_eq!(row.default.as_text(), *value, "{key}");
             assert_eq!(
@@ -379,6 +414,24 @@ mod tests {
                 INI_FLAGS.contains(key),
                 "{key}"
             );
+        }
+        let flags = rows.iter().filter(|s| matches!(s.kind, Kind::Flag)).count();
+        assert_eq!(flags, INI_FLAGS.len());
+        let shown: Vec<_> = rows.iter().filter(|s| s.written).map(|s| s.key).collect();
+        assert_eq!(shown, SHOWN_INI_KEYS.iter().copied().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn shown_ini_keys_are_the_18_controls_of_the_window() {
+        assert_eq!(SHOWN_INI_KEYS.len(), 18);
+        for parked in [
+            "upscaler",
+            "preset",
+            "object_motion",
+            "output_res",
+            "live_resolution",
+        ] {
+            assert!(!SHOWN_INI_KEYS.contains(&parked), "{parked}");
         }
     }
 
