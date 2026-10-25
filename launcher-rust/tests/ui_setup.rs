@@ -296,13 +296,21 @@ fn setup_and_play_give_the_same_verdict() {
     // refusal names what the setup lists. Each pair is made after the game folder was chosen, as
     // when a file is moved away in a file manager: PLAY reads the folders again, and the setup
     // shows that reading.
-    for pair in ["complete", "game without eboot.bin", "same folder"] {
+    for pair in [
+        "complete",
+        "game without eboot.bin",
+        "game with an empty param.sfo",
+        "same folder",
+    ] {
         let dir = tempfile::tempdir().unwrap();
         let mut state = opened(dir.path());
         let dump = complete_dump(dir.path());
         browsed(&mut state, "game_dir", &dump);
         match pair {
             "game without eboot.bin" => std::fs::remove_file(dump.join("eboot.bin")).unwrap(),
+            "game with an empty param.sfo" => {
+                std::fs::write(dump.join("sce_sys").join("param.sfo"), b"").unwrap()
+            }
             "same folder" => browsed(&mut state, "update_dir", &dump),
             _ => {}
         }
@@ -317,6 +325,10 @@ fn setup_and_play_give_the_same_verdict() {
             .flat_map(|key| folder_problems(&state, key))
             .filter(|line| line != "Missing or empty files:")
             .collect();
+        if pair == "game with an empty param.sfo" {
+            // PLAY gets past its eboot.bin check and refuses on the verdict's list, the setup's line.
+            assert_eq!(problems, ["sce_sys/param.sfo (empty)"]);
+        }
         assert_eq!(
             problems.is_empty(),
             refusal.is_none(),

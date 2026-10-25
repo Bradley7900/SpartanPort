@@ -617,8 +617,8 @@ pub fn scene_size(state: &State) -> Size {
 }
 
 /// Home closes the drawer; any other page opens it, sliding in when it was closed. The Trophies
-/// page reloads its list each time it opens; the first open of Controls looks for a gamepad.
-/// Leaving the controller mapper closes it.
+/// page reloads its list each time it opens, and the Mods page the game folders and its lists; the
+/// first open of Controls looks for a gamepad. Leaving the controller mapper closes it.
 pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
     if state.page == Page::Mapper && page != Page::Mapper {
         mapper::close(state);
@@ -643,7 +643,12 @@ pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
     match page {
         Page::Trophies => trophies::refresh(state),
         Page::Controls => controls::opened(state),
-        Page::Mods => mods::refresh(state),
+        // As the Python's page refresh: the game folders are read again, so the third-party
+        // patches follow an update extracted meanwhile.
+        Page::Mods => {
+            refresh_installation(state);
+            mods::refresh(state)
+        }
         _ => Task::none(),
     }
 }

@@ -5,7 +5,7 @@ mod common;
 
 use common::{
     browsed, click, dump_with_patches, gpu_rows, load_mods, load_trophies, make_mod, messages,
-    open, state, state_with_trophies, two_displays, write_mod_patch, ARC_LAPTOP,
+    open, sfo, state, state_with_trophies, two_displays, write_mod_patch, ARC_LAPTOP,
 };
 use spartanport_launcher::core::env::game_environment;
 use spartanport_launcher::core::gpu::{display_label, parse_display_list};
@@ -1661,6 +1661,54 @@ fn mods_list_follows_the_folder_and_saved_order() {
     assert!(state.mods.enabled["c"]);
     open(&mut state, Page::Mods);
     assert!(tall_has(&state, "2 of 3 active"));
+}
+
+#[test]
+fn reopening_mods_reads_an_update_extracted_meanwhile() {
+    // Python `PAGE_REFRESH['mods']`: each show of the page reads the game folders again. The game
+    // is a PKG extraction without its param.sfo; an update extracted into the update folder after
+    // the first visit names the game, and its third-party patches show.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = mods_state(dir.path());
+    let game = dir.path().join("game");
+    let update = dir.path().join("update");
+    std::fs::create_dir_all(&game).unwrap();
+    std::fs::create_dir_all(&update).unwrap();
+    std::fs::write(game.join("eboot.bin"), b"elf").unwrap();
+    std::fs::create_dir_all(dir.path().join("patches")).unwrap();
+    std::fs::write(
+        dir.path().join("patches").join("Community.xml"),
+        "<Patch><TitleID><ID>CUSA01623</ID></TitleID>\
+         <Metadata Name=\"Sharper Shadows\" Author=\"Bo\" AppVer=\"01.02\" isEnabled=\"true\"><PatchList/></Metadata></Patch>",
+    )
+    .unwrap();
+    browsed(&mut state, "game_dir", &game);
+    browsed(&mut state, "update_dir", &update);
+    open(&mut state, Page::Mods);
+    load_mods(&mut state);
+    assert!(state.mods.external.is_empty(), "no game known yet");
+
+    std::fs::create_dir_all(update.join("sce_sys")).unwrap();
+    std::fs::write(update.join("eboot.bin"), b"elf").unwrap();
+    std::fs::write(
+        update.join("sce_sys").join("param.sfo"),
+        sfo(&[
+            ("TITLE_ID", "CUSA01623"),
+            ("TITLE", "God of War III"),
+            ("APP_VER", "01.02"),
+        ]),
+    )
+    .unwrap();
+    open(&mut state, Page::Home);
+    open(&mut state, Page::Mods);
+    load_mods(&mut state);
+    let keys: Vec<&str> = state
+        .mods
+        .external
+        .iter()
+        .map(|(key, _, _)| key.as_str())
+        .collect();
+    assert_eq!(keys, ["Community.xml/Sharper Shadows"]);
 }
 
 #[test]
