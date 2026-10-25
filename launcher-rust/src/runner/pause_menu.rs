@@ -304,6 +304,8 @@ static PORTUGUESE: Texts = Texts {
 
 /// The six multiplier sliders (`sliderBar4` to `sliderBar9`).
 const ALL_BARS: [usize; 6] = [0, 1, 2, 3, 4, 5];
+/// The four lines under a page's rows (locals 0x19-0x1c), which the native pages clear.
+const LOWER_LINES: std::ops::Range<usize> = 0x19..0x1d;
 
 /// Code offsets `[(start, end)]` of code blocks: the ones of an unpatched script, then the code
 /// each step adds.
@@ -1485,6 +1487,29 @@ impl Emitter<'_, '_> {
         self.builtin(0x59, true)
     }
 
+    /// A page's title (line0) and the names of its eight rows (blank past `names`), with their
+    /// values cleared.
+    fn page_entry(&mut self, title: &str, names: &[&str]) -> Result<(), MenuError> {
+        self.string(title.as_bytes())?;
+        self.assign(0)?;
+        for index in 0..8 {
+            self.string(names.get(index).copied().unwrap_or("").as_bytes())?;
+            self.assign(1 + index)?;
+            self.string(b"")?;
+            self.assign(9 + index)?;
+        }
+        Ok(())
+    }
+
+    /// Clears `locals`.
+    fn blank(&mut self, locals: impl IntoIterator<Item = usize>) -> Result<(), MenuError> {
+        for local in locals {
+            self.string(b"")?;
+            self.assign(local)?;
+        }
+        Ok(())
+    }
+
     fn begin(&mut self, name: &str, kind: &'static str) {
         self.handlers
             .insert((name.to_string(), kind), self.code.len());
@@ -1830,22 +1855,8 @@ pub fn native_cheats(
     ] {
         let functions = if is_multiplier { 0xf20 } else { 0xf00 };
         e.begin(page, "entry");
-        e.string(title.as_bytes())?;
-        e.assign(0)?;
-        for index in 0..8 {
-            e.string(
-                row_names
-                    .get(index)
-                    .map_or(&b""[..], |name| name.as_bytes()),
-            )?;
-            e.assign(1 + index)?;
-            e.string(b"")?;
-            e.assign(9 + index)?;
-        }
-        for local in 0x19..0x1d {
-            e.string(b"")?;
-            e.assign(local)?;
-        }
+        e.page_entry(title, row_names)?;
+        e.blank(LOWER_LINES)?;
         let shown = if is_multiplier { 6 } else { 8 };
         for index in 0..shown {
             e.query(index, functions + index, false)?;
@@ -1948,18 +1959,8 @@ pub fn native_cheats(
     ] {
         let graphics = page == "NativeGraphics";
         e.begin(page, "entry");
-        e.string(title.as_bytes())?;
-        e.assign(0)?;
-        for index in 0..8 {
-            e.string(row_names.get(index).copied().unwrap_or("").as_bytes())?;
-            e.assign(1 + index)?;
-            e.string(b"")?;
-            e.assign(9 + index)?;
-        }
-        for local in 0x19..0x1d {
-            e.string(b"")?;
-            e.assign(local)?;
-        }
+        e.page_entry(title, row_names)?;
+        e.blank(LOWER_LINES)?;
         e.bars(false, &ALL_BARS)?;
         if graphics {
             e.graphics_values(None)?;
@@ -2033,15 +2034,7 @@ pub fn native_cheats(
     // Apply and Restart's question; yes restarts the game (0xfcb), both go back to the row.
     let restart_rows = ["NativeGraphicsRestartYes", "NativeGraphicsRestartNo"].map(String::from);
     e.begin("NativeGraphicsRestart", "entry");
-    e.string(texts.restart.as_bytes())?;
-    e.assign(0)?;
-    for index in 0..8 {
-        let answer = texts.restart_answers.get(index).copied().unwrap_or("");
-        e.string(answer.as_bytes())?;
-        e.assign(1 + index)?;
-        e.string(b"")?;
-        e.assign(9 + index)?;
-    }
+    e.page_entry(texts.restart, &texts.restart_answers)?;
     e.bars(false, &ALL_BARS)?;
     e.goto_new(&restart_rows[1])?;
     e.end();
