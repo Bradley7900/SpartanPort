@@ -5,6 +5,7 @@ pub mod controls;
 pub mod game;
 pub mod graphics;
 pub mod log;
+pub mod mapper;
 pub mod mods;
 pub mod performance;
 pub mod trophies;
@@ -27,6 +28,8 @@ pub enum Page {
     Mods,
     Advanced,
     Log,
+    /// "Set up a controller", opened from the Controls page; it has no tab of its own.
+    Mapper,
 }
 
 impl Page {
@@ -55,6 +58,7 @@ impl Page {
             Page::Mods => "Mods",
             Page::Advanced => "Advanced",
             Page::Log => "Log",
+            Page::Mapper => "Set up a controller",
         }
     }
 
@@ -75,6 +79,7 @@ impl Page {
             Page::Mods => "Change textures, sounds and text. Your game files stay untouched.",
             Page::Advanced => "Launcher options, diagnostics and system tools.",
             Page::Log => "Output of the last start. last_run.log holds the same text.",
+            Page::Mapper => "Choose Configure next to a control. Each change is saved immediately.",
         }
     }
 
@@ -82,7 +87,12 @@ impl Page {
     pub fn wide(self) -> bool {
         matches!(
             self,
-            Page::Performance | Page::Trophies | Page::Controls | Page::Mods | Page::Log
+            Page::Performance
+                | Page::Trophies
+                | Page::Controls
+                | Page::Mods
+                | Page::Log
+                | Page::Mapper
         )
     }
 
@@ -96,10 +106,18 @@ impl Page {
         Page::ALL[(self.index() + Page::ALL.len() - 1) % Page::ALL.len()]
     }
 
+    /// The tab that is active on this page: the controller mapper belongs to Controls.
+    pub fn tab(self) -> Page {
+        match self {
+            Page::Mapper => Page::Controls,
+            page => page,
+        }
+    }
+
     fn index(self) -> usize {
         Page::ALL
             .iter()
-            .position(|page| *page == self)
+            .position(|page| *page == self.tab())
             .unwrap_or_default()
     }
 }
@@ -116,5 +134,6 @@ pub fn view(state: &State, page: Page) -> Element<'_, Message> {
         Page::Mods => mods::view(state),
         Page::Advanced => advanced::view(state),
         Page::Log => log::view(state),
+        Page::Mapper => mapper::view(state),
     }
 }

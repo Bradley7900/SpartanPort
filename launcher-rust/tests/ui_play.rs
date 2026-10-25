@@ -753,6 +753,10 @@ fn every_live_action_is_refused_while_the_game_runs() {
             "Close the game before deleting the shader cache.",
         ),
         (LiveAction::Update, "Close the game before updating."),
+        (
+            LiveAction::SetUpController,
+            "Stop the game before setting up a controller.",
+        ),
     ];
     let dir = tempfile::tempdir().unwrap();
     let mut state = ready(

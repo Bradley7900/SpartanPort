@@ -34,6 +34,7 @@ use crate::ui::pages::advanced;
 use crate::ui::pages::controls::{self, ControlsMessage, ControlsView};
 use crate::ui::pages::game::{self, BackupMessage, PatchesView};
 use crate::ui::pages::log::{self, LogMessage};
+use crate::ui::pages::mapper::{self, MapperMessage, MapperState};
 use crate::ui::pages::mods::{self, ModsMessage, ModsView};
 use crate::ui::pages::performance;
 use crate::ui::pages::trophies::{self, TrophiesMessage, TrophiesView};
@@ -103,6 +104,8 @@ pub struct State {
     pub trophies: TrophiesView,
     pub mods: ModsView,
     pub controls: ControlsView,
+    /// The "Set up a controller" page while it is open, with the joysticks it reads.
+    pub mapper: Option<MapperState>,
     pub patches: PatchesView,
     /// The names of the save backups, newest first.
     pub backups: Vec<String>,
@@ -214,6 +217,7 @@ impl State {
             trophies: Default::default(),
             mods: Default::default(),
             controls,
+            mapper: None,
             patches: Default::default(),
             backups: Vec::new(),
             backup_choice: String::new(),
@@ -306,6 +310,7 @@ pub enum Message {
     Mods(ModsMessage),
     Log(LogMessage),
     Controls(ControlsMessage),
+    Mapper(MapperMessage),
     DesktopShortcut,
     /// The shortcut was made (the files it wrote; none on Windows) or why not.
     ShortcutDone(Result<Vec<String>, String>),
@@ -364,6 +369,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             // During the setup the keyboard only answers Enter.
             if state.setup.is_some() {
                 return setup::key_pressed(state, &key);
+            }
+            // The controller mapper takes the keys while it is open.
+            if state.mapper.is_some() {
+                return mapper::key_pressed(state, &key);
             }
             // While a key box of the Controls page waits, the key is its input.
             if state.controls.capturing.is_some() {
@@ -491,6 +500,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Mods(message) => return mods::update(state, message),
         Message::Log(message) => return log::update(state, message),
         Message::Controls(message) => return controls::update(state, message),
+        Message::Mapper(message) => return mapper::update(state, message),
         message @ (Message::DesktopShortcut
         | Message::ShortcutDone(_)
         | Message::AddToSteam
@@ -512,11 +522,10 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::CloseRequested(id) => {
             // Closing the window mid-setup saves nothing; the setup returns on the next start.
-            if state.setup.is_some() {
-                return window::close(id);
-            }
             // A running game keeps running, as it does after the Python launcher closes.
-            if persist::collect_unless_unreadable(state) {
+            if state.setup.is_some() || persist::collect_unless_unreadable(state) {
+                // The open controller mapper lets SDL go and saves nothing more.
+                mapper::close(state);
                 return window::close(id);
             }
         }
@@ -601,7 +610,11 @@ pub fn scene_size(state: &State) -> Size {
 
 /// Home closes the drawer; any other page opens it, sliding in when it was closed. The Trophies
 /// page reloads its list each time it opens; the first open of Controls looks for a gamepad.
+/// Leaving the controller mapper closes it.
 pub fn show_page(state: &mut State, page: Page) -> Task<Message> {
+    if state.page == Page::Mapper && page != Page::Mapper {
+        mapper::close(state);
+    }
     let now = Instant::now();
     state.now = now;
     state.page = page;
@@ -755,7 +768,7 @@ fn bar(state: &State) -> Element<'_, Message> {
 /// One tab: the label button and, when active, the red underline. The tab is as wide as its label,
 /// so the labels never overlap.
 fn tab(state: &State, page: Page) -> Element<'_, Message> {
-    let active = state.page == page;
+    let active = state.page.tab() == page;
     let label = text(tr(&state.lang, page.label_en()))
         .font(CINZEL_BOLD)
         .size(14)
@@ -777,8 +790,9 @@ fn tab(state: &State, page: Page) -> Element<'_, Message> {
 }
 
 /// Keys and the window (opening, size, focus); animation frames while the drawer slides; the mouse
-/// while a key box of the Controls page waits. The clock also carries the game's output, so it
-/// keeps running while a game is live, even with the window hidden.
+/// while a key box of the Controls page waits; the pad while the controller mapper is open. The
+/// clock also carries the game's output, so it keeps running while a game is live, even with the
+/// window hidden.
 pub fn subscription(state: &State) -> Subscription<Message> {
     let keys = keyboard::listen().filter_map(|event| match event {
         keyboard::Event::KeyPressed {
@@ -812,6 +826,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         frames,
         clock,
         controls::subscription(state),
+        mapper::subscription(state),
     ])
 }
 

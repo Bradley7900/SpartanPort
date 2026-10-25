@@ -25,13 +25,6 @@ PENDING_PORTS = {
     'tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence',
     'tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice',
     'tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening',
-    # Task 52
-    'tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_rows_save_out_of_order_and_reload_without_losing_other_bindings',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_cancel_capture_and_close_keep_already_saved_rows',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_clear_only_one_row_and_allow_an_empty_profile',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_failed_save_keeps_previous_profile_and_row_values',
-    'tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_parent_destroy_closes_sdl_without_saving',
 }
 
 

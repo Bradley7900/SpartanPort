@@ -12,7 +12,7 @@ use iced::keyboard::key::Named;
 use iced::keyboard::{Key, Location};
 use iced::time::Instant;
 use iced::widget::{button, column, container, mouse_area, pick_list, row as layout, space, text};
-use iced::{event, mouse, window, Center, Element, Event, Fill, Padding, Subscription, Task};
+use iced::{event, mouse, window, Center, Element, Event, Fill, Left, Padding, Subscription, Task};
 use indexmap::IndexMap;
 use serde_json::Value;
 
@@ -27,8 +27,9 @@ use crate::core::options::{AIM_STYLES, GLYPH_STYLES, STICK_PROMPTS};
 use crate::core::platform::tool::SystemTools;
 use crate::core::settings::Settings;
 use crate::ui::app::{apply_set, Message, State};
+use crate::ui::pages::mapper::MapperMessage;
 use crate::ui::tasks::blocking;
-use crate::ui::theme::{self, palette};
+use crate::ui::theme::{self, mirror_x, palette};
 use crate::ui::widgets::button_icon::game_button;
 use crate::ui::widgets::{
     button_icon, checkbox, min_width, row, section, select, slider, SELECT_MIN, SELECT_TEXT,
@@ -915,7 +916,17 @@ pub fn view(state: &State) -> Element<'_, Message> {
         Device::Keyboard => keyboard_section(state, lang),
         Device::Gamepad => gamepad_section(state, lang),
     };
+    // The generic controller mapper, as in the Python's first row.
+    let mapper = container(
+        button(text(tr(lang, "Set up a controller")))
+            .style(theme::button_flat)
+            .on_press(Message::Mapper(MapperMessage::Open)),
+    )
+    .width(Fill)
+    .align_x(mirror_x(Left, state.rtl))
+    .padding(Padding::ZERO.top(8).bottom(4));
     column![
+        mapper,
         row(
             state.rtl,
             &tr(lang, "In-game button icons"),

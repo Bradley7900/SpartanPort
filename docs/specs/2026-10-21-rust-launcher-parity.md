@@ -68,9 +68,9 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 | 0 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 | 0 |
 | `tests/test_controller_mappings.py` | 15 | 15 | 0 | 0 | 0 | 0 | 0 |
-| `tests/test_controller_mapper_launch.py` | 3 | 2 | 0 | 0 | 0 | 0 | 1 |
-| `tests/test_controller_mapper_sdl.py` | 9 | 4 | 0 | 0 | 0 | 0 | 5 |
-| **Total** | **382** | **160** | **85** | **27** | **2** | **98** | **10** |
+| `tests/test_controller_mapper_launch.py` | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_controller_mapper_sdl.py` | 9 | 9 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **382** | **166** | **85** | **27** | **2** | **98** | **4** |
 
 ## Map
 
@@ -448,16 +448,16 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_controller_mappings.py::PersistenceTest::test_reserved_xinput_override_is_not_discarded` | `src/core/controller_mappings.rs::tests::reserved_xinput_override_is_not_discarded` | ported |
 | `tests/test_controller_mapper_launch.py::LaunchTest::test_direct_run_loads_profile_before_native_detection` | `tests/runner.rs::direct_run_loads_profile_before_native_detection` | ported |
 | `tests/test_controller_mapper_launch.py::LaunchTest::test_updater_preserves_profiles` | `src/core/update.rs::tests::updater_preserves_profiles` | ported |
-| `tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game` | `tests/ui_mapper.rs::mapper_is_not_opened_over_a_running_game` | ported |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_raw_capture_gamepad_preview_inversion_and_analog_trigger` | `tests/sdl_mapper.rs::raw_capture_gamepad_preview_inversion_and_analog_trigger` | ported |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_saved_mapping_loads_and_explicit_user_file_wins` | `tests/sdl_mapper.rs::saved_mapping_loads_and_explicit_user_file_wins` | ported |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_disconnect_reports_error_instead_of_reading_a_stale_pad` | `tests/sdl_mapper.rs::disconnect_reports_error_instead_of_reading_a_stale_pad` | ported |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_rows_save_out_of_order_and_reload_without_losing_other_bindings` | — | dropped: pending port (Task 52) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_cancel_capture_and_close_keep_already_saved_rows` | — | dropped: pending port (Task 52) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_clear_only_one_row_and_allow_an_empty_profile` | — | dropped: pending port (Task 52) |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_failed_save_keeps_previous_profile_and_row_values` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_rows_save_out_of_order_and_reload_without_losing_other_bindings` | `tests/ui_mapper.rs::rows_save_out_of_order_and_reload_without_losing_other_bindings` | ported |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_cancel_capture_and_close_keep_already_saved_rows` | `tests/ui_mapper.rs::cancel_capture_and_close_keep_already_saved_rows` | ported |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_clear_only_one_row_and_allow_an_empty_profile` | `tests/ui_mapper.rs::clear_only_one_row_and_allow_an_empty_profile` | ported |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_failed_save_keeps_previous_profile_and_row_values` | `tests/ui_mapper.rs::failed_save_keeps_previous_profile_and_row_values` | ported |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons` | `tests/sdl_mapper.rs::editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons` | ported |
-| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_parent_destroy_closes_sdl_without_saving` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_parent_destroy_closes_sdl_without_saving` | `tests/ui_mapper.rs::parent_destroy_closes_sdl_without_saving` | ported |
 
 ## Known deviations from the Python
 
@@ -481,6 +481,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 18. PLAY checks the port folder for `run.py` and `bin/spartanport-probe` (or `out/`) before starting and names what is missing, with the releases page as the fix (the Python lets run.py fail with its developer message). The Windows exe links the C runtime statically (`.cargo/config.toml`), so it needs no VCRUNTIME140.dll.
 19. A `controls_layout` newer than the launcher's own (`CONTROLS_LAYOUT`, 4) is left as it is: `migrate_controls` returns the settings unchanged (the Python migrates every layout but its own). Only the migration leaves it: a Save still rebuilds `controls` from `control_changes` while `controls_layout` stays as it was. `src/core/controls.rs::tests::a_newer_layout_is_left_alone`.
 20. The controller mapper looks for SDL3 only in the port's `bin/` and `out/` and in MSYS2's `clang64/bin/` on Windows, and only as `libSDL3.so.0` and `libSDL3.so` on unix (`src/core/joysticks.rs`). The Python ended with `ctypes.util.find_library('SDL3')`, which also searches `PATH` on Windows and finds `libSDL3.dylib` on macOS; without SDL3 in those places the Rust says "SDL3 was not found…".
+21. The controller mapper is a page of the drawer, opened from the top of Controls (whose tab stays lit), instead of a window over the launcher (`src/ui/pages/mapper.rs`): the drawer header holds its title and note, its table scrolls in the window height less 460 px, and leaving it (Close, Esc, another tab or closing the launcher) lets SDL go without saving. While it is open it takes every key but Esc, as the Python's window held the grab. What opening SDL3 could not read (an unreadable profile) shows in its status line; the Python printed it to a console the windowed launcher does not have. Its dialogs are titled "Set up a controller" and "Could not save mapping", as the Python's message boxes; a mapping that could not be saved names the file.
 
 ## Partly covered
 

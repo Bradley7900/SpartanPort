@@ -20,6 +20,8 @@
 //! being blank.
 
 mod common;
+#[path = "common/joysticks.rs"]
+mod joysticks;
 
 use std::borrow::Cow;
 use std::io::Write;
@@ -37,10 +39,12 @@ use iced_test::core::Settings;
 use iced_test::simulator::Simulator;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, RgbaImage};
+use joysticks::{pad, FakeJoysticks};
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
+use spartanport_launcher::ui::pages::mapper::MapperMessage;
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::persist;
 use spartanport_launcher::ui::setup::{SetupState, Step};
@@ -70,13 +74,14 @@ const SHOWN_PORT: &str = if cfg!(windows) {
 const EXTERNAL_PATCH: &str = "<Patch><TitleID><ID>CUSA01623</ID></TitleID>\
      <Metadata Name=\"Sharper Shadows\" Author=\"Bo\" AppVer=\"01.02\" isEnabled=\"true\"><PatchList/></Metadata></Patch>";
 
-/// What a snapshot shows: the splash over Home, a page (Home is the page without the drawer), or a
-/// step of the first-run setup.
+/// What a snapshot shows: the splash over Home, a page (Home is the page without the drawer), a
+/// step of the first-run setup, or the controller mapper (`mapper_joysticks`).
 #[derive(Debug, Clone, Copy)]
 enum Shot {
     Splash,
     Page(Page),
     Setup(Step),
+    Mapper,
 }
 
 impl Shot {
@@ -85,8 +90,25 @@ impl Shot {
             Shot::Splash => "splash".to_string(),
             Shot::Page(page) => page.label_en().to_lowercase(),
             Shot::Setup(step) => format!("setup{}", step.number()),
+            Shot::Mapper => "mapper".to_string(),
         }
     }
+}
+
+/// The mapper's controller: one raw pad whose SDL line binds a few rows, read with Cross held and
+/// the left stick pushed right.
+fn mapper_joysticks() -> FakeJoysticks {
+    let guid = "03000000faca0000f001000000000000";
+    let fake = FakeJoysticks::new("Windows", vec![pad(3, guid)]);
+    let mut script = fake.script();
+    script.mapping = Some(format!(
+        "{guid},USB pad,a:b0,b:b1,x:b2,y:b3,leftshoulder:b4,dpup:h0.1,leftx:a0,lefty:a1~,\
+         lefttrigger:+a4,platform:Windows,"
+    ));
+    script.pressed = vec!["Cross / A"];
+    script.axes = [32767, 0, 0, 0, 0, 0];
+    drop(script);
+    fake
 }
 
 /// The background reads the app starts (a new game folder, opening Trophies or Mods), delivered.
@@ -128,6 +150,12 @@ fn fixture(dir: &Path, shot: Shot, size: Size, lang: &str) -> State {
             finish_reads(&mut state);
         }
         Shot::Setup(_) => {}
+        Shot::Mapper => {
+            open(&mut state, Page::Controls);
+            finish_reads(&mut state);
+            state.open_mapper_with(Box::new(mapper_joysticks()));
+            let _ = app::update(&mut state, Message::Mapper(MapperMessage::Poll));
+        }
     }
     state.now = state.splash.started + CLOCK;
     show_fixed_paths(&mut state);
@@ -345,6 +373,11 @@ fn controls() {
 #[test]
 fn mods() {
     check(Shot::Page(Page::Mods));
+}
+
+#[test]
+fn mapper() {
+    check(Shot::Mapper);
 }
 
 #[test]

@@ -107,6 +107,12 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         "Initial setup",
         &[("pt", "Configuração inicial")],
     ),
+    // The setup's step line, whole: the table's "Step {} of {}" ("Etapa") is the old controller
+    // wizard's. "Skip" and "Back" come from the table.
+    (
+        "Step {} of {} · {}",
+        &[("pt", "Passo {} de {} · {}")],
+    ),
     (
         "Video",
         &[("pt", "Vídeo")],

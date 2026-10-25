@@ -430,10 +430,10 @@ fn card(state: &State) -> Element<'_, Message> {
         .map_or(Step::Folders, |setup| setup.step);
     let number = step.number().to_string();
     let total = Step::ALL.len().to_string();
-    let step_line = format!(
-        "{} · {}",
-        tr_fmt(lang, "Step {} of {}", &[&number, &total]),
-        tr(lang, step.title_en())
+    let step_line = tr_fmt(
+        lang,
+        "Step {} of {} · {}",
+        &[&number, &total, &tr(lang, step.title_en())],
     );
     let body: Element<'_, Message> = match step {
         Step::Folders => folders_body(state),

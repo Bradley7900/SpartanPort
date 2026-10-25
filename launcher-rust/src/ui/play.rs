@@ -121,10 +121,11 @@ pub enum LiveAction {
     ResetTrophies,
     ClearShaderCache,
     Update,
+    SetUpController,
 }
 
-/// With the game live, opens the Info "Close the game before ..." and returns true so the caller
-/// stops.
+/// With the game live, opens the Info "Close the game before ..." (the mapper's, as the Python's,
+/// says "Stop the game before ...") and returns true so the caller stops.
 pub fn refuse_while_live(state: &mut State, action: LiveAction) -> bool {
     if !state.game.is_live() {
         return false;
@@ -134,6 +135,7 @@ pub fn refuse_while_live(state: &mut State, action: LiveAction) -> bool {
         LiveAction::ResetTrophies => "Close the game before resetting the trophies.",
         LiveAction::ClearShaderCache => "Close the game before deleting the shader cache.",
         LiveAction::Update => "Close the game before updating.",
+        LiveAction::SetUpController => "Stop the game before setting up a controller.",
     };
     state.modal = Some(Modal::info(tr(&state.lang, english)));
     true
