@@ -2955,6 +2955,10 @@ mod compile_tests {
             deferred_readback: "1".to_string(),
             stale_readback: "1".to_string(),
             async_shaders: "1".to_string(),
+            monitor: String::new(),
+            hdr: "0".to_string(),
+            glyph_style: "off".to_string(),
+            anisotropy: "0".to_string(),
         };
         let input = PlanInput {
             game: &game,
