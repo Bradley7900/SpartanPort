@@ -192,7 +192,7 @@ fn integrate(
         return Ok(None);
     }
     let appimage = match appimage {
-        Some(a) if !a.is_empty() && !(entry.is_file() && !ours) => a,
+        Some(a) if !a.is_empty() && (!entry.is_file() || ours) => a,
         _ => return Ok(None),
     };
     if integrated_by_other_tool(&applications, appimage, env) {

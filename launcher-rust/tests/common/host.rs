@@ -12,6 +12,9 @@ use indexmap::IndexMap;
 use spartanport_launcher::core::platform::tool::{ToolCall, ToolError, ToolOutput, Tools};
 use spartanport_launcher::runner::Host;
 
+/// What runs when the game starts.
+pub type PlayHook = Box<dyn Fn(&ToolCall) + Send + Sync>;
+
 /// An owned copy of a [`ToolCall`] the runner made.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Called {
@@ -91,7 +94,7 @@ pub struct FakeHost {
     pub interrupt: Interrupt,
     pub memory_mb: Option<u64>,
     /// Runs when the game starts, before it ends.
-    pub on_play: Option<Box<dyn Fn(&ToolCall) + Send + Sync>>,
+    pub on_play: Option<PlayHook>,
     /// Every `(pid, limit)` the runner waited for.
     pub waited: Shared<Vec<(u32, Duration)>>,
     /// How many times the runner had looked for Ctrl+C when the game started; `None` until then.

@@ -83,6 +83,10 @@ iced_test = "0.14"
 
 # The snapshot tests draw 2× frames with tiny-skia and pass them through PNG files; unoptimized,
 # one 1920 × 1080 window takes about 20 s.
+[profile.dev]
+# Backtraces keep file and line; target/debug stays small.
+debug = "line-tables-only"
+
 [profile.dev.package.tiny-skia]
 opt-level = 3
 [profile.dev.package.tiny-skia-path]

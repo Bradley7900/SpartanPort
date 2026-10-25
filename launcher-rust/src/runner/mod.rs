@@ -532,7 +532,7 @@ impl<'a> Runner<'a> {
             self.set_default("SDL_APP_ID", "spartanport");
         }
         let icon = port.join("launcher").join("spartanport.png");
-        if let Some(icon) = window_icon::write(&icon, &out) {
+        if let Some(icon) = window_icon::write(&icon, out) {
             self.set_default("SPARTAN_WINDOW_ICON", python_path(&icon));
         }
         // The temporal upscalers and motion vectors are not calibrated for this game yet: off

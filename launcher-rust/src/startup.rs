@@ -80,9 +80,8 @@ pub fn route_on<S: AsRef<OsStr>>(args: &[S], windows: bool) -> Route {
 /// Whether [`prepare`] moves the old name's files: not for the downloaded copy that installs an
 /// update, which leaves the player's folders alone.
 pub fn migrates<S: AsRef<OsStr>>(args: &[S]) -> bool {
-    !args
-        .first()
-        .is_some_and(|first| first.as_ref() == OsStr::new("--install-update"))
+    args.first()
+        .is_none_or(|first| first.as_ref() != OsStr::new("--install-update"))
 }
 
 /// Python `install_update`: waits for the old launcher (`pid`) to close, copies this version

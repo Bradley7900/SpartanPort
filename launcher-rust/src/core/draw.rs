@@ -1541,7 +1541,7 @@ impl<'a> Draw<'a> {
                         if xx[last].round() == other.x_at(y).round() {
                             let offset = if y == current.ymax { -1 } else { 1 };
                             let adjacent = current.x_at(y + offset);
-                            if y + offset >= other.ymin && y + offset <= other.ymax {
+                            if (other.ymin..=other.ymax).contains(&(y + offset)) {
                                 let adjacent_other = other.x_at(y + offset);
                                 if xx[last] > adjacent + 1.0 && xx[last] > adjacent_other + 1.0 {
                                     xx[last] = (f64::from(adjacent).max(f64::from(adjacent_other))
