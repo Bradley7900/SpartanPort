@@ -333,12 +333,15 @@ pub fn patch_names(
     names
 }
 
+/// The refresh rate (VBlank and engine FPS) when no patch asks for another (`run.py`).
+pub const DEFAULT_VBLANK_HZ: u32 = 60;
+
 fn highest_engine_fps() -> u32 {
     ENGINE_FPS_CHOICES
         .iter()
         .filter_map(|c| c.value.parse().ok())
         .max()
-        .unwrap_or(60)
+        .unwrap_or(DEFAULT_VBLANK_HZ)
 }
 
 /// The rate of a "Frame Rate Patch - <rate> FPS" name (`None` for any other name).
@@ -395,7 +398,7 @@ pub fn applied_engine_fps(names: &[String]) -> u32 {
         .iter()
         .filter_map(|n| frame_rate(n))
         .max()
-        .unwrap_or(60)
+        .unwrap_or(DEFAULT_VBLANK_HZ)
 }
 
 /// The environment variables the game reads the options from.

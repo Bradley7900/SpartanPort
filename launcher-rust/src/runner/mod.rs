@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use crate::core::controller_mappings;
 use crate::core::env::{game_environment, Lookup};
-use crate::core::graphics_options;
+use crate::core::graphics_options::{self, DEFAULT_VBLANK_HZ};
 use crate::core::i18n::{launcher_language, system_language, tr};
 use crate::core::launch::{run_command, spawn_game, GameEvent, Group, Launch, LaunchError};
 use crate::core::legacy;
@@ -67,8 +67,6 @@ pub const INTERRUPTED: i32 = 130;
 /// The probe's exit code for a CPU without an instruction set the ISA rewrite covers.
 pub const UNSUPPORTED_CPU: i32 = 20;
 const EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
-/// The engine rate without a frame rate patch (`run.py`).
-const DEFAULT_RATE: u32 = 60;
 
 /// Prepares the game image and starts the probe on it (`run.py` `main`, spec §5): `--after <pid>`
 /// first waits for that process; the other arguments go to the probe. Returns the probe's exit
@@ -538,7 +536,7 @@ impl<'a> Runner<'a> {
         // faster, or the game speeds up.
         let engine_fps = applied.engine_fps;
         let chosen = graphics.options.engine_fps.parse().unwrap_or(engine_fps);
-        let note = if engine_fps > DEFAULT_RATE || graphics.options.engine_fps == "60" {
+        let note = if engine_fps > DEFAULT_VBLANK_HZ || graphics.options.engine_fps == "60" {
             ""
         } else {
             " (the frame rate patch was not found in this eboot.bin)"

@@ -15,7 +15,9 @@ use sha2::{Digest, Sha256};
 
 use super::fs::atomic_write;
 use super::game::{game_profile, GameProfile};
-use super::graphics_options::{applied_engine_fps, patch_names, restrict_with_log, Options};
+use super::graphics_options::{
+    applied_engine_fps, patch_names, restrict_with_log, Options, DEFAULT_VBLANK_HZ,
+};
 use super::options::{FRAME_RATE_PATCH_PREFIX, RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH};
 use super::paths::Paths;
 use super::python::{py_hex, py_int, py_list, py_repr, python_json};
@@ -371,6 +373,7 @@ type Targets = HashMap<String, i64>;
 
 /// One write of `patches.bin`: `bytes` at image offset `address` (the PS4 address minus
 /// [`EBOOT_BASE`]).
+#[doc(hidden)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Write {
     pub address: u64,
@@ -554,6 +557,7 @@ fn program_headers(elf: &[u8]) -> Result<Vec<ProgramHeader>, PatchError> {
 }
 
 /// The `PT_LOAD` segments of `eboot.elf`, `vaddr..vaddr + memsz`.
+#[doc(hidden)]
 pub fn eboot_segments(elf: &[u8]) -> Result<Vec<Segment>, PatchError> {
     program_headers(elf)?
         .iter()
@@ -570,6 +574,7 @@ pub fn eboot_segments(elf: &[u8]) -> Result<Vec<Segment>, PatchError> {
 
 /// The `PT_LOAD` file bytes of `eboot.elf` at their virtual addresses (image offsets): what the
 /// signatures are searched in.
+#[doc(hidden)]
 pub fn eboot_image(elf: &[u8]) -> Result<Vec<u8>, PatchError> {
     let loads: Vec<ProgramHeader> = program_headers(elf)?
         .into_iter()
@@ -720,9 +725,9 @@ fn find_pattern(image: &[u8], pattern: &Pattern, limit: usize) -> Vec<u64> {
     found
 }
 
-/// The image offset of a `Line`'s or `Target`'s site: its `Pattern` (found once) plus `At`; the
-/// reference build's `Address` without a pattern. A signature found no time or twice is a
-/// [`PatchError::Lookup`].
+/// The image offset of a `Line`'s or `Target`'s site: its `Pattern` (found exactly once) plus `At`;
+/// the reference build's `Address` without a pattern. A signature that is not found, or found
+/// more than once, is a [`PatchError::Lookup`].
 fn locate(image: &[u8], element: roxmltree::Node, prefix: &str) -> Result<i64, PatchError> {
     let pattern = element
         .attribute(format!("{prefix}Pattern").as_str())
@@ -970,9 +975,10 @@ fn sites_of(
 }
 
 /// The writes of the named patches of `xml`, and the patches left out with the reason (a site
-/// not found exactly once: the whole patch is left out). With the game's `image` each site is found by
-/// its signature (any build); without it, at the reference build's `Address`. `app_version`
-/// `None`: any version.
+/// not found exactly once: the whole patch is left out). With the game's `image` each site is
+/// found by its signature (any build); without it, at the reference build's `Address`.
+/// `app_version` `None`: any version.
+#[doc(hidden)]
 pub fn compile_patches(
     xml: &Path,
     names: &[String],
@@ -1701,9 +1707,6 @@ pub fn plan(input: &PlanInput, log: &mut dyn io::Write) -> Result<PatchPlan, Pat
 }
 
 // --- Apply
-
-/// `run.py`'s VBlank rate when no applied patch's note asks for one.
-const DEFAULT_VBLANK_HZ: u32 = 60;
 
 /// What a start got from its patches: the report and what the applied ones ask the runtime for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3342,6 +3345,17 @@ mod compile_tests {
             escape("007f")
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), expected);
+        // A newline in a reason is escaped as `json.dumps` writes it (no patch can give one).
+        let newline = PatchStatus {
+            skipped: reasons(&[("n", "signature not found\n")]),
+            ..PatchStatus::default()
+        };
+        let text = python_json(&newline).unwrap();
+        assert_eq!(
+            text,
+            r#"{"sha256": null, "applied": [], "skipped": {"n": "signature not found\n"}}"#
+        );
+        assert!(text.ends_with(r#"\n"}}"#), "{text}");
         let status = run.applied.status.unwrap();
         assert_eq!(patch_status(&run.out), Some(status));
         // With an eboot.bin the sha256 is set, and it is the only other key.
