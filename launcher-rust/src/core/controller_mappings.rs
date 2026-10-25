@@ -813,7 +813,8 @@ mod tests {
                 if *failed == path && error.kind() == io::ErrorKind::PermissionDenied),
             "{error:?}"
         );
-        // The text names the file, for the mapper's status line; the reason is not also a source.
+        // The text names the file, for the mapper's error dialog (only a load failure, in `choose`,
+        // reaches its status line); the reason is not also a source.
         assert!(
             error
                 .to_string()

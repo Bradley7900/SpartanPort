@@ -1,4 +1,5 @@
-//! The nine pages of the tab bar and the drawer body of each.
+//! The nine pages of the tab bar, the controller mapper's page (opened from Controls, with no tab)
+//! and the drawer body of each.
 
 pub mod advanced;
 pub mod controls;
