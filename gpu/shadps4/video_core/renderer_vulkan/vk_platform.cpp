@@ -276,14 +276,19 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
 
 #if defined(__linux__) && !defined(ANDROID)
     // fp32-gcn1: the buffer cache needs sparse residency buffers. RADV only exposes sparse on
-    // GFX7+ by default (ac_gpu_info.c has_sparse); GFX6 (Oland, Pitcairn, Tahiti, Cape Verde) has
-    // it behind RADV_EXPERIMENTAL=sparse. A no-op on every GPU that already has it. Must be set
-    // before the driver reads it at vkCreateInstance; the user's own value is kept.
-    if (const char* exp = std::getenv("RADV_EXPERIMENTAL"); !exp || !*exp) {
-        setenv("RADV_EXPERIMENTAL", "sparse", 0);
-    } else if (!std::strstr(exp, "sparse")) {
-        setenv("RADV_EXPERIMENTAL", (std::string{exp} + ",sparse").c_str(), 1);
-    }
+    // GFX7+ by default (ac_gpu_info.c has_sparse); on GFX6 (Oland, Pitcairn, Tahiti, Cape Verde)
+    // Mesa 26.0 has it behind RADV_PERFTEST=sparse and 26.1+ behind RADV_EXPERIMENTAL=sparse.
+    // Mesa 25.x and older have no switch at all. A no-op on every GPU that already has it. Must
+    // be set before the driver reads it at vkCreateInstance; the user's own value is kept.
+    const auto add_radv_flag = [](const char* var) {
+        if (const char* cur = std::getenv(var); !cur || !*cur) {
+            setenv(var, "sparse", 0);
+        } else if (!std::strstr(cur, "sparse")) {
+            setenv(var, (std::string{cur} + ",sparse").c_str(), 1);
+        }
+    };
+    add_radv_flag("RADV_PERFTEST");
+    add_radv_flag("RADV_EXPERIMENTAL");
 #endif
 
     static vk::detail::DynamicLoader dl;
