@@ -700,6 +700,7 @@ static void ABI menu_setting(void *self, uint16_t function, uint64_t *result, vo
     (void)args;
     *result = function >= 0xffd ? (uint64_t)spartanportgpu_enemy_health_bar(function == 0xffd)
                               : spartanportgpu_native_setting(function);
+    if (function == 0xfcb && *result) runtime_restart();
 }
 static const uintptr_t menu_vtable[4] = {0, 0, 0, (uintptr_t)menu_setting};
 static const uintptr_t *menu_provider = menu_vtable;
