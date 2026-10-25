@@ -128,7 +128,7 @@ pub fn spawn_game(launch: Launch<'_>) -> Result<GameHandle, LaunchError> {
         .stderr(Stdio::from(writer));
     match group {
         Group::Own => platform::prepare(&mut cmd),
-        Group::Caller => platform::no_window(&mut cmd),
+        Group::Caller => platform::hide_window(&mut cmd),
     }
     // `cmd` owns the writer ends; dropping it after the spawn closes them in this process, so the
     // reader sees EOF once the child and any descendant holding the pipe are gone.

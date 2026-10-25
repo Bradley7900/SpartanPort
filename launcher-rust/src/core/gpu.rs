@@ -239,7 +239,7 @@ pub fn list_displays(tools: &dyn Tools, paths: &Paths, backend: &str) -> Vec<Dis
 /// Whether `spartanport-probe` sees a gamepad now; `None` when the probe is missing or fails.
 pub fn connected_gamepad(tools: &dyn Tools, paths: &Paths, env: Lookup) -> Option<bool> {
     let probe = paths.find_tool("spartanport-probe")?;
-    let mut env = None;
+    let mut probe_env = None;
     // A development build loads the MSYS2 CLANG64 DLLs (SDL3, FFmpeg); without them Windows would
     // show a missing-DLL dialog, so the probe is not run at all.
     if cfg!(windows) && !probe.parent()?.join("SDL3.dll").is_file() {
@@ -253,13 +253,13 @@ pub fn connected_gamepad(tools: &dyn Tools, paths: &Paths, env: Lookup) -> Optio
             dirs.extend(std::env::split_paths(&path));
         }
         let path = std::env::join_paths(dirs).ok()?.into_string().ok()?;
-        env = Some(inherited_env_with(&[("PATH", path)]));
+        probe_env = Some(inherited_env_with(&[("PATH", path)]));
     }
     let out = run(
         tools,
         probe,
         &["--gamepad"],
-        env.as_ref(),
+        probe_env.as_ref(),
         Duration::from_secs(15),
         false,
     )?;

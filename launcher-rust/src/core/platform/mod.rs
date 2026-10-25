@@ -2,12 +2,11 @@
 
 pub mod ipc;
 pub mod tool;
-use std::path::PathBuf;
-
-use crate::core::env::Lookup;
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
+
+use crate::core::env::Lookup;
 
 #[cfg(not(windows))]
 mod unix;
