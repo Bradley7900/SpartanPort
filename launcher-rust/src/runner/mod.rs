@@ -311,6 +311,8 @@ struct Runner<'a> {
     env: IndexMap<String, String>,
     derived: Vec<String>,
     host: &'a dyn Host,
+    /// The port folder: relative `SPARTAN_*` paths are from it, and every tool starts in it.
+    port: PathBuf,
 }
 
 impl<'a> Runner<'a> {
@@ -333,6 +335,7 @@ impl<'a> Runner<'a> {
             env,
             derived: Vec::new(),
             host,
+            port: PathBuf::new(),
         }
     }
 
@@ -355,9 +358,9 @@ impl<'a> Runner<'a> {
         self.get(key).unwrap_or(default).to_string()
     }
 
-    /// `Path(env.get(key, default))`.
+    /// `Path(env.get(key, default))`, a relative value from the port (`run.py` changed into it).
     fn path_or(&self, key: &str, default: PathBuf) -> PathBuf {
-        self.get(key).map_or(default, PathBuf::from)
+        self.get(key).map_or(default, |value| self.port.join(value))
     }
 
     fn set(&mut self, key: &str, value: impl Into<String>) {
@@ -390,11 +393,10 @@ impl<'a> Runner<'a> {
             Err(code) => return code,
         };
         // 2. As run.sh: relative paths (SPARTAN_GAME_DIR, SPARTAN_DATA_DIR, fsr4_shaders/) are
-        // from the port.
+        // from the port. The working folder is not changed: they are joined to it, and every tool
+        // starts in it.
         let port = mods::resolve(port_dir).unwrap_or_else(|_| port_dir.to_path_buf());
-        if let Err(error) = std::env::set_current_dir(&port) {
-            return self.fail(&format!("{}: {error}", python_path(&port)));
-        }
+        self.port.clone_from(&port);
         legacy::forward_environment(&mut self.env);
         // 3. The data folder, its out/ and the ini.
         let data = self.path_or("SPARTAN_DATA_DIR", port.clone());
@@ -439,7 +441,7 @@ impl<'a> Runner<'a> {
             .collect();
         self.derive("SPARTAN_EXTRA_RESOLUTIONS", extra.join(";"));
         // 5. The start-up graphics options of spartanport.ini.
-        let config = PathBuf::from(self.get_or("SPARTAN_CONFIG", ""));
+        let config = self.path_or("SPARTAN_CONFIG", PathBuf::new());
         let graphics = graphics_options::prepare(&config, &out.join("graphics_state.json"), &extra);
         if let Some(message) = &graphics.message {
             self.say(message);
@@ -455,7 +457,9 @@ impl<'a> Runner<'a> {
         }
         // 6. The probe.
         let ports = Paths::from_env(&port, &|_| None);
-        let probe = find_executable(&ports, &self.lookup()).filter(|probe| probe.is_file());
+        let probe = find_executable(&ports, &self.lookup())
+            .map(|probe| port.join(probe))
+            .filter(|probe| probe.is_file());
         let Some(probe) = probe else {
             return self.fail(&format!(
                 "spartanport-probe{EXE_SUFFIX} not found: build it with build.sh or use a packaged \
@@ -478,7 +482,7 @@ impl<'a> Runner<'a> {
             program: probe_text.clone().into(),
             args: vec!["--cpu-features".into()],
             env: Some(&self.env),
-            cwd: None,
+            cwd: Some(&port),
             limit: None,
             stderr: Stderr::Inherit,
             window: Window::LikeConsole,
@@ -506,15 +510,18 @@ impl<'a> Runner<'a> {
         }
         let mut views = Views::default();
         if let Some(update) = self.get("SPARTAN_PATCH_DIR").filter(|dir| !dir.is_empty()) {
-            let update = update.to_string();
-            match game_update::create_view(&game, Path::new(&update), &out) {
+            let update = port.join(update);
+            match game_update::create_view(&game, &update, &out) {
                 Ok(view) => {
                     game = view.clone();
                     views.update = Some(view);
                 }
                 Err(error) => return self.fail(&error.to_string()),
             }
-            self.say(&format!("Game and update combined from {update}"));
+            self.say(&format!(
+                "Game and update combined from {}",
+                python_path(&update)
+            ));
         }
         // 9. The mods overlay, then what were the preparation scripts.
         let enabled = match mods_enabled.as_str() {
@@ -620,7 +627,7 @@ impl<'a> Runner<'a> {
             self.say(&warning);
         }
         let user = self.path_or("SPARTAN_USER_DIR", data.join("user"));
-        let user = mods::resolve(&user).unwrap_or(user);
+        let user = mods::resolve_in(&user, &port).unwrap_or(user);
         if let Err(error) = fs::create_dir_all(&user) {
             return self.fail(&format!("{}: {error}", python_path(&user)));
         }
@@ -699,7 +706,7 @@ impl<'a> Runner<'a> {
             .iter()
             .map(usize::to_string)
             .collect();
-        let resolved = mods::resolve(out).unwrap_or_else(|_| out.to_path_buf());
+        let resolved = mods::resolve_in(out, &self.port).unwrap_or_else(|_| out.to_path_buf());
         let ret = if report.libc_evidence.init_env_is_ret {
             "True"
         } else {
@@ -869,7 +876,9 @@ impl<'a> Runner<'a> {
         let (glyph_args, style) = {
             let (env, log) = (&self.env, &mut *self.out);
             let host = self.host;
-            let gamepad = |command: &[&str], limit: Duration| run_within(host, command, limit, env);
+            let cwd = &self.port;
+            let gamepad =
+                |command: &[&str], limit: Duration| run_within(host, command, limit, env, cwd);
             glyph_mounts(
                 env,
                 Path::new(probe),
@@ -906,7 +915,7 @@ impl<'a> Runner<'a> {
             program: program.clone(),
             args: rest.to_vec(),
             env: Some(&self.env),
-            cwd: None,
+            cwd: Some(&self.port),
             limit: None,
             stderr: Stderr::Inherit,
             window: Window::LikeConsole,
@@ -947,6 +956,7 @@ fn run_within(
     command: &[&str],
     limit: Duration,
     env: &IndexMap<String, String>,
+    cwd: &Path,
 ) -> Result<String, String> {
     let Some((program, args)) = command.split_first() else {
         return Err("no command".to_string());
@@ -955,7 +965,7 @@ fn run_within(
         program: program.into(),
         args: args.iter().map(OsString::from).collect(),
         env: Some(env),
-        cwd: None,
+        cwd: Some(cwd),
         limit: Some(limit),
         stderr: Stderr::Inherit,
         window: Window::LikeConsole,

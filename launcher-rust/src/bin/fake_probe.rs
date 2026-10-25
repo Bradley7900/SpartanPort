@@ -8,7 +8,8 @@
 //! - Any other run (the game): prints `fake-probe argv:`, its argv one per line and
 //!   `fake-probe argv end`; then `NAME=value` (or `NAME is unset`) for each variable named in
 //!   `FAKE_PROBE_PRINT` (comma-separated); with `FAKE_PROBE_SHOW=<file>`, the text of that file
-//!   under its `--app0` folder (`fake-probe show <file>: <text>`, or `missing`). With
+//!   under its `--app0` folder (`fake-probe show <file>: <text>`, or `missing`); with
+//!   `FAKE_PROBE_CWD=<file>`, its working folder written to that file. With
 //!   `FAKE_PROBE_RESTART=1` and `SPARTAN_RESTART_COMMAND` set it prints
 //!   `Runtime: restarting through run.py` and starts that command as the probe does (Windows: the
 //!   command line, with this program's output handles, then exit 0; Linux: `sh -c` in place of
@@ -88,6 +89,13 @@ fn main() {
         let text = std::fs::read_to_string(Path::new(app0).join(&show))
             .unwrap_or_else(|_| "missing".to_string());
         let _ = writeln!(out, "fake-probe show {show}: {text}");
+    }
+    let cwd_file = var("FAKE_PROBE_CWD");
+    if !cwd_file.is_empty() {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if std::fs::write(&cwd_file, cwd.to_string_lossy().as_bytes()).is_err() {
+            give_up("FAKE_PROBE_CWD cannot be written");
+        }
     }
     let command = var("SPARTAN_RESTART_COMMAND");
     if var("FAKE_PROBE_RESTART") == "1" && !command.is_empty() {

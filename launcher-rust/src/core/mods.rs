@@ -123,11 +123,12 @@ pub fn is_link(path: &Path) -> bool {
 /// Like Python's `Path.resolve()`: follows links in the part that exists and keeps the rest as
 /// written. A link that cannot be followed is an error.
 pub(crate) fn resolve(path: &Path) -> io::Result<PathBuf> {
-    let mut current = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir()?.join(path)
-    };
+    resolve_in(path, &std::env::current_dir()?)
+}
+
+/// [`resolve`] with a relative `path` taken from `base` instead of the working folder.
+pub(crate) fn resolve_in(path: &Path, base: &Path) -> io::Result<PathBuf> {
+    let mut current = base.join(path);
     let mut tail = Vec::new();
     loop {
         match fs::canonicalize(&current) {

@@ -86,8 +86,14 @@ struct Port {
 
 impl Port {
     fn new() -> Port {
+        Port::in_folder("")
+    }
+
+    /// A port in the folder `name` of a temporary folder (`""`: the temporary folder itself).
+    fn in_folder(name: &str) -> Port {
         let dir = tempfile::tempdir().unwrap();
-        let root = resolved(dir.path());
+        let root = resolved(dir.path()).join(name);
+        fs::create_dir_all(&root).unwrap();
         fs::write(root.join("run.py"), b"").unwrap();
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::copy(
@@ -496,6 +502,37 @@ fn a_broken_mods_json_stops_with_the_mods_message() {
     assert!(out.lines().any(|line| line.starts_with("Mods: ")), "{out}");
     // It stopped before the probe.
     assert!(host.calls.borrow().is_empty());
+}
+
+#[test]
+fn a_relative_data_dir_is_from_the_port() {
+    // Review Focus 2: the port has a space in its name, and no run changes the working folder.
+    let port = Port::in_folder("port with space");
+    let host = FakeHost::default();
+    let mut out = Vec::new();
+    let mut context = port.context(&mut out);
+    context
+        .env
+        .insert("SPARTAN_DATA_DIR".into(), "data2".into());
+    let code = run_with(context, &host);
+    let out = String::from_utf8_lossy(&out);
+    assert_eq!(code, 0, "{out}");
+    assert!(port.root.join("data2/out/boot.bin").is_file(), "{out}");
+    let calls = host.calls.borrow();
+    assert!(!calls.is_empty());
+    for call in calls.iter() {
+        assert_eq!(call.cwd.as_deref(), Some(port.root.as_path()), "{call:?}");
+    }
+}
+
+#[test]
+fn run_starts_the_probe_in_the_port() {
+    let port = Port::new();
+    let file = port.out().join("cwd.txt");
+    let ran = port.run(&[("FAKE_PROBE_CWD", &text(&file))], &[]);
+    assert_eq!(ran.code, Some(0), "{ran}");
+    let cwd = fs::read_to_string(&file).unwrap();
+    assert_eq!(resolved(Path::new(&cwd)), port.root, "{ran}");
 }
 
 #[test]
