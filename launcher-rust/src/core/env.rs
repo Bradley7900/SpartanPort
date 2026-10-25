@@ -7,10 +7,12 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde_json::Value;
 
-use crate::core::controls::{control_map, keyboard_map, Kind};
+use crate::core::catalog::{run_default, setting, Kind};
+use crate::core::controls::{control_map, keyboard_map, Kind as ControlKind};
 use crate::core::game::{game_profile_of, meta_folder};
 use crate::core::i18n::{tr, trophy_text};
 use crate::core::legacy::forward_environment;
+use crate::core::options::Choice;
 use crate::core::paths::Paths;
 use crate::core::settings::Settings;
 
@@ -32,23 +34,6 @@ pub fn start_up_environment(env: &mut IndexMap<String, String>, windows: bool) {
             .or_insert_with(|| value.to_string());
     }
     forward_environment(env);
-}
-
-/// Python truthiness of a saved value.
-fn truthy(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
-    }
-}
-
-/// `settings.get(key, default)` read as a flag.
-fn flag(settings: &Settings, key: &str, default: bool) -> bool {
-    settings.get(key).map_or(default, truthy)
 }
 
 fn one_or_zero(on: bool) -> String {
@@ -105,7 +90,34 @@ pub fn environment_of<K: AsRef<OsStr>, V: AsRef<OsStr>>(
         .collect()
 }
 
-/// `base` (the launcher's own environment) plus everything the game reads from it.
+/// The `SPARTAN_*` name of a catalog row; empty when the row has none (a slip the contract test in
+/// `tests/env_contract.rs` catches).
+fn var(key: &str) -> &'static str {
+    setting(key).and_then(|row| row.env).map_or("", |e| e.name)
+}
+
+/// The choices of a Choice row.
+fn choices(key: &str) -> &'static [Choice] {
+    match setting(key).map(|row| row.kind) {
+        Some(Kind::Choice(list)) => list,
+        _ => &[],
+    }
+}
+
+/// `1` or `0` for the flag `key`, always written.
+fn put_switch(env: &mut IndexMap<String, String>, settings: &Settings, key: &str) {
+    env.insert(var(key).into(), one_or_zero(settings.flag(key)));
+}
+
+/// `1` for the flag `key` when it is on, nothing otherwise.
+fn put_if_on(env: &mut IndexMap<String, String>, settings: &Settings, key: &str) {
+    if settings.flag(key) {
+        env.insert(var(key).into(), "1".into());
+    }
+}
+
+/// `base` (the launcher's own environment) plus everything the game reads from it, and the trophy
+/// texts file the game reads with it.
 pub fn game_environment(
     settings: &Settings,
     paths: &Paths,
@@ -113,35 +125,37 @@ pub fn game_environment(
     base: &IndexMap<String, String>,
     windows: bool,
 ) -> IndexMap<String, String> {
-    let mut env = base.clone();
     write_trophy_texts(&paths.user_dir(&settings.get_str("user_dir")), lang);
-    env.insert("SPARTAN_GAME_DIR".into(), settings.get_str("game_dir"));
-    env.shift_remove("SPARTAN_PATCH_DIR");
+    environment(settings, paths, lang, base, windows)
+}
+
+/// The game's environment: pure, it writes no file. The order of the keys is the Python's.
+pub fn environment(
+    settings: &Settings,
+    paths: &Paths,
+    lang: &str,
+    base: &IndexMap<String, String>,
+    windows: bool,
+) -> IndexMap<String, String> {
+    let mut env = base.clone();
+    env.insert(var("game_dir").into(), settings.get_str("game_dir"));
+    env.shift_remove(var("update_dir"));
     // Temporal upscaling is parked: a switch saved on earlier has no control left to turn it off.
-    env.insert("SPARTAN_EXPERIMENTAL_UPSCALER".into(), "0".into());
+    env.insert(var("experimental_upscaler").into(), "0".into());
     let update_dir = settings.get_str("update_dir");
     if !update_dir.is_empty() {
-        env.insert("SPARTAN_PATCH_DIR".into(), update_dir.clone());
+        env.insert(var("update_dir").into(), update_dir.clone());
     }
     if !windows {
-        let backend = settings
-            .get("video_backend")
-            .and_then(Value::as_str)
-            .unwrap_or("auto");
+        let backend = settings.text("video_backend");
         if backend == "wayland" || backend == "x11" {
-            env.insert("SDL_VIDEO_DRIVER".into(), backend.into());
-            env.insert("SDL_VIDEODRIVER".into(), backend.into());
+            env.insert("SDL_VIDEO_DRIVER".into(), backend.clone());
+            env.insert("SDL_VIDEODRIVER".into(), backend);
         }
-        env.insert(
-            "SPARTAN_GAMEMODE".into(),
-            one_or_zero(flag(settings, "gamemode", false)),
-        );
-        env.insert(
-            "SPARTAN_MANGOHUD".into(),
-            one_or_zero(flag(settings, "mangohud", false)),
-        );
+        put_switch(&mut env, settings, "gamemode");
+        put_switch(&mut env, settings, "mangohud");
     }
-    // The launcher's patch selection is the whole list.
+    // The launcher's patch selection is the whole list (derived: no 1:1 catalog row).
     let game_dir = settings.get_str("game_dir");
     let (title_id, profile) = game_profile_of(&meta_folder(&game_dir, &update_dir));
     let chosen = title_id
@@ -154,7 +168,7 @@ pub fn game_environment(
     }
     let user_dir = settings.get_str("user_dir");
     if !user_dir.is_empty() {
-        env.insert("SPARTAN_USER_DIR".into(), user_dir);
+        env.insert(var("user_dir").into(), user_dir);
     }
     if !windows {
         env.insert(
@@ -164,27 +178,24 @@ pub fn game_environment(
     }
     let path_text = |p: std::path::PathBuf| p.to_string_lossy().into_owned();
     env.insert(
-        "SPARTAN_MODS_DIR".into(),
+        var("mods_dir").into(),
         path_text(paths.mods_dir(&settings.get_str("mods_dir"))),
     );
     env.insert("SPARTAN_MODS_CONFIG".into(), path_text(paths.mods_json()));
+    put_switch(&mut env, settings, "mods_enabled");
     env.insert(
-        "SPARTAN_MODS_ENABLED".into(),
-        one_or_zero(flag(settings, "mods_enabled", false)),
-    );
-    env.insert(
-        "SPARTAN_PATCHES_DIR".into(),
+        var("patches_dir").into(),
         path_text(paths.patches_dir(&settings.get_str("patches_dir"))),
     );
     env.insert(
         "SPARTAN_PATCHES_CONFIG".into(),
         path_text(paths.patches_json()),
     );
-    env.insert("SPARTAN_LANGUAGE".into(), settings.get_str("language"));
+    env.insert(var("language").into(), settings.get_str("language"));
     // Menu language is independent from the game's text and voice language.
     let ui_language = settings.get_str("ui_language");
     env.insert(
-        "SPARTAN_UI_LANGUAGE".into(),
+        var("ui_language").into(),
         if ui_language.is_empty() {
             lang.to_string()
         } else {
@@ -192,109 +203,80 @@ pub fn game_environment(
         },
     );
     // On by default (R91), also in a file without the key.
-    env.insert(
-        "SPARTAN_DISCORD".into(),
-        one_or_zero(flag(settings, "discord_rpc", true)),
-    );
-    if flag(settings, "hdr", false) {
-        env.insert("SPARTAN_HDR".into(), "1".into());
-    }
-    for (key, name) in [
-        ("draw_pipe", "SPARTAN_DRAW_PIPE"),
-        ("readbacks", "SPARTAN_READBACKS"),
-        ("no_msaa", "SPARTAN_NO_MSAA"),
-    ] {
-        if flag(settings, key, false) {
-            env.insert(name.into(), settings.get_str(key));
+    put_switch(&mut env, settings, "discord_rpc");
+    put_if_on(&mut env, settings, "hdr");
+    for key in ["draw_pipe", "readbacks", "no_msaa"] {
+        if settings.flag(key) {
+            env.insert(var(key).into(), settings.get_str(key));
         }
     }
     // The saved UI choice wins over inherited diagnostic overrides, including when reverting.
-    let stream_memory = if settings.get("stream_memory").is_some() {
-        settings.get_str("stream_memory")
-    } else {
-        "cached".to_string()
-    };
-    let stream_memory = if ["cached", "host", "device"].contains(&stream_memory.as_str()) {
+    let stream_memory = settings.text("stream_memory");
+    let stream_memory = if choices("stream_memory")
+        .iter()
+        .any(|choice| choice.value == stream_memory)
+    {
         stream_memory
     } else {
-        "cached".to_string()
+        run_default(var("stream_memory")).unwrap_or_default().into()
     };
-    env.insert("SPARTAN_STREAM_MEMORY".into(), stream_memory);
+    env.insert(var("stream_memory").into(), stream_memory);
     // Only ASCII digits: the game cannot read the other Unicode digits.
     let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
     let gpu_id = settings.get_str("gpu_id");
-    env.shift_remove("SPARTAN_GPU_ID");
+    env.shift_remove(var("gpu_id"));
     if digits(&gpu_id) {
-        env.insert("SPARTAN_GPU_ID".into(), gpu_id);
+        env.insert(var("gpu_id").into(), gpu_id);
     }
     // The monitor index the probe enumerated; an empty choice is the primary display.
     let monitor = settings.get_str("monitor");
-    env.shift_remove("SPARTAN_MONITOR");
+    env.shift_remove(var("monitor"));
     if digits(&monitor) {
-        env.insert("SPARTAN_MONITOR".into(), monitor);
+        env.insert(var("monitor").into(), monitor);
     }
-    env.insert(
-        "SPARTAN_BACKGROUND_WARMUP".into(),
-        one_or_zero(flag(settings, "background_warmup", true)),
-    );
-    env.insert(
-        "SPARTAN_PARALLEL_WARMUP".into(),
-        one_or_zero(flag(settings, "parallel_warmup", true)),
-    );
-    env.insert(
-        "SPARTAN_PIPELINE_BINARIES".into(),
-        one_or_zero(flag(settings, "pipeline_binary_cache", true)),
-    );
-    env.insert(
-        "SPARTAN_PERF_DIAG".into(),
-        one_or_zero(flag(settings, "perf_diag", false)),
-    );
-    env.insert(
-        "SPARTAN_PARTIAL_HEIGHT_VIEWS".into(),
-        one_or_zero(flag(settings, "partial_height_views", true)),
-    );
-    env.insert(
-        "SPARTAN_DISK_SHADERS".into(),
-        one_or_zero(flag(settings, "disk_shaders", true)),
-    );
-    env.insert(
-        "SPARTAN_SHADER_PREFETCH".into(),
-        one_or_zero(flag(settings, "shader_prefetch", true)),
-    );
-    env.insert(
-        "SPARTAN_SHADER_NOTES".into(),
-        one_or_zero(flag(settings, "shader_notes", false)),
-    );
-    for (key, name) in [
-        ("frame_stats", "SPARTAN_FRAME_STATS"),
-        ("gpu_profile", "SPARTAN_GPU_PROFILE"),
-        ("vk_validation", "SPARTAN_VK_VALIDATION"),
-        ("frame_capture_key", "SPARTAN_FRAME_CAPTURE_KEY"),
+    for key in [
+        "background_warmup",
+        "parallel_warmup",
+        "pipeline_binary_cache",
+        "perf_diag",
+        "partial_height_views",
+        "disk_shaders",
+        "shader_prefetch",
+        "shader_notes",
     ] {
-        if flag(settings, key, false) {
-            env.insert(name.into(), "1".into());
-        }
+        put_switch(&mut env, settings, key);
     }
+    for key in [
+        "frame_stats",
+        "gpu_profile",
+        "vk_validation",
+        "frame_capture_key",
+    ] {
+        put_if_on(&mut env, settings, key);
+    }
+    // The key and pad maps are derived from the saved bindings (no 1:1 catalog row).
     let no_controls = Value::Object(serde_json::Map::new());
     let controls = settings.get("controls").unwrap_or(&no_controls);
-    let value = keyboard_map(controls, flag(settings, "rage_one_input", true));
+    let value = keyboard_map(controls, settings.flag("rage_one_input"));
     if !value.is_empty() {
         env.insert("SPARTAN_KEY_MAP".into(), value);
     }
-    let value = control_map(controls, Kind::Pad);
+    let value = control_map(controls, ControlKind::Pad);
     if !value.is_empty() {
         env.insert("SPARTAN_PAD_MAP".into(), value);
     }
-    env.shift_remove("SPARTAN_STICK_PROMPTS");
-    let stick_prompts = settings.get_str("stick_prompts");
-    if stick_prompts == "keyboard" || stick_prompts == "mouse" {
-        env.insert("SPARTAN_STICK_PROMPTS".into(), stick_prompts);
-    }
-    let glyph_style = settings.get_str("glyph_style");
-    env.shift_remove("SPARTAN_GLYPH_STYLE");
-    if ["auto", "xbox", "nintendo", "keyboard"].contains(&glyph_style.as_str()) {
-        env.insert("SPARTAN_GLYPH_STYLE".into(), glyph_style);
-    }
+    // A saved value that is not a choice, or is the runner's own default, is left out.
+    let put_choice = |env: &mut IndexMap<String, String>, key: &str| {
+        let name = var(key);
+        let value = settings.get_str(key);
+        env.shift_remove(name);
+        let listed = choices(key).iter().any(|choice| choice.value == value);
+        if listed && run_default(name) != Some(value.as_str()) {
+            env.insert(name.into(), value);
+        }
+    };
+    put_choice(&mut env, "stick_prompts");
+    put_choice(&mut env, "glyph_style");
     env.insert("PYTHONUNBUFFERED".into(), "1".into());
     env.insert("PYTHONIOENCODING".into(), "utf-8".into());
     env

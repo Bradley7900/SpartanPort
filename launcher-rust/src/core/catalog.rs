@@ -282,6 +282,8 @@ pub static SETTINGS: &[Setting] = &[
     // The runner reads SPARTAN_DISCORD only to switch it off ("0"), so absent has no default.
     app("discord_rpc", Flag, Bool(true), env("SPARTAN_DISCORD", "")),
     app("check_updates", Flag, Bool(false), None),
+    // Derived, not 1:1: `env.rs` builds SPARTAN_PATCHES and SPARTAN_KEY_MAP / SPARTAN_PAD_MAP
+    // from the content of these two, so they carry no `env`.
     app("game_patches", Json, Object, None),
     app("controls", Json, Object, None),
     app("pad_style", Kind::Text, Text("playstation"), None),

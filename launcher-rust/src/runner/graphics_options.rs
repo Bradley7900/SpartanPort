@@ -10,6 +10,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
+use crate::core::catalog::setting;
 use crate::core::fs::atomic_write;
 use crate::core::ini::{read_ini, save_ini};
 use crate::core::options::{ENGINE_FPS_CHOICES, RESOLUTIONS};
@@ -22,7 +23,6 @@ const DMI: &str = "/sys/devices/virtual/dmi/id";
 const RESOLUTION_PREFIX: &str = "Resolution Patch";
 const FPS_PREFIX: &str = "Frame Rate Patch";
 const TEXTURE_FIX: &str = "Bug Fix - Texture Corruption Fix";
-const DEFAULT_ENGINE_FPS: &str = "120";
 const REVERT_MESSAGE: &str =
     "Graphics: the last restart never reached the game; previous options restored";
 
@@ -117,9 +117,10 @@ pub fn startup_options(ini: &IndexMap<String, String>, extra: &[String]) -> Opti
     if !resolutions(extra).contains(&render_resolution) {
         render_resolution = "native".to_string();
     }
-    let mut engine_fps = get("engine_fps", DEFAULT_ENGINE_FPS);
+    let default_fps = setting("engine_fps").map_or_else(String::new, |row| row.default.as_text());
+    let mut engine_fps = get("engine_fps", &default_fps);
     if !ENGINE_FPS_CHOICES.iter().any(|c| c.value == engine_fps) {
-        engine_fps = DEFAULT_ENGINE_FPS.to_string();
+        engine_fps = default_fps;
     }
     Options {
         render_resolution,

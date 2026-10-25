@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::core::catalog;
 use crate::core::env::game_environment;
 use crate::core::i18n::{launcher_language, system_language, tr};
 use crate::core::legacy;
@@ -430,7 +431,10 @@ impl<'a> Runner<'a> {
         // read stops the start, as run.py's.
         let mods_dir = self.path_or("SPARTAN_MODS_DIR", data.join("mods"));
         let mods_config = self.path_or("SPARTAN_MODS_CONFIG", data.join("mods.json"));
-        let mods_enabled = self.get_or("SPARTAN_MODS_ENABLED", "1");
+        let mods_enabled = self.get_or(
+            "SPARTAN_MODS_ENABLED",
+            catalog::run_default("SPARTAN_MODS_ENABLED").unwrap_or_default(),
+        );
         let parent = port.parent().unwrap_or(&port).to_path_buf();
         let mut game = self.path_or("SPARTAN_GAME_DIR", parent.join("CUSA01623"));
         let mod_patch_files: Vec<PathBuf> = if mods_enabled == "0" {
@@ -618,7 +622,10 @@ impl<'a> Runner<'a> {
             .and_then(|text| py_int(text, 10))
             .and_then(|mb| u64::try_from(mb).ok())
             .unwrap_or(0);
-        let stream = self.get_or("SPARTAN_STREAM_MEMORY", "cached");
+        let stream = self.get_or(
+            "SPARTAN_STREAM_MEMORY",
+            catalog::run_default("SPARTAN_STREAM_MEMORY").unwrap_or_default(),
+        );
         let physical = guest_memory::physical_memory_mb();
         if let Some(warning) = guest_memory::memory_warning(dmem, physical, &stream) {
             self.say(&warning);
