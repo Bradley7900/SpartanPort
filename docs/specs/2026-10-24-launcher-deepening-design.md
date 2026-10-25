@@ -291,7 +291,7 @@ pub fn run_with(ctx: RunContext<'_>, host: &dyn Host) -> i32;   // run() = catch
 Toda `ToolCall` do runner leva `cwd = port`. Ficam privados: `Runner`, `run_within`,
 `wait_or_interrupt`, `this_exe`, `which`, `is_executable`, `parse_cpu_features`,
 `isa_rewrite_wanted`, `launch_prefix` e `find_executable`. Continuam públicos (para
-`tests/dump.rs`): `glyph_mounts`, `pause_menu_args`, `patch_environment` e `restart_command`.
+`tests/dump.rs`): `glyph_mounts`, `pause_menu_args` e `restart_command`.
 
 O `play_with` não entra no Host: o 07 o leva para o `core::launch`.
 

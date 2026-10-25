@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use spartanport_launcher::core::patches::{
-    apply, compile_patches, eboot_image, eboot_segments, plan, External, PlanInput, Selection,
-    Write,
+use spartanport_launcher::core::patches::compiler::{
+    compile_patches, eboot_image, eboot_segments, Write,
 };
+use spartanport_launcher::core::patches::{apply, plan, External, PlanInput, Selection};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::pause_menu::{self, decode, MenuError, Op, Record, Script};
 use spartanport_launcher::runner::prepare::{prepare, read_self};

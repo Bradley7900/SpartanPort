@@ -22,7 +22,7 @@ use super::python::{py_hex, py_int, py_list, py_repr, python_json};
 use super::sfo::{read_sfo, SfoValue};
 
 /// Fixes with nothing to choose: not offered in the launcher and always applied.
-pub const ALWAYS_ON: &[&str] = &["Bug Fix - Startup Black Screen"];
+const ALWAYS_ON: &[&str] = &["Bug Fix - Startup Black Screen"];
 /// An older build's patch file, left in `patches/` by an update.
 const LEGACY_PATCH_FILE: &str = "God_of_War_III_Remastered.xml";
 
@@ -337,16 +337,22 @@ pub fn patch_status(out_dir: &Path) -> Option<PatchStatus> {
 
 // --- The compiler (Python `scripts/patches.py`)
 
+/// The compiler's pieces that `tests/dump.rs` calls to compare against the Python. Not part of
+/// the launcher's interface: `plan` and `apply` are.
+#[doc(hidden)]
+pub mod compiler {
+    pub use super::{compile_patches, eboot_image, eboot_segments, Write};
+}
+
 /// The PS4 address of the eboot's virtual address 0: patch addresses are PS4 addresses, image
 /// offsets are not.
-pub const EBOOT_BASE: u64 = 0x40_0000;
+const EBOOT_BASE: u64 = 0x40_0000;
 /// SHA-256 of the `eboot.bin` the built-in `Address` values and third-party patch files are
 /// written for.
-pub const REFERENCE_SHA256: &str =
-    "d85c8135d330c3b601bf5dc3f1dd86bd6119fb8a9fce372bed2c9785f9a79299";
+const REFERENCE_SHA256: &str = "d85c8135d330c3b601bf5dc3f1dd86bd6119fb8a9fce372bed2c9785f9a79299";
 /// The retail direct memory pool (`runtime_memory.c` `POOL_SIZE`): a note's "DMEM to N MB" is on
 /// top of it.
-pub const DMEM_RETAIL_MB: u64 = 5056;
+const DMEM_RETAIL_MB: u64 = 5056;
 /// The fix a resolution patch replaces: both resize the video arena.
 const REPLACED_BY_EXCLUSIVE: &[&str] = &[TEXTURE_FIX_PATCH];
 const PATCH_MAGIC: &[u8; 8] = b"G3PATCH2";
@@ -357,11 +363,11 @@ const BASE: i64 = EBOOT_BASE as i64;
 
 /// The virtual address range of an eboot `PT_LOAD` segment, `vaddr..vaddr + memsz` (`.bss`
 /// included): every patch write must fit inside one.
-pub type Segment = Range<u64>;
+type Segment = Range<u64>;
 
 /// Image offsets of a patch's named `Target`s. Offsets are signed because a hostile `At`, or an
 /// `Address` below [`EBOOT_BASE`], gives a negative one (that no segment holds).
-pub type Targets = HashMap<String, i64>;
+type Targets = HashMap<String, i64>;
 
 /// One write of `patches.bin`: `bytes` at image offset `address` (the PS4 address minus
 /// [`EBOOT_BASE`]).
@@ -373,7 +379,7 @@ pub struct Write {
 
 /// What the selected patches' notes ask the runtime for.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Requirements {
+struct Requirements {
     /// Direct memory in MiB: the retail pool plus the largest "DMEM to N MB" of the notes.
     pub dmem_mb: Option<u64>,
     /// The largest "VBlank to N FPS" of the notes.
@@ -600,7 +606,7 @@ pub fn eboot_image(elf: &[u8]) -> Result<Vec<u8>, PatchError> {
 
 /// A parsed `Pattern` attribute, with at least one fixed byte.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Pattern {
+struct Pattern {
     bytes: Vec<Option<u8>>,
     /// The longest run of fixed bytes (the first of equal ones): what is searched for.
     anchor: Range<usize>,
@@ -622,7 +628,7 @@ impl Pattern {
 }
 
 /// A signature such as `"48 8d 05 ?? ?? ?? ?? c3"`.
-pub fn parse_pattern(text: &str) -> Result<Pattern, PatchError> {
+fn parse_pattern(text: &str) -> Result<Pattern, PatchError> {
     let bytes = text
         .split_whitespace()
         .map(|token| {
@@ -688,7 +694,7 @@ impl<'a> Finder<'a> {
 }
 
 /// Image offsets where `pattern` matches, in order, at most `limit` of them.
-pub fn find_pattern(image: &[u8], pattern: &Pattern, limit: usize) -> Vec<u64> {
+fn find_pattern(image: &[u8], pattern: &Pattern, limit: usize) -> Vec<u64> {
     let anchor: Vec<u8> = pattern
         .bytes
         .get(pattern.anchor.clone())
@@ -717,7 +723,7 @@ pub fn find_pattern(image: &[u8], pattern: &Pattern, limit: usize) -> Vec<u64> {
 /// The image offset of a `Line`'s or `Target`'s site: its `Pattern` (found once) plus `At`; the
 /// reference build's `Address` without a pattern. A signature found no time or twice is a
 /// [`PatchError::Lookup`].
-pub fn locate(image: &[u8], element: roxmltree::Node, prefix: &str) -> Result<i64, PatchError> {
+fn locate(image: &[u8], element: roxmltree::Node, prefix: &str) -> Result<i64, PatchError> {
     let pattern = element
         .attribute(format!("{prefix}Pattern").as_str())
         .filter(|pattern| !pattern.is_empty());
@@ -770,7 +776,7 @@ fn python_index(items: &[i64], index: i64) -> Option<i64> {
 /// Image offsets of a patch's `Target`s: a line's site (`Line`, its index), a site of its own
 /// (`Pattern`/`At`), or the address a rip-relative or rel32 operand there points to (`Ref`: the
 /// operand is at the site; `Tail`: the instruction's bytes after it).
-pub fn resolve_targets(
+fn resolve_targets(
     image: &[u8],
     meta: roxmltree::Node,
     sites: &[i64],
@@ -804,7 +810,7 @@ pub fn resolve_targets(
 /// `value`'s hex bytes with each `{rel:NAME:TAIL}` replaced by the rel32 to target `NAME`,
 /// measured from the end of the instruction (`TAIL` bytes after the operand). `at` is where the
 /// bytes go.
-pub fn fill(value: &str, at: i64, targets: &Targets) -> Result<Vec<u8>, PatchError> {
+fn fill(value: &str, at: i64, targets: &Targets) -> Result<Vec<u8>, PatchError> {
     let value = value.replace(' ', "");
     let mut out = Vec::new();
     let mut rest = value.as_str();
@@ -847,7 +853,7 @@ pub fn fill(value: &str, at: i64, targets: &Targets) -> Result<Vec<u8>, PatchErr
 }
 
 /// A `Line`'s literal bytes: `bytes`, `bytes16/32/64`, `float32/64`, `utf8` and `utf16`.
-pub fn encode(line: roxmltree::Node) -> Result<Vec<u8>, PatchError> {
+fn encode(line: roxmltree::Node) -> Result<Vec<u8>, PatchError> {
     let kind = line.attribute("Type");
     let value = || {
         line.attribute("Value")
@@ -964,7 +970,7 @@ fn sites_of(
 }
 
 /// The writes of the named patches of `xml`, and the patches left out with the reason (a site
-/// not found once: the whole patch is left out). With the game's `image` each site is found by
+/// not found exactly once: the whole patch is left out). With the game's `image` each site is found by
 /// its signature (any build); without it, at the reference build's `Address`. `app_version`
 /// `None`: any version.
 pub fn compile_patches(
@@ -1054,7 +1060,7 @@ fn sfo_text(game: &Path, key: &str) -> Option<String> {
 }
 
 /// `APP_VER` of the game folder's `param.sfo` ("01.02"); `None` when it cannot be read.
-pub fn game_app_version(game: &Path) -> Option<String> {
+fn game_app_version(game: &Path) -> Option<String> {
     sfo_text(game, "APP_VER")
 }
 
@@ -1064,18 +1070,13 @@ pub fn game_title_id(game: &Path) -> Option<String> {
 }
 
 /// The patch profile of a game folder, by the title ID or the title of its `param.sfo`.
-pub fn game_profile_for(game: &Path) -> Option<&'static GameProfile> {
+fn game_profile_for(game: &Path) -> Option<&'static GameProfile> {
     let title = sfo_text(game, "TITLE");
     game_profile(game_title_id(game).as_deref(), title.as_deref())
 }
 
-/// Whether the built-in patches are tried on this game folder (any region and version).
-pub fn game_patchable(game: Option<&Path>) -> bool {
-    game.is_some_and(|game| !game.as_os_str().is_empty() && game_profile_for(game).is_some())
-}
-
 /// SHA-256 of the game folder's `eboot.bin`, hex; `None` when it cannot be read.
-pub fn eboot_sha256(game: &Path) -> Option<String> {
+fn eboot_sha256(game: &Path) -> Option<String> {
     let bytes = std::fs::read(game.join("eboot.bin")).ok()?;
     Some(
         Sha256::digest(&bytes)
@@ -1088,7 +1089,7 @@ pub fn eboot_sha256(game: &Path) -> Option<String> {
 // --- Selection
 
 /// Names of the patches the XML has for this app version, once each, in file order.
-pub fn available_patches(xml: &Path, app_version: &str) -> Result<Vec<String>, PatchError> {
+fn available_patches(xml: &Path, app_version: &str) -> Result<Vec<String>, PatchError> {
     let text = read_text(xml)?;
     let doc = parse(&text)?;
     let mut names: Vec<String> = Vec::new();
@@ -1104,7 +1105,7 @@ pub fn available_patches(xml: &Path, app_version: &str) -> Result<Vec<String>, P
 /// The file's `isEnabled` patches for this version, then the names in `extra`, then the
 /// [`ALWAYS_ON`] fixes. `only`: `extra` is the whole selection (the launcher's), without the
 /// file's defaults. A chosen resolution patch replaces the texture fix; two are an error.
-pub fn selected_patches(
+fn selected_patches(
     xml: &Path,
     app_version: &str,
     extra: &[String],
@@ -1159,7 +1160,7 @@ pub fn selected_patches(
 
 /// Names of the patches of these files that are on by default (`isEnabled`) for this app version;
 /// a file that cannot be read is left out.
-pub fn default_enabled(xmls: &[PathBuf], app_version: &str) -> Vec<String> {
+fn default_enabled(xmls: &[PathBuf], app_version: &str) -> Vec<String> {
     let mut names = Vec::new();
     for path in xmls {
         let Ok(text) = std::fs::read_to_string(path) else {
@@ -1192,7 +1193,7 @@ fn note_number(note: &str, before: &str, after: &str) -> Option<u64> {
 
 /// What the selected patches' notes ask for: shadPS4 notes say "Requires setting DMEM to N MB"
 /// (N on top of the retail pool) and "VBlank to N FPS".
-pub fn patch_requirements(
+fn patch_requirements(
     xml: &Path,
     names: &[String],
     app_version: &str,
@@ -1381,7 +1382,7 @@ fn ids_of(root: &Element) -> HashSet<String> {
 /// order). A patch with a name already there is replaced; a file for other titles is left out,
 /// and one that does not parse too, with a note in `log`. Written as the Python's ElementTree
 /// writes it, with LF line ends (the Python's text mode gives CRLF on Windows).
-pub fn merge_patch_files(
+fn merge_patch_files(
     base: &Path,
     extras: &[PathBuf],
     out: &Path,
@@ -1433,7 +1434,7 @@ pub fn merge_patch_files(
 
 /// The external patches that are on: `patches.json` (`config`, `{"enabled": [...], "disabled":
 /// [...]}`) overrides each file's `isEnabled`.
-pub fn external_selection(
+fn external_selection(
     found: &[(String, PathBuf, PatchMeta)],
     config: Option<&Path>,
 ) -> Result<Vec<(String, PathBuf, PatchMeta)>, PatchError> {
@@ -1487,7 +1488,7 @@ fn external_writes(
 
 /// The writes of the selected external patches; a patch with a line that cannot be written is
 /// skipped whole, with a note in `log`.
-pub fn compile_external(
+fn compile_external(
     selected: &[(String, PathBuf, PatchMeta)],
     app_version: &str,
     segments: &[Segment],
@@ -1521,7 +1522,7 @@ pub fn compile_external(
 /// Writes `out/patches.bin` (`G3PATCH2`): the patch base ([`EBOOT_BASE`], so the loader can rebase
 /// the pointers patches write into relocated slots), the count, then each write's image offset,
 /// length and bytes.
-pub fn write_patches(out: &Path, writes: &[Write]) -> io::Result<()> {
+fn write_patches(out: &Path, writes: &[Write]) -> io::Result<()> {
     let mut blob = PATCH_MAGIC.to_vec();
     blob.extend(EBOOT_BASE.to_le_bytes());
     blob.extend((writes.len() as u64).to_le_bytes());
@@ -1534,7 +1535,7 @@ pub fn write_patches(out: &Path, writes: &[Write]) -> io::Result<()> {
 }
 
 /// Writes `out/patch_status.json` as the Python's `json.dumps` of it.
-pub fn write_status(out: &Path, status: &PatchStatus) -> io::Result<()> {
+fn write_status(out: &Path, status: &PatchStatus) -> io::Result<()> {
     atomic_write(
         &out.join("patch_status.json"),
         python_json(status)?.as_bytes(),
@@ -1578,11 +1579,26 @@ pub struct External<'a> {
     pub config: &'a Path,
 }
 
+/// The patch file of a game with a profile.
+#[derive(Debug)]
+struct Profiled {
+    profile: &'static GameProfile,
+    /// The patch file the names come from (the built-in one, or the merge with the mods').
+    xml: PathBuf,
+}
+
+/// The third-party folder and its `patches.json`.
+#[derive(Debug)]
+struct ExternalFiles {
+    dir: PathBuf,
+    config: PathBuf,
+}
+
 /// The patches chosen for a game, ready to apply.
 #[derive(Debug)]
 pub struct PatchPlan {
-    /// The game's patch profile (`None`: nothing to apply).
-    profile: Option<&'static GameProfile>,
+    /// The game's patch profile and file (`None`: nothing to apply).
+    profiled: Option<Profiled>,
     /// The game's `TITLE_ID` and `APP_VER`, for the log.
     title_id: Option<String>,
     app_version: Option<String>,
@@ -1590,14 +1606,11 @@ pub struct PatchPlan {
     sha256: Option<String>,
     /// `out/`: receives `patches.bin` and `patch_status.json`.
     out: PathBuf,
-    /// The patch file the names come from (`None` without a profile).
-    xml: Option<PathBuf>,
     /// The patches to compile, in order.
     names: Vec<String>,
     /// What the launcher handed over, as `SPARTAN_PATCHES` carries it.
     launcher_list: Option<Vec<String>>,
-    /// The third-party folder and its `patches.json`.
-    external: Option<(PathBuf, PathBuf)>,
+    external: Option<ExternalFiles>,
 }
 
 impl PatchPlan {
@@ -1632,18 +1645,17 @@ pub fn plan(input: &PlanInput, log: &mut dyn io::Write) -> Result<PatchPlan, Pat
         app_version,
     } = facts(input.game);
     let mut plan = PatchPlan {
-        profile,
+        profiled: None,
         title_id,
         app_version,
         sha256: None,
         out: input.out.to_path_buf(),
-        xml: None,
         names: Vec::new(),
         launcher_list: None,
-        external: input
-            .external
-            .as_ref()
-            .map(|external| (external.dir.to_path_buf(), external.config.to_path_buf())),
+        external: input.external.as_ref().map(|external| ExternalFiles {
+            dir: external.dir.to_path_buf(),
+            config: external.config.to_path_buf(),
+        }),
     };
     let Some(profile) = profile else {
         return Ok(plan);
@@ -1683,7 +1695,7 @@ pub fn plan(input: &PlanInput, log: &mut dyn io::Write) -> Result<PatchPlan, Pat
             names
         }
     };
-    plan.xml = Some(xml);
+    plan.profiled = Some(Profiled { profile, xml });
     plan.names = names;
     Ok(plan)
 }
@@ -1743,7 +1755,7 @@ pub fn apply(
     }
     let out = &plan.out;
     let title = plan.title_id.as_deref().unwrap_or("None");
-    let (Some(profile), Some(xml)) = (plan.profile, &plan.xml) else {
+    let Some(Profiled { profile, xml }) = &plan.profiled else {
         write_patches(out, &[]).map_err(|error| with_path(out, error))?;
         let _ = writeln!(log, "Patches: no patch profile for {title}: none applied");
         return Ok(Applied {
@@ -1767,7 +1779,7 @@ pub fn apply(
     for (name, reason) in &skipped {
         let _ = writeln!(log, "Patches: {name} skipped ({reason} in this eboot.bin)");
     }
-    if let Some((dir, config)) = plan
+    if let Some(ExternalFiles { dir, config }) = plan
         .external
         .as_ref()
         .filter(|_| sha == Some(REFERENCE_SHA256))
@@ -2140,6 +2152,125 @@ mod compile_tests {
         game
     }
 
+    /// The plan of `patches.py` over the real built-in file for this game folder. `out/` is
+    /// beside the folder.
+    fn plan_of(
+        game: &Path,
+        mods: &[PathBuf],
+        extra: &[&str],
+        only: bool,
+        log: &mut Vec<u8>,
+    ) -> Result<PatchPlan, PatchError> {
+        let out = game.parent().unwrap().join("out");
+        fs::create_dir_all(&out).unwrap();
+        let builtin = repo("patches");
+        let extra = strings(extra);
+        let input = PlanInput {
+            game,
+            builtin_dir: &builtin,
+            out: &out,
+            mod_patches: mods,
+            selection: Selection::Script {
+                extra: &extra,
+                only,
+            },
+            external: None,
+        };
+        plan(&input, log)
+    }
+
+    /// The chosen names for CUSA01623 with the real built-in file and no mods.
+    fn chosen(extra: &[&str], only: bool) -> Vec<String> {
+        let dir = tempfile::tempdir().unwrap();
+        let game = game_folder(dir.path(), &[("TITLE_ID", "CUSA01623")]);
+        plan_of(&game, &[], extra, only, &mut Vec::new())
+            .unwrap()
+            .names
+    }
+
+    /// A start over this body of the built-in file, applied to the fixture's `eboot.elf`
+    /// (`out/` holds the results).
+    struct Run {
+        _dir: tempfile::TempDir,
+        out: PathBuf,
+        applied: Applied,
+    }
+
+    fn run_xml(body: &str, names: &[&str], eboot_bin: Option<&[u8]>) -> Run {
+        let input = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/runner/patches/input");
+        let dir = tempfile::tempdir().unwrap();
+        let game = game_folder(
+            dir.path(),
+            &[("TITLE_ID", "CUSA01623"), ("APP_VER", "01.02")],
+        );
+        if let Some(bytes) = eboot_bin {
+            fs::write(game.join("eboot.bin"), bytes).unwrap();
+        }
+        let builtin = dir.path().join("patches");
+        fs::create_dir_all(&builtin).unwrap();
+        fs::write(
+            builtin.join("CUSA01623.xml"),
+            format!("<Patch><TitleID><ID>CUSA01623</ID></TitleID>{body}</Patch>"),
+        )
+        .unwrap();
+        let out = dir.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        fs::copy(input.join("eboot.elf"), out.join("eboot.elf")).unwrap();
+        let extra = strings(names);
+        let input = PlanInput {
+            game: &game,
+            builtin_dir: &builtin,
+            out: &out,
+            mod_patches: &[],
+            selection: Selection::Script {
+                extra: &extra,
+                only: true,
+            },
+            external: None,
+        };
+        let planned = plan(&input, &mut Vec::new()).unwrap();
+        let applied = apply(&planned, &out.join("eboot.elf"), &mut Vec::new()).unwrap();
+        Run {
+            _dir: dir,
+            out,
+            applied,
+        }
+    }
+
+    /// `(Name, Note)` patches whose one site the fixture's `eboot.elf` holds.
+    fn found_patches(metas: &[(String, String)]) -> String {
+        let attribute = |text: &str| {
+            text.replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('"', "&quot;")
+        };
+        metas
+            .iter()
+            .map(|(name, note)| {
+                format!(
+                    r#"<Metadata Name="{}" Note="{}" AppVer="01.02"><PatchList><Line Type="bytes" Address="0x401004" Value="9090" Pattern="11 22 ?? 44 55 66" At="1"/></PatchList></Metadata>"#,
+                    attribute(name),
+                    attribute(note)
+                )
+            })
+            .collect()
+    }
+
+    /// The `(address, bytes)` entries of a `patches.bin`, after checking its header.
+    fn entries(bin: &[u8]) -> Vec<(u64, Vec<u8>)> {
+        assert_eq!(&bin[..8], b"G3PATCH2");
+        let word = |at: usize| u64::from_le_bytes(bin[at..at + 8].try_into().unwrap());
+        assert_eq!(word(8), 0x40_0000);
+        let (mut at, mut found) = (24, Vec::new());
+        for _ in 0..word(16) {
+            let size = word(at + 8) as usize;
+            found.push((word(at), bin[at + 16..at + 16 + size].to_vec()));
+            at += 16 + size;
+        }
+        assert_eq!(at, bin.len());
+        found
+    }
+
     // --- ExternalPatchTests
 
     const EXTERNAL: &str = r#"<?xml version="1.0"?>
@@ -2284,11 +2415,8 @@ mod compile_tests {
 
     #[test]
     fn spartanport_defaults_and_extras() {
-        let select = |extra: &[&str], version: &str, only: bool| {
-            selected_patches(&spartan(), version, &strings(extra), only).unwrap()
-        };
         assert_eq!(
-            select(&[], "01.02", false),
+            chosen(&[], false),
             [
                 "Bug Fix - Texture Corruption Fix",
                 "Skip Any Video With X Button",
@@ -2296,9 +2424,8 @@ mod compile_tests {
             ]
         );
         assert_eq!(
-            select(
+            chosen(
                 &["Resolution Patch - 720p", " Skip Any Video With X Button"],
-                "01.02",
                 false
             ),
             [
@@ -2307,41 +2434,38 @@ mod compile_tests {
                 "Resolution Patch - 720p"
             ]
         );
-        assert!(select(&[], "01.00", false).is_empty());
         // The launcher's selection is exact: unchecked defaults stay off, except the fixes that
         // are always on (a list saved before they existed must still get them).
         assert_eq!(
-            select(&["Skip Any Video With X Button"], "01.02", true),
+            chosen(&["Skip Any Video With X Button"], true),
             [
                 "Skip Any Video With X Button",
                 "Bug Fix - Startup Black Screen"
             ]
         );
-        assert_eq!(
-            select(&[""], "01.02", true),
-            ["Bug Fix - Startup Black Screen"]
-        );
-        assert!(select(&[], "01.00", true).is_empty());
+        assert_eq!(chosen(&[""], true), ["Bug Fix - Startup Black Screen"]);
+        // The plan always asks for the profile's version; another build has no patches.
+        for only in [false, true] {
+            assert!(selected_patches(&spartan(), "01.00", &[], only)
+                .unwrap()
+                .is_empty());
+        }
     }
 
     #[test]
     fn spartanport_resolution_patch_replaces_texture_fix() {
         assert_eq!(
-            selected_patches(
-                &spartan(),
-                "01.02",
-                &strings(&["Resolution Patch - 4K"]),
-                false
-            )
-            .unwrap(),
+            chosen(&["Resolution Patch - 4K"], false),
             [
                 "Skip Any Video With X Button",
                 "Bug Fix - Startup Black Screen",
                 "Resolution Patch - 4K"
             ]
         );
-        let two = strings(&["Resolution Patch - 4K", "Resolution Patch - 720p"]);
-        match selected_patches(&spartan(), "01.02", &two, false) {
+        let dir = tempfile::tempdir().unwrap();
+        let game = game_folder(dir.path(), &[("TITLE_ID", "CUSA01623")]);
+        let two = ["Resolution Patch - 4K", "Resolution Patch - 720p"];
+        match plan_of(&game, &[], &two, false, &mut Vec::new()) {
             Err(PatchError::Invalid(text)) => assert_eq!(
                 text,
                 "choose one resolution patch, not ['Resolution Patch - 4K', 'Resolution Patch - 720p']"
@@ -2371,17 +2495,20 @@ mod compile_tests {
         // The project name is not a game title.
         assert!(game_profile(Some("CUSA99999"), Some("SpartanPort")).is_none());
         assert!(game_profile(Some("CUSA99999"), Some("Another Game")).is_none());
+        // The plan finds the profile of a game folder by the same rules.
         let dir = tempfile::tempdir().unwrap();
         let game = game_folder(
             dir.path(),
             &[("TITLE_ID", "CUSA77777"), ("TITLE", "God of War III")],
         );
-        assert!(game_patchable(Some(&game)));
-        assert!(!game_patchable(None));
+        let planned = plan_of(&game, &[], &[], false, &mut Vec::new()).unwrap();
+        assert!(planned.profiled.is_some());
         // No param.sfo: unknown game.
         let empty = dir.path().join("empty");
         fs::create_dir_all(&empty).unwrap();
-        assert!(!game_patchable(Some(&empty)));
+        let planned = plan_of(&empty, &[], &[], false, &mut Vec::new()).unwrap();
+        assert!(planned.profiled.is_none());
+        assert!(planned.names.is_empty());
     }
 
     // --- SignatureTests
@@ -2694,10 +2821,22 @@ mod compile_tests {
 
     #[test]
     fn requirements_from_patch_notes() {
-        // Notes ask for extra direct memory (shadPS4 "DMEM") and a VBlank rate.
+        // Notes ask for extra direct memory (shadPS4 "DMEM") and a VBlank rate: the notes of the
+        // real built-in file, on patches whose site is found, applied by name.
+        let text = fs::read_to_string(spartan()).unwrap();
+        let doc = parse(&text).unwrap();
+        let metas: Vec<(String, String)> = metadata(&doc)
+            .map(|meta| {
+                (
+                    meta.attribute("Name").unwrap_or_default().to_string(),
+                    meta.attribute("Note").unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        let body = found_patches(&metas);
         let needs = |names: &[&str]| {
-            let found = patch_requirements(&spartan(), &strings(names), "01.02").unwrap();
-            (found.dmem_mb, found.vblank_hz)
+            let applied = run_xml(&body, names, None).applied;
+            (applied.dmem_mb, applied.vblank_hz)
         };
         assert_eq!(
             needs(&["Resolution Patch - 4K", "Skip Any Video With X Button"]),
@@ -2764,18 +2903,21 @@ mod compile_tests {
     #[test]
     fn merge_adds_replaces_and_skips_other_titles() {
         let dir = tempfile::tempdir().unwrap();
+        let game = game_folder(dir.path(), &[("TITLE_ID", "CUSA01623")]);
         let other = dir.path().join("other.xml");
         fs::write(&other, OTHER_GAME).unwrap();
-        let merged = dir.path().join("out").join("merged.xml");
-        merge_patch_files(
-            &spartan(),
+        let wanted = "Resolution Patch - 3440x1440";
+        let planned = plan_of(
+            &game,
             &[mod_file(dir.path()), other],
-            &merged,
+            &[wanted],
+            true,
             &mut Vec::new(),
         )
         .unwrap();
+        let merged = dir.path().join("out").join("patches-merged.xml");
         let names = metadata_names(&merged);
-        assert!(names.iter().any(|n| n == "Resolution Patch - 3440x1440"));
+        assert!(names.iter().any(|n| n == wanted));
         assert!(!names.iter().any(|n| n == "Elsewhere"));
         // Replaced, not repeated.
         let skip = "Skip Any Video With X Button";
@@ -2787,28 +2929,19 @@ mod compile_tests {
             .and_then(|m| m.attribute("Note"));
         assert_eq!(note, Some("replaced by the mod"));
         // The built-in patches are all still there, and the merged file is selectable like the
-        // original.
+        // original (the startup fix is always added).
         for name in metadata_names(&spartan()) {
             assert!(name == skip || names.contains(&name), "{name}");
         }
-        let chosen = selected_patches(
-            &merged,
-            "01.02",
-            &strings(&["Resolution Patch - 3440x1440"]),
-            true,
-        )
-        .unwrap();
-        // (the startup fix is always added)
-        assert!(chosen.iter().any(|n| n == "Resolution Patch - 3440x1440"));
-        assert!(!chosen.iter().any(|n| n == "Resolution Patch - 2560x1080"));
+        assert!(planned.names.iter().any(|n| n == wanted));
+        assert!(!planned
+            .names
+            .iter()
+            .any(|n| n == "Resolution Patch - 2560x1080"));
         assert_eq!(
-            patch_requirements(
-                &merged,
-                &strings(&["Resolution Patch - 3440x1440"]),
-                "01.02"
-            )
-            .unwrap()
-            .dmem_mb,
+            patch_requirements(&merged, &strings(&[wanted]), "01.02")
+                .unwrap()
+                .dmem_mb,
             Some(5056 + 4608)
         );
     }
@@ -2816,17 +2949,12 @@ mod compile_tests {
     #[test]
     fn a_broken_mod_file_is_left_out() {
         let dir = tempfile::tempdir().unwrap();
+        let game = game_folder(dir.path(), &[("TITLE_ID", "CUSA01623")]);
         let broken = dir.path().join("broken.xml");
         fs::write(&broken, "<Patch><Metadata").unwrap();
-        let merged = dir.path().join("merged.xml");
         let mut log = Vec::new();
-        merge_patch_files(
-            &spartan(),
-            &[broken, mod_file(dir.path())],
-            &merged,
-            &mut log,
-        )
-        .unwrap();
+        plan_of(&game, &[broken, mod_file(dir.path())], &[], false, &mut log).unwrap();
+        let merged = dir.path().join("out").join("patches-merged.xml");
         assert!(metadata_names(&merged)
             .iter()
             .any(|n| n == "Resolution Patch - 2560x1080"));
@@ -2837,12 +2965,42 @@ mod compile_tests {
 
     #[test]
     fn default_enabled_patches_of_a_mod() {
+        // A launcher selection that lists nothing still gets the mod's default patch.
         let dir = tempfile::tempdir().unwrap();
+        let game = game_folder(dir.path(), &[("TITLE_ID", "CUSA01623")]);
         let path = mod_file(dir.path());
-        assert_eq!(
-            default_enabled(std::slice::from_ref(&path), "01.02"),
-            ["Skip Any Video With X Button"]
-        );
+        let out = dir.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        let builtin = repo("patches");
+        let graphics = Options {
+            render_resolution: "native".to_string(),
+            engine_fps: "60".to_string(),
+            deferred_readback: "1".to_string(),
+            stale_readback: "1".to_string(),
+            async_shaders: "1".to_string(),
+        };
+        let input = PlanInput {
+            game: &game,
+            builtin_dir: &builtin,
+            out: &out,
+            mod_patches: std::slice::from_ref(&path),
+            selection: Selection::Launch {
+                chosen: &[],
+                only: true,
+                graphics: &graphics,
+            },
+            external: None,
+        };
+        let planned = plan(&input, &mut Vec::new()).unwrap();
+        assert!(planned
+            .names
+            .iter()
+            .any(|n| n == "Skip Any Video With X Button"));
+        assert!(!planned
+            .names
+            .iter()
+            .any(|n| n == "Resolution Patch - 2560x1080"));
+        // Another build has none (the plan always asks for the profile's version).
         assert!(default_enabled(&[path], "01.00").is_empty());
     }
 
@@ -3137,44 +3295,46 @@ mod compile_tests {
 
     #[test]
     fn write_patches_writes_the_g3patch2_layout() {
-        let dir = tempfile::tempdir().unwrap();
-        let writes = [
-            Write {
-                address: 0x41,
-                bytes: vec![0x90, 0x90],
-            },
-            Write {
-                address: 0x3f0,
-                bytes: vec![2, 0, 0, 0],
-            },
-        ];
-        write_patches(dir.path(), &writes).unwrap();
+        // The fixture's `Found` (2 bytes) and `Data` (4 bytes) sites, in the order of the names.
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/runner/patches");
+        let fixture = entries(&fs::read(fixtures.join("expected").join("patches.bin")).unwrap());
+        let xml = fs::read_to_string(fixtures.join("input").join("patches.xml")).unwrap();
+        let (_, body) = xml.split_once("</TitleID>").unwrap();
+        let body = body.trim_end().trim_end_matches("</Patch>");
+        let run = run_xml(body, &["Found", "Data"], None);
+        let bin = fs::read(run.out.join("patches.bin")).unwrap();
+        let want = [fixture[0].clone(), fixture[2].clone()];
+        assert_eq!(want[0].1, [0x90, 0x90]);
+        assert_eq!(want[1].1, [2, 0, 0, 0]);
         let mut expected = b"G3PATCH2".to_vec();
-        for value in [0x40_0000u64, 2, 0x41, 2] {
+        for value in [0x40_0000u64, 2] {
             expected.extend(value.to_le_bytes());
         }
-        expected.extend([0x90, 0x90]);
-        for value in [0x3f0u64, 4] {
-            expected.extend(value.to_le_bytes());
+        for (address, bytes) in &want {
+            expected.extend(address.to_le_bytes());
+            expected.extend((bytes.len() as u64).to_le_bytes());
+            expected.extend(bytes);
         }
-        expected.extend([2, 0, 0, 0]);
-        assert_eq!(fs::read(dir.path().join("patches.bin")).unwrap(), expected);
+        assert_eq!(bin, expected);
+        assert_eq!(entries(&bin), want);
     }
 
     #[test]
     fn write_status_is_pythons_json_dumps() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut status = PatchStatus {
-            applied: strings(&["A", "\u{dc}n\u{ef} \u{1f600}", "q\"\\"]),
-            skipped: reasons(&[("C\u{7f}", "signature not found\n")]),
-            ..PatchStatus::default()
-        };
-        write_status(dir.path(), &status).unwrap();
-        let path = dir.path().join("patch_status.json");
+        let metas = [("A", ""), ("\u{dc}n\u{ef} \u{1f600}", ""), ("q\"\\", "")]
+            .map(|(name, note)| (name.to_string(), note.to_string()));
+        let mut body = found_patches(&metas);
+        // A patch the eboot does not hold.
+        body.push_str(
+            r#"<Metadata Name="C&#x7f;" AppVer="01.02"><PatchList><Line Type="bytes" Address="0x401020" Value="90" Pattern="de ad be ef" At="0"/></PatchList></Metadata>"#,
+        );
+        let names = ["A", "\u{dc}n\u{ef} \u{1f600}", "q\"\\", "C\u{7f}"];
+        let run = run_xml(&body, &names, None);
+        let path = run.out.join("patch_status.json");
         // json.dumps(...) of the Python, ensure_ascii and its ", " and ": " separators.
         let escape = |hex: &str| format!("{}u{hex}", '\\');
         let expected = format!(
-            r#"{{"sha256": null, "applied": ["A", "{}n{} {}{}", "q\"\\"], "skipped": {{"C{}": "signature not found\n"}}}}"#,
+            r#"{{"sha256": null, "applied": ["A", "{}n{} {}{}", "q\"\\"], "skipped": {{"C{}": "signature not found"}}}}"#,
             escape("00dc"),
             escape("00ef"),
             escape("d83d"),
@@ -3182,23 +3342,45 @@ mod compile_tests {
             escape("007f")
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), expected);
-        assert_eq!(patch_status(dir.path()), Some(status.clone()));
-        // Only the Python's three keys.
-        status.sha256 = Some("ab".to_string());
-        write_status(dir.path(), &status).unwrap();
-        let written = fs::read_to_string(&path).unwrap();
+        let status = run.applied.status.unwrap();
+        assert_eq!(patch_status(&run.out), Some(status));
+        // With an eboot.bin the sha256 is set, and it is the only other key.
+        let run = run_xml(&body, &names, Some(b"eboot"));
+        let sha: String = Sha256::digest(b"eboot")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let written = fs::read_to_string(run.out.join("patch_status.json")).unwrap();
         assert!(
-            written.starts_with(r#"{"sha256": "ab", "applied": ["#),
+            written.starts_with(&format!(r#"{{"sha256": "{sha}", "applied": ["#)),
             "{written}"
         );
-        assert!(written.ends_with(r#"\n"}}"#), "{written}");
-        assert_eq!(patch_status(dir.path()), Some(status));
+        assert_eq!(patch_status(&run.out), run.applied.status);
     }
 
     #[test]
     fn merge_writes_what_elementtree_writes() {
         let dir = tempfile::tempdir().unwrap();
-        let base = dir.path().join("base.xml");
+        let game = game_folder(dir.path(), &[("TITLE_ID", "CUSA01623")]);
+        let builtin = dir.path().join("patches");
+        fs::create_dir_all(&builtin).unwrap();
+        let base = builtin.join("CUSA01623.xml");
+        let out = dir.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        let merge = |mods: &[PathBuf], log: &mut Vec<u8>| {
+            let input = PlanInput {
+                game: &game,
+                builtin_dir: &builtin,
+                out: &out,
+                mod_patches: mods,
+                selection: Selection::Script {
+                    extra: &[],
+                    only: true,
+                },
+                external: None,
+            };
+            plan(&input, log)
+        };
         fs::write(
             &base,
             r#"<?xml version="1.0"?>
@@ -3232,9 +3414,9 @@ mod compile_tests {
              </Patch>",
         )
         .unwrap();
-        let out = dir.path().join("out").join("merged.xml");
+        let merged = out.join("patches-merged.xml");
         let mut log = Vec::new();
-        merge_patch_files(&base, &[extra], &out, &mut log).unwrap();
+        merge(std::slice::from_ref(&extra), &mut log).unwrap();
         // What the Python wrote for these two files (its CRLF of Windows' text mode as LF).
         let expected = "<?xml version='1.0' encoding='utf-8'?>\n<Patch>\n  <TitleID>\n    \
             <ID>CUSA01623</ID>\n  </TitleID>\n  <Metadata Name=\"Keep &amp; &lt;go&gt;\" \
@@ -3245,7 +3427,7 @@ mod compile_tests {
             AppVer=\"01.02\" Note=\"new \u{fc}\u{2122}\">\n    <PatchList>\n      <Line \
             Type=\"bytes\" Address=\"0x401001\" Value=\"91\" />\n    </PatchList>\n  </Metadata>\n  \
             <Metadata Name=\"Added\" AppVer=\"01.02\" />\n</Patch>";
-        assert_eq!(fs::read_to_string(&out).unwrap(), expected);
+        assert_eq!(fs::read_to_string(&merged).unwrap(), expected);
         assert_eq!(
             String::from_utf8(log).unwrap(),
             "Patches: Replaced from the mod file Thing/mod.xml\n\
@@ -3253,7 +3435,7 @@ mod compile_tests {
         );
         // A base the Python cannot parse stops the merge.
         fs::write(&base, "<Patch>").unwrap();
-        let result = merge_patch_files(&base, &[], &out, &mut Vec::new());
+        let result = merge(&[extra], &mut Vec::new());
         assert!(matches!(result, Err(PatchError::Xml(_))));
     }
 
@@ -3695,7 +3877,9 @@ mod plan_tests {
         );
         assert!(!plan.names.contains(&"Mod Off".to_string()));
         assert_eq!(
-            plan.xml.as_deref(),
+            plan.profiled
+                .as_ref()
+                .map(|profiled| profiled.xml.as_path()),
             Some(setup.out.join("patches-merged.xml").as_path())
         );
     }
