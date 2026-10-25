@@ -361,6 +361,8 @@ private:
     template <typename T = IR::U64>
     [[nodiscard]] T GetSrc64(const InstOperand& operand);
     [[nodiscard]] IR::F32 GetSrcMix(const InstOperand& operand);
+    /// f32 -> f16 bits in the low half of a u32, without Float16 when the GPU lacks it.
+    [[nodiscard]] IR::U32 F32ToF16Bits(const IR::F32& value);
     template <typename T = IR::U32, bool is_signed = false>
     [[nodiscard]] pk_type<T> GetSrcPk(const InstOperand& operand);
     void SetDst(const InstOperand& operand, const IR::U32F32& value);

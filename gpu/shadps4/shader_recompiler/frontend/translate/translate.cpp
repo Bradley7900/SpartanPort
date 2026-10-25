@@ -1014,7 +1014,7 @@ void Translator::SetDst16(const InstOperand& operand, const IR::U32F32& value) {
 
     const auto cast = [&](auto value) -> IR::U32 {
         if (value.Type() == IR::Type::F32) {
-            return ir.UConvert(32, ir.BitCast<IR::U16>(IR::F16{ir.FPConvert(16, value)}));
+            return F32ToF16Bits(IR::F32{value});
         } else if (value.Type() == IR::Type::U32) {
             return value;
         } else {

@@ -931,20 +931,20 @@ void Translator::V_CVT_I32_F32(const GcnInst& inst) {
     SetDst(inst.dst[0], ir.ConvertFToS(32, src0));
 }
 
+IR::U32 Translator::F32ToF16Bits(const IR::F32& value) {
+    if (profile.support_float16) {
+        const IR::F16 converted = ir.FPConvert(16, value);
+        return ir.UConvert(32, ir.BitCast<IR::U16>(converted));
+    }
+    // No shaderFloat16: packHalf2x16 is core GLSL.std.450 and needs no Float16 capability.
+    const IR::U32 packed =
+        ir.Pack2x16(AmdGpu::NumberFormat::Float, ir.CompositeConstruct(value, ir.Imm32(0.f)));
+    return ir.BitFieldExtract(packed, ir.Imm32(0U), ir.Imm32(16U));
+}
+
 void Translator::V_CVT_F16_F32(const GcnInst& inst) {
     const IR::F32 src0 = GetSrc<IR::F32>(inst.src[0]);
-
-    IR::U32 src0fp16;
-    if (profile.support_float16) {
-        const IR::F16 converted = ir.FPConvert(16, src0);
-        src0fp16 = ir.UConvert(32, ir.BitCast<IR::U16>(converted));
-    } else {
-        const IR::U32 packed =
-            ir.Pack2x16(AmdGpu::NumberFormat::Float, ir.CompositeConstruct(src0, ir.Imm32(0.f)));
-        src0fp16 = ir.BitFieldExtract(packed, ir.Imm32(0U), ir.Imm32(16U));
-    }
-
-    SetDst(inst.dst[0], src0fp16);
+    SetDst(inst.dst[0], F32ToF16Bits(src0));
 }
 
 void Translator::V_CVT_F32_F16(const GcnInst& inst) {
@@ -1933,12 +1933,10 @@ void Translator::V_MAD_MIXLO_F16(const GcnInst& inst) {
     const auto src2 = GetSrcMix(inst.src[2]);
 
     const IR::F32 result = ir.FPAdd(ir.FPMul(src0, src1), src2);
-    const IR::F16 result_f16 = ir.FPConvert(16, result);
-    const IR::U16 result_f16_u16 = ir.BitCast<IR::U16, IR::F16>(result_f16);
 
     const IR::U32 old_value{GetSrc(inst.dst[0])};
     const IR::U32 new_value{
-        ir.BitFieldInsert(old_value, ir.UConvert(32, result_f16_u16), ir.Imm32(0U), ir.Imm32(16U))};
+        ir.BitFieldInsert(old_value, F32ToF16Bits(result), ir.Imm32(0U), ir.Imm32(16U))};
     SetDst(inst.dst[0], new_value);
 }
 
@@ -1948,12 +1946,10 @@ void Translator::V_MAD_MIXHI_F16(const GcnInst& inst) {
     const auto src2 = GetSrcMix(inst.src[2]);
 
     const IR::F32 result = ir.FPAdd(ir.FPMul(src0, src1), src2);
-    const IR::F16 result_f16 = ir.FPConvert(16, result);
-    const IR::U16 result_f16_u16 = ir.BitCast<IR::U16, IR::F16>(result_f16);
 
     const IR::U32 old_value{GetSrc(inst.dst[0])};
-    const IR::U32 new_value{ir.BitFieldInsert(old_value, ir.UConvert(32, result_f16_u16),
-                                              ir.Imm32(16U), ir.Imm32(16U))};
+    const IR::U32 new_value{
+        ir.BitFieldInsert(old_value, F32ToF16Bits(result), ir.Imm32(16U), ir.Imm32(16U))};
     SetDst(inst.dst[0], new_value);
 }
 
