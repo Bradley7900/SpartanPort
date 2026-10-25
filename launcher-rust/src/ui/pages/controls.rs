@@ -63,6 +63,16 @@ pub const ACTION_NAMES: &[(&str, &str)] = &[
     ("rage", "Rage of Sparta"),
     ("grab", "Grab"),
     ("dodge", "Dodge"),
+    ("weapon_next", "Next weapon"),
+    ("weapon_prev", "Previous weapon"),
+    ("move_up", "Move forward"),
+    ("move_down", "Move backward"),
+    ("move_left", "Move left"),
+    ("move_right", "Move right"),
+    ("look_up", "Right stick up"),
+    ("look_down", "Right stick down"),
+    ("look_left", "Right stick left"),
+    ("look_right", "Right stick right"),
 ];
 
 /// The controller types, in `PAD_STYLES` order; the names are not translated.
@@ -74,8 +84,8 @@ pub const PAD_STYLE_NAMES: &[(&str, &str)] = &[
 
 const GLYPH_HINT: &str = "Replaces the PlayStation button icons inside the game with the ones of your controller. Works on a copy of up to three game files in the port's data folder (about 410 MB); your game folder is never changed. Applied when the game starts.";
 const RAGE_CHECK: &str = "Rage of Sparta on one input (L3 + R3 together)";
-const KEY_NOTE: &str = "Click a box, then press a key, click a mouse button or turn the wheel (it gives up after {} seconds). An input already used by another button swaps with it; the arrow puts one button back on its default. Rage of Sparta presses L3 and R3 together: tick the box above it to use one input instead of two. Grab presses L1 and Circle together. Dodge evades the way you are moving (WASD), or back when standing still. Touchpad right opens the game's pause menu. Insert always opens the port's menu and cannot be bound. Applied when the game starts.";
-const STICK_HINT: &str = "How the stick-rotation prompts are answered. Keyboard: type the turn instead, half turns from the top D S A (clockwise) or A S D, from the bottom A W D or D W A, full turns D S A W or A S D W; a key out of turn starts again. Adaptive mouse: draw the turn with the mouse.";
+const KEY_NOTE: &str = "Click a box, then press a key, click a mouse button or turn the wheel (it gives up after {} seconds). An input already used by another button swaps with it; the arrow puts one button back on its default. Rage of Sparta presses L3 and R3 together: tick the box above it to use one input instead of two. Grab presses L1 and Circle together. Dodge evades the way you are moving, or back when standing still. Touchpad right opens the game's pause menu. Insert always opens the port's menu and cannot be bound. Applied when the game starts.";
+const STICK_HINT: &str = "Keyboard: enter the rotation with your movement inputs. With default keys, the sequences are A W D / D W A, D S A / A S D and D S A W / A S D W. Remapping movement changes these inputs too. Adaptive mouse: draw the turn with the mouse.";
 const DISTANCE_HINT: &str =
     "Adaptive mouse: how far the mouse moves for one step of a rotation. Also in the in-game menu.";
 const AIM_STYLE_HINT: &str = "Aiming with the mouse while L2 is held (Head of Helios, Bow of Apollo). Relative: the stick follows the movement and goes back to neutral when the mouse stops. Absolute: where the mouse was when L2 was pressed is the centre, and the stick points from it to the mouse. Also in the in-game menu.";
@@ -196,6 +206,8 @@ pub enum ControlsMessage {
     CaptureTimeout,
     /// The arrow of a row: that button back on its default.
     ResetKey(String),
+    /// "Clear input" of a row: that button on no input.
+    Clear(String),
     ResetTable(Kind),
     PadStyle(String),
     /// A gamepad box: the game button and the SDL gamepad button chosen for it.
@@ -233,6 +245,9 @@ pub fn update(state: &mut State, message: ControlsMessage) -> Task<Message> {
                 let default = default_input(row, Kind::Key).unwrap_or_default();
                 bind_key(&mut state.controls.key, &button, default);
             }
+        }
+        ControlsMessage::Clear(button) => {
+            bind_key(&mut state.controls.key, &button, "None");
         }
         ControlsMessage::ResetTable(kind) => {
             let values = match kind {
@@ -494,6 +509,11 @@ fn named_key(named: Named, location: Location) -> Option<String> {
     Some(name.to_string())
 }
 
+/// The id of the "Clear input" button of a keyboard row.
+pub fn clear_id(button: &str) -> iced::widget::Id {
+    iced::widget::Id::from(format!("controls-clear: {button}"))
+}
+
 /// The English name of a game button or action, which is also the translation key.
 fn button_name(button: &'static str) -> &'static str {
     PS_BUTTON_NAMES
@@ -504,12 +524,15 @@ fn button_name(button: &'static str) -> &'static str {
 }
 
 /// The game button's icon as `(icon, style)`: its PlayStation button, a pill for the two-button
-/// actions (Rage of Sparta, Grab), the right stick labelled RS for Dodge.
+/// actions (Rage of Sparta, Grab), a D-pad pill for the weapon cycle, the left stick for the
+/// movement rows and the right stick labelled RS for Dodge and the look rows.
 fn game_icon(button: &str) -> (&'static str, &'static str) {
     match (game_button(button), button) {
         (Some(sdl), _) => (sdl, "playstation"),
         (None, "rage") => ("label:L3+R3", "playstation"),
         (None, "grab") => ("label:L1+O", "playstation"),
+        (None, "weapon_next" | "weapon_prev") => ("label:D-PAD", "playstation"),
+        (None, move_stick) if move_stick.starts_with("move_") => ("leftstick", "xbox"),
         _ => ("rightstick", "xbox"),
     }
 }
@@ -703,22 +726,25 @@ fn reset_button<'a>(state: &State, label: String, kind: Kind) -> Element<'a, Mes
     .into()
 }
 
-fn key_line<'a>(row: KeyRow) -> Element<'a, Message> {
+fn key_line<'a>(row: KeyRow, lang: &str) -> Element<'a, Message> {
     let (icon, style) = game_icon(row.button);
     let mut input = button(text(row.input))
         .width(BOX_WIDTH)
         .style(theme::button_flat);
     let mut reset = button(text("\u{21a9}")).style(theme::button_flat);
+    let mut clear = button(text(tr(lang, "Clear input"))).style(theme::button_flat);
     if row.enabled {
         let button = row.button.to_string();
         input = input.on_press(Message::Controls(ControlsMessage::Capture(button.clone())));
-        reset = reset.on_press(Message::Controls(ControlsMessage::ResetKey(button)));
+        reset = reset.on_press(Message::Controls(ControlsMessage::ResetKey(button.clone())));
+        clear = clear.on_press(Message::Controls(ControlsMessage::Clear(button)));
     }
     layout![
         button_icon(icon, style, ICON_SIZE),
         text(row.title).width(Fill),
         input,
         reset,
+        container(clear).id(clear_id(row.button)),
     ]
     .spacing(10)
     .align_y(Center)
@@ -768,7 +794,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
                 None,
             ));
         }
-        lines = lines.push(key_line(key_row));
+        lines = lines.push(key_line(key_row, lang));
     }
     let aim_style = state.store.text("mouse_aim_style");
     column![

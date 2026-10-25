@@ -1384,16 +1384,46 @@ fn the_keyboard_reset_works_in_the_window_as_it_opens() {
         app::view(&state),
     );
     ui.point_at(iced::Point::new(300.0, 500.0));
-    let _ = ui.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled {
-        delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -1100.0 },
-    })]);
-    ui.click("Reset keyboard & mouse to defaults").unwrap();
+    // Scroll until the button is in view, whatever the number of rows above it.
+    let mut scrolls = 0;
+    while ui.click("Reset keyboard & mouse to defaults").is_err() {
+        scrolls += 1;
+        assert!(scrolls <= 40, "the reset button never came into view");
+        let _ = ui.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -300.0 },
+        })]);
+    }
     let sent: Vec<Message> = ui.into_messages().collect();
     for message in sent {
         let _ = app::update(&mut state, message);
     }
     assert_eq!(state.controls.key["cross"], "Space");
     assert!(spartanport_launcher::ui::persist::dirty(&state));
+}
+
+#[test]
+fn clear_input_unbinds_one_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = controls_state(dir.path());
+    let before = state.controls.key.clone();
+    assert_eq!(before["rage"], "F");
+    let mut ui = iced_test::simulator::Simulator::with_size(
+        iced::Settings::default(),
+        iced::Size::new(1280.0, 4000.0),
+        app::view(&state),
+    );
+    ui.click(iced_test::selector::id(controls::clear_id("rage")))
+        .unwrap();
+    let sent: Vec<Message> = ui.into_messages().collect();
+    for message in sent {
+        let _ = app::update(&mut state, message);
+    }
+    assert_eq!(state.controls.key["rage"], "None");
+    for (button, input) in &before {
+        if button != "rage" {
+            assert_eq!(&state.controls.key[button], input, "{button}");
+        }
+    }
 }
 
 #[test]
