@@ -10,7 +10,7 @@ use serde::ser::Serializer;
 use serde::Serialize;
 
 use crate::core::fs::atomic_write;
-use crate::core::patches::ensure_ascii;
+use crate::core::python::ensure_ascii;
 use crate::core::sfo::{load_sfo, SfoError, SfoReadError, SfoValue};
 
 const MAGIC: &[u8; 8] = b"G3CONT01";

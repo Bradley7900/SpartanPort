@@ -13,16 +13,16 @@ use serde_json::{Map, Value};
 use crate::core::catalog::setting;
 use crate::core::fs::atomic_write;
 use crate::core::ini::{read_ini, save_ini};
-use crate::core::options::{ENGINE_FPS_CHOICES, RESOLUTIONS};
-use crate::core::patches::ensure_ascii;
+use crate::core::options::{
+    ENGINE_FPS_CHOICES, FRAME_RATE_PATCH_PREFIX, RESOLUTIONS, RESOLUTION_PATCH_PREFIX,
+    TEXTURE_FIX_PATCH,
+};
+use crate::core::python::ensure_ascii;
 
 /// The Steam Deck's DMI names: LCD (Jupiter) and OLED (Galileo), both with a 1280 × 800 screen (#855).
 const STEAM_DECK_PRODUCTS: [&str; 2] = ["Jupiter", "Galileo"];
 pub const STEAM_DECK_RESOLUTION: &str = "1280x800";
 const DMI: &str = "/sys/devices/virtual/dmi/id";
-const RESOLUTION_PREFIX: &str = "Resolution Patch";
-const FPS_PREFIX: &str = "Frame Rate Patch";
-const TEXTURE_FIX: &str = "Bug Fix - Texture Corruption Fix";
 const REVERT_MESSAGE: &str =
     "Graphics: the last restart never reached the game; previous options restored";
 
@@ -221,19 +221,24 @@ pub fn patch_names(
 ) -> Vec<String> {
     let mut names: Vec<String> = names
         .iter()
-        .filter(|n| !n.starts_with(RESOLUTION_PREFIX) && !n.starts_with(FPS_PREFIX))
+        .filter(|n| {
+            !n.starts_with(RESOLUTION_PATCH_PREFIX) && !n.starts_with(FRAME_RATE_PATCH_PREFIX)
+        })
         .cloned()
         .collect();
     let resolution = &options.render_resolution;
     if resolution != "native" {
-        names.retain(|n| n != TEXTURE_FIX);
-        names.push(format!("{RESOLUTION_PREFIX} - {resolution}"));
-    } else if texture_fix_available && !names.iter().any(|n| n == TEXTURE_FIX) {
-        names.insert(0, TEXTURE_FIX.to_string());
+        names.retain(|n| n != TEXTURE_FIX_PATCH);
+        names.push(format!("{RESOLUTION_PATCH_PREFIX} - {resolution}"));
+    } else if texture_fix_available && !names.iter().any(|n| n == TEXTURE_FIX_PATCH) {
+        names.insert(0, TEXTURE_FIX_PATCH.to_string());
     }
     // The engine rate is chosen live (spartanport_settings.cpp SyncEngineFps): the highest patch gives
     // the swing energy fix and a vblank every lower rate fits in.
-    names.push(format!("{FPS_PREFIX} - {} FPS", highest_engine_fps()));
+    names.push(format!(
+        "{FRAME_RATE_PATCH_PREFIX} - {} FPS",
+        highest_engine_fps()
+    ));
     names
 }
 
@@ -247,7 +252,7 @@ fn highest_engine_fps() -> u32 {
 
 /// The rate of a "Frame Rate Patch - <rate> FPS" name (`None` for any other name).
 fn frame_rate(name: &str) -> Option<u32> {
-    name.strip_prefix(FPS_PREFIX)?
+    name.strip_prefix(FRAME_RATE_PATCH_PREFIX)?
         .strip_prefix(" - ")?
         .split_whitespace()
         .next()?
@@ -284,7 +289,7 @@ pub fn restrict_with_log(
                 .filter(|rate| *rate <= wanted)
                 .max();
             if let Some(rate) = lower {
-                let replacement = format!("{FPS_PREFIX} - {rate} FPS");
+                let replacement = format!("{FRAME_RATE_PATCH_PREFIX} - {rate} FPS");
                 log(format!("Patches: using {replacement} instead"));
                 kept.push(replacement);
             }
@@ -410,16 +415,16 @@ mod tests {
             "8K · 7680 × 4320 · 16:9 (beta)"
         );
         let found = patch_names(
-            &names(&["Resolution Patch - 4K", TEXTURE_FIX]),
+            &names(&["Resolution Patch - 4K", TEXTURE_FIX_PATCH]),
             &options,
             true,
         );
         let resolutions: Vec<&String> = found
             .iter()
-            .filter(|n| n.starts_with(RESOLUTION_PREFIX))
+            .filter(|n| n.starts_with(RESOLUTION_PATCH_PREFIX))
             .collect();
         assert_eq!(resolutions, ["Resolution Patch - 8K"]);
-        assert!(!found.iter().any(|n| n == TEXTURE_FIX));
+        assert!(!found.iter().any(|n| n == TEXTURE_FIX_PATCH));
     }
 
     #[test]

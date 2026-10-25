@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use indexmap::IndexMap;
 
 use super::{hide_console_window, hide_window};
-use crate::core::patches::py_list;
+use crate::core::python::py_list;
 
 /// How often a running tool is checked for its end.
 const POLL: Duration = Duration::from_millis(20);

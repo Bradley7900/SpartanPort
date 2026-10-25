@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 use spartanport_launcher::core::draw;
+use spartanport_launcher::core::graphics_options;
 use spartanport_launcher::core::patches::{write_game_patches, PatchJob};
 use spartanport_launcher::runner::content_profile::{self, Sku};
-use spartanport_launcher::runner::graphics_options;
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::prepare::prepare;

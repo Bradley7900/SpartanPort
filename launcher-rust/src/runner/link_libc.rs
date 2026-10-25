@@ -23,7 +23,7 @@ use super::sce::{
     R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE, STB_GLOBAL, STB_WEAK, STT_FUNC, STT_OBJECT, STT_SECTION,
 };
 use crate::core::fs::atomic_write;
-use crate::core::patches::ensure_ascii;
+use crate::core::python::ensure_ascii;
 
 /// The libc's TLS module id in the probe (the eboot's is 1).
 const LIBC_TLS_MODULE: u64 = 2;

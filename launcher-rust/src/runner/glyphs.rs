@@ -1943,7 +1943,7 @@ pub fn build(
         listed.push(json!([name, meta.len(), mtime_ns(&meta)]));
     }
     stamp.push(Value::Array(listed));
-    let stamp = crate::core::patches::python_json(&Value::Array(stamp))?;
+    let stamp = crate::core::python::python_json(&Value::Array(stamp))?;
     let stamp_file = target.join("stamp.json");
     let file_name = |name: &str| {
         Path::new(name)

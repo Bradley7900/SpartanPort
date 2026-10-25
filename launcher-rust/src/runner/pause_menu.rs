@@ -40,7 +40,7 @@ use indexmap::IndexMap;
 
 use crate::core::env::Lookup;
 use crate::core::fs::atomic_write;
-use crate::core::patches::python_json;
+use crate::core::python::python_json;
 use crate::runner::glyphs::entries;
 
 /// Of the patch: a change rebuilds the cached copy.
@@ -2259,7 +2259,7 @@ mod tests {
     /// The stamp `build` keeps beside the copy (`json.dumps([VERSION, str(source), size, mtime, key])`).
     fn stamp_of(source: &Path, key: &str) -> String {
         let meta = std::fs::metadata(source).unwrap();
-        crate::core::patches::python_json(&serde_json::json!([
+        crate::core::python::python_json(&serde_json::json!([
             VERSION,
             python_path(source),
             meta.len(),

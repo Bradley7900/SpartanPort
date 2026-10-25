@@ -2,6 +2,12 @@
 
 use std::collections::BTreeSet;
 
+/// Resolution patches share the video arena with the texture fix: only one of them is on.
+pub const RESOLUTION_PATCH_PREFIX: &str = "Resolution Patch";
+pub const FRAME_RATE_PATCH_PREFIX: &str = "Frame Rate Patch";
+/// The fix a resolution patch replaces: both resize the video arena.
+pub const TEXTURE_FIX_PATCH: &str = "Bug Fix - Texture Corruption Fix";
+
 /// One entry of a choice list: the stored value and its labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Choice {
