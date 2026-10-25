@@ -73,8 +73,9 @@ const EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
 /// code; 1 when the run stops on an error (its message printed, as `run.py`'s `fail`), 20 for an
 /// unsupported CPU, 130 after Ctrl+C. Everything it prints goes to `context.out`, in English and
 /// as `run.py` prints it (the launcher reads its Log and `exit_hint` from these lines); the probe
-/// and the game print to this process's own output. The current folder becomes the port's, as
-/// `run.sh` does: relative paths in the environment are taken from there.
+/// and the game print to this process's own output. Relative paths in the environment are taken
+/// from the port folder, as `run.sh` does, by joining them to it; the current folder is left as
+/// it is, and every tool and the probe start in the port folder.
 pub fn run(context: RunContext<'_>) -> i32 {
     platform::catch_interrupt();
     run_with(context, &SystemHost)
