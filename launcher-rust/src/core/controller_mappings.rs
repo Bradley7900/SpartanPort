@@ -815,7 +815,9 @@ mod tests {
         );
         // The text names the file, for the mapper's status line; the reason is not also a source.
         assert!(
-            error.to_string().starts_with(&format!("{}: ", path.display())),
+            error
+                .to_string()
+                .starts_with(&format!("{}: ", path.display())),
             "{error}"
         );
         assert!(std::error::Error::source(&error).is_none());
@@ -932,7 +934,9 @@ mod tests {
             "{error:?}"
         );
         assert!(
-            error.to_string().starts_with(&format!("{}: ", path.display())),
+            error
+                .to_string()
+                .starts_with(&format!("{}: ", path.display())),
             "{error}"
         );
     }
