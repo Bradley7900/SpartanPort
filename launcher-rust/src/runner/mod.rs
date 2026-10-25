@@ -25,11 +25,12 @@ use std::ffi::OsString;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use crate::core::env::{game_environment, Lookup};
 use crate::core::i18n::{launcher_language, system_language, tr};
+use crate::core::launch::returncode;
 use crate::core::legacy;
 use crate::core::log::{exit_hint, RunLog};
 use crate::core::mods::{self, Overlay};
@@ -255,7 +256,7 @@ pub fn play_with(
         let _ = out.write_all(text.as_bytes());
         let _ = out.flush();
     }
-    let code = child.wait().map_or(1, exit_code);
+    let code = child.wait().map_or(1, returncode);
     if let Some(hint) = hint.filter(|_| code != 0) {
         let advice = tr(&lang, hint.text_en());
         log.write(&format!("\n{advice}\n"));
@@ -275,19 +276,6 @@ fn this_exe() -> PathBuf {
 fn say(out: &mut dyn Write, line: &str) {
     let _ = writeln!(out, "{line}");
     let _ = out.flush();
-}
-
-/// The exit code of a process; on Linux one ended by a signal gives minus its number, as Python's
-/// `returncode`.
-fn exit_code(status: ExitStatus) -> i32 {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
-            return -signal;
-        }
-    }
-    status.code().unwrap_or(1)
 }
 
 /// The temporary game folders of a run, removed on every way out (`run.py`'s `finally`): the mods

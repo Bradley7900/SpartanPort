@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc::{channel, Receiver};
 
 /// The longest piece of output delivered at once. A line longer than this is split into chunks
@@ -18,7 +18,7 @@ const MAX_CHUNK: u64 = 64 * 1024;
 pub enum GameEvent {
     /// A piece of output: normally one whole line including its `\n`.
     Output(String),
-    /// The process ended; `-1` when it was killed by a signal.
+    /// The process ended; on Linux one killed by a signal N gives `-N`, as Python's `returncode`.
     Exited(i32),
 }
 
@@ -35,6 +35,22 @@ pub fn run_command(exe: &Path, args: &[OsString]) -> Vec<String> {
     let mut command = vec![exe.to_string_lossy().into_owned(), "--run".to_string()];
     command.extend(args.iter().map(|arg| arg.to_string_lossy().into_owned()));
     command
+}
+
+/// The exit code of a process; on Linux one ended by a signal N gives `-N`, as Python's
+/// `Popen.returncode`.
+pub fn returncode(status: ExitStatus) -> i32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        status
+            .code()
+            .unwrap_or_else(|| -status.signal().unwrap_or(1))
+    }
+    #[cfg(not(unix))]
+    {
+        status.code().unwrap_or(-1)
+    }
 }
 
 /// A running game: its events and the means to stop it.
@@ -98,7 +114,7 @@ pub fn spawn_game(
             let _ = tx.send(GameEvent::Output(text));
         }
         drop(run_log);
-        let code = child.wait().ok().and_then(|s| s.code()).unwrap_or(-1);
+        let code = child.wait().map_or(-1, returncode);
         let _ = tx.send(GameEvent::Exited(code));
     });
     Ok(GameHandle { pid, events, job })

@@ -103,10 +103,27 @@ fn terminate_ends_a_running_child_and_reports_exit() {
     handle.terminate();
     let events = collect(&handle);
     match events.last().unwrap().0 {
-        GameEvent::Exited(code) => assert_eq!(code, if cfg!(windows) { 1 } else { -1 }),
+        GameEvent::Exited(code) => assert_eq!(code, if cfg!(windows) { 1 } else { -15 }),
         GameEvent::Output(_) => unreachable!(),
     }
     handle.close();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_signal_exit_is_minus_the_signal() {
+    let command = ["sh", "-c", "kill -9 $$"].map(String::from);
+    let handle = spawn_game(
+        &command,
+        Path::new("."),
+        &IndexMap::new(),
+        RunLog::open(Path::new("")),
+    )
+    .unwrap();
+    match collect(&handle).last().unwrap().0 {
+        GameEvent::Exited(code) => assert_eq!(code, -9),
+        GameEvent::Output(_) => unreachable!(),
+    }
 }
 
 #[test]

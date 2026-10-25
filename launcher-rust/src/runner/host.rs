@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{discord, exit_code, guest_memory, this_exe, RunContext};
+use super::{discord, guest_memory, this_exe, RunContext};
+use crate::core::launch::returncode;
 use crate::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, ToolOutput, Window};
 use crate::core::platform::{self, no_console_window, no_window};
 
@@ -58,7 +59,7 @@ impl Host for SystemHost {
         let lookup = |key: &str| call.env.and_then(|env| env.get(key).cloned());
         discord::while_running(child.id(), &lookup, log, || loop {
             if let Some(status) = child.try_wait()? {
-                return Ok(Some(exit_code(status)));
+                return Ok(Some(returncode(status)));
             }
             if platform::interrupted() {
                 return Ok(None);
