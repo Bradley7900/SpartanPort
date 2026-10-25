@@ -25,7 +25,7 @@ use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::play::{self, GameMessage, GameState, LiveAction};
-use spartanport_launcher::ui::update::{UpdateMessage, Listing};
+use spartanport_launcher::ui::update::{Listing, UpdateMessage};
 use spartanport_launcher::ui::widgets::modal::{ModalKind, ModalMessage};
 
 /// The longest any test waits for the fake game.
@@ -1074,7 +1074,7 @@ fn install_while_the_game_runs_says_close_it() {
         &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
     );
     send(&mut state, Message::Play);
-    assert!(play::game_live(&state));
+    assert!(state.game.is_live());
     let newer = Release {
         id: ReleaseId {
             channel: Channel::Release,
@@ -1122,6 +1122,6 @@ fn a_failed_listing_shows_the_error_and_play_still_works() {
 
     // The failure does not touch PLAY.
     send(&mut state, Message::Play);
-    assert!(play::game_live(&state));
+    assert!(state.game.is_live());
     pump(&mut state, BOUND, idle);
 }
