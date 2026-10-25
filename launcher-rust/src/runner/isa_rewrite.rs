@@ -17,8 +17,8 @@ use iced_x86::{
 };
 use sha2::{Digest, Sha256};
 
-use super::prepare::IMPORT_NAME_SIZE;
-use super::sce::{span, u64_at, SceError, Segment, PF_X};
+use super::probe_image::{ImageError, ProbeImage, Version};
+use super::sce::{span, SceError, Segment, PF_X};
 use crate::core::fs::atomic_write;
 
 /// What a register slot holds when its operand is not a register.
@@ -28,14 +28,6 @@ const HEADER_SIZE: usize = 64;
 const RECORD_SIZE: usize = 64;
 /// The longest x86 instruction: the size of a record's `original` and `relocated` fields.
 const MAX_INSTRUCTION: usize = 15;
-const LINKED_MAGIC: &[u8] = b"G3PROBE5";
-/// The `G3PROBE5` header (`<8s6Q`), procparam and main TLS words, then the module count.
-const MODULE_COUNT_AT: u64 = 56 + 8 + 32;
-/// The sizes of a `G3PROBE5`'s module, binding, segment and relocation records.
-const MODULE_SIZE: u64 = 56;
-const BINDING_SIZE: u64 = 24;
-const SEGMENT_SIZE: u64 = 24;
-const RELOCATION_SIZE: u64 = 32;
 const FILE_NAME: &str = "isa-rewrite.bin";
 
 /// The BMI1 instructions with a kind of their own, past TZCNT.
@@ -146,8 +138,8 @@ pub struct Site {
 pub enum IsaError {
     #[error(transparent)]
     Sce(#[from] SceError),
-    #[error("not a G3PROBE5 image")]
-    NotLinked,
+    #[error(transparent)]
+    Image(#[from] ImageError),
     #[error("{}: {source}", path.display())]
     Io { path: PathBuf, source: io::Error },
 }
@@ -323,53 +315,22 @@ pub fn scan_segment(code: &[u8], address: u64) -> Vec<Site> {
     sites
 }
 
-/// `pos + count * size`, or the out-of-bounds error the Python's `span` gives that far.
-fn skip(data: &[u8], pos: u64, count: u64, size: u64) -> Result<u64, SceError> {
-    count
-        .checked_mul(size)
-        .and_then(|bytes| pos.checked_add(bytes))
-        .ok_or(SceError::Truncated {
-            offset: pos,
-            size: count.saturating_mul(size),
-            len: data.len() as u64,
-        })
-}
-
-/// The segments and memory image of a `G3PROBE5` file, in `link_modules`' order. A segment's
-/// bytes sit at its address of the image, so `offset` is `vaddr` and `filesz` is `memsz`.
+/// The segments and memory image of a `G3PROBE5` file. A segment's bytes sit at its address of the
+/// image, so `offset` is `vaddr` and `filesz` is `memsz`.
 pub fn read_boot_linked(data: &[u8]) -> Result<(Vec<Segment>, Vec<u8>), IsaError> {
-    let header = span(data, 0, 56)?;
-    if span(header, 0, 8)? != LINKED_MAGIC {
-        return Err(IsaError::NotLinked);
-    }
-    let size = u64_at(header, 8)?;
-    let segment_count = u64_at(header, 24)?;
-    let relocation_count = u64_at(header, 32)?;
-    let name_count = u64_at(header, 40)?;
-    let modules = u64_at(data, MODULE_COUNT_AT)?;
-    let pos = skip(data, MODULE_COUNT_AT + 8, modules, MODULE_SIZE)?;
-    let bindings = u64_at(data, pos)?;
-    // `u64_at` read the 8 bytes at `pos`, so `pos + 8` fits.
-    let pos = skip(data, pos + 8, bindings, BINDING_SIZE)?;
-    let mut segments = Vec::new();
-    // Stops at the first record past the data, as the Python does.
-    for index in 0..segment_count {
-        let record = span(data, skip(data, pos, index, SEGMENT_SIZE)?, SEGMENT_SIZE)?;
-        let address = u64_at(record, 0)?;
-        let size = u64_at(record, 8)?;
-        segments.push(Segment {
-            offset: address,
-            vaddr: address,
-            filesz: size,
-            memsz: size,
-            // The ELF's 32-bit `p_flags` in a 64-bit word; the scan reads only `PF_X`.
-            flags: u64_at(record, 16)? as u32,
-        });
-    }
-    let pos = skip(data, pos, segment_count, SEGMENT_SIZE)?;
-    let pos = skip(data, pos, name_count, IMPORT_NAME_SIZE as u64)?;
-    let pos = skip(data, pos, relocation_count, RELOCATION_SIZE)?;
-    Ok((segments, span(data, pos, size)?.to_vec()))
+    let linked = ProbeImage::decode(data, Version::Linked)?;
+    // The ELF's 32-bit `p_flags` in a 64-bit word; the scan reads only `PF_X`.
+    let segment = |[address, size, flags]: [u64; 3]| Segment {
+        offset: address,
+        vaddr: address,
+        filesz: size,
+        memsz: size,
+        flags: flags as u32,
+    };
+    Ok((
+        linked.segments.into_iter().map(segment).collect(),
+        linked.image,
+    ))
 }
 
 /// `isa-rewrite.bin` for `sites` of `image`.
@@ -691,6 +652,16 @@ mod tests {
         let bad = [&b"G3PROBE4"[..], &data[8..]].concat();
         assert_fails(read_boot_linked(&bad), "not a G3PROBE5 image");
         assert_fails(read_boot_linked(&data[..data.len() - 1]), "out of bounds");
+    }
+
+    // Not in the Python, which ignores what follows the image: bytes after it mean the file is not
+    // what `link_modules` wrote.
+    #[test]
+    fn read_boot_linked_refuses_a_trailer() {
+        let data = boot_linked(&[(&code(&[RET]), 0x1000, 5)]);
+        assert!(read_boot_linked(&data).is_ok());
+        let trailer = [&data[..], b"\0"].concat();
+        assert_fails(read_boot_linked(&trailer), "unexpected boot trailer");
     }
 
     // Not in the Python: sizes and counts whose arithmetic overflows `u64`, and an executable

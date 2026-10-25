@@ -19,11 +19,15 @@ pub(super) const PT_LOAD: u32 = 1;
 /// `PF_X`: a segment the CPU may execute.
 pub(super) const PF_X: u32 = 1;
 pub(super) const PT_DYNAMIC: u32 = 2;
+pub(super) const PT_TLS: u32 = 7;
 pub(super) const PT_SCE_DYNLIBDATA: u32 = 0x6100_0000;
+pub(super) const PT_SCE_PROCPARAM: u32 = 0x6100_0001;
 const PT_SCE_RELRO: u32 = 0x6100_0010;
 
 pub(super) const DT_NULL: u64 = 0;
 const DT_NEEDED: u64 = 1;
+/// `DT_INIT`: the module's initializer, relative to its base.
+pub(super) const DT_INIT: u64 = 12;
 pub(super) const DT_SCE_JMPREL: u64 = 0x6100_0029;
 pub(super) const DT_SCE_PLTRELSZ: u64 = 0x6100_002d;
 pub(super) const DT_SCE_RELA: u64 = 0x6100_002f;
@@ -41,6 +45,15 @@ const MODULE_TAGS: [u64; 2] = [0x6100_000d, 0x6100_000f];
 pub(super) const SHN_ABS: u16 = 0xfff1;
 pub(super) const STT_OBJECT: u8 = 1;
 pub(super) const STT_FUNC: u8 = 2;
+pub(super) const STT_SECTION: u8 = 3;
+pub(super) const STB_GLOBAL: u8 = 1;
+pub(super) const STB_WEAK: u8 = 2;
+
+pub(super) const R_X86_64_64: u32 = 1;
+pub(super) const R_X86_64_GLOB_DAT: u32 = 6;
+pub(super) const R_X86_64_JUMP_SLOT: u32 = 7;
+pub(super) const R_X86_64_RELATIVE: u32 = 8;
+pub(super) const R_X86_64_DTPMOD64: u32 = 16;
 
 /// `Elf64_Sym` and `Elf64_Rela` are both 24 bytes.
 pub(super) const SYMBOL_SIZE: u64 = 24;
@@ -127,6 +140,11 @@ fn io_error(path: &Path) -> impl FnOnce(io::Error) -> SceError + '_ {
 
 pub(super) fn hex_number<S: Serializer>(value: &u64, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.serialize_str(&format!("{value:#x}"))
+}
+
+/// `bytes` in lowercase hex, as the reports write a SHA-256.
+pub(super) fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn out_of_bounds(data: &[u8], offset: u64, size: u64) -> SceError {
@@ -634,6 +652,24 @@ impl SceModule {
         mapped(&self.info.segments, address, size)
     }
 
+    /// The `PT_LOAD` headers, as `ProbeImage::patch_fs_loads` scans them.
+    pub fn loads(&self) -> Vec<Segment> {
+        self.info
+            .program_headers
+            .iter()
+            .filter(|p| p.kind == PT_LOAD)
+            .map(ProgramHeader::segment)
+            .collect()
+    }
+
+    /// Symbol number `index`, as a relocation names it.
+    pub fn symbol(&self, index: u64) -> Result<&Symbol, SceError> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|at| self.symbols.get(at))
+            .ok_or(SceError::BadSymbolIndex(index))
+    }
+
     /// The library blob (`PT_SCE_DYNLIBDATA`).
     fn blob(&self) -> Result<&[u8], SceError> {
         let library = header_in(&self.info, PT_SCE_DYNLIBDATA, "SCE dynlib data")?;
@@ -781,10 +817,7 @@ impl SceModule {
 
     /// What the symbol of `r` stands for, with the addend added.
     pub fn resolve(&self, r: &Relocation) -> Result<Target<'_>, SceError> {
-        let symbol = usize::try_from(r.symbol)
-            .ok()
-            .and_then(|index| self.symbols.get(index))
-            .ok_or(SceError::BadSymbolIndex(r.symbol))?;
+        let symbol = self.symbol(r.symbol)?;
         let sum = i128::from(symbol.value) + i128::from(r.addend);
         Ok(if symbol.section == SHN_ABS {
             Target::Absolute(sum)

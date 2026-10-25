@@ -15,17 +15,15 @@ use sha2::{Digest, Sha256};
 use crate::core::fs::atomic_write;
 use crate::core::sfo::{load_sfo, SfoError, SfoReadError, SfoValue};
 
-use super::sce::{hex_number, place, ImportKind, SceError, SceModule, Target, STT_FUNC};
+use super::probe_image::{Extension, ImageError, ImageRelocation, ProbeImage};
+use super::sce::{
+    hex, hex_number, place, ImportKind, SceError, SceModule, Target, R_X86_64_64,
+    R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE, STT_FUNC,
+};
 pub use super::sce::{
     parse_self, read_self, read_self_bytes, ProgramHeader, Segment, SelfInfo, SelfSegment,
 };
 
-pub(super) const R_X86_64_64: u32 = 1;
-pub(super) const R_X86_64_GLOB_DAT: u32 = 6;
-pub(super) const R_X86_64_JUMP_SLOT: u32 = 7;
-pub(super) const R_X86_64_RELATIVE: u32 = 8;
-/// `boot.bin` stores each import name NUL-padded to this size.
-pub(super) const IMPORT_NAME_SIZE: usize = 128;
 const RET: u8 = 0xc3;
 const IOS_BASE_INIT: &str = "_ZNSt8ios_base4InitC1Ev";
 const STATUS: &str = "Prepared only; execution and Vulkan are tested separately.";
@@ -97,6 +95,8 @@ const KNOWN_IMPORTS: &[&str] = &[
 pub enum PrepareError {
     #[error(transparent)]
     Sce(#[from] SceError),
+    #[error(transparent)]
+    Image(#[from] ImageError),
     #[error("relocation outside mapped segments: {0:#x}")]
     RelocationOutside(u64),
     #[error("relocation value out of range")]
@@ -105,8 +105,6 @@ pub enum PrepareError {
     ImportAddend,
     #[error("unsupported relocation {0}")]
     UnsupportedRelocation(u32),
-    #[error("import name too long")]
-    ImportNameTooLong,
     #[error(transparent)]
     Sfo(#[from] SfoError),
     #[error("{}: {source}", path.display())]
@@ -202,24 +200,11 @@ pub struct Report {
     pub status: &'static str,
 }
 
-/// A relocation as `boot.bin` stores it (`<QQqq`): kind 0 stores the load base plus `value`; 1 and
-/// 2 store the address of import number `value` (a function, an object) plus `addend`.
-struct Relocation {
-    target: u64,
-    kind: u64,
-    value: i64,
-    addend: i64,
-}
-
-pub(super) fn io_error(path: &Path) -> impl FnOnce(io::Error) -> PrepareError + '_ {
+fn io_error(path: &Path) -> impl FnOnce(io::Error) -> PrepareError + '_ {
     move |source| PrepareError::Io {
         path: path.to_path_buf(),
         source,
     }
-}
-
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 fn sfo_values<S: Serializer>(
@@ -367,19 +352,10 @@ pub fn inspect_libc(path: &Path) -> Result<LibcReport, PrepareError> {
     Ok(report)
 }
 
-/// The eboot's relocations as `boot.bin` stores them.
-struct Relocated {
-    relocations: Vec<Relocation>,
-    /// By type, in the order the types first appear.
-    counts: IndexMap<u32, u64>,
-    /// The names of the imported symbols, in the order of their import indexes.
-    imports: Vec<String>,
-}
-
-/// Reads the eboot's relocations (PLT, then RELA). Absolute symbols are written into `image`
-/// here.
-fn relocate(module: &SceModule, image: &mut [u8]) -> Result<Relocated, PrepareError> {
-    let mut relocations = Vec::new();
+/// Adds the eboot's relocations (PLT, then RELA) to `boot` and its imports' names, in the order of
+/// their numbers, and returns how many there are of each type, in the order the types first
+/// appear. Absolute symbols are written into the image here.
+fn relocate(module: &SceModule, boot: &mut ProbeImage) -> Result<IndexMap<u32, u64>, PrepareError> {
     let mut counts = IndexMap::new();
     let mut imports = IndexSet::new();
     for r in module.relocations()? {
@@ -388,36 +364,29 @@ fn relocate(module: &SceModule, image: &mut [u8]) -> Result<Relocated, PrepareEr
             return Err(PrepareError::RelocationOutside(r.target));
         }
         match r.kind {
-            R_X86_64_RELATIVE => relocations.push(Relocation {
-                target: r.target,
-                kind: 0,
-                value: r.addend,
-                addend: 0,
-            }),
+            R_X86_64_RELATIVE => boot.relocate(r.target, i128::from(r.addend)),
             R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => match module.resolve(&r)? {
                 Target::Absolute(sum) => {
                     let value = u64::try_from(sum).map_err(|_| PrepareError::RelocationValue)?;
-                    place(image, r.target, &value.to_le_bytes())?;
+                    place(&mut boot.image, r.target, &value.to_le_bytes())?;
                 }
                 Target::Defined(sum) => {
                     let value = i64::try_from(sum).map_err(|_| PrepareError::RelocationValue)?;
-                    relocations.push(Relocation {
-                        target: r.target,
-                        kind: 0,
-                        value,
-                        addend: 0,
-                    });
+                    boot.relocate(r.target, i128::from(value));
                 }
                 Target::Undefined(symbol) => {
                     let kind = ImportKind::of(symbol);
                     if !kind.allows(r.addend) {
                         return Err(PrepareError::ImportAddend);
                     }
-                    let (import, _) = imports.insert_full(r.symbol);
-                    relocations.push(Relocation {
+                    let (import, new) = imports.insert_full(r.symbol);
+                    if new {
+                        boot.names.push(symbol.name.clone());
+                    }
+                    boot.relocations.push(ImageRelocation {
                         target: r.target,
                         kind: kind as u64,
-                        value: import as i64,
+                        value: import as i128,
                         addend: r.addend,
                     });
                 }
@@ -425,65 +394,7 @@ fn relocate(module: &SceModule, image: &mut [u8]) -> Result<Relocated, PrepareEr
             _ => return Err(PrepareError::UnsupportedRelocation(r.kind)),
         }
     }
-    let imports = imports
-        .iter()
-        .filter_map(|&index| usize::try_from(index).ok())
-        .filter_map(|index| module.symbols.get(index))
-        .map(|symbol| symbol.name.clone())
-        .collect();
-    Ok(Relocated {
-        relocations,
-        counts,
-        imports,
-    })
-}
-
-/// `boot.bin` (`G3PROBE2`), the small format `probe.c` reads: header, loadable segments, import
-/// names, relocations, memory image; little-endian, no host struct packing.
-fn boot_image(
-    info: &SelfInfo,
-    image: &[u8],
-    relocated: &Relocated,
-    init_env_is_ret: bool,
-) -> Result<Vec<u8>, PrepareError> {
-    let Relocated {
-        relocations,
-        imports: names,
-        ..
-    } = relocated;
-    let mut boot = b"G3PROBE2".to_vec();
-    let header = [
-        image.len() as u64,
-        info.entry,
-        info.segments.len() as u64,
-        relocations.len() as u64,
-        names.len() as u64,
-        u64::from(init_env_is_ret),
-    ];
-    for value in header {
-        boot.extend_from_slice(&value.to_le_bytes());
-    }
-    for p in &info.segments {
-        for value in [p.vaddr, p.memsz, u64::from(p.flags)] {
-            boot.extend_from_slice(&value.to_le_bytes());
-        }
-    }
-    for name in names {
-        if name.len() >= IMPORT_NAME_SIZE {
-            return Err(PrepareError::ImportNameTooLong);
-        }
-        let start = boot.len();
-        boot.extend_from_slice(name.as_bytes());
-        boot.resize(start + IMPORT_NAME_SIZE, 0);
-    }
-    for r in relocations {
-        boot.extend_from_slice(&r.target.to_le_bytes());
-        boot.extend_from_slice(&r.kind.to_le_bytes());
-        boot.extend_from_slice(&r.value.to_le_bytes());
-        boot.extend_from_slice(&r.addend.to_le_bytes());
-    }
-    boot.extend_from_slice(image);
-    Ok(boot)
+    Ok(counts)
 }
 
 /// The files under `root` by their first path component, and their total size. The files are
@@ -557,23 +468,38 @@ fn write_report(path: &Path, report: &impl Serialize) -> Result<(), PrepareError
 /// Turns `<game>/eboot.bin` into `boot.bin`, `eboot.elf`, `entry.bin` and `analysis.json` in `out`.
 pub fn prepare(game: &Path, out: &Path) -> Result<Report, PrepareError> {
     let module = SceModule::read(&game.join("eboot.bin"))?;
-    let mut image = module.memory_image()?;
-    let relocated = relocate(&module, &mut image)?;
+    // `boot.bin`, the small format `probe.c` reads.
+    let mut boot = ProbeImage {
+        entry: module.info.entry,
+        flags: 0,
+        segments: module
+            .info
+            .segments
+            .iter()
+            .map(|p| [p.vaddr, p.memsz, u64::from(p.flags)])
+            .collect(),
+        names: Vec::new(),
+        relocations: Vec::new(),
+        image: module.memory_image()?,
+        extension: Extension::None,
+    };
+    let relocation_counts = relocate(&module, &mut boot)?;
     let known: HashMap<String, &'static str> = KNOWN_IMPORTS
         .iter()
         .map(|&name| (nid(name), name))
         .collect();
     let mut hints = IndexMap::new();
-    for name in &relocated.imports {
+    for name in &boot.names {
         if let Some(&hint) = known.get(nid_part(name)) {
             hints.insert(name.clone(), hint);
         }
     }
     let libc = inspect_libc(&game.join("sce_module").join("libc.prx"))?;
-    let boot = boot_image(&module.info, &image, &relocated, libc.init_env_is_ret)?;
-    write(&out.join("boot.bin"), &boot)?;
+    boot.flags = u64::from(libc.init_env_is_ret);
+    write(&out.join("boot.bin"), &boot.encode()?)?;
     write(&out.join("eboot.elf"), &module.info.elf)?;
-    write(&out.join("entry.bin"), image.get(..1024).unwrap_or(&image))?;
+    let image = &boot.image;
+    write(&out.join("entry.bin"), image.get(..1024).unwrap_or(image))?;
     let (resources, resource_bytes) = resources(&game.join("dvdroot_ps4"));
     let sfo_path = game.join("sce_sys").join("param.sfo");
     let sfo = load_sfo(&sfo_path).map_err(|error| match error {
@@ -595,14 +521,14 @@ pub fn prepare(game: &Path, out: &Path) -> Result<Report, PrepareError> {
         source_bytes: module.bytes,
         sfo,
         entry: module.info.entry,
-        image_bytes: image.len() as u64,
+        image_bytes: boot.image.len() as u64,
         program_headers: module.info.program_headers,
         self_segments: module.info.self_segments,
         unavailable_metadata_headers: module.info.missing,
         needed,
-        relocation_counts: relocated.counts,
-        import_count: relocated.imports.len(),
-        imports: relocated.imports,
+        relocation_counts,
+        import_count: boot.names.len(),
+        imports: boot.names,
         import_name_hints: hints,
         libc_evidence: libc,
         bundled_modules,

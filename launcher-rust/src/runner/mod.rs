@@ -14,6 +14,7 @@ pub mod link_modules;
 pub mod pause_menu;
 pub mod plan;
 pub mod prepare;
+pub mod probe_image;
 pub mod sce;
 pub mod window_icon;
 

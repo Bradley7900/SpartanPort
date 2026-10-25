@@ -10,24 +10,23 @@
 //! same functions.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 
 use indexmap::IndexMap;
 use serde::Serialize;
 
-use super::link_libc::{
-    align_up, exported, load, main_tls, map_module, push_words, read_boot, write, write_json,
-    Binding, BootRelocation, Identity, LinkError, Module, PlainNames, TlsLayout, DT_INIT,
-    PT_SCE_PROCPARAM, PT_TLS, R_X86_64_DTPMOD64, STB_WEAK, STT_SECTION,
+use super::link_libc::{write, write_json, LinkError, Module};
+use super::probe_image::{
+    Binding, Extension, ImageRelocation, LinkedHeader, ModuleRecord, ProbeImage, TlsLayout, Version,
 };
-use super::prepare::{hex, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE};
-use super::sce::{hex_number, place, ImportKind, SceError, Segment, Target, PF_X};
+use super::sce::{
+    hex, hex_number, place, Identity, ImportKind, PlainNames, SceError, Target, DT_INIT,
+    PT_SCE_PROCPARAM, PT_TLS, R_X86_64_64, R_X86_64_DTPMOD64, R_X86_64_GLOB_DAT,
+    R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE, STB_WEAK, STT_SECTION,
+};
 
 pub const DEFAULT_MODULES: [&str; 2] = ["libc.prx", "libSceFios2.prx"];
-/// `mov rax, fs:[0]`: how the eboot and the modules read their thread pointer (initial-exec TLS).
-pub const FS_LOAD: [u8; 9] = [0x64, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00];
-/// The `gs` segment prefix that replaces the `fs` one (0x64).
-const GS_PREFIX: u8 = 0x65;
 /// The library whose imports the libc's exports serve.
 const LIBC_INTERNAL: &str = "libSceLibcInternal";
 /// The TLS module id of the first module with a TLS segment; each next one takes the next id (the
@@ -46,36 +45,7 @@ pub fn canonical(identity: Option<&Identity>, fallback: Option<&str>) -> Option<
 /// Reads the module in `path` (a SELF or an unpacked ELF) once; a plain symbol name (such as
 /// `module_start`) gets no identity.
 pub fn module(path: &Path) -> Result<Module, LinkError> {
-    load(path, PlainNames::Unlinkable)
-}
-
-/// Rewrites every `mov rax, fs:[0]` (`FS_LOAD`) inside the executable segments of `ph` (a module's
-/// `PT_LOAD` headers, the module mapped at `base` of `image`) to read `gs:[0]`, and returns how
-/// many it rewrote: glibc owns FS on Linux, and the runtime points GS at each guest thread's TCB.
-pub fn patch_fs_loads(image: &mut [u8], ph: &[Segment], base: u64) -> usize {
-    let mut patched = 0;
-    for p in ph.iter().filter(|p| p.flags & PF_X != 0) {
-        let len = image.len();
-        let clamp = |at: u64| usize::try_from(at).map_or(len, |at| at.min(len));
-        let start = base.saturating_add(p.vaddr);
-        let end = clamp(start.saturating_add(p.filesz));
-        let mut at = clamp(start);
-        while let Some(found) = image.get(at..end).and_then(find_fs_load) {
-            let hit = at + found;
-            if let Some(prefix) = image.get_mut(hit) {
-                *prefix = GS_PREFIX;
-            }
-            patched += 1;
-            at = hit + FS_LOAD.len();
-        }
-    }
-    patched
-}
-
-fn find_fs_load(window: &[u8]) -> Option<usize> {
-    window
-        .windows(FS_LOAD.len())
-        .position(|bytes| bytes == FS_LOAD.as_slice())
+    Module::read(path, PlainNames::Unlinkable)
 }
 
 /// One linked module (`link.json`'s `modules`).
@@ -103,6 +73,21 @@ pub struct LinkedModule {
     pub exports: usize,
     /// SHA-256 of the file, hex.
     pub sha256: String,
+}
+
+impl LinkedModule {
+    /// The module as `boot-linked.bin` stores it.
+    fn record(&self) -> ModuleRecord {
+        ModuleRecord {
+            base: self.base,
+            size: self.size,
+            init: self.init,
+            tls_address: self.tls_address,
+            tls_memsz: self.tls_memsz,
+            tls_filesz: self.tls_filesz,
+            tls_module: self.tls_module,
+        }
+    }
 }
 
 /// What `link` did: `link.json`, in the Python's key order.
@@ -170,12 +155,17 @@ fn served(
 /// each of `modules`, in order, into `<out>/boot-linked.bin` and `<out>/link.json`.
 pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, LinkError> {
     let main = module(&game.join("eboot.bin"))?;
-    let mut boot = read_boot(out)?;
+    let path = out.join("boot.bin");
+    let data = fs::read(&path).map_err(|source| LinkError::Io {
+        path: path.clone(),
+        source,
+    })?;
+    let mut boot = ProbeImage::decode(&data, Version::Prepared)?;
     let size = boot.image.len() as u64;
     let mut identities = IndexMap::new();
     let mut names = Vec::new();
     for (index, name) in boot.names.iter().enumerate() {
-        let identity = main.identity(name)?;
+        let identity = main.ids.resolve(name)?;
         names.push(canonical(identity.as_ref(), Some(name)).unwrap_or_else(|| name.clone()));
         identities.insert(identity, index);
     }
@@ -183,14 +173,12 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
     let mut exports: HashMap<Identity, Export> = HashMap::new();
     let mut by_nid: HashMap<(String, String), Vec<Export>> = HashMap::new();
     let mut table = Vec::new();
-    let mut base = align_up(size);
-    let mut fs_loads_patched = patch_fs_loads(&mut boot.image, &main.loads(), 0);
+    let mut base = boot.next_base();
+    let mut fs_loads_patched = boot.patch_fs_loads(&main.sce.loads(), 0);
     let mut tls_module = FIRST_TLS_MODULE;
     for &file in modules {
         let m = module(&game.join("sce_module").join(file))?;
-        let modsize = map_module(&mut boot, &m, base, || {
-            LinkError::SegmentSize(file.to_owned())
-        })?;
+        let modsize = boot.map_module(&m.sce, base, || LinkError::SegmentSize(file.to_owned()))?;
         let tls = m.sce.header(PT_TLS);
         let mut module_id = 0;
         if let Some(tls) = tls {
@@ -215,7 +203,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
                     boot.relocate(target, i128::from(base) + i128::from(r.addend));
                 }
                 R_X86_64_DTPMOD64 => {
-                    let symbol = m.symbol(r.symbol)?;
+                    let symbol = m.sce.symbol(r.symbol)?;
                     if !symbol.name.is_empty()
                         || symbol.kind != STT_SECTION
                         || r.addend != 0
@@ -244,7 +232,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
                             return Err(LinkError::ImportAddend(file.to_owned()));
                         }
                         let index = import(&mut identities, &mut boot.names, identity)?;
-                        boot.relocations.push(BootRelocation {
+                        boot.relocations.push(ImageRelocation {
                             target,
                             kind: kind as u64,
                             value: index as i128,
@@ -261,10 +249,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
             }
         }
         let mut count = 0;
-        for (symbol, identity) in m.named() {
-            let Some(identity) = exported(symbol, identity) else {
-                continue;
-            };
+        for (symbol, identity) in m.exports() {
             if !m.sce.mapped(symbol.value, symbol.size.max(1)) {
                 return Err(LinkError::ExportOutside(file.to_owned()));
             }
@@ -282,7 +267,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
                 .push(export);
             count += 1;
         }
-        fs_loads_patched += patch_fs_loads(&mut boot.image, &m.loads(), base);
+        fs_loads_patched += boot.patch_fs_loads(&m.sce.loads(), base);
         let init = base
             .checked_add(m.sce.tag(DT_INIT).unwrap_or(0))
             .ok_or(LinkError::OutOfRange)?;
@@ -299,7 +284,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
             exports: count,
             sha256: hex(&m.sce.sha256),
         });
-        base = align_up(base + modsize);
+        base = boot.next_base();
     }
     let mut bindings = Vec::new();
     let mut unresolved_imports = Vec::new();
@@ -309,45 +294,29 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
             .and_then(|identity| served(identity, &exports, &by_nid))
         {
             Some(export) => bindings.push(Binding {
-                import,
+                import: import as u64,
                 address: export.address,
                 kind: export.kind,
             }),
             None => unresolved_imports.extend(boot.names.get(import).cloned()),
         }
     }
-    let main_tls = main_tls(&main, size)?;
+    let main_tls = main.main_tls(size)?;
     let procparam = main
         .sce
         .header(PT_SCE_PROCPARAM)
         .ok_or(SceError::MissingSegment("procparam"))?;
-    let mut data = boot.header(b"G3PROBE5");
-    push_words(&mut data, &[procparam.vaddr]);
-    push_words(&mut data, &main_tls.words());
-    push_words(&mut data, &[table.len() as u64]);
-    for t in &table {
-        push_words(
-            &mut data,
-            &[
-                t.base,
-                t.size,
-                t.init,
-                t.tls_address,
-                t.tls_memsz,
-                t.tls_filesz,
-                t.tls_module,
-            ],
-        );
-    }
-    push_words(&mut data, &[bindings.len() as u64]);
-    for binding in &bindings {
-        push_words(&mut data, &binding.words());
-    }
-    boot.push_tail(&mut data)?;
-    write(&out.join("boot-linked.bin"), &data)?;
+    let binding_count = bindings.len();
+    boot.extension = Extension::Linked(LinkedHeader {
+        procparam: procparam.vaddr,
+        main_tls,
+        modules: table.iter().map(LinkedModule::record).collect(),
+        bindings,
+    });
+    write(&out.join("boot-linked.bin"), &boot.encode()?)?;
     let report = LinkReport {
         modules: table,
-        bindings: bindings.len(),
+        bindings: binding_count,
         imports: boot.names.len(),
         fs_loads_patched,
         main_tls,

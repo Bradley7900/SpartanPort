@@ -49,8 +49,10 @@ runner depende de `core/` (`paths`, `ini`, `sfo`, `env`, `legacy`, `patches`, `m
 | `runner/mod.rs` | `run.py` | `pub fn run(args: &[OsString], env: &IndexMap<String, String>, paths: &Paths, io: &mut dyn Write) -> i32`: a ordem de §5; `wait_for_pid`, `parse_cpu_features`, `isa_rewrite_wanted`, `launch_prefix`, `find_executable`, `glyph_mounts`, `pause_menu_args`. |
 | `runner/prepare.rs` | `prepare.py` | SELF/ELF em texto claro → `boot.bin` (`G3PROBE2`), `eboot.elf`, `entry.bin`, `analysis.json`; `parse_self`, `read_self`, `nid`, `inspect_libc` (checa `_init_env` = `RET`); `load_sfo`/`read_sfo` reusam `core/sfo.rs`. |
 | `runner/link_libc.rs` | `link_libc.py` | eboot + `libc.prx` → `boot-libc.bin` (`G3PROBE4`), `libc-link.json`; `module`, `encode_id`. |
-| `runner/link_modules.rs` | `link_modules.py` | eboot + `libc.prx` + `libSceFios2.prx` → `boot-linked.bin` (`G3PROBE5`), `link.json`; `patch_fs_loads` reescreve `64 48 8b 04 25 00000000` (`fs:[0]`) para `gs:`; nomes canônicos `NID#lib`. |
+| `runner/link_modules.rs` | `link_modules.py` | eboot + `libc.prx` + `libSceFios2.prx` → `boot-linked.bin` (`G3PROBE5`), `link.json`; `module`, `canonical`; nomes canônicos `NID#lib`. |
 | `runner/isa_rewrite.rs` | `isa_rewrite.py` | `scan_segment` com `iced-x86`; `isa-rewrite.bin` (`G3ISA1`: cabeçalho de 64 bytes com SHA-256 e tamanho da imagem, registros de 64 bytes ordenados, espelho de `IsaSite` em `src/isa_emulate.h`); grava a tabela mesmo sem sites, como o Python, e devolve os sites. |
+| `runner/sce.rs` | `parse_self`/`read_self` de `prepare.py`, `module` de `link_libc.py` e `link_modules.py` | Compartilhado por prepare, link_libc, link_modules e isa_rewrite: SELF/ELF em texto claro (`parse_self`, `read_self`, que `prepare` reexporta) e `SceModule` (tabela dinâmica até `DT_NULL`, strings, símbolos; relocações e ids sob demanda; `memory_image`, `code`, `resolve`, `ImportKind`). |
+| `runner/probe_image.rs` | os writers de `G3PROBE` de `prepare.py`, `link_libc.py` e `link_modules.py`, os readers de `link_libc.py`, `link_modules.py` e `isa_rewrite.py`, `patch_fs_loads` de `link_modules.py` | Compartilhado por prepare, link_libc, link_modules e isa_rewrite: `ProbeImage` (`G3PROBE2`, `G3PROBE4`, `G3PROBE5`; `decode` estrito, sem trailer e com nomes UTF-8; `encode`; `relocate`; `map_module`) e `patch_fs_loads`, que reescreve `64 48 8b 04 25 00000000` (`fs:[0]`) para `gs:`. Os erros mantêm o texto do script de cada versão. |
 | `runner/content_profile.rs` | `content_profile.py` | `param.sfo` + `--sku` → `content.bin` (28 bytes `G3CONT01`: full = 3, trial = 1), `content-profile.json`. |
 | `core/patches.rs` (amplia) | `patches.py` | `compile_patches` (busca por assinatura, preenchimento `{rel:}`), `merge_patch_files` → `patches-merged.xml`, `selected_patches`, `default_enabled`, `patch_requirements`, `game_profile_for`, `write_patches` → `patches.bin` (`G3PATCH2`), `patch_status.json`. XML externo só na SHA de referência, como hoje. |
 | `core/mods.rs` (amplia) | `mods.py` | `build_overlay` com as quatro estratégias de `mods.build_overlay` (symlink, junction, hard link, espelho), na ordem e com os critérios do Python; junction por `FSCTL_SET_REPARSE_POINT` em `core/platform/windows.rs` (o Python usa `_winapi.CreateJunction`); overlay removido no fim; `unpack_zips` com o marcador `.from-zip`. |
@@ -109,7 +111,7 @@ presentes, `windows-sys` com `Win32_System_Ioctl`, `Win32_System_IO` e `Win32_St
 
 | O quê | Onde o C lê | Onde o Rust escreve |
 |---|---|---|
-| `G3PROBE5` | `probe.c:996-1030` | `runner/link_modules.rs` |
+| `G3PROBE5` | `probe.c:996-1030` | `runner/probe_image.rs`, com os dados de `runner/link_modules.rs` |
 | `G3PATCH2` (base `0x400000`, no máximo 4096 bytes por escrita, slots de ponteiro rebaseados, dados sobrando rejeitados) | `probe.c:726` | `core/patches.rs::write_patches` |
 | `G3CONT01` (28 bytes) | `probe.c:941` | `runner/content_profile.rs` |
 | `G3ISA1` (`IsaSite` 64 bytes, SHA-256 e tamanho da imagem, registros ordenados) | `src/isa_emulate.h:15`, `src/isa_rewrite.c:104-125` | `runner/isa_rewrite.rs` |
