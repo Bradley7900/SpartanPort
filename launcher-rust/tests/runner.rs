@@ -727,6 +727,76 @@ fn a_stale_isa_table_is_replaced() {
     assert_eq!(argv[at - 2], "--timeout");
 }
 
+/// A run's output that adds a byte past the image of `boot_linked` once the runner prints the
+/// `link_modules` line: after the file is written and before the ISA rewrite reads it.
+struct CorruptingBootLinked {
+    printed: Vec<u8>,
+    boot_linked: PathBuf,
+    corrupted: bool,
+}
+
+impl Write for CorruptingBootLinked {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.printed.extend_from_slice(buf);
+        let linked = String::from_utf8_lossy(&self.printed)
+            .lines()
+            .any(|line| line.starts_with("Linked modules: "));
+        if linked && !self.corrupted {
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(&self.boot_linked)?;
+            file.write_all(b"\0")?;
+            self.corrupted = true;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_corrupt_boot_linked_skips_the_isa_table() {
+    // Review Focus 5: a boot-linked.bin the ISA rewrite refuses (a trailer, which the strict
+    // decode rejects) prints the rewrite's error, and the run goes on without the table: the game
+    // starts and its exit code is the run's.
+    let port = Port::new();
+    let boot_linked = port.out().join("boot-linked.bin");
+    // A CPU without MOVBE asks for the table.
+    let mut host = FakeHost::default();
+    host.cpu = "CPU: missing MOVBE\n".into();
+    host.exit = 7;
+    let mut out = CorruptingBootLinked {
+        printed: Vec::new(),
+        boot_linked: boot_linked.clone(),
+        corrupted: false,
+    };
+    let code = run_with(Port::context(&port.program(&[]), &mut out), &host);
+    let ran = InProcess {
+        code,
+        out: String::from_utf8_lossy(&out.printed).into_owned(),
+        host,
+    };
+    assert!(out.corrupted, "{ran}");
+    assert_eq!(ran.code, 7, "{ran}");
+    let check = tempfile::tempdir().unwrap();
+    let error = isa_rewrite::rewrite(&boot_linked, check.path()).unwrap_err();
+    assert_eq!(error.to_string(), "unexpected boot trailer");
+    let line = format!("ISA: rewrite table unavailable ({error})");
+    assert!(ran.out.lines().any(|printed| printed == line), "{ran}");
+    // The steps after the rewrite ran, and the game got no table.
+    in_order(
+        &ran.out,
+        &[&line, "AppContent profile: ", "Engine frame rate: "],
+    );
+    assert!(
+        !ran.game().iter().any(|arg| arg == "--isa-rewrite"),
+        "{ran}"
+    );
+    assert!(!port.out().join("isa-rewrite.bin").exists(), "{ran}");
+}
+
 #[test]
 fn a_ctrl_c_stops_before_the_game() {
     // The runner looks for Ctrl+C after --cpu-features, after the image steps, after the glyph
