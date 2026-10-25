@@ -25,6 +25,7 @@ use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
 };
 use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ};
+use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_MOUNT_POINT;
 use windows_sys::Win32::System::Threading::{
     OpenProcess, WaitForSingleObject, CREATE_NO_WINDOW, PROCESS_SYNCHRONIZE,
@@ -83,13 +84,13 @@ pub fn steam_path_from_registry() -> Option<std::path::PathBuf> {
 }
 
 /// Gives a console program no console window (the launcher, a windowed program, has none to share).
-pub fn no_window(cmd: &mut Command) {
+pub fn hide_window(cmd: &mut Command) {
     cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
 /// Hides the console window of the child.
 pub fn prepare(cmd: &mut Command) {
-    no_window(cmd);
+    hide_window(cmd);
 }
 
 /// Started from a terminal, a windowed program has no console: this attaches to the terminal's, so
@@ -114,10 +115,30 @@ pub fn has_console() -> bool {
 
 /// The Python's `no_console()`: a process without a console starts console programs without a
 /// window of their own; with a console they share it.
-pub fn no_console_window(cmd: &mut Command) {
+pub fn hide_console_window(cmd: &mut Command) {
     if !has_console() {
-        no_window(cmd);
+        hide_window(cmd);
     }
+}
+
+/// Files carry no execute bit here: nothing to do.
+pub fn make_executable(_path: &Path, _how: super::Exec) -> io::Result<()> {
+    Ok(())
+}
+
+/// Any file runs here.
+pub fn is_executable(path: &Path) -> bool {
+    path.is_file()
+}
+
+/// The installed RAM in MiB (`ullTotalPhys`), or `None` when the system does not say.
+pub fn physical_memory_mb() -> Option<u64> {
+    // SAFETY: an all-zero MEMORYSTATUSEX is a valid value (plain integers only).
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = u32::try_from(std::mem::size_of::<MEMORYSTATUSEX>()).ok()?;
+    // SAFETY: `status` is a live MEMORYSTATUSEX whose dwLength is set, as the call requires.
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (ok != 0).then_some(status.ullTotalPhys >> 20)
 }
 
 /// An error dialog (`MessageBoxW`, `MB_ICONERROR`) for a program nobody watches the output of.
@@ -370,10 +391,46 @@ fn mount_point_buffer(substitute: &[u16], print: &[u16]) -> io::Result<Vec<u8>> 
 
 #[cfg(test)]
 mod tests {
+    use super::super::{which, Exec};
     use super::*;
     use std::os::windows::fs::MetadataExt;
 
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+    #[test]
+    fn make_executable_is_a_no_op_on_windows() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("run.sh");
+        fs::write(&file, b"x").unwrap();
+        let before = fs::metadata(&file).unwrap().permissions();
+        make_executable(&file, Exec::Exactly).unwrap();
+        make_executable(&file, Exec::Adding).unwrap();
+        assert_eq!(fs::metadata(&file).unwrap().permissions(), before);
+    }
+
+    #[test]
+    fn a_file_is_executable_and_a_folder_is_not() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("tool");
+        fs::write(&file, b"x").unwrap();
+        assert!(is_executable(&file));
+        assert!(!is_executable(temp.path()));
+        assert!(!is_executable(&temp.path().join("missing")));
+    }
+
+    #[test]
+    fn which_finds_a_file_on_the_path_only() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = std::env::join_paths([temp.path()]).unwrap();
+        assert_eq!(which("tool", &path), None);
+        fs::write(temp.path().join("tool"), b"x").unwrap();
+        assert_eq!(which("tool", &path), Some(temp.path().join("tool")));
+    }
+
+    #[test]
+    fn physical_memory_is_reported() {
+        assert!(physical_memory_mb().is_some_and(|mb| mb > 0));
+    }
 
     #[test]
     fn a_junction_leads_to_its_target_and_goes_without_it() {

@@ -8,7 +8,6 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use indexmap::IndexMap;
@@ -212,29 +211,26 @@ fn plain(path: &Path) -> PathBuf {
 }
 
 #[cfg(windows)]
-fn no_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    command.creation_flags(0x0800_0000);
-}
-
-#[cfg(not(windows))]
-fn no_window(_command: &mut Command) {}
-
-#[cfg(windows)]
-fn windows_desktop() -> PathBuf {
-    let mut command = Command::new("powershell");
-    command
-        .args([
+fn windows_desktop(tools: &dyn Tools) -> PathBuf {
+    let asked = tools.run(&ToolCall {
+        program: "powershell".into(),
+        args: [
             "-NoProfile",
             "-NonInteractive",
             "-Command",
             "[Environment]::GetFolderPath('DesktopDirectory')",
-        ])
-        .stdin(Stdio::null());
-    no_window(&mut command);
-    if let Ok(output) = command.output() {
-        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if output.status.success() && !text.is_empty() {
+        ]
+        .map(OsString::from)
+        .to_vec(),
+        env: None,
+        cwd: None,
+        limit: None,
+        stderr: Stderr::Null,
+        window: Window::Hidden,
+    });
+    if let Ok(output) = asked {
+        let text = output.stdout.trim();
+        if output.code == Some(0) && !text.is_empty() {
             return PathBuf::from(text);
         }
     }
@@ -243,7 +239,7 @@ fn windows_desktop() -> PathBuf {
 }
 
 #[cfg(not(windows))]
-fn windows_desktop() -> PathBuf {
+fn windows_desktop(_tools: &dyn Tools) -> PathBuf {
     PathBuf::new()
 }
 
@@ -328,7 +324,7 @@ pub fn retarget_desktop_shortcut(
     if marker.is_file() {
         return false;
     }
-    let desktop = desktop.map_or_else(windows_desktop, Path::to_path_buf);
+    let desktop = desktop.map_or_else(|| windows_desktop(tools), Path::to_path_buf);
     let old = desktop.join(format!("{LEGACY_TITLE}.lnk"));
     let new = desktop.join("SpartanPort.lnk");
     let target = port_dir.join("SpartanPort.exe");
@@ -703,6 +699,7 @@ mod tests {
     #[cfg(windows)]
     mod windows_shortcuts {
         use super::*;
+        use std::process::Command;
 
         struct Setup {
             f: Fixture,
@@ -794,6 +791,43 @@ mod tests {
                 None
             ));
             assert!(!s.desktop.join("SpartanPort.lnk").exists());
+        }
+
+        #[test]
+        fn the_desktop_folder_comes_from_the_tools() {
+            use crate::core::platform::tool::ToolOutput;
+            let s = setup();
+            put(&s.desktop.join("God of War III.lnk"), b"shortcut");
+            let desktop = s.desktop.display().to_string();
+            let tools = FakeTools::answering(move |call| {
+                let asked = call
+                    .args
+                    .last()
+                    .is_some_and(|a| a.to_string_lossy().contains("GetFolderPath"));
+                Ok(ToolOutput {
+                    code: Some(0),
+                    stdout: if asked {
+                        format!(
+                            "{desktop}
+"
+                        )
+                    } else {
+                        String::new()
+                    },
+                })
+            });
+            retarget_desktop_shortcut(&tools, &s.port, None, None);
+            let calls = tools.calls();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[0].program, "powershell");
+            assert_eq!(
+                calls[0].args.last().unwrap(),
+                "[Environment]::GetFolderPath('DesktopDirectory')"
+            );
+            assert_eq!(calls[0].env, None);
+            assert_eq!(calls[0].limit, None);
+            assert_eq!(calls[0].stderr, Stderr::Null);
+            assert_eq!(calls[0].window, Window::Hidden);
         }
 
         #[test]

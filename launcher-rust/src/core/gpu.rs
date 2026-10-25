@@ -554,10 +554,7 @@ mod tests {
     fn a_missing_tool_lists_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths::from_env(dir.path(), &|_| None);
-        let tools = FakeTools::printing(
-            0, "0	x	y
-",
-        );
+        let tools = FakeTools::printing(0, "0\tx\ty\n");
         assert_eq!(list_gpus(&tools, &paths), vec![]);
         assert_eq!(list_displays(&tools, &paths, "auto"), vec![]);
         assert_eq!(connected_gamepad(&tools, &paths, &|_| None), None);
@@ -585,9 +582,7 @@ mod tests {
         let (_dir, paths) = port_with(&["spartanport-gpu-capabilities"]);
         let tools = FakeTools::printing(
             0,
-            "0	AMD	integrated	off	1
-1	NVIDIA	discrete	on	0
-",
+            "0\tAMD\tintegrated\toff\t1\n1\tNVIDIA\tdiscrete\ton\t0\n",
         );
         assert_eq!(
             list_gpus(&tools, &paths),
@@ -606,11 +601,7 @@ mod tests {
     #[test]
     fn a_failing_gpu_tool_lists_nothing() {
         let (_dir, paths) = port_with(&["spartanport-gpu-capabilities"]);
-        let failed = FakeTools::printing(
-            1,
-            "0	AMD	integrated
-",
-        );
+        let failed = FakeTools::printing(1, "0\tAMD\tintegrated\n");
         assert_eq!(list_gpus(&failed, &paths), vec![]);
         let hung = FakeTools::timing_out();
         assert_eq!(list_gpus(&hung, &paths), vec![]);

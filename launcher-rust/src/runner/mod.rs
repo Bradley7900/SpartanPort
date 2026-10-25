@@ -21,7 +21,7 @@ pub mod window_icon;
 #[path = "../../tests/common/packages.rs"]
 mod packages;
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -191,12 +191,9 @@ fn shlex_join(words: &[String]) -> String {
 pub fn play(context: RunContext<'_>, settings: &Settings, paths: &Paths) -> i32 {
     let command = run_command(&this_exe(), &[]);
     play_with(context, settings, paths, &command, &mut |advice| {
-        #[cfg(windows)]
         if !platform::has_console() {
             platform::show_error(crate::APP_NAME, advice);
         }
-        #[cfg(not(windows))]
-        let _ = advice;
     })
 }
 
@@ -958,29 +955,10 @@ fn launch_prefix(env: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
     if cfg!(windows) || env("SPARTAN_GAMEMODE").as_deref() != Some("1") {
         return Vec::new();
     }
-    match env("PATH").and_then(|path| which("gamemoderun", &path)) {
+    match env("PATH").and_then(|path| platform::which("gamemoderun", OsStr::new(&path))) {
         Some(found) => vec![found.to_string_lossy().into_owned()],
         None => Vec::new(),
     }
-}
-
-/// The first executable file called `name` in the directories of `path`.
-fn which(name: &str, path: &str) -> Option<PathBuf> {
-    std::env::split_paths(path)
-        .map(|dir| dir.join(name))
-        .find(|candidate| is_executable(candidate))
-}
-
-#[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    path.metadata()
-        .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
-    path.is_file()
 }
 
 /// Runs a command within a time limit: its output, or the error to print.

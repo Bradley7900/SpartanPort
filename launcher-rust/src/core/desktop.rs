@@ -9,8 +9,8 @@ use std::process::{Command, Stdio};
 
 use indexmap::IndexMap;
 
+use super::platform::{self, which, Exec};
 use crate::core::env::Lookup;
-use crate::core::platform;
 
 pub const DESKTOP_MARKER: &str = "X-SPARTAN-Integration=true";
 /// The menu entry's file name; it is also the window's application id.
@@ -235,17 +235,6 @@ pub fn integrate_desktop(
         .flatten()
 }
 
-#[cfg(unix)]
-fn make_executable(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755))
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) -> io::Result<()> {
-    Ok(())
-}
-
 /// The shortcut button: the desktop entry on the desktop folder (when it exists) and in the
 /// applications menu, except in the menu when another tool already integrated this AppImage (a
 /// second entry would show the game twice). Returns the files written.
@@ -289,20 +278,11 @@ pub fn write_linux_shortcut(
         };
         let target = folder.join(name);
         fs::write(&target, &entry)?;
-        make_executable(&target)?;
+        platform::make_executable(&target, Exec::Exactly)?;
         created.push(target.to_string_lossy().into_owned());
     }
     Ok(created)
 }
-
-#[cfg(windows)]
-fn no_window(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-    command.creation_flags(0x0800_0000);
-}
-
-#[cfg(not(windows))]
-fn no_window(_command: &mut Command) {}
 
 /// The shortcut's icon (R92): the port's `launcher/spartanport.ico` when it is there, as the
 /// Python run from source sets it, else the first icon of `exe`.
@@ -341,7 +321,7 @@ pub fn windows_shortcut(port_dir: &Path, exe: &Path) -> Result<(), String> {
             &windows_shortcut_script(port_dir, exe),
         ])
         .stdin(Stdio::null());
-    no_window(&mut command);
+    platform::hide_window(&mut command);
     let output = command.output().map_err(|e| e.to_string())?;
     if output.status.success() {
         Ok(())
@@ -359,22 +339,6 @@ pub struct LinuxTools {
     pub wayland: bool,
     pub gamemode: bool,
     pub mangohud: bool,
-}
-
-#[cfg(unix)]
-fn is_runnable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_runnable(path: &Path) -> bool {
-    path.is_file()
-}
-
-/// `shutil.which`: an executable called `name` in one of the folders of `path`.
-fn on_path(name: &str, path: &OsStr) -> bool {
-    std::env::split_paths(path).any(|dir| is_runnable(&dir.join(name)))
 }
 
 /// A Vulkan layer manifest of MangoHud (`*angoHud*.json`) in one of `dirs`.
@@ -400,8 +364,8 @@ pub fn linux_tools(env: Lookup) -> LinuxTools {
     }
     LinuxTools {
         wayland: env("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),
-        gamemode: on_path("gamemoderun", path.as_ref()),
-        mangohud: on_path("mangohud", path.as_ref()) || has_mangohud_layer(&layers),
+        gamemode: which("gamemoderun", path.as_ref()).is_some(),
+        mangohud: which("mangohud", path.as_ref()).is_some() || has_mangohud_layer(&layers),
     }
 }
 
@@ -439,7 +403,7 @@ fn open_with_desktop(target: &OsStr, is_url: bool) -> io::Result<()> {
             Command::new("explorer")
         };
         command.arg(target);
-        no_window(&mut command);
+        platform::hide_window(&mut command);
     } else {
         command = Command::new("xdg-open");
         command.arg(target).env_clear().envs(host_environment());
@@ -980,20 +944,6 @@ mod tests {
         assert!(!has_mangohud_layer(std::slice::from_ref(&layers)));
         fs::write(layers.join("MangoHud.json"), b"{}").unwrap();
         assert!(has_mangohud_layer(&[f.home.join("nowhere"), layers]));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn which_finds_an_executable_on_the_path_only() {
-        use std::os::unix::fs::PermissionsExt;
-        let f = fixture();
-        let program = f.home.join("mangohud");
-        fs::write(&program, b"#!/bin/sh\n").unwrap();
-        let path = std::env::join_paths([&f.home]).unwrap();
-        assert!(!on_path("mangohud", &path));
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(on_path("mangohud", &path));
-        assert!(!on_path("gamemoderun", &path));
     }
 
     #[test]

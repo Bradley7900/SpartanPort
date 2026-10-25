@@ -27,26 +27,6 @@ pub fn pool_mb(dmem_mb: u64) -> u64 {
     mb + FLEX_SPAN_MB
 }
 
-/// The installed RAM in MiB (`ullTotalPhys`), or `None` when the system does not say.
-#[cfg(windows)]
-pub fn physical_memory_mb() -> Option<u64> {
-    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-
-    // SAFETY: an all-zero MEMORYSTATUSEX is a valid value (plain integers only).
-    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
-    status.dwLength = u32::try_from(std::mem::size_of::<MEMORYSTATUSEX>()).ok()?;
-    // SAFETY: `status` is a live MEMORYSTATUSEX whose dwLength is set, as the call requires.
-    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
-    (ok != 0).then_some(status.ullTotalPhys >> 20)
-}
-
-/// Off Windows the installed RAM is not read (the Python returns `None` too): the warning's advice
-/// is about the Windows page file and error 1450.
-#[cfg(not(windows))]
-pub fn physical_memory_mb() -> Option<u64> {
-    None
-}
-
 /// A warning when the pool and the probe's headroom need more than the installed RAM.
 pub fn memory_warning(
     dmem_mb: u64,
@@ -128,18 +108,6 @@ mod tests {
             memory_warning(8128, Some(8000), "cached").as_deref(),
             Some(python)
         );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn physical_memory_is_reported() {
-        assert!(physical_memory_mb().is_some_and(|mb| mb > 0));
-    }
-
-    #[cfg(not(windows))]
-    #[test]
-    fn physical_memory_is_unknown_off_windows() {
-        assert_eq!(physical_memory_mb(), None);
     }
 
     #[test]

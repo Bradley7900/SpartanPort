@@ -3,6 +3,7 @@
 use nix::errno::Errno;
 use nix::sys::signal::{kill, killpg, SigSet, Signal};
 use nix::unistd::Pid;
+use std::fs;
 use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
@@ -24,7 +25,7 @@ pub fn steam_path_from_registry() -> Option<std::path::PathBuf> {
 }
 
 /// Programs share the terminal here: nothing to hide.
-pub fn no_window(_cmd: &mut Command) {}
+pub fn hide_window(_cmd: &mut Command) {}
 
 /// The error goes to the terminal here: there is no dialog to block on.
 pub fn show_error(title: &str, text: &str) {
@@ -35,7 +36,34 @@ pub fn show_error(title: &str, text: &str) {
 pub fn attach_parent_console() {}
 
 /// Console programs never open a window of their own here.
-pub fn no_console_window(_cmd: &mut Command) {}
+pub fn hide_console_window(_cmd: &mut Command) {}
+
+/// The program runs from a terminal or a launcher that takes its output: it counts as having one.
+pub fn has_console() -> bool {
+    true
+}
+
+/// Sets the execute bits the way the Python does: exactly `0o755`, or the mode plus `0o755`.
+pub fn make_executable(path: &Path, how: super::Exec) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = match how {
+        super::Exec::Exactly => 0o755,
+        super::Exec::Adding => fs::metadata(path)?.permissions().mode() | 0o755,
+    };
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+}
+
+/// A file with any execute bit set.
+pub fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// Off Windows the installed RAM is not read (the Python returns `None` too): the warning's advice
+/// is about the Windows page file and error 1450.
+pub fn physical_memory_mb() -> Option<u64> {
+    None
+}
 
 /// Set once SIGINT came after `catch_interrupt`.
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
@@ -142,7 +170,55 @@ pub fn wait_for_process(pid: u32, limit: Duration) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::{which, Exec};
     use super::*;
+
+    fn file_with_mode(dir: &Path, name: &str, mode: u32) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let file = dir.join(name);
+        std::fs::write(&file, b"x").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+        file
+    }
+
+    fn mode_of(file: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(file).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn adding_keeps_other_mode_bits() {
+        let temp = tempfile::tempdir().unwrap();
+        let added = file_with_mode(temp.path(), "added", 0o640);
+        make_executable(&added, Exec::Adding).unwrap();
+        assert_eq!(mode_of(&added), 0o775);
+        let exact = file_with_mode(temp.path(), "exact", 0o640);
+        make_executable(&exact, Exec::Exactly).unwrap();
+        assert_eq!(mode_of(&exact), 0o755);
+    }
+
+    #[test]
+    fn which_finds_an_executable_on_the_path_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let path = std::env::join_paths([temp.path()]).unwrap();
+        let program = file_with_mode(temp.path(), "mangohud", 0o644);
+        assert_eq!(which("mangohud", &path), None);
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(which("mangohud", &path), Some(program));
+        assert_eq!(which("gamemoderun", &path), None);
+        assert!(!is_executable(temp.path()));
+    }
+
+    #[test]
+    fn physical_memory_is_unknown_off_windows() {
+        assert_eq!(physical_memory_mb(), None);
+    }
+
+    #[test]
+    fn a_unix_program_always_has_a_console() {
+        assert!(has_console());
+    }
 
     #[test]
     fn there_are_no_junctions_here() {

@@ -12,6 +12,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+use crate::core::platform::{self, Exec};
 pub use crate::core::release::version_tuple;
 use crate::core::release::{self, Channel, ReleaseId};
 
@@ -241,7 +242,7 @@ pub fn replace_appimage(
     let result = (|| {
         let (mut reader, total) = get(url, None, None)?;
         fetch_into(&mut *reader, total, &partial, Some(&expected), progress)?;
-        make_executable(&partial)?;
+        platform::make_executable(&partial, Exec::Adding)?;
         fs::rename(&partial, &target)?;
         Ok(())
     })();
@@ -249,18 +250,6 @@ pub fn replace_appimage(
         let _ = fs::remove_file(&partial);
     }
     result
-}
-
-#[cfg(unix)]
-fn make_executable(path: &Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = fs::metadata(path)?.permissions().mode();
-    fs::set_permissions(path, fs::Permissions::from_mode(mode | 0o755))
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) -> io::Result<()> {
-    Ok(())
 }
 
 /// The environment for the new AppImage: the old mount's variables must not leak into it.

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 
-use super::{no_console_window, no_window};
+use super::{hide_console_window, hide_window};
 use crate::core::patches::py_list;
 
 /// How often a running tool is checked for its end.
@@ -125,8 +125,8 @@ pub fn run_tool(call: &ToolCall) -> Result<ToolOutput, ToolError> {
         Stderr::Null => Stdio::null(),
     });
     match call.window {
-        Window::Hidden => no_window(&mut cmd),
-        Window::LikeConsole => no_console_window(&mut cmd),
+        Window::Hidden => hide_window(&mut cmd),
+        Window::LikeConsole => hide_console_window(&mut cmd),
     }
     let mut child = cmd.spawn().map_err(ToolError::Spawn)?;
     let Some(mut stdout) = child.stdout.take() else {

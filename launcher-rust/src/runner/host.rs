@@ -7,12 +7,12 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{discord, guest_memory, this_exe, RunContext};
+use super::{discord, this_exe, RunContext};
 use crate::core::launch::returncode;
 use crate::core::platform::tool::{
     run_tool, Stderr, ToolCall, ToolError, ToolOutput, Tools, Window,
 };
-use crate::core::platform::{self, no_console_window, no_window};
+use crate::core::platform::{self, hide_console_window, hide_window};
 
 /// The system around the runner; its [`Tools`] run the tools to their end (`--cpu-features`,
 /// `--gamepad`).
@@ -53,8 +53,8 @@ impl Host for SystemHost {
             command.stderr(Stdio::null());
         }
         match call.window {
-            Window::Hidden => no_window(&mut command),
-            Window::LikeConsole => no_console_window(&mut command),
+            Window::Hidden => hide_window(&mut command),
+            Window::LikeConsole => hide_console_window(&mut command),
         }
         let mut child = command.spawn().map_err(|error| {
             let program = call.program.to_string_lossy();
@@ -85,7 +85,7 @@ impl Host for SystemHost {
     }
 
     fn physical_memory_mb(&self) -> Option<u64> {
-        guest_memory::physical_memory_mb()
+        platform::physical_memory_mb()
     }
 }
 
