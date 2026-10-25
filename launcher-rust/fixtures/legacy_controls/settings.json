@@ -38,12 +38,13 @@
   "game_patches": {},
   "controls": {
     "key": {
-      "cross": "Space"
+      "cross": "Space",
+      "rage": "Mouse Middle"
     }
   },
   "pad_style": "playstation",
   "rage_one_input": false,
   "stick_prompts": "keyboard",
-  "controls_layout": 2,
+  "controls_layout": 4,
   "glyph_style": "off"
 }

@@ -294,7 +294,7 @@ pub static SETTINGS: &[Setting] = &[
         Text("keyboard"),
         env("SPARTAN_STICK_PROMPTS", ""),
     ),
-    app("controls_layout", Kind::Int, Int(2), None),
+    app("controls_layout", Kind::Int, Int(4), None),
     app(
         "glyph_style",
         Pick(GLYPH_STYLES),
@@ -482,7 +482,7 @@ mod tests {
     fn text_reads_the_default_of_an_absent_key() {
         let mut s = Settings(serde_json::Map::new());
         assert_eq!(s.text("stream_memory"), "cached");
-        assert_eq!(s.text("controls_layout"), "2");
+        assert_eq!(s.text("controls_layout"), "4");
         s.set("stream_memory", json!("host"));
         assert_eq!(s.text("stream_memory"), "host");
     }

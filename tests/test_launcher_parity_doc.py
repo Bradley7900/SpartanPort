@@ -20,18 +20,6 @@ ALLOWED_DROP_FILES = {
 # Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
 # each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
 PENDING_PORTS = {
-    # Task 43
-    'tests/test_launcher_controls.py::ControlMapTest::test_stick_directions_are_saved_and_sent_like_other_keyboard_actions',
-    'tests/test_launcher_controls.py::ControlMapTest::test_new_directions_do_not_take_keys_from_saved_actions',
-    'tests/test_launcher_controls.py::ControlMapTest::test_unbinding_several_inputs_does_not_swap_their_old_keys',
-    'tests/test_launcher_controls.py::ControlMapTest::test_direction_conflicts_swap_and_invalid_entries_are_not_forwarded',
-    'tests/test_launcher_controls.py::ControlMapTest::test_keyboard_defaults_put_the_attacks_on_the_mouse',
-    'tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table',
-    'tests/test_launcher_controls.py::ControlMapTest::test_the_wheel_cycles_the_weapons_by_default',
-    'tests/test_launcher_controls.py::ControlMapTest::test_saved_keyboard_binds_keep_their_layout',
-    'tests/test_launcher_controls.py::ControlMapTest::test_layout_two_keeps_its_table_and_gets_the_weapon_cycle',
-    'tests/test_launcher_controls.py::ControlMapTest::test_rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click',
-    'tests/test_launcher_controls.py::ControlMapTest::test_native_translation_carries_over',
     # Task 47
     'tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_ini_overrides_legacy_launcher_choice',
     'tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence',

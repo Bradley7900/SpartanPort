@@ -1094,20 +1094,20 @@ fn keys_that_cannot_be_bound() {
 fn binding_a_used_key_swaps_the_buttons_in_the_view() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = controls_state(dir.path());
-    // Nobody has F by default: Square takes it.
+    // Nobody has G by default (F is Rage of Sparta's): Square takes it.
     capture(&mut state, "square");
-    press_key(&mut state, char_key("f"), Location::Standard);
-    assert_eq!(state.controls.key["square"], "F");
+    press_key(&mut state, char_key("g"), Location::Standard);
+    assert_eq!(state.controls.key["square"], "G");
     // Cross's box shows Space; clicking it waits for an input for Cross.
     click_tall(&mut state, "Space");
     assert_eq!(state.controls.capturing.as_deref(), Some("cross"));
     assert!(tall_has(&state, "Press a key or mouse (5)"));
-    press_key(&mut state, char_key("f"), Location::Standard);
-    assert_eq!(state.controls.key["cross"], "F");
+    press_key(&mut state, char_key("g"), Location::Standard);
+    assert_eq!(state.controls.key["cross"], "G");
     assert_eq!(state.controls.key["square"], "Space");
-    // The rendered boxes swapped too: F is Cross's box, Space is Square's.
+    // The rendered boxes swapped too: G is Cross's box, Space is Square's.
     assert!(matches!(
-        tall_messages(&state, "F").as_slice(),
+        tall_messages(&state, "G").as_slice(),
         [Message::Controls(ControlsMessage::Capture(button))] if button == "cross"
     ));
     assert!(matches!(
@@ -1124,7 +1124,7 @@ fn binding_a_used_key_swaps_the_buttons_in_the_view() {
     };
     assert_eq!(
         (input("cross"), input("square")),
-        ("F".into(), "Space".into())
+        ("G".into(), "Space".into())
     );
 }
 
@@ -1312,7 +1312,7 @@ fn reset_buttons_and_the_rage_rows() {
     let mut state = controls_state(dir.path());
     let defaults = state.controls.key.clone();
     assert_eq!(defaults["square"], "Mouse Left");
-    assert_eq!(defaults["rage"], "Mouse Middle");
+    assert_eq!(defaults["rage"], "F");
     // The arrow puts one button back on its default, swapping with the button that had it.
     capture(&mut state, "cross");
     press_key(&mut state, char_key("h"), Location::Standard);
@@ -1385,7 +1385,7 @@ fn the_keyboard_reset_works_in_the_window_as_it_opens() {
     );
     ui.point_at(iced::Point::new(300.0, 500.0));
     let _ = ui.simulate([iced::Event::Mouse(mouse::Event::WheelScrolled {
-        delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -700.0 },
+        delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -1100.0 },
     })]);
     ui.click("Reset keyboard & mouse to defaults").unwrap();
     let sent: Vec<Message> = ui.into_messages().collect();

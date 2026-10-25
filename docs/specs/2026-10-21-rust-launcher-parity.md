@@ -41,7 +41,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_cache.py` | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 | 0 |
-| `tests/test_launcher_controls.py` | 59 | 17 | 17 | 0 | 0 | 13 | 12 |
+| `tests/test_launcher_controls.py` | 59 | 28 | 17 | 0 | 0 | 13 | 1 |
 | `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 | 0 |
 | `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_exit_hint.py` | 17 | 10 | 7 | 0 | 0 | 0 | 0 |
@@ -70,7 +70,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_controller_mappings.py` | 15 | 0 | 0 | 0 | 0 | 0 | 15 |
 | `tests/test_controller_mapper_launch.py` | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
 | `tests/test_controller_mapper_sdl.py` | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **382** | **128** | **85** | **27** | **2** | **98** | **42** |
+| **Total** | **382** | **139** | **85** | **27** | **2** | **98** | **31** |
 
 ## Map
 
@@ -95,10 +95,10 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::DiskModsTest::test_frozen_launcher_uses_disk_loader_in_every_import` | — | dropped: no Rust counterpart — the frozen launcher imports scripts/mods.py from the port folder over its bundled copy (the Rust mods code is compiled in) |
 | `tests/test_launcher_controls.py::DiskModsTest::test_missing_disk_loader_uses_the_bundle` | — | dropped: no Rust counterpart — without scripts/mods.py on disk the frozen launcher uses its bundled copy |
 | `tests/test_launcher_controls.py::DiskModsTest::test_invalid_disk_loader_has_a_clear_error_and_keeps_the_bundle` | — | dropped: no Rust counterpart — a broken scripts/mods.py raises an error naming the file and keeps the bundled copy |
-| `tests/test_launcher_controls.py::ControlMapTest::test_stick_directions_are_saved_and_sent_like_other_keyboard_actions` | — | dropped: pending port (Task 43) |
-| `tests/test_launcher_controls.py::ControlMapTest::test_new_directions_do_not_take_keys_from_saved_actions` | — | dropped: pending port (Task 43) |
-| `tests/test_launcher_controls.py::ControlMapTest::test_unbinding_several_inputs_does_not_swap_their_old_keys` | — | dropped: pending port (Task 43) |
-| `tests/test_launcher_controls.py::ControlMapTest::test_direction_conflicts_swap_and_invalid_entries_are_not_forwarded` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_stick_directions_are_saved_and_sent_like_other_keyboard_actions` | `src/core/controls.rs::tests::stick_directions_are_saved_and_sent_like_other_keyboard_actions` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_new_directions_do_not_take_keys_from_saved_actions` | `src/core/controls.rs::tests::new_directions_do_not_take_keys_from_saved_actions` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_unbinding_several_inputs_does_not_swap_their_old_keys` | `src/core/controls.rs::tests::unbinding_several_inputs_does_not_swap_their_old_keys` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_direction_conflicts_swap_and_invalid_entries_are_not_forwarded` | `src/core/controls.rs::tests::direction_conflicts_swap_and_invalid_entries_are_not_forwarded` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_shader_notes_are_off_without_a_saved_choice` | `src/core/env.rs::tests::shader_notes_are_off_without_a_saved_choice` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_saved_shader_notes_choice_is_preserved` | `src/core/env.rs::tests::saved_shader_notes_choice_is_preserved` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_new_cheats_default_to_disabled` | `tests/fixtures.rs::collect_matches_python_for_edited_case` | replaced by `tests/fixtures.rs::collect_matches_python_for_edited_case` |
@@ -115,15 +115,15 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::ControlMapTest::test_captured_names_reach_the_game` | `tests/ui_pages.rs::pressed_keys_become_sdl_names`, `src/core/controls.rs::tests::changed_buttons_in_table_order` | replaced by `tests/ui_pages.rs::pressed_keys_become_sdl_names`, `src/core/controls.rs::tests::changed_buttons_in_table_order` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_mouse_inputs_become_game_names` | `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::sdl_names_and_mouse_names` | replaced by `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::sdl_names_and_mouse_names` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_the_mouse_binds_in_the_keyboard_table` | `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` | replaced by `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` |
-| `tests/test_launcher_controls.py::ControlMapTest::test_keyboard_defaults_put_the_attacks_on_the_mouse` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` |
-| `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::settings_match_python_for_case_defaults`, `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` |
-| `tests/test_launcher_controls.py::ControlMapTest::test_the_wheel_cycles_the_weapons_by_default` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_keyboard_defaults_put_the_attacks_on_the_mouse` | `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table` | `src/core/controls.rs::tests::actions_belong_to_the_keyboard_table` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_the_wheel_cycles_the_weapons_by_default` | `src/core/controls.rs::tests::the_wheel_cycles_the_weapons_by_default`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_rage_switch_moves_l3_and_r3_to_one_input` | `src/core/controls.rs::tests::rage_switch_moves_l3_and_r3_to_one_input` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_stick_prompts_reach_the_game` | — | dropped: no Rust counterpart — stick_prompts reaches SPARTAN_STICK_PROMPTS (mouse is sent, an unknown value is dropped, an inherited value is replaced); only the keyboard default is in the environment fixtures |
-| `tests/test_launcher_controls.py::ControlMapTest::test_saved_keyboard_binds_keep_their_layout` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` |
-| `tests/test_launcher_controls.py::ControlMapTest::test_layout_two_keeps_its_table_and_gets_the_weapon_cycle` | — | dropped: pending port (Task 43) |
-| `tests/test_launcher_controls.py::ControlMapTest::test_rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click` | — | dropped: pending port (Task 43) |
-| `tests/test_launcher_controls.py::ControlMapTest::test_native_translation_carries_over` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `src/core/controls.rs::tests::native_translation_carries_over` |
+| `tests/test_launcher_controls.py::ControlMapTest::test_saved_keyboard_binds_keep_their_layout` | `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_layout_two_keeps_its_table_and_gets_the_weapon_cycle` | `src/core/controls.rs::tests::layout_two_keeps_its_table_and_gets_the_weapon_cycle` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click` | `src/core/controls.rs::tests::rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_native_translation_carries_over` | `src/core/controls.rs::tests::native_translation_carries_over` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_new_players_get_the_new_defaults` | `src/core/controls.rs::tests::new_players_get_the_new_defaults` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_binding_a_used_key_swaps_the_buttons` | `src/core/controls.rs::tests::binding_a_used_key_swaps_the_buttons` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_environment` | `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_edited` | replaced by `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_edited` |
@@ -479,6 +479,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 16. Discord Rich Presence is on by default (R91; the Python's default was off): a new `settings.json` holds `"discord_rpc": true`, and the game gets `SPARTAN_DISCORD=1` unless the player switches it off. `tests/fixtures.rs` lists it with `ui_scale` in `DECIDED_DEFAULTS`, the only defaults allowed to differ from the Python's fixtures.
 17. When the game exits with advice the Rust opens the Log page and scrolls to its end (the 2.7.0 Python scrolls the Advanced page to its log section). The Delete shader cache button of Performance and the Clear shader cache button of Advanced ask the same question, as the Python's two buttons do.
 18. PLAY checks the port folder for `run.py` and `bin/spartanport-probe` (or `out/`) before starting and names what is missing, with the releases page as the fix (the Python lets run.py fail with its developer message). The Windows exe links the C runtime statically (`.cargo/config.toml`), so it needs no VCRUNTIME140.dll.
+19. A `controls_layout` newer than the launcher's own (`CONTROLS_LAYOUT`, 4) is left as it is: `migrate_controls` returns the settings unchanged, so going back to an older launcher never rewrites the player's keys (the Python migrates every layout but its own). `src/core/controls.rs::tests::a_newer_layout_is_left_alone`.
 
 ## Partly covered
 
@@ -491,7 +492,7 @@ the Python test:
 - `tests/test_launcher_controls.py::ControlMapTest::test_new_cheats_default_to_disabled`: the cheats being ini flags is not asserted.
 - `tests/test_launcher_controls.py::ControlMapTest::test_more_keys_can_be_bound`: Pause, Scroll Lock and Keypad 0 are not pressed.
 - `tests/test_launcher_controls.py::ControlMapTest::test_captured_names_reach_the_game`: Keypad Enter, minus and F5 are not run through control_map.
-- `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table`: dodge being absent from the gamepad table, and dodge=V in the key map, are not asserted. This is about the 2.7.0 row: main changed the test, pending port (Task 43).
+- `tests/test_launcher_controls.py::ControlMapTest::test_the_wheel_cycles_the_weapons_by_default`: the Next weapon and Previous weapon names (the Controls page's `ACTION_NAMES`) are not asserted; the key map the game gets is asserted through `keyboard_map` and the defaults fixture.
 - `tests/test_launcher_controls.py::ControlMapTest::test_environment`: the switches (partial_height_views, parallel_warmup and background_warmup off, frame_capture_key on) and the ignored extra_env are not asserted; the defaults are.
 - `tests/test_launcher_controls.py::ControlMapTest::test_settings_keys_kept`: an old player_name never reaching SPARTAN_USER_NAME is not asserted.
 - `tests/test_launcher_controls.py::ControlMapTest::test_graphics_defaults_match_the_game`: the FPS limit, engine FPS and frames-queued value lists are not asserted (only that their values are unique).

@@ -3,6 +3,8 @@
 //! Key names are compared case-insensitively with `to_lowercase()`; the names involved are
 //! ASCII/Latin, where it matches the Python launcher's `casefold()`.
 
+use std::collections::HashSet;
+
 use indexmap::IndexMap;
 use serde_json::{Map, Value};
 
@@ -133,14 +135,49 @@ pub static KEY_DEFAULTS: &[(&str, &str)] = &[
     ("left", "4"),
 ];
 
-/// Actions of the keyboard map only. Rage of Sparta (L3 + R3 on one input) follows R3.
-pub static RAGE_ROW: ControlRow = row("rage", "Mouse Middle", None);
+/// Actions of the keyboard map only. Rage of Sparta (L3 + R3 on one input) follows R3; it is used
+/// instead of L3 and R3 while `rage_one_input` is on. "None" leaves a row without an input.
+pub static RAGE_ROW: ControlRow = row("rage", "F", None);
 pub static GRAB_ROW: ControlRow = row("grab", "C", None);
 pub static DODGE_ROW: ControlRow = row("dodge", "Mouse Back", None);
-pub static KEY_ACTIONS: [&ControlRow; 3] = [&RAGE_ROW, &GRAB_ROW, &DODGE_ROW];
+/// Rage of Sparta was on the wheel click until the wheel cycled the weapons, where a scroll could
+/// set it off. A saved table keeps it there (`keep_saved_rage`).
+pub const RAGE_LEGACY_INPUT: &str = "Mouse Middle";
+/// The wheel cycles the weapons on the d-pad.
+pub static WEAPON_ROWS: [ControlRow; 2] = [
+    row("weapon_next", "Wheel Up", None),
+    row("weapon_prev", "Wheel Down", None),
+];
+/// The left stick (`move_*`) and right stick (`look_*`) directions; their defaults are the game's
+/// own keys, so only a changed one is sent.
+pub static STICK_ROWS: [ControlRow; 8] = [
+    row("move_up", "W", None),
+    row("move_down", "S", None),
+    row("move_left", "A", None),
+    row("move_right", "D", None),
+    row("look_up", "Up", None),
+    row("look_down", "Down", None),
+    row("look_left", "Left", None),
+    row("look_right", "Right", None),
+];
+pub static KEY_ACTIONS: [&ControlRow; 13] = [
+    &STICK_ROWS[0],
+    &STICK_ROWS[1],
+    &STICK_ROWS[2],
+    &STICK_ROWS[3],
+    &STICK_ROWS[4],
+    &STICK_ROWS[5],
+    &STICK_ROWS[6],
+    &STICK_ROWS[7],
+    &RAGE_ROW,
+    &GRAB_ROW,
+    &DODGE_ROW,
+    &WEAPON_ROWS[0],
+    &WEAPON_ROWS[1],
+];
 pub const RAGE_BUTTONS: [&str; 2] = ["l3", "r3"];
-/// Settings layout: 2 = one keyboard & mouse table (`migrate_controls`).
-pub const CONTROLS_LAYOUT: u64 = 2;
+/// Settings layout: 4 = remappable keyboard stick directions (`migrate_controls`).
+pub const CONTROLS_LAYOUT: u64 = 4;
 
 pub static MOUSE_NAMES: &[&str] = &[
     "Mouse Left",
@@ -172,15 +209,15 @@ pub fn table_rows(kind: Kind) -> Vec<&'static ControlRow> {
     if kind != Kind::Key {
         return CONTROLS.iter().collect();
     }
-    let mut rows = Vec::new();
+    let mut rows: Vec<&'static ControlRow> = STICK_ROWS.iter().collect();
     for row in &CONTROLS {
         rows.push(row);
         if row.button == "r3" {
             rows.push(&RAGE_ROW);
         }
     }
-    rows.push(&GRAB_ROW);
-    rows.push(&DODGE_ROW);
+    rows.extend([&GRAB_ROW, &DODGE_ROW]);
+    rows.extend(&WEAPON_ROWS);
     rows
 }
 
@@ -298,7 +335,8 @@ pub fn sdl_key_name(key: &str) -> Option<String> {
 }
 
 /// Gives `name` to `button`; a button that had it takes the old key of `button`, so no key
-/// presses two buttons. Returns the button that swapped.
+/// presses two buttons. "None" (no input) is never taken from another button. Returns the button
+/// that swapped.
 pub fn bind_key(
     bindings: &mut IndexMap<String, String>,
     button: &str,
@@ -308,7 +346,9 @@ pub fn bind_key(
     let wanted = name.to_lowercase();
     let other = bindings
         .iter()
-        .find(|(b, k)| b.as_str() != button && k.trim().to_lowercase() == wanted)
+        .find(|(b, k)| {
+            b.as_str() != button && wanted != "none" && k.trim().to_lowercase() == wanted
+        })
         .map(|(b, _)| b.clone());
     bindings.insert(button.to_string(), name.to_string());
     match other {
@@ -323,9 +363,13 @@ pub fn bind_key(
 /// The saved inputs (key) or gamepad names (pad) by game button, for the rows of that table.
 /// `touchpad`, saved before the sides were split, is the left click.
 pub fn control_values(controls: &Value, kind: Kind) -> IndexMap<String, String> {
-    let chosen = match controls.get(kind.name()) {
-        Some(Value::Object(chosen)) => chosen,
-        _ => return IndexMap::new(),
+    table_values(controls.get(kind.name()), kind)
+}
+
+/// `control_values` of one saved table (`controls.key` or `controls.pad`).
+fn table_values(chosen: Option<&Value>, kind: Kind) -> IndexMap<String, String> {
+    let Some(Value::Object(chosen)) = chosen else {
+        return IndexMap::new();
     };
     let mut values: Map<String, Value> = chosen
         .iter()
@@ -410,8 +454,12 @@ pub fn keyboard_map(controls: &Value, rage: bool) -> String {
             .or_else(|| default_input(row, Kind::Key))
             .unwrap_or("")
             .trim();
-        // the game has no key of its own for an action
-        let game_default = if CONTROLS.contains(row) { row.key } else { "" };
+        // the game has no key of its own for an action, but has the stick directions'
+        let game_default = if CONTROLS.contains(row) || STICK_ROWS.contains(row) {
+            row.key
+        } else {
+            ""
+        };
         if value.to_lowercase() != game_default.to_lowercase() && !value.contains([',', '=']) {
             entries.push(format!("{}={}", row.button, value));
         }
@@ -431,16 +479,81 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
-/// Settings saved before the keyboard & mouse table (`CONTROLS_LAYOUT`). A player who saved keys
-/// in Keyboard Mapping keeps the whole layout they had (the game's keys for the rest); one who
-/// used Native Translation keeps that table. A new action whose default input is already taken
-/// stays without one.
+/// Whether the switch `key` of the settings is on; absent counts as on (`rage_one_input` and
+/// `native_rage` default to one input for Rage of Sparta).
+fn on_unless_off(saved: &Map<String, Value>, key: &str) -> bool {
+    saved.get(key).is_none_or(truthy)
+}
+
+/// The inputs a keyboard table sends (saved or default), lowercase, leaving out the `skipped` rows
+/// and the rows the table does not send (L3 and R3 with Rage of Sparta on one input, else the
+/// Rage row).
+fn inputs_in_use(
+    chosen: &IndexMap<String, String>,
+    rage: bool,
+    skipped: &[&str],
+) -> HashSet<String> {
+    let unused: &[&str] = if rage { &RAGE_BUTTONS } else { &["rage"] };
+    table_rows(Kind::Key)
+        .into_iter()
+        .filter(|row| {
+            !row.key.is_empty() && !skipped.contains(&row.button) && !unused.contains(&row.button)
+        })
+        .filter_map(|row| {
+            chosen
+                .get(row.button)
+                .map(String::as_str)
+                .or_else(|| default_input(row, Kind::Key))
+        })
+        .map(|input| input.trim().to_lowercase())
+        .collect()
+}
+
+/// Leaves the `actions` that a saved keyboard table predates without an input ("None") when their
+/// default one is already used by another row; the rest follow their defaults. A table with
+/// nothing saved follows the defaults, which never collide.
+fn claim_new_actions(controls: &mut Map<String, Value>, rage: bool, actions: &[ControlRow]) {
+    let chosen = table_values(controls.get("key"), Kind::Key);
+    if chosen.is_empty() {
+        return;
+    }
+    let skipped: Vec<&str> = actions.iter().map(|row| row.button).collect();
+    let taken = inputs_in_use(&chosen, rage, &skipped);
+    // a saved table is an object: `chosen` came from it
+    if let Some(Value::Object(key)) = controls.get_mut("key") {
+        for action in actions {
+            if taken.contains(&action.key.to_lowercase()) {
+                key.insert(action.button.to_string(), Value::from("None"));
+            }
+        }
+    }
+}
+
+/// A saved keyboard table that never moved Rage of Sparta keeps it on the wheel click it had
+/// (`RAGE_LEGACY_INPUT`), unless another row of the table uses that input. A table with nothing
+/// saved follows the new default.
+fn keep_saved_rage(controls: &mut Map<String, Value>, rage: bool) {
+    let chosen = table_values(controls.get("key"), Kind::Key);
+    if chosen.is_empty() || chosen.contains_key("rage") {
+        return;
+    }
+    if inputs_in_use(&chosen, rage, &["rage"]).contains(&RAGE_LEGACY_INPUT.to_lowercase()) {
+        return;
+    }
+    if let Some(Value::Object(key)) = controls.get_mut("key") {
+        key.insert("rage".to_string(), Value::from(RAGE_LEGACY_INPUT));
+    }
+}
+
+/// Settings saved before the current keyboard & mouse table (`CONTROLS_LAYOUT`). A player who
+/// saved keys in Keyboard Mapping keeps the whole layout they had (the game's keys for the rest);
+/// one who used Native Translation keeps that table; layouts 2 and 3 keep their saved actions. New
+/// actions or directions whose default input is already taken stay without one. Layout 2 keeps
+/// Rage of Sparta on the wheel click (`keep_saved_rage`). A layout newer than this launcher's is
+/// left as it is, so going back a version never rewrites the player's keys.
 pub fn migrate_controls(saved: Map<String, Value>) -> Map<String, Value> {
-    let current = saved
-        .get("controls_layout")
-        .and_then(Value::as_f64)
-        .is_some_and(|n| n == CONTROLS_LAYOUT as f64);
-    if saved.is_empty() || current {
+    let previous = saved.get("controls_layout").and_then(Value::as_f64);
+    if saved.is_empty() || previous.is_some_and(|n| n >= CONTROLS_LAYOUT as f64) {
         return saved;
     }
     let mut saved = saved;
@@ -449,54 +562,86 @@ pub fn migrate_controls(saved: Map<String, Value>) -> Map<String, Value> {
         _ => Map::new(),
     };
     let native = controls.shift_remove("native");
-    let native_input = saved.shift_remove("native_input");
-    let native_on = native_input.as_ref().is_some_and(truthy);
-    if let (true, Some(Value::Object(native))) = (native_on, &native) {
-        controls.insert("key".to_string(), Value::Object(native.clone())); // its defaults are the new ones
-    } else if controls.get("key").is_some_and(truthy) {
-        let kept = control_values(&Value::Object(controls.clone()), Kind::Key);
-        let mut layout: IndexMap<String, String> = CONTROLS
-            .iter()
-            .filter(|row| !row.key.is_empty())
-            .map(|row| {
-                let value = kept
-                    .get(row.button)
-                    .filter(|v| !v.is_empty())
-                    .map_or(row.key, String::as_str);
-                (row.button.to_string(), value.to_string())
-            })
-            .collect();
-        let rage = saved.get("native_rage").is_none_or(truthy);
-        let taken: Vec<String> = layout
-            .iter()
-            .filter(|(button, _)| !(rage && RAGE_BUTTONS.contains(&button.as_str())))
-            .map(|(_, value)| value.trim().to_lowercase())
-            .collect();
-        for action in KEY_ACTIONS {
-            let value = if taken.contains(&action.key.to_lowercase()) {
-                "None"
-            } else {
-                action.key
-            };
-            layout.insert(action.button.to_string(), value.to_string());
+    if previous.is_some_and(|n| n == 2.0 || n == 3.0) {
+        if previous == Some(2.0) {
+            let rage = on_unless_off(&saved, "rage_one_input");
+            keep_saved_rage(&mut controls, rage);
+            claim_new_actions(&mut controls, rage, &WEAPON_ROWS);
         }
-        let layout: Map<String, Value> = layout
-            .into_iter()
-            .map(|(button, value)| (button, Value::String(value)))
-            .collect();
-        controls.insert("key".to_string(), Value::Object(layout));
+    } else {
+        let native_on = saved
+            .shift_remove("native_input")
+            .as_ref()
+            .is_some_and(truthy);
+        match native {
+            Some(Value::Object(native)) if native_on => {
+                controls.insert("key".to_string(), Value::Object(native)); // its defaults are the new ones
+                let rage = on_unless_off(&saved, "native_rage");
+                keep_saved_rage(&mut controls, rage);
+                claim_new_actions(&mut controls, rage, &WEAPON_ROWS);
+            }
+            _ if controls.get("key").is_some_and(truthy) => {
+                let layout = rebuilt_layout(&controls, on_unless_off(&saved, "native_rage"));
+                controls.insert("key".to_string(), Value::Object(layout));
+            }
+            _ => {}
+        }
     }
     if let Some(rage) = saved.shift_remove("native_rage") {
         saved.insert("rage_one_input".to_string(), rage);
     }
+    let rage = on_unless_off(&saved, "rage_one_input");
+    claim_new_actions(&mut controls, rage, &STICK_ROWS);
     saved.insert("controls".to_string(), Value::Object(controls));
     saved.insert("controls_layout".to_string(), Value::from(CONTROLS_LAYOUT));
     saved
 }
 
+/// The whole keyboard table of a player who saved keys before the table had its own defaults: the
+/// saved keys, the game's keys for the rest, and each action on the input it had, or "None" when a
+/// button already uses that one.
+fn rebuilt_layout(controls: &Map<String, Value>, rage: bool) -> Map<String, Value> {
+    let kept = table_values(controls.get("key"), Kind::Key);
+    let mut layout: IndexMap<String, String> = CONTROLS
+        .iter()
+        .filter(|row| !row.key.is_empty())
+        .map(|row| {
+            let value = kept
+                .get(row.button)
+                .filter(|v| !v.is_empty())
+                .map_or(row.key, String::as_str);
+            (row.button.to_string(), value.to_string())
+        })
+        .collect();
+    let taken: HashSet<String> = layout
+        .iter()
+        .filter(|(button, _)| !(rage && RAGE_BUTTONS.contains(&button.as_str())))
+        .map(|(_, value)| value.trim().to_lowercase())
+        .collect();
+    for action in KEY_ACTIONS {
+        // the one they had
+        let default = if action.button == "rage" {
+            RAGE_LEGACY_INPUT
+        } else {
+            action.key
+        };
+        let value = if taken.contains(&default.to_lowercase()) {
+            "None"
+        } else {
+            default
+        };
+        layout.insert(action.button.to_string(), value.to_string());
+    }
+    layout
+        .into_iter()
+        .map(|(button, value)| (button, Value::String(value)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::settings::app_defaults;
     use serde_json::json;
 
     fn map(pairs: &[(&str, &str)]) -> IndexMap<String, String> {
@@ -632,8 +777,16 @@ mod tests {
                 assert_eq!(pairs.shift_remove(row.button).unwrap(), default);
             }
         }
-        assert_eq!(pairs, map(&[("grab", "C"), ("dodge", "Mouse Back")]));
-        assert!(keyboard_map(&json!({}), true).contains("l3=None,r3=None,rage=Mouse Middle"));
+        assert_eq!(
+            pairs,
+            map(&[
+                ("grab", "C"),
+                ("dodge", "Mouse Back"),
+                ("weapon_next", "Wheel Up"),
+                ("weapon_prev", "Wheel Down")
+            ])
+        );
+        assert!(keyboard_map(&json!({}), true).contains("l3=None,r3=None,rage=F"));
         let controls = json!({"key": {"square": "Wheel Up", "cross": "Q", "triangle": "E"}});
         assert!(keyboard_map(&controls, true).contains("cross=Q,square=Wheel Up,triangle=E,"));
         let mut values = defaults_of(Kind::Key);
@@ -683,6 +836,218 @@ mod tests {
             json!({"controls": {"key": {"cross": "Mouse Back"}}}),
         ));
         assert_eq!(taken["controls"]["key"]["dodge"], "None");
+        assert_eq!(
+            (&key["weapon_next"], &key["weapon_prev"]),
+            (&json!("Wheel Up"), &json!("Wheel Down"))
+        );
+        let wheel = migrate_controls(object(
+            json!({"controls": {"key": {"cross": "Wheel Down"}}}),
+        ));
+        let wheel = &wheel["controls"]["key"];
+        assert_eq!(
+            (&wheel["weapon_next"], &wheel["weapon_prev"]),
+            (&json!("Wheel Up"), &json!("None"))
+        );
+    }
+
+    #[test]
+    fn actions_belong_to_the_keyboard_table() {
+        let names: Vec<&str> = table_rows(Kind::Key).iter().map(|r| r.button).collect();
+        let r3 = names.iter().position(|name| *name == "r3").unwrap();
+        assert_eq!(names[r3 + 1], "rage");
+        assert_eq!(
+            names[names.len() - 4..],
+            ["grab", "dodge", "weapon_next", "weapon_prev"]
+        );
+        // the stick directions come first
+        assert_eq!(names[..STICK_ROWS.len()], STICK_ROWS.map(|row| row.button));
+        assert!(!table_rows(Kind::Pad).iter().any(|r| r.button == "dodge"));
+        let dodge = json!({"key": {"dodge": "V"}});
+        assert_eq!(control_values(&dodge, Kind::Key), map(&[("dodge", "V")]));
+        assert!(keyboard_map(&dodge, true).contains("dodge=V"));
+        assert!(keyboard_map(&json!({"key": {"grab": "None"}}), true).contains("grab=None"));
+        let app = app_defaults(&|_| None);
+        assert_eq!(app["rage_one_input"], json!(true));
+        assert!(!app.contains_key("native_input"));
+    }
+
+    #[test]
+    fn the_wheel_cycles_the_weapons_by_default() {
+        let defaults = defaults_of(Kind::Key);
+        assert_eq!(
+            (
+                defaults["weapon_next"].as_str(),
+                defaults["weapon_prev"].as_str()
+            ),
+            ("Wheel Up", "Wheel Down")
+        );
+        assert!(
+            keyboard_map(&json!({}), true).contains("weapon_next=Wheel Up,weapon_prev=Wheel Down")
+        );
+        // what the game gets from the default settings (env.rs sends this map)
+        let app = app_defaults(&|_| None);
+        assert!(
+            keyboard_map(&app["controls"], truthy(&app["rage_one_input"]))
+                .ends_with("weapon_next=Wheel Up,weapon_prev=Wheel Down")
+        );
+        let moved = keyboard_map(
+            &json!({"key": {"weapon_next": "Mouse Back", "weapon_prev": "None"}}),
+            true,
+        );
+        assert!(moved.contains("weapon_next=Mouse Back,weapon_prev=None"));
+        assert_eq!(app["controls_layout"], json!(CONTROLS_LAYOUT));
+    }
+
+    #[test]
+    fn layout_two_keeps_its_table_and_gets_the_weapon_cycle() {
+        let free = migrate_controls(object(
+            json!({"controls_layout": 2, "controls": {"key": {"cross": "Q", "dodge": "V"}}}),
+        ));
+        // not rebuilt
+        assert_eq!(
+            free["controls"]["key"],
+            json!({"cross": "Q", "dodge": "V", "rage": "Mouse Middle"})
+        );
+        assert_eq!(free["controls_layout"], json!(CONTROLS_LAYOUT));
+        let game = keyboard_map(&free["controls"], true);
+        assert!(game.contains("weapon_next=Wheel Up,weapon_prev=Wheel Down"));
+        assert!(game.contains("square=Mouse Left"));
+        assert_eq!(migrate_controls(free.clone()), free); // once
+        let busy = migrate_controls(object(
+            json!({"controls_layout": 2, "controls": {"key": {"dodge": "Wheel Up"}}}),
+        ));
+        assert_eq!(
+            busy["controls"]["key"],
+            json!({"dodge": "Wheel Up", "rage": "Mouse Middle", "weapon_next": "None"})
+        );
+        let both = migrate_controls(object(json!({"controls_layout": 2,
+            "controls": {"key": {"r1": "Wheel Up", "l1": "Wheel Down"}}})));
+        let game = keyboard_map(&both["controls"], true);
+        assert!(game.contains("weapon_next=None,weapon_prev=None"));
+        assert!(game.contains("l1=Wheel Down,r1=Wheel Up"));
+        // The wheel on L3 only counts while L3 is sent: with one Rage input it is free.
+        let spare = migrate_controls(object(
+            json!({"controls_layout": 2, "controls": {"key": {"l3": "Wheel Up"}}}),
+        ));
+        assert!(spare["controls"]["key"].get("weapon_next").is_none());
+        let apart = migrate_controls(object(
+            json!({"controls_layout": 2, "rage_one_input": false,
+            "controls": {"key": {"l3": "Wheel Up"}}}),
+        ));
+        assert_eq!(apart["controls"]["key"]["weapon_next"], "None");
+        let untouched = migrate_controls(object(
+            json!({"controls_layout": 2, "game_dir": "D:/games"}),
+        ));
+        assert_eq!(untouched["controls"], json!({}));
+        assert!(keyboard_map(&untouched["controls"], true).contains("weapon_next=Wheel Up"));
+    }
+
+    #[test]
+    fn rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click() {
+        assert_eq!(default_input(&RAGE_ROW, Kind::Key), Some("F"));
+        let app = app_defaults(&|_| None);
+        assert!(keyboard_map(&app["controls"], truthy(&app["rage_one_input"])).contains("rage=F"));
+        let kept = migrate_controls(object(
+            json!({"controls_layout": 2, "controls": {"key": {"cross": "Q"}}}),
+        ));
+        assert_eq!(kept["controls"]["key"]["rage"], RAGE_LEGACY_INPUT);
+        assert!(keyboard_map(&kept["controls"], true).contains("rage=Mouse Middle"));
+        let moved = migrate_controls(object(
+            json!({"controls_layout": 2, "controls": {"key": {"rage": "V"}}}),
+        ));
+        assert_eq!(moved["controls"]["key"], json!({"rage": "V"}));
+        let fresh = migrate_controls(object(
+            json!({"controls_layout": 2, "game_dir": "D:/games"}),
+        ));
+        assert!(keyboard_map(&fresh["controls"], true).contains("rage=F"));
+        // The wheel click given to another row: Rage takes the new default instead of a second binding.
+        let other = migrate_controls(object(
+            json!({"controls_layout": 2, "controls": {"key": {"circle": "Mouse Middle"}}}),
+        ));
+        assert!(other["controls"]["key"].get("rage").is_none());
+        assert!(keyboard_map(&other["controls"], true).contains("rage=F"));
+    }
+
+    #[test]
+    fn stick_directions_are_saved_and_sent_like_other_keyboard_actions() {
+        let mut defaults = defaults_of(Kind::Key);
+        let directions = [
+            ("move_up", "W"),
+            ("move_down", "S"),
+            ("move_left", "A"),
+            ("move_right", "D"),
+            ("look_up", "Up"),
+            ("look_down", "Down"),
+            ("look_left", "Left"),
+            ("look_right", "Right"),
+        ];
+        for (button, key) in directions {
+            assert_eq!(
+                defaults.get(button).map(String::as_str),
+                Some(key),
+                "{button}"
+            );
+        }
+        defaults.insert("move_up".into(), "T".into());
+        defaults.insert("look_left".into(), "None".into());
+        let changes = control_changes(&defaults, Kind::Key);
+        assert_eq!(changes, map(&[("move_up", "T"), ("look_left", "None")]));
+        let spec = keyboard_map(&json!({ "key": changes }), true);
+        assert!(spec.contains("move_up=T"));
+        assert!(spec.contains("look_left=None"));
+    }
+
+    #[test]
+    fn new_directions_do_not_take_keys_from_saved_actions() {
+        let new = migrate_controls(object(
+            json!({"controls_layout": 3, "controls": {"key": {"cross": "W", "dodge": "Left"}}}),
+        ));
+        let key = &new["controls"]["key"];
+        assert_eq!(key["cross"], "W");
+        assert_eq!(key["move_up"], "None");
+        assert_eq!(key["look_left"], "None");
+        assert_eq!(migrate_controls(new.clone()), new);
+    }
+
+    #[test]
+    fn unbinding_several_inputs_does_not_swap_their_old_keys() {
+        let mut bindings = map(&[
+            ("move_up", "W"),
+            ("move_left", "None"),
+            ("look_right", "Right"),
+        ]);
+        assert_eq!(bind_key(&mut bindings, "move_up", "None"), None);
+        assert_eq!(bind_key(&mut bindings, "look_right", "None"), None);
+        assert!(
+            bindings.values().all(|value| value == "None"),
+            "{bindings:?}"
+        );
+    }
+
+    #[test]
+    fn direction_conflicts_swap_and_invalid_entries_are_not_forwarded() {
+        let mut bindings = defaults_of(Kind::Key);
+        assert_eq!(
+            bind_key(&mut bindings, "cross", "W"),
+            Some("move_up".to_string())
+        );
+        assert_eq!(bindings["move_up"], "Space");
+        let spec = keyboard_map(
+            &json!({ "key": control_changes(&bindings, Kind::Key) }),
+            true,
+        );
+        assert!(spec.contains("move_up=Space"));
+        assert!(spec.contains("cross=W"));
+        let invalid = json!({"key": {"move_up": "T,cross=H"}});
+        assert!(!keyboard_map(&invalid, true).contains("move_up="));
+    }
+
+    // Rust only (not in the Python): going back to an older launcher never rewrites the keys.
+    #[test]
+    fn a_newer_layout_is_left_alone() {
+        let saved = json!({"controls_layout": 5, "controls": {"keyboard": {"rage": "Q"}}});
+        let map = saved.as_object().unwrap().clone();
+        assert_eq!(migrate_controls(map.clone()), map);
     }
 
     #[test]
@@ -692,6 +1057,13 @@ mod tests {
                                 "native_input": true, "native_rage": true}));
         let new = migrate_controls(old);
         assert_eq!(new["controls"]["key"], json!({"circle": "Mouse Middle"}));
+        let busy = migrate_controls(object(
+            json!({"controls": {"native": {"circle": "Wheel Up"}}, "native_input": true}),
+        ));
+        assert_eq!(
+            busy["controls"]["key"],
+            json!({"circle": "Wheel Up", "rage": "Mouse Middle", "weapon_next": "None"})
+        );
         assert!(new["controls"].get("native").is_none());
         assert!(!new.contains_key("native_input"));
         assert_eq!(new["rage_one_input"], json!(true));
