@@ -8,7 +8,7 @@ use iced::{window, Point, Size};
 use spartanport_launcher::core::i18n::launcher_language;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::settings::app_defaults;
-use spartanport_launcher::startup::{migrates, route, route_on, Route};
+use spartanport_launcher::startup::{migrates, route, route_on, start, Route};
 use spartanport_launcher::ui::app::{
     self, centred_position, fitted_window, window_message, Message, State, WINDOW_SIZE,
 };
@@ -403,4 +403,56 @@ fn voice_swap_is_its_own_role() {
             args: args(&["a", "--play"])
         }
     );
+}
+
+fn vars(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).into(), (*v).into()))
+        .collect()
+}
+
+#[test]
+fn every_route_forwards_old_names_before_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("d");
+    let data_text = data.to_string_lossy().into_owned();
+    let routes: [&[&str]; 4] = [
+        &["--run"],
+        &["--play"],
+        &["--install-update", "C:/t", "7"],
+        &[],
+    ];
+    for args in routes {
+        let args: Vec<OsString> = args.iter().map(OsString::from).collect();
+        let (_, context) = start(
+            &args,
+            dir.path(),
+            vars(&[("GOW3_DATA_DIR", &data_text)]),
+            true,
+        );
+        assert_eq!(context.paths.data_dir, data, "{args:?}");
+        assert_eq!(context.env["SPARTAN_DATA_DIR"], data_text, "{args:?}");
+    }
+}
+
+#[test]
+fn run_paths_start_at_the_resolved_port() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("a")).unwrap();
+    std::fs::create_dir(dir.path().join("port")).unwrap();
+    let crooked = dir.path().join("a").join("..").join("port");
+    let (_, context) = start(&[OsString::from("--run")], &crooked, Vec::new(), true);
+    let found = std::fs::canonicalize(dir.path().join("port")).unwrap();
+    let found = found.to_string_lossy().replace(r"\\?\", "");
+    assert_eq!(context.paths.port_dir.to_string_lossy(), found);
+    // Their data folder follows.
+    assert_eq!(context.paths.data_dir, context.paths.port_dir);
+}
+
+#[test]
+fn windows_names_are_upper_case() {
+    let (_, context) = start(&[], Path::new("."), vars(&[("spartan_x", "1")]), true);
+    assert_eq!(context.env["SPARTAN_X"], "1");
+    assert!(!context.env.contains_key("spartan_x"));
 }

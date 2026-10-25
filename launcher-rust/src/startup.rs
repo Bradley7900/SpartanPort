@@ -8,9 +8,10 @@ use std::time::Duration;
 
 use indexmap::IndexMap;
 
-use crate::core::env::start_up_environment;
+use crate::core::env::{environment_of, start_up_environment};
 use crate::core::i18n::tr;
-use crate::core::paths::Paths;
+use crate::core::mods;
+use crate::core::paths::{default_port_dir, Paths};
 use crate::core::settings::load_app_settings;
 use crate::core::update::{self, update_dir};
 use crate::core::{desktop, legacy, platform};
@@ -113,16 +114,56 @@ pub fn install_update(source: &Path, target: &Path, pid: u32, lang: &str) -> i32
     }
 }
 
-/// `env::start_up_environment` on this process's environment, before anything reads it (the
-/// Python does it on import). Runs while the program has a single thread.
-pub fn forward_environment() {
-    let mut env: IndexMap<String, String> = std::env::vars_os()
-        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
-        .collect();
-    let before = env.clone();
-    start_up_environment(&mut env, cfg!(windows));
-    for (key, value) in env {
-        if before.get(&key) != Some(&value) {
+/// What every route starts from: the folders and the environment, forwarded and upper-cased once.
+#[derive(Debug, Clone)]
+pub struct Context {
+    pub paths: Paths,
+    pub env: IndexMap<String, String>,
+}
+
+/// The route and its [`Context`], in the Python's order: the environment (on Windows with upper
+/// case names, as `os.environ`), the old `GOW3_*` names forwarded, then the folders from it. The
+/// `--run` folders start at the port the runner resolves. Nothing here touches the process: see
+/// [`apply_to_process`].
+pub fn start(
+    args: &[OsString],
+    exe_dir: &Path,
+    vars: impl IntoIterator<Item = (OsString, OsString)>,
+    windows: bool,
+) -> (Route, Context) {
+    let route = route_on(args, windows);
+    let mut env = environment_of(vars);
+    if windows {
+        env = env
+            .into_iter()
+            .map(|(key, value)| (key.to_uppercase(), value))
+            .collect();
+    }
+    start_up_environment(&mut env, windows);
+    let port_dir = default_port_dir(exe_dir);
+    let read = |env: &IndexMap<String, String>, port: Option<&Path>| {
+        let port = port.map(|port| port.to_string_lossy().into_owned());
+        Paths::from_env(&port_dir, &|key| match (key, &port) {
+            ("SPARTAN_PORT_DIR", Some(port)) => Some(port.clone()),
+            _ => env.get(key).cloned(),
+        })
+    };
+    let mut paths = read(&env, None);
+    if matches!(route, Route::Run { .. }) {
+        if let Ok(resolved) = mods::resolve(&paths.port_dir) {
+            if resolved != paths.port_dir {
+                paths = read(&env, Some(&resolved));
+            }
+        }
+    }
+    (route, Context { paths, env })
+}
+
+/// Sets what `context` changed in this process's environment, for the code that reads it there
+/// (the window and the game it starts). Runs while the program has a single thread.
+pub fn apply_to_process(context: &Context) {
+    for (key, value) in &context.env {
+        if std::env::var_os(key).as_deref() != Some(OsStr::new(value)) {
             std::env::set_var(key, value);
         }
     }

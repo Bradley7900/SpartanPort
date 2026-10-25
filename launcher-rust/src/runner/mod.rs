@@ -41,6 +41,7 @@ use crate::core::platform::tool::{Stderr, ToolCall, Window};
 use crate::core::save_backup;
 use crate::core::settings::Settings;
 use crate::core::sfo::SfoValue;
+use crate::startup::Context;
 use content_profile::Sku;
 pub use host::{run_with, Host, SystemHost};
 use pause_menu::python_path;
@@ -49,8 +50,7 @@ use indexmap::IndexMap;
 
 /// What one run needs from the program around it.
 pub struct RunContext<'a> {
-    pub port_dir: &'a Path,
-    pub env: IndexMap<String, String>,
+    pub context: &'a Context,
     pub args: Vec<OsString>,
     pub out: &'a mut dyn Write,
 }
@@ -207,10 +207,13 @@ pub fn play_with(
     notify: &mut dyn FnMut(&str),
 ) -> i32 {
     let RunContext {
-        port_dir, env, out, ..
+        context: program,
+        out,
+        ..
     } = context;
+    let (port_dir, env) = (program.paths.port_dir.as_path(), &program.env);
     let lang = launcher_language(&settings.get_str("ui_language"), system_language);
-    let env = game_environment(settings, paths, &lang, &env, cfg!(windows));
+    let env = game_environment(settings, paths, &lang, env, cfg!(windows));
     let mut log = RunLog::open(&paths.run_log_path(&settings.get_str("user_dir")));
     let started = io::pipe().and_then(|(reader, writer)| {
         let mut command = Command::new(exe);
@@ -316,20 +319,12 @@ struct Runner<'a> {
 }
 
 impl<'a> Runner<'a> {
-    /// On Windows the names are upper case, as `os.environ` makes them: the names there are not
-    /// case sensitive, and `Path` must be found as `PATH`.
+    /// `env` is the program's: its names are already upper case on Windows (`startup::start`).
     fn new(
         out: &'a mut dyn Write,
         env: IndexMap<String, String>,
         host: &'a dyn Host,
     ) -> Runner<'a> {
-        let env = if cfg!(windows) {
-            env.into_iter()
-                .map(|(key, value)| (key.to_uppercase(), value))
-                .collect()
-        } else {
-            env
-        };
         Runner {
             out,
             env,
@@ -397,7 +392,6 @@ impl<'a> Runner<'a> {
         // starts in it.
         let port = mods::resolve(port_dir).unwrap_or_else(|_| port_dir.to_path_buf());
         self.port.clone_from(&port);
-        legacy::forward_environment(&mut self.env);
         // 3. The data folder, its out/ and the ini.
         let data = self.path_or("SPARTAN_DATA_DIR", port.clone());
         legacy::copy_game_settings(&data);

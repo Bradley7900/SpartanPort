@@ -25,6 +25,7 @@ use spartanport_launcher::runner::{
     isa_rewrite, patch_environment, play_with, restart_command, run_with, Host, RunContext,
     SystemHost, AFTER_LIMIT, GAMEPAD_PROBE_LIMIT,
 };
+use spartanport_launcher::startup::{start, Context};
 
 #[path = "common/host.rs"]
 mod host;
@@ -157,11 +158,20 @@ impl Port {
         env
     }
 
+    /// What the program starts from in this port: [`Port::environment`] as `startup::start` makes
+    /// it, with the folders.
+    fn program(&self, extra: &[(&str, &str)]) -> Context {
+        let vars = self
+            .environment(extra)
+            .into_iter()
+            .map(|(key, value)| (OsString::from(key), OsString::from(value)));
+        start(&[OsString::from("--run")], &self.root, vars, cfg!(windows)).1
+    }
+
     /// The context of an in-process run in this port: [`Port::environment`] and no arguments.
-    fn context<'a>(&'a self, out: &'a mut dyn Write) -> RunContext<'a> {
+    fn context<'a>(program: &'a Context, out: &'a mut dyn Write) -> RunContext<'a> {
         RunContext {
-            port_dir: &self.root,
-            env: self.environment(&[]),
+            context: program,
             args: Vec::new(),
             out,
         }
@@ -170,10 +180,10 @@ impl Port {
     /// An in-process run in this port on `host`, with `extra` variables and `args` after `--run`.
     fn run_on(&self, host: FakeHost, extra: &[(&str, &str)], args: &[&str]) -> InProcess {
         let mut out = Vec::new();
+        let program = self.program(extra);
         let code = run_with(
             RunContext {
-                port_dir: &self.root,
-                env: self.environment(extra),
+                context: &program,
                 args: args.iter().map(OsString::from).collect(),
                 out: &mut out,
             },
@@ -593,7 +603,7 @@ fn a_broken_mods_json_stops_with_the_mods_message() {
     fs::write(port.root.join("mods.json"), "{").unwrap();
     let host = FakeHost::default();
     let mut out = Vec::new();
-    let code = run_with(port.context(&mut out), &host);
+    let code = run_with(Port::context(&port.program(&[]), &mut out), &host);
     let out = String::from_utf8_lossy(&out);
     assert_eq!(code, 1, "{out}");
     assert!(out.lines().any(|line| line.starts_with("Mods: ")), "{out}");
@@ -607,11 +617,11 @@ fn a_relative_data_dir_is_from_the_port() {
     let port = Port::in_folder("port with space");
     let host = FakeHost::default();
     let mut out = Vec::new();
-    let mut context = port.context(&mut out);
-    context
+    let mut program = port.program(&[]);
+    program
         .env
         .insert("SPARTAN_DATA_DIR".into(), "data2".into());
-    let code = run_with(context, &host);
+    let code = run_with(Port::context(&program, &mut out), &host);
     let out = String::from_utf8_lossy(&out);
     assert_eq!(code, 0, "{out}");
     assert!(port.root.join("data2/out/boot.bin").is_file(), "{out}");
@@ -991,7 +1001,7 @@ fn play_writes_last_run_log_with_the_advice() {
     let paths = Paths::from_env(&port.root, &|_| None);
     let line = "Runtime: cannot create 6080 MiB of guest memory (error 12)";
     let play = |exit: &str| {
-        let env = port.environment(&[
+        let program = port.program(&[
             ("FAKE_PROBE_PRINT", "FAKE_LINE"),
             ("FAKE_LINE", line),
             ("FAKE_PROBE_EXIT", exit),
@@ -999,8 +1009,7 @@ fn play_writes_last_run_log_with_the_advice() {
         let mut console = Vec::new();
         let mut told = Vec::new();
         let context = RunContext {
-            port_dir: &port.root,
-            env,
+            context: &program,
             args: Vec::new(),
             out: &mut console,
         };
@@ -1042,14 +1051,13 @@ fn play_starts_the_game_with_the_saved_stream_memory() {
     for value in ["cached", "host", "device"] {
         let mut settings = play_settings(&port, &user);
         settings.0.insert("stream_memory".into(), json!(value));
-        let env = port.environment(&[
+        let program = port.program(&[
             ("FAKE_PROBE_PRINT", "SPARTAN_STREAM_MEMORY"),
             ("SPARTAN_STREAM_MEMORY", "inherited"),
         ]);
         let mut console = Vec::new();
         let context = RunContext {
-            port_dir: &port.root,
-            env,
+            context: &program,
             args: Vec::new(),
             out: &mut console,
         };

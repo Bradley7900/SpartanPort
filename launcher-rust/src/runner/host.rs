@@ -87,13 +87,12 @@ impl Host for SystemHost {
 /// [`super::run`] on `host`: the whole run, and the code after Ctrl+C.
 pub fn run_with(context: RunContext<'_>, host: &dyn Host) -> i32 {
     let RunContext {
-        port_dir,
-        env,
+        context: program,
         args,
         out,
     } = context;
-    let mut runner = super::Runner::new(out, env, host);
-    let code = runner.start(port_dir, args);
+    let mut runner = super::Runner::new(out, program.env.clone(), host);
+    let code = runner.start(&program.paths.port_dir, args);
     if host.interrupted() {
         super::INTERRUPTED
     } else {
