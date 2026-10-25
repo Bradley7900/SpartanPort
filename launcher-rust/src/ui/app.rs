@@ -235,7 +235,7 @@ impl State {
             linux_tools: if cfg!(windows) {
                 LinuxTools::default()
             } else {
-                linux_tools()
+                linux_tools(&|key| std::env::var(key).ok())
             },
             self_update: can_self_update(&|key| std::env::var(key).ok(), cfg!(windows)),
             fire: Default::default(),

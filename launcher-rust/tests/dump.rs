@@ -599,7 +599,9 @@ fn real_menu_wad_matches_python() {
             })
             .unwrap_or_default();
         let mut log = Vec::new();
-        let args = pause_menu_args(&game, &rust, &mounts, language, &mut |line| log.push(line));
+        let args = pause_menu_args(&game, &rust, &mounts, language, &|_| None, &mut |line| {
+            log.push(line)
+        });
         assert!(log.is_empty(), "{case}: {log:?}");
         let copy = rust.join("pause_menu").join("R_UI.WAD");
         assert_eq!(
@@ -632,7 +634,7 @@ fn menu() -> Option<&'static Menu> {
     static MENU: OnceLock<Option<Menu>> = OnceLock::new();
     MENU.get_or_init(|| {
         let original = fs::read(dump()?.join(pause_menu::WAD)).ok()?;
-        let data = pause_menu::patch(&original, Some("en")).unwrap();
+        let data = pause_menu::patch(&original, Some("en"), &|_| None).unwrap();
         Some(Menu { original, data })
     })
     .as_ref()
@@ -738,7 +740,7 @@ fn exit_label(data: &[u8]) -> Vec<u8> {
 }
 
 fn label_in(menu: &Menu, language: &str) -> Vec<u8> {
-    exit_label(&pause_menu::patch(&menu.original, Some(language)).unwrap())
+    exit_label(&pause_menu::patch(&menu.original, Some(language), &|_| None).unwrap())
 }
 
 #[test]
@@ -829,7 +831,7 @@ fn real_menu_pause_row() {
     );
     // A patched copy is refused, not patched twice.
     assert!(matches!(
-        pause_menu::patch(&m.data, Some("en")),
+        pause_menu::patch(&m.data, Some("en"), &|_| None),
         Err(MenuError::Script(_))
     ));
 }

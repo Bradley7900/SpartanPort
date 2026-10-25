@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
-use crate::core::env::game_environment;
+use crate::core::env::{game_environment, Lookup};
 use crate::core::i18n::{launcher_language, system_language, tr};
 use crate::core::legacy;
 use crate::core::log::{exit_hint, RunLog};
@@ -869,11 +869,14 @@ impl<'a> Runner<'a> {
             self.derive("SPARTAN_GLYPHS", style);
         }
         let log = &mut *self.out;
+        let env = &self.env;
+        let lookup = |key: &str| env.get(key).cloned();
         let menu_args = pause_menu_args(
             game,
             out,
             &glyph_args,
             plan.language.as_deref(),
+            &lookup,
             &mut |line| say(log, &line),
         );
         [glyph_args, menu_args].concat()
@@ -1095,6 +1098,7 @@ pub fn pause_menu_args(
     out: &Path,
     mounts: &[String],
     language: Option<&str>,
+    env: Lookup,
     log: &mut dyn FnMut(String),
 ) -> Vec<String> {
     let guest = format!("/app0/{}=", pause_menu::WAD);
@@ -1102,7 +1106,7 @@ pub fn pause_menu_args(
         .iter()
         .find_map(|part| part.strip_prefix(guest.as_str()))
         .map(Path::new);
-    match pause_menu::build(game, out, source, language, log) {
+    match pause_menu::build(game, out, source, language, env, log) {
         Ok(made) => made
             .into_iter()
             .flat_map(|path| ["--pause-menu".to_string(), pause_menu::python_path(&path)])
@@ -1386,7 +1390,9 @@ mod tests {
     /// What `pause_menu_args` returned and the Log lines.
     fn menu_args(game: &Path, out: &Path, mounts: &[String]) -> (Vec<String>, Vec<String>) {
         let mut log = Vec::new();
-        let args = pause_menu_args(game, out, mounts, Some("en"), &mut |line| log.push(line));
+        let args = pause_menu_args(game, out, mounts, Some("en"), &|_| None, &mut |line| {
+            log.push(line)
+        });
         (args, log)
     }
 

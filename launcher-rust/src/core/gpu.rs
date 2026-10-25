@@ -4,6 +4,7 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use super::env::Lookup;
 use super::paths::Paths;
 
 /// One line of `spartanport-gpu-capabilities --list`.
@@ -241,20 +242,20 @@ pub fn list_displays(paths: &Paths, backend: &str) -> Vec<Display> {
 }
 
 /// Whether `spartanport-probe` sees a gamepad now; `None` when the probe is missing or fails.
-pub fn connected_gamepad(paths: &Paths) -> Option<bool> {
+pub fn connected_gamepad(paths: &Paths, env: Lookup) -> Option<bool> {
     let probe = paths.find_tool("spartanport-probe")?;
     let mut command = Command::new(&probe);
     command.arg("--gamepad");
     // A development build loads the MSYS2 CLANG64 DLLs (SDL3, FFmpeg); without them Windows would
     // show a missing-DLL dialog, so the probe is not run at all.
     if cfg!(windows) && !probe.parent()?.join("SDL3.dll").is_file() {
-        let root = std::env::var("MSYS2_ROOT").unwrap_or_else(|_| r"C:\msys64".to_string());
+        let root = env("MSYS2_ROOT").unwrap_or_else(|| r"C:\msys64".to_string());
         let clang64 = std::path::Path::new(&root).join("clang64").join("bin");
         if !clang64.join("SDL3.dll").is_file() {
             return None;
         }
         let mut dirs = vec![clang64];
-        if let Some(path) = std::env::var_os("PATH") {
+        if let Some(path) = env("PATH") {
             dirs.extend(std::env::split_paths(&path));
         }
         command.env("PATH", std::env::join_paths(dirs).ok()?);
@@ -552,6 +553,6 @@ mod tests {
         let paths = Paths::from_env(dir.path(), &|_| None);
         assert_eq!(list_gpus(&paths), vec![]);
         assert_eq!(list_displays(&paths, "auto"), vec![]);
-        assert_eq!(connected_gamepad(&paths), None);
+        assert_eq!(connected_gamepad(&paths, &|_| None), None);
     }
 }

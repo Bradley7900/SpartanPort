@@ -283,7 +283,7 @@ pub fn opened(state: &mut State) -> Task<Message> {
     }
     state.controls.gamepad_probe_started = true;
     let paths = state.paths.clone();
-    blocking(move || connected_gamepad(&paths))
+    blocking(move || connected_gamepad(&paths, &|key| std::env::var(key).ok()))
         .map(|found| Message::Controls(ControlsMessage::GamepadDetected(found.unwrap_or(false))))
 }
 

@@ -38,6 +38,7 @@ use std::path::{Component, Path, PathBuf};
 
 use indexmap::IndexMap;
 
+use crate::core::env::Lookup;
 use crate::core::fs::atomic_write;
 use crate::core::patches::python_json;
 use crate::runner::glyphs::entries;
@@ -1937,7 +1938,7 @@ pub fn native_multiplier_bars(data: &mut Vec<u8>) -> Result<(), MenuError> {
 /// records, every goto to a later state and the WAD entry are corrected. The code of both rows and
 /// their label go over WadChoose's dead code, which leaves the literal pool and the symbol table
 /// where they were relative to the code. Then [`display_health_bar`] and [`native_cheats`].
-pub fn patch(data: &[u8], language: Option<&str>) -> Result<Vec<u8>, MenuError> {
+pub fn patch(data: &[u8], language: Option<&str>, env: Lookup) -> Result<Vec<u8>, MenuError> {
     let mut work = data.to_vec();
     let s = Script::parse(&work)?;
     let base = s.base;
@@ -2006,7 +2007,7 @@ pub fn patch(data: &[u8], language: Option<&str>) -> Result<Vec<u8>, MenuError> 
             }
         }
     }
-    let label = resolve_label(language, &|key| std::env::var(key).ok());
+    let label = resolve_label(language, env);
     let (pause_code, pause_pieces) = row_code(
         &s,
         &quit,
@@ -2180,6 +2181,7 @@ pub fn build(
     out: &Path,
     source: Option<&Path>,
     language: Option<&str>,
+    env: Lookup,
     log: &mut dyn FnMut(String),
 ) -> Result<Option<PathBuf>, MenuError> {
     let source = match source.filter(|source| !source.as_os_str().is_empty()) {
@@ -2191,7 +2193,7 @@ pub fn build(
     if !source.is_file() {
         return Ok(None);
     }
-    let label = resolve_label(language, &|key| std::env::var(key).ok());
+    let label = resolve_label(language, env);
     let meta = std::fs::metadata(&source)?;
     let stamp = python_json(&serde_json::json!([
         VERSION,
@@ -2208,7 +2210,7 @@ pub fn build(
             std::fs::create_dir_all(parent)?;
         }
         std::fs::create_dir(&target)?;
-        let data = match patch(&std::fs::read(&source)?, Some(label.key)) {
+        let data = match patch(&std::fs::read(&source)?, Some(label.key), env) {
             Ok(data) => data,
             Err(MenuError::Script(error)) => {
                 log(format!("Pause menu: {error}; no Exit to Desktop row"));
@@ -2285,7 +2287,7 @@ mod tests {
     #[test]
     fn wad_without_the_script() {
         assert!(matches!(
-            patch(&wad("TXRX_R_UI", b"xxxxxxxx"), None),
+            patch(&wad("TXRX_R_UI", b"xxxxxxxx"), None, &no_env),
             Err(MenuError::Script(_))
         ));
     }
@@ -2296,9 +2298,14 @@ mod tests {
         let source = dir.path().join("R_UI.WAD");
         std::fs::write(&source, wad("TXRX_R_UI", b"xxxxxxxx")).unwrap();
         let mut log = Vec::new();
-        let made = build(dir.path(), dir.path(), Some(&source), None, &mut |line| {
-            log.push(line)
-        });
+        let made = build(
+            dir.path(),
+            dir.path(),
+            Some(&source),
+            None,
+            &no_env,
+            &mut |line| log.push(line),
+        );
         assert_eq!(made.unwrap(), None);
         assert!(!dir.path().join("pause_menu").join("R_UI.WAD").exists());
         assert_eq!(
@@ -2382,10 +2389,39 @@ mod tests {
             dir.path(),
             Some(&source),
             Some("ja"),
+            &no_env,
             &mut |_| {},
         );
         assert_eq!(made.unwrap(), None);
         assert!(!dir.path().join("pause_menu").join("R_UI.WAD").exists());
+    }
+
+    #[test]
+    fn the_label_reads_the_given_environment() {
+        let (dir, source) = cached("en");
+        let japanese = |name: &str| (name == "SPARTAN_LANGUAGE").then(|| "ja".to_string());
+        // The process has no SPARTAN_LANGUAGE for 'en'; the given one says 'ja', so the copy kept
+        // for 'en' is stale and the rebuild finds no script here.
+        let made = build(
+            dir.path(),
+            dir.path(),
+            Some(&source),
+            None,
+            &japanese,
+            &mut |_| {},
+        );
+        assert_eq!(made.unwrap(), None);
+        let (dir, source) = cached("en");
+        let english = |name: &str| (name == "SPARTAN_LANGUAGE").then(|| "en".to_string());
+        let made = build(
+            dir.path(),
+            dir.path(),
+            Some(&source),
+            None,
+            &english,
+            &mut |_| {},
+        );
+        assert!(made.unwrap().is_some());
     }
 
     // -- New ----------------------------------------------------------------------------------------
@@ -2399,6 +2435,7 @@ mod tests {
             dir.path(),
             Some(&source),
             Some("EN "),
+            &no_env,
             &mut |line| log.push(line),
         );
         let copy = dir.path().join("pause_menu").join("R_UI.WAD");

@@ -389,19 +389,19 @@ fn has_mangohud_layer(dirs: &[PathBuf]) -> bool {
     })
 }
 
-pub fn linux_tools() -> LinuxTools {
-    let path = std::env::var_os("PATH").unwrap_or_default();
+pub fn linux_tools(env: Lookup) -> LinuxTools {
+    let path = env("PATH").unwrap_or_default();
     let mut layers = vec![
         PathBuf::from("/usr/share/vulkan/implicit_layer.d"),
         PathBuf::from("/etc/vulkan/implicit_layer.d"),
     ];
-    if let Some(home) = platform::home(&|key| std::env::var(key).ok()) {
+    if let Some(home) = platform::home(env) {
         layers.push(home.join(".local/share/vulkan/implicit_layer.d"));
     }
     LinuxTools {
-        wayland: std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),
-        gamemode: on_path("gamemoderun", &path),
-        mangohud: on_path("mangohud", &path) || has_mangohud_layer(&layers),
+        wayland: env("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),
+        gamemode: on_path("gamemoderun", path.as_ref()),
+        mangohud: on_path("mangohud", path.as_ref()) || has_mangohud_layer(&layers),
     }
 }
 
