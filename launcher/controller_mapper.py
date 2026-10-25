@@ -25,6 +25,17 @@ class SDLJoysticks:
                 candidates = [Path(port) / 'bin/SDL3.dll', Path(port) / 'out/SDL3.dll',
                               Path(os.environ.get('MSYS2_ROOT', r'C:\msys64')) / 'clang64/bin/SDL3.dll']
                 library = next((str(path) for path in candidates if path.is_file()), None)
+            else:
+                # The AppImage bundles libSDL3.so.0 in usr/lib and AppRun puts it on LD_LIBRARY_PATH,
+                # which dlopen honours but find_library (ldconfig/gcc/ld) does not: it reported
+                # "SDL3 was not found" on Linux Mint with the bundled copy right there.
+                for name in ('libSDL3.so.0', 'libSDL3.so'):
+                    try:
+                        c.CDLL(name)
+                    except OSError:
+                        continue
+                    library = name
+                    break
             library = library or ctypes.util.find_library('SDL3')
         if not library:
             raise OSError('SDL3 was not found. Use a complete port installation or build the project first.')
