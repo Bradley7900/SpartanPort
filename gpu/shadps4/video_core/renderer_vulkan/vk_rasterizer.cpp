@@ -988,9 +988,12 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     DiagPassBoundary(false);
     const auto& regs = Regs();
     // spartanport: the pass copying a finished frame to a display buffer; the previous draw's
-    // target is that frame.
+    // target is that frame. Once per display buffer: GOW3PC copies with two draws and draws its
+    // HUD there too, and a second frame start would drop the camera history every frame.
     if (camera_motion->Enabled() && regs.color_buffers[0] &&
-        FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address())) {
+        FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address()) &&
+        regs.color_buffers[0].Address() != last_display_buffer) {
+        last_display_buffer = regs.color_buffers[0].Address();
         scene_started = false;
         camera_motion->OnDisplayPass(cb_descs[0].first);
         if (upscaler->OnFrameStart()) {
