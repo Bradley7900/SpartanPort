@@ -152,6 +152,26 @@ fn a_python_settings_file_saves_unchanged_but_for_the_key_set() {
 }
 
 #[test]
+fn a_seeded_key_saves_to_the_ini_and_leaves_settings_json_alone() {
+    // Review Focus 1 on disk: the Python file's "hdr" only seeds the ini, so toggling HDR and
+    // saving writes the ini and leaves every byte of settings.json as the Python launcher wrote it.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/collected/settings.json");
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("settings.json");
+    fs::copy(&fixture, &config).unwrap();
+    let before = fs::read_to_string(&config).unwrap();
+    let mut state = state_in(dir.path());
+    assert!(state.store.flag("hdr"));
+    set(&mut state, "hdr", json!(false));
+    assert!(dirty(&state));
+    save(&mut state);
+    assert!(state.modal.is_none());
+    assert_eq!(fs::read_to_string(&config).unwrap(), before);
+    let ini = fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(ini.lines().any(|line| line == "hdr=0"), "{ini}");
+}
+
+#[test]
 fn the_monitor_choice_is_saved_and_comes_back_on_reopening() {
     let displays = || {
         parse_display_list(
