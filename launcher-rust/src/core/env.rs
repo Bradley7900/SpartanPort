@@ -207,7 +207,8 @@ pub fn environment(
     );
     // On by default (R91), also in a file without the key.
     put_switch(&mut env, settings, "discord_rpc");
-    put_if_on(&mut env, settings, "hdr");
+    // Always written (#980): the runner copies it into the ini once, as `0` too.
+    put_switch(&mut env, settings, "hdr");
     for key in ["draw_pipe", "readbacks", "no_msaa"] {
         if settings.flag(key) {
             env.insert(var(key).into(), settings.get_str(key));

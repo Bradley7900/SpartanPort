@@ -91,6 +91,32 @@ fn every_env_setting_round_trips() {
 }
 
 #[test]
+fn hdr_is_always_one_or_zero() {
+    // Python `'1' if s['hdr'] else '0'`: written either way, over an inherited value too.
+    let (paths, _dir) = world();
+    let inherited: IndexMap<String, String> = [("SPARTAN_HDR".to_string(), "1".to_string())]
+        .into_iter()
+        .collect();
+    for (value, sent) in [
+        (json!(true), "1"),
+        (json!(false), "0"),
+        (json!("0"), "1"),
+        (json!(""), "0"),
+        (json!(null), "0"),
+    ] {
+        let settings = settings_with("hdr", value.clone());
+        for base in [IndexMap::new(), inherited.clone()] {
+            let env = environment(&settings, &paths, "en", &base, true);
+            assert_eq!(
+                env.get("SPARTAN_HDR").map(String::as_str),
+                Some(sent),
+                "{value}"
+            );
+        }
+    }
+}
+
+#[test]
 fn derived_variables_have_no_catalog_row() {
     let (paths, _dir) = world();
     let mut settings = Settings(app_defaults(&|_| None));

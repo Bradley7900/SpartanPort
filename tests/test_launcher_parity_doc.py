@@ -19,13 +19,7 @@ ALLOWED_DROP_FILES = {
 
 # Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
 # each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
-PENDING_PORTS = {
-    # Task 47
-    'tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_ini_overrides_legacy_launcher_choice',
-    'tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence',
-    'tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice',
-    'tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening',
-}
+PENDING_PORTS = set()
 
 
 def covered_files():

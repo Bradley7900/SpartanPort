@@ -192,10 +192,13 @@ pub fn refresh_monitors(state: &mut State) -> bool {
     {
         visible
     } else {
+        // Python's `self.app.get('monitor', '')`: the settings.json value of the last collect.
         let collected = text_of(state.saved.as_ref().and_then(|s| s.app.get("monitor")));
         monitor_selection(&displays, &collected)
     };
-    state.store.set("monitor", Value::String(selected));
+    // As the Python, both: the row's value (the ini's) and `self.app['monitor']` (settings.json).
+    state.store.set("monitor", Value::String(selected.clone()));
+    state.store.set_app("monitor", Value::String(selected));
     state.displays = displays;
     state.displays_backend = backend;
     true
@@ -204,12 +207,13 @@ pub fn refresh_monitors(state: &mut State) -> bool {
 /// The start-up list of monitors arrived: the saved choice follows it as the one on screen does.
 /// The Python launcher lists them while it builds the window, before it takes what the files hold.
 pub fn follow_monitor_list(state: &mut State, displays: &[Display]) {
-    if let Some(saved) = state.saved.as_mut() {
-        let collected = text_of(saved.app.get("monitor"));
-        saved.app.insert(
-            "monitor".to_string(),
-            Value::String(monitor_selection(displays, &collected)),
-        );
+    // The Monitor row writes the ini's `monitor` (#980).
+    if let Some(monitor) = state
+        .saved
+        .as_mut()
+        .and_then(|saved| saved.ini.get_mut("monitor"))
+    {
+        *monitor = monitor_selection(displays, monitor);
     }
 }
 

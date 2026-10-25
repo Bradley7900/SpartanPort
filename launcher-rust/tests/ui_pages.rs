@@ -59,6 +59,63 @@ fn a_stored_string_zero_shows_checked_like_the_game_gets_it() {
     assert_eq!(env["SPARTAN_HDR"], "1");
 }
 
+#[test]
+fn ini_migrates_legacy_display_preferences_and_then_takes_precedence() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"monitor": "2", "hdr": true}"#,
+    )
+    .unwrap();
+    let mut state = state(dir.path());
+    let ini = state.paths.ini_path();
+    assert_eq!(
+        (state.store.text("monitor"), state.store.text("hdr")),
+        ("2".to_string(), "1".to_string())
+    );
+    // The Graphics page shows the ini's value: a checked box unchecks.
+    open(&mut state, Page::Graphics);
+    let sent = messages(&state, "Allow HDR output");
+    assert!(
+        matches!(&sent[..], [Message::Set(key, value)] if key == "hdr" && *value == serde_json::json!(false)),
+        "{sent:?}"
+    );
+    std::fs::write(&ini, "monitor=0\nhdr=0\n").unwrap();
+    let mut state = common::state(dir.path());
+    assert_eq!(
+        (state.store.text("monitor"), state.store.text("hdr")),
+        ("0".to_string(), "0".to_string())
+    );
+    open(&mut state, Page::Graphics);
+    let sent = messages(&state, "Allow HDR output");
+    assert!(
+        matches!(&sent[..], [Message::Set(key, value)] if key == "hdr" && *value == serde_json::json!(true)),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn glyph_style_ini_overrides_legacy_launcher_choice() {
+    use spartanport_launcher::core::graphics_options;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("settings.json"),
+        r#"{"glyph_style": "nintendo"}"#,
+    )
+    .unwrap();
+    let state = common::state(dir.path());
+    assert_eq!(state.store.text("glyph_style"), "nintendo");
+    std::fs::write(state.paths.ini_path(), "glyph_style=keyboard\n").unwrap();
+    let state = common::state(dir.path());
+    assert_eq!(state.store.text("glyph_style"), "keyboard");
+    let options = graphics_options::startup_options(&state.store.ini().values, &[]);
+    assert_eq!(
+        graphics_options::environment(&options)["SPARTAN_GLYPH_STYLE"],
+        "keyboard"
+    );
+}
+
 /// The window of `state` at `width` × `height` with `page` open, once the drawer has stopped.
 fn settled(
     state: &mut app::State,
@@ -247,6 +304,9 @@ fn graphics_page_offers_the_choice() {
     state.store.set("monitor", "1".into());
     let _ = app::update(&mut state, Message::MonitorsListed(two_displays()));
     assert_eq!(state.store.text("monitor"), "1");
+    // The choice is the ini's `monitor`, the key the in-game menu shares; settings.json keeps its own.
+    assert_eq!(state.store.ini().values["monitor"], "1");
+    assert_eq!(state.store.json("monitor"), Some(&serde_json::json!("")));
     let _ = app::update(&mut state, Message::MonitorsListed(Vec::new()));
     assert_eq!(state.monitor_pairs.len(), 1);
     assert_eq!(state.store.text("monitor"), "");

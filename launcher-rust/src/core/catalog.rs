@@ -8,7 +8,7 @@ use crate::core::options::{
 };
 
 /// The file a setting lives in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum File {
     /// `settings.json`.
     App,
@@ -75,6 +75,8 @@ pub struct Setting {
     /// Ini: where the key sits in `INI_DEFAULTS` (a fresh file's key order). Unused for App.
     pub ini_order: u8,
     pub env: Option<Env>,
+    /// Ini: the App key whose `settings.json` value the row starts from when the file lacks the key.
+    pub seed: Option<&'static str>,
 }
 
 const fn env(name: &'static str, absent: &'static str) -> Option<Env> {
@@ -90,6 +92,7 @@ const fn app(key: &'static str, kind: Kind, default: Default, env: Option<Env>) 
         written: true,
         ini_order: 0,
         env,
+        seed: None,
     }
 }
 
@@ -116,6 +119,16 @@ const fn ini(
         written,
         ini_order,
         env: None,
+        seed: None,
+    }
+}
+
+/// An Ini row the window writes that starts from the App row of the same key while the file lacks
+/// it (Python `load_ini`, #980): the App row stays, the ini's own value wins.
+const fn seeded(key: &'static str, kind: Kind, default: Default, ini_order: u8) -> Setting {
+    Setting {
+        seed: Some(key),
+        ..ini(key, kind, default, true, ini_order)
     }
 }
 
@@ -319,20 +332,23 @@ pub static SETTINGS: &[Setting] = &[
         13,
     ),
     ini("render_resolution", Kind::Text, Text("native"), true, 12),
+    seeded("monitor", Kind::Text, Text(""), 15),
     ini("vsync", Flag, Bool(true), true, 7),
-    ini("anisotropy", Pick(ANISOTROPY), Text("0"), true, 17),
+    seeded("hdr", Flag, Bool(false), 16),
+    ini("anisotropy", Pick(ANISOTROPY), Text("0"), true, 20),
     ini("show_fps", Flag, Bool(true), true, 3),
     ini("frames_queued", Pick(FRAMES_QUEUED), Text("1"), true, 14),
     ini("async_shaders", Flag, Bool(true), true, 9),
     ini("stale_readback", Flag, Bool(true), true, 11),
     ini("deferred_readback", Flag, Bool(true), true, 10),
-    ini("cheat_double_jumps", Flag, Bool(false), true, 16),
-    ini("cheat_very_hard", Flag, Bool(false), true, 15),
-    ini("mouse_prompt_distance", Kind::Int, Int(48), true, 19),
-    ini("mouse_aim_style", Pick(AIM_STYLES), Text("0"), true, 21),
-    ini("mouse_aim_sensitivity", Kind::Int, Int(100), true, 22),
-    ini("mouse_lock", Kind::Int, Int(1), true, 20),
-    ini("vibration", Kind::Int, Int(100), true, 18),
+    ini("cheat_double_jumps", Flag, Bool(false), true, 19),
+    ini("cheat_very_hard", Flag, Bool(false), true, 18),
+    seeded("glyph_style", Pick(GLYPH_STYLES), Text("off"), 17),
+    ini("mouse_prompt_distance", Kind::Int, Int(48), true, 22),
+    ini("mouse_aim_style", Pick(AIM_STYLES), Text("0"), true, 24),
+    ini("mouse_aim_sensitivity", Kind::Int, Int(100), true, 25),
+    ini("mouse_lock", Kind::Int, Int(1), true, 23),
+    ini("vibration", Kind::Int, Int(100), true, 21),
     ini("upscaler", Pick(UPSCALERS), Text("fsr3"), false, 0),
     ini("preset", Pick(PRESETS), Text("1"), false, 1),
     ini("object_motion", Flag, Bool(true), false, 2),
@@ -353,9 +369,17 @@ pub fn ini_rows() -> Vec<&'static Setting> {
     rows
 }
 
-/// The row of `key`, if the launcher knows it.
+/// The row of `key`, if the launcher knows it: the App row of a key both files hold (App rows come
+/// first), whose `env` the game's environment reads.
 pub fn setting(key: &str) -> Option<&'static Setting> {
     SETTINGS.iter().find(|s| s.key == key)
+}
+
+/// The Ini row of `key`, if the ini holds it: where the window reads and writes the key.
+pub fn ini_setting(key: &str) -> Option<&'static Setting> {
+    SETTINGS
+        .iter()
+        .find(|s| s.key == key && s.file == File::Ini)
 }
 
 /// What the runner assumes for the variable `name` when a direct `--run` does not set it.
@@ -378,7 +402,14 @@ mod tests {
     #[test]
     fn every_key_is_described_once() {
         let mut seen = std::collections::HashSet::new();
-        assert!(SETTINGS.iter().all(|s| seen.insert(s.key)));
+        assert!(SETTINGS.iter().all(|s| seen.insert((s.key, s.file))));
+        // A key in both files is an Ini row seeded from its App row.
+        for row in SETTINGS.iter().filter(|s| s.file == File::Ini) {
+            let in_app = SETTINGS
+                .iter()
+                .any(|s| s.file == File::App && s.key == row.key);
+            assert_eq!(in_app, row.seed.is_some(), "{}", row.key);
+        }
         let app: Vec<_> = SETTINGS
             .iter()
             .filter(|s| matches!(s.file, File::App) && s.written)
@@ -405,11 +436,42 @@ mod tests {
     }
 
     #[test]
+    fn seeded_ini_rows_name_their_app_key() {
+        let seeded: Vec<_> = SETTINGS
+            .iter()
+            .filter_map(|s| s.seed.map(|seed| (s.key, seed)))
+            .collect();
+        assert_eq!(
+            seeded,
+            [
+                ("monitor", "monitor"),
+                ("hdr", "hdr"),
+                ("glyph_style", "glyph_style")
+            ]
+        );
+        for row in SETTINGS.iter().filter(|s| s.seed.is_some()) {
+            assert_eq!(row.file, File::Ini, "{}", row.key);
+            assert!(row.written, "{}", row.key);
+            // The App row stays, as in the Python's APP_DEFAULTS, with the same default.
+            let app = setting(row.key).unwrap();
+            assert_eq!(app.file, File::App, "{}", row.key);
+            assert!(app.written, "{}", row.key);
+            assert_eq!(app.default.as_text(), row.default.as_text(), "{}", row.key);
+            assert_eq!(ini_setting(row.key).unwrap().seed, row.seed);
+        }
+        assert!(SETTINGS
+            .iter()
+            .filter(|s| s.file == File::App)
+            .all(|s| s.seed.is_none()));
+        assert!(ini_setting("game_dir").is_none());
+    }
+
+    #[test]
     fn ini_lists_follow_the_table() {
         let rows: Vec<_> = SETTINGS.iter().filter(|s| s.file == File::Ini).collect();
         assert_eq!(rows.len(), INI_DEFAULTS.len());
         for (key, value) in INI_DEFAULTS.iter() {
-            let row = setting(key).unwrap();
+            let row = ini_setting(key).unwrap();
             assert_eq!(row.default.as_text(), *value, "{key}");
             assert_eq!(
                 matches!(row.kind, Kind::Flag),
@@ -419,13 +481,30 @@ mod tests {
         }
         let flags = rows.iter().filter(|s| matches!(s.kind, Kind::Flag)).count();
         assert_eq!(flags, INI_FLAGS.len());
+        // The Python's INI_DEFAULTS order: the seeded keys follow frames_queued.
+        let keys: Vec<_> = INI_DEFAULTS.iter().map(|(key, _)| *key).collect();
+        assert_eq!(
+            keys[14..19],
+            [
+                "frames_queued",
+                "monitor",
+                "hdr",
+                "glyph_style",
+                "cheat_very_hard"
+            ]
+        );
+        assert_eq!(keys.last(), Some(&"mouse_aim_sensitivity"));
         let shown: Vec<_> = rows.iter().filter(|s| s.written).map(|s| s.key).collect();
         assert_eq!(shown, SHOWN_INI_KEYS.iter().copied().collect::<Vec<_>>());
     }
 
     #[test]
-    fn shown_ini_keys_are_the_18_controls_of_the_window() {
-        assert_eq!(SHOWN_INI_KEYS.len(), 18);
+    fn shown_ini_keys_are_the_21_controls_of_the_window() {
+        assert_eq!(SHOWN_INI_KEYS.len(), 21);
+        for seeded in ["monitor", "hdr", "glyph_style"] {
+            assert!(SHOWN_INI_KEYS.contains(&seeded), "{seeded}");
+        }
+        assert!(INI_FLAGS.contains(&"hdr"));
         for parked in [
             "upscaler",
             "preset",

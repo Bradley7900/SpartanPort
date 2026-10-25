@@ -35,6 +35,17 @@ pub struct Ini {
     pub lines: Vec<String>,
 }
 
+impl Ini {
+    /// Whether one of the file's lines sets `key`.
+    pub fn holds(&self, key: &str) -> bool {
+        self.lines
+            .iter()
+            .filter(|line| is_assignment(line))
+            .filter_map(|line| line.split_once('='))
+            .any(|(name, _)| name.trim() == key)
+    }
+}
+
 fn is_assignment(line: &str) -> bool {
     line.contains('=') && !line.trim_start().starts_with('#')
 }

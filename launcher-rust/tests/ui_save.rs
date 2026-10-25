@@ -9,6 +9,7 @@ use std::time::Duration;
 use iced::time::Instant;
 use iced_test::simulator::{simulator, Simulator};
 use serde_json::{json, Value};
+use spartanport_launcher::core::catalog;
 use spartanport_launcher::core::gpu::parse_display_list;
 use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::ini::{load_ini, INI_FLAGS};
@@ -21,7 +22,7 @@ use spartanport_launcher::ui::drawer::DrawerState;
 use spartanport_launcher::ui::pages::controls::ControlsMessage;
 use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
 use spartanport_launcher::ui::pages::Page;
-use spartanport_launcher::ui::persist::{dirty, SHOWN_INI_KEYS};
+use spartanport_launcher::ui::persist::{dirty, gather, SHOWN_INI_KEYS};
 use spartanport_launcher::ui::play::GameState;
 use spartanport_launcher::ui::update::UpdateMessage;
 use spartanport_launcher::ui::widgets::modal::ModalKind;
@@ -124,16 +125,16 @@ fn listing_the_monitors_after_opening_is_not_a_change() {
 
 #[test]
 fn a_python_settings_file_saves_unchanged_but_for_the_key_set() {
-    // Review Focus 1: a settings.json the Python launcher wrote. The fixture holds "hdr": true, so
-    // the one key set turns it off.
+    // Review Focus 1: a settings.json the Python launcher wrote. The fixture holds
+    // "close_on_play": true, so the one key set turns it off. (Its "hdr" only seeds the ini now.)
     let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/collected/settings.json");
     let original: Value = serde_json::from_slice(&fs::read(&fixture).unwrap()).unwrap();
-    assert_eq!(original["hdr"], json!(true));
+    assert_eq!(original["close_on_play"], json!(true));
     let dir = tempfile::tempdir().unwrap();
     fs::copy(&fixture, dir.path().join("settings.json")).unwrap();
     let mut state = state_in(dir.path());
-    set(&mut state, "hdr", json!(false));
-    assert!(!state.store.flag("hdr"));
+    set(&mut state, "close_on_play", json!(false));
+    assert!(!state.store.flag("close_on_play"));
     save(&mut state);
     assert!(state.modal.is_none());
     let back: Value =
@@ -145,9 +146,38 @@ fn a_python_settings_file_saves_unchanged_but_for_the_key_set() {
     for unwritten in ["launcher_effects", "controls_device"] {
         assert!(!back.contains_key(unwritten), "{unwritten}");
     }
-    assert_eq!(back.remove("hdr"), Some(json!(false)));
-    original.remove("hdr");
+    assert_eq!(back.remove("close_on_play"), Some(json!(false)));
+    original.remove("close_on_play");
     assert_eq!(back, original);
+}
+
+#[test]
+fn the_monitor_choice_is_saved_and_comes_back_on_reopening() {
+    let displays = || {
+        parse_display_list(
+            "0\tMonitor A\t1\t0\t0\t1920\t1080\n1\tMonitor B\t0\t1920\t0\t2560\t1440\n",
+        )
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_in(dir.path());
+    send(&mut state, Message::MonitorsListed(displays()));
+    set(&mut state, "monitor", json!("1"));
+    // The real gather, as collect() writes it: the same ini key as the in-game menu.
+    assert_eq!(gather(&state).ini["monitor"], "1");
+    assert_eq!(gather(&state).app["monitor"], json!(""));
+    save(&mut state);
+    let text = fs::read_to_string(state.paths.ini_path()).unwrap();
+    assert!(text.lines().any(|line| line == "monitor=1"), "{text}");
+    let mut reopened = state_in(dir.path());
+    send(&mut reopened, Message::MonitorsListed(displays()));
+    assert_eq!(reopened.store.text("monitor"), "1");
+    // The row shows that index's entry: the third, after the primary default.
+    let at = reopened
+        .monitor_pairs
+        .iter()
+        .position(|(value, _)| value == "1");
+    assert_eq!(at, Some(2));
+    assert!(!dirty(&reopened));
 }
 
 #[test]
@@ -543,7 +573,11 @@ fn every_setting_lights_save_persists_and_comes_back() {
     let mut expected_app = Vec::new();
     for (key, default) in &defaults {
         // The controller type is the Controls page's own (below); objects and numbers have no box.
-        if key == "pad_style" || !(default.is_boolean() || default.is_string()) {
+        // A key the ini also holds is the ini's control (above): its App value only seeds it.
+        if key == "pad_style"
+            || !(default.is_boolean() || default.is_string())
+            || catalog::ini_setting(key).is_some()
+        {
             continue;
         }
         let current = state.store.json(key).cloned().unwrap_or(Value::Null);

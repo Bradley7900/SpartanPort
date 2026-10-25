@@ -41,7 +41,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_cache.py` | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 | 0 |
-| `tests/test_launcher_controls.py` | 59 | 28 | 17 | 0 | 0 | 13 | 1 |
+| `tests/test_launcher_controls.py` | 59 | 29 | 17 | 0 | 0 | 13 | 0 |
 | `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 | 0 |
 | `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 | 0 |
 | `tests/test_launcher_exit_hint.py` | 17 | 10 | 7 | 0 | 0 | 0 | 0 |
@@ -51,7 +51,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 | 0 | 0 |
 | `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 0 | 3 | 0 |
 | `tests/test_launcher_mod_resolutions.py` | 3 | 1 | 2 | 0 | 0 | 0 | 0 |
-| `tests/test_launcher_monitor.py` | 74 | 16 | 15 | 0 | 1 | 39 | 3 |
+| `tests/test_launcher_monitor.py` | 74 | 19 | 15 | 0 | 1 | 39 | 0 |
 | `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 | 0 |
 | `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 | 0 |
 | `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 0 | 4 | 0 |
@@ -70,7 +70,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_controller_mappings.py` | 15 | 15 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_controller_mapper_launch.py` | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_controller_mapper_sdl.py` | 9 | 9 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **382** | **166** | **85** | **27** | **2** | **98** | **4** |
+| **Total** | **382** | **170** | **85** | **27** | **2** | **98** | **0** |
 
 ## Map
 
@@ -129,7 +129,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::ControlMapTest::test_environment` | `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_edited` | replaced by `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_edited` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_temporal_upscaler_stays_off_with_a_saved_2_1_8_switch` | — | dropped: no Rust counterpart — a saved experimental_upscaler=true still sends SPARTAN_EXPERIMENTAL_UPSCALER=0 |
 | `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_is_off_by_default` | `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | replaced by `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` |
-| `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_ini_overrides_legacy_launcher_choice` | — | dropped: pending port (Task 47) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_ini_overrides_legacy_launcher_choice` | `tests/ui_pages.rs::glyph_style_ini_overrides_legacy_launcher_choice` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_choices_reach_the_game` | — | dropped: no Rust counterpart — glyph_style auto, xbox, nintendo and keyboard reach SPARTAN_GLYPH_STYLE |
 | `tests/test_launcher_controls.py::ControlMapTest::test_unknown_glyph_style_is_off` | — | dropped: no Rust counterpart — an unknown glyph_style sends no SPARTAN_GLYPH_STYLE |
 | `tests/test_launcher_controls.py::ControlMapTest::test_inherited_glyph_style_is_dropped_when_off` | — | dropped: no Rust counterpart — an inherited SPARTAN_GLYPH_STYLE is dropped while the style is off and replaced when one is chosen |
@@ -258,7 +258,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_monitor.py::ListDisplaysTest::test_failures_and_a_bad_exit_list_nothing` | — | dropped: no Rust counterpart — a probe that times out, cannot start or exits non-zero lists no monitors |
 | `tests/test_launcher_monitor.py::ListDisplaysTest::test_a_good_run_is_parsed_and_captured_as_utf8` | — | dropped: no Rust counterpart — the probe runs as --displays with a 5 s timeout and its output is read as UTF-8 with replacement |
 | `tests/test_launcher_monitor.py::ListDisplaysTest::test_the_game_backend_sets_the_sdl_driver_for_the_probe` | — | dropped: no Rust counterpart — on Linux the saved window system (x11, wayland) is passed to the probe as SDL_VIDEODRIVER and SDL_VIDEO_DRIVER; Automatic leaves the inherited value |
-| `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence` | — | dropped: pending port (Task 47) |
+| `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence` | `tests/ui_pages.rs::ini_migrates_legacy_display_preferences_and_then_takes_precedence`, `src/core/store.rs::tests::an_ini_row_is_seeded_from_settings_json_and_the_file_wins` | ported |
 | `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_the_default_is_the_primary_and_sends_no_variable` | `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | replaced by `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` |
 | `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game` | `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits`, `tests/fixtures.rs::environment_matches_python_for_case_edited` | replaced by `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits`, `tests/fixtures.rs::environment_matches_python_for_case_edited` |
 | `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_an_invalid_choice_sends_nothing` | `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits` | replaced by `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits` |
@@ -303,12 +303,12 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_collects_before_opening_a_settings_file` | — | dropped: no Rust counterpart — opening spartanport.ini saves first and opens nothing when the save fails (the Rust Advanced page opens it without saving) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` | — | dropped: no Rust counterpart — opening a folder starts the system opener without saving first (the Rust test only sees the screenshots button emit OpenPath) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_add_to_steam_collects_first` | — | dropped: no Rust counterpart — Add to Steam saves first and stops when the save fails (the Rust Advanced page does not save first) |
-| `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice` | — | dropped: pending port (Task 47); main changed it, the 2.7.0 row named `tests/ui_pages.rs::graphics_page_offers_the_choice` |
+| `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | ported |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` | `tests/ui_pages.rs::monitor_row_lists_the_probe_indices`, `src/core/gpu.rs::tests::the_default_is_first_and_the_rest_come_by_index` | replaced by `tests/ui_pages.rs::monitor_row_lists_the_probe_indices`, `src/core/gpu.rs::tests::the_default_is_first_and_the_rest_come_by_index` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | replaced by `tests/ui_pages.rs::graphics_page_offers_the_choice` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` | — | dropped: no Rust counterpart — the Graphics row shows a monitor picked elsewhere, as the entry of its index (Quick-settings part dropped by spec §4.3) |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` | `tests/ui_pages.rs::monitor_row_lists_the_probe_indices` | replaced by `tests/ui_pages.rs::monitor_row_lists_the_probe_indices` |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | — | dropped: pending port (Task 47); main changed it, the 2.7.0 row named `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `tests/ui_pages.rs::graphics_page_offers_the_choice` |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | `tests/ui_save.rs::the_monitor_choice_is_saved_and_comes_back_on_reopening` | ported |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_a_new_window_system_drops_an_index_the_new_list_lost` | — | dropped: no Rust counterpart — both monitor rows drop an index the new window system's list lost |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_both_rows_follow_a_reordered_list_that_still_holds_the_index` | — | dropped: no Rust counterpart — both monitor rows follow an index that moved in the new list |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_of_quick_settings_reaches_the_game` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
@@ -519,11 +519,11 @@ the Python test:
 - `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_a_saved_mod_resolution_stays_chosen_while_its_mod_is_on`: the Home no longer shows the Python's summary (R77), so the "3840 × 1080 · 32:9 (mod)" label is asserted on the Performance resolution list instead.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game`: the first monitor (0) and a number value are not asserted.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_an_invalid_choice_sends_nothing`: only -1 is asserted among the invalid values.
-- `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice`: the probe's window system, the Portuguese label and the refresh after a window system change are not asserted. This is about the 2.7.0 row: main changed the test, pending port (Task 47).
+- `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice`: the probe's window system, the Portuguese label and the refresh after a window system change are not asserted.
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice`: Quick-settings part dropped by spec §4.3; the Graphics row lists the probe's entries (its monitor_pairs, with the labels of the same two monitors); one enumeration under the saved window system is not asserted.
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries`: Quick-settings part dropped by spec §4.3; the Graphics list keeps the gap (indices 0 and 2, with their labels); picking the entry of index 2 is not asserted.
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings`: Quick-settings part dropped by spec §4.3; picking a Graphics entry stores its index (the pick is built from the row's pairs, as its on_select does, since iced_test cannot open a pick_list).
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening`: Quick-settings part dropped by spec §4.3; the monitor setting is saved and reopened (a placeholder value in the every-setting test) and a saved index the list holds is kept; the entry the row shows is not asserted. This is about the 2.7.0 row: main changed the test, pending port (Task 47).
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening`: Quick-settings part dropped by spec §4.3; the Graphics choice is saved as the ini's `monitor` and comes back at its index's entry of the list; the entry the row draws is not asserted.
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds`: Quick-settings part dropped by spec §4.3; an empty list leaves only the primary default as the choice.
 - `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_auto_leaves_the_game_default_and_keeps_an_inherited_value`: a SPARTAN_NO_MSAA set before the launcher reaching the game on Automatic is not asserted.
 - `tests/test_launcher_no_msaa.py::ChosenGpuTest::test_portuguese_texts`: only the title, the hint and the Automatic labels are checked in Portuguese.
