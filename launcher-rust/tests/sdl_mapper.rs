@@ -271,12 +271,25 @@ fn editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons() {
 }
 
 #[test]
+fn opening_again_after_a_close_still_reads_the_pad() {
+    // The page can open and close SDL many times in a session; SDL3 stays loaded throughout.
+    let Some(mut rig) = Rig::new() else { return };
+    for _ in 0..3 {
+        rig.reopen();
+        rig.set(VirtualInput::Button(5, true));
+        assert!(rig.sdl().state().unwrap().buttons[5]);
+    }
+}
+
+#[test]
 fn the_fake_answers_like_the_sdl_adapter() {
     // The UI tests' stand-in: the same errors as SDL, its script in order, then rest.
     let mut fake = FakeJoysticks::new("Windows", vec![pad(7, "03000000faca0000f001000000000000")]);
     assert!(matches!(fake.state(), Err(JoyError::Disconnected)));
     let device = fake.devices().unwrap().remove(0);
     fake.select(&device).unwrap();
+    // Only the launcher closes the device: choosing one is not a close.
+    assert_eq!(fake.script().closed, 0);
     let mut pressed = rest(&device);
     pressed.buttons[7] = true;
     fake.script().states.push_back(pressed.clone());
@@ -292,6 +305,11 @@ fn the_fake_answers_like_the_sdl_adapter() {
     fake.script().preview_error = None;
     fake.begin_preview("good").unwrap();
     assert_eq!(fake.preview_state(), Some((Vec::new(), [0; 6])));
+    // Choosing again ends the preview, as SDL's adapter does, and still closes nothing.
+    fake.select(&device).unwrap();
+    assert_eq!(fake.preview_state(), None);
+    assert_eq!(fake.script().closed, 0);
+    fake.begin_preview("good").unwrap();
     fake.script().unplugged = true;
     let error = fake.state().unwrap_err();
     assert_eq!(
@@ -300,6 +318,8 @@ fn the_fake_answers_like_the_sdl_adapter() {
     );
     fake.close_device();
     assert_eq!(fake.preview_state(), None);
-    assert_eq!(fake.script().previewed, ["bad", "good"]);
+    assert_eq!(fake.script().closed, 1);
+    assert_eq!(fake.script().selected, None);
+    assert_eq!(fake.script().previewed, ["bad", "good", "good"]);
     assert_eq!(fake.platform(), "Windows");
 }

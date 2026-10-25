@@ -5,6 +5,7 @@
 use std::ffi::{c_char, c_int, c_void, CStr, CString, OsString};
 use std::path::{Path, PathBuf};
 use std::ptr;
+use std::sync::{Mutex, PoisonError};
 
 use indexmap::IndexMap;
 use libloading::Library;
@@ -30,8 +31,8 @@ pub struct Device {
 pub enum JoyError {
     #[error("SDL3 was not found. Use a complete port installation or build the project first.")]
     Missing,
-    /// The library did not load, or lacks a function.
-    #[error(transparent)]
+    /// The library did not load, or lacks a function; the text has the system's reason.
+    #[error("{}", loader_error(.0))]
     Library(#[from] libloading::Error),
     /// What `SDL_GetError` said.
     #[error("{0}")]
@@ -99,9 +100,9 @@ macro_rules! sdl_api {
 
         impl Api {
             /// # Safety
-            /// `library` must be SDL3, whose functions have these signatures, and it must outlive
-            /// the returned pointers.
-            unsafe fn load(library: &Library) -> Result<Api, libloading::Error> {
+            /// `library` must be SDL3, whose functions have these signatures. It is never
+            /// unloaded, so the returned pointers stay valid.
+            unsafe fn load(library: &'static Library) -> Result<Api, libloading::Error> {
                 Ok(Api {
                     // SAFETY: the caller's: SDL3 has these functions with these signatures.
                     $($field: *unsafe {
@@ -148,7 +149,7 @@ sdl_api! {
 }
 
 /// SDL3's joysticks and gamepads. Dropping it closes the device, stops SDL's gamepad subsystem
-/// and puts the hints back.
+/// and puts the hints back; the library stays loaded (see [`LOADED`]).
 pub struct Sdl3 {
     api: Api,
     platform: String,
@@ -160,8 +161,8 @@ pub struct Sdl3 {
     ready: bool,
     /// Each hint this set, with the value it had.
     old_hints: Vec<(CString, Option<CString>)>,
-    /// Last: `api` points into it.
-    library: Library,
+    /// `api` and the test functions point into it; it is never unloaded.
+    library: &'static Library,
 }
 
 impl Sdl3 {
@@ -170,8 +171,8 @@ impl Sdl3 {
     pub fn open(port: &Path, data_dir: &Path, library: Option<&Path>) -> Result<Sdl3, JoyError> {
         let search = search_list(port, std::env::var_os("MSYS2_ROOT"));
         let library = load_library(library, search)?;
-        // SAFETY: `library` is SDL3, and `Sdl3` keeps it after `api` (and drops it last).
-        let api = unsafe { Api::load(&library) }?;
+        // SAFETY: `library` is SDL3, loaded for the rest of the process.
+        let api = unsafe { Api::load(library) }?;
         // SAFETY: SDL_GetPlatform has no preconditions and returns a static string.
         let platform = unsafe { text((api.get_platform)()) }.unwrap_or_default();
         let mut env: IndexMap<String, String> = std::env::vars_os()
@@ -487,8 +488,7 @@ impl Sdl3 {
     /// `T` must be the function's signature.
     unsafe fn test_function<T: Copy>(&self, name: &str) -> Result<T, JoyError> {
         let name = c_string(name)?;
-        // SAFETY: the caller gives the signature; `self.library` outlives the copy, which is
-        // used only while `self` is borrowed.
+        // SAFETY: the caller gives the signature; `self.library` is never unloaded.
         Ok(*unsafe { self.library.get::<T>(name.as_bytes_with_nul()) }?)
     }
 
@@ -591,7 +591,10 @@ fn search_list(port: &Path, msys2_root: Option<OsString>) -> Vec<PathBuf> {
 
 /// `library`, else the first of `search`: on Windows the first that exists, on unix the first
 /// the loader finds.
-fn load_library(library: Option<&Path>, search: Vec<PathBuf>) -> Result<Library, JoyError> {
+fn load_library(
+    library: Option<&Path>,
+    search: Vec<PathBuf>,
+) -> Result<&'static Library, JoyError> {
     if let Some(library) = library {
         return load(library);
     }
@@ -601,40 +604,82 @@ fn load_library(library: Option<&Path>, search: Vec<PathBuf>) -> Result<Library,
             None => Err(JoyError::Missing),
         }
     } else {
-        search
-            .iter()
-            .find_map(|name| load(name).ok())
-            .ok_or(JoyError::Missing)
+        // The first the loader finds. Names it did not find leave `Missing`; the error of one it
+        // found but could not load (a bad file, a missing dependency) is kept, as Python's CDLL
+        // raised it.
+        let mut failed = None;
+        for name in &search {
+            match load(name) {
+                Ok(library) => return Ok(library),
+                Err(JoyError::Library(error)) if !not_found(name, &error.to_string()) => {
+                    failed = Some(error);
+                }
+                Err(_) => {}
+            }
+        }
+        Err(failed.map_or(JoyError::Missing, JoyError::Library))
     }
 }
 
-/// Loads one library. On Windows, as Python's ctypes: a path is made absolute, and the folder of
-/// the DLL is searched for its own DLLs.
-fn load(path: &Path) -> Result<Library, JoyError> {
+/// Every library [`load`] loaded, by the name it was loaded with. None is ever unloaded, as
+/// Python's `CDLL` never unloads SDL3: `Sdl3` stops only SDL's gamepad subsystem, and SDL's own
+/// global state goes only with `SDL_Quit`. A second `Sdl3` on the same name reuses the library.
+static LOADED: Mutex<Vec<(PathBuf, &'static Library)>> = Mutex::new(Vec::new());
+
+/// Loads one library, once for the process (see [`LOADED`]). On Windows, as Python's ctypes: a
+/// name with a folder is made absolute (which also turns `/` into `\`), and that folder is
+/// searched for the DLL's own DLLs.
+fn load(name: &Path) -> Result<&'static Library, JoyError> {
+    let in_folder = name.components().count() > 1;
+    let name = if cfg!(windows) && in_folder {
+        std::path::absolute(name).unwrap_or_else(|_| name.to_path_buf())
+    } else {
+        name.to_path_buf()
+    };
+    let mut loaded = LOADED.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(&(_, library)) = loaded.iter().find(|(known, _)| *known == name) {
+        return Ok(library);
+    }
     #[cfg(windows)]
-    {
+    let library: Library = {
         use libloading::os::windows::{
             Library as WindowsLibrary, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
         };
-        let named = path.as_os_str().to_string_lossy().contains(['/', '\\']);
-        let (path, flags) = if named {
-            let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-            (
-                path,
-                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
-            )
+        let flags = if in_folder {
+            LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
         } else {
-            (path.to_path_buf(), LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)
+            LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
         };
         // SAFETY: loading SDL3 runs only its own initialisers, which have no preconditions.
-        let library = unsafe { WindowsLibrary::load_with_flags(&path, flags) }?;
-        Ok(library.into())
-    }
+        unsafe { WindowsLibrary::load_with_flags(&name, flags) }?.into()
+    };
+    // SAFETY: as above.
     #[cfg(not(windows))]
-    {
-        // SAFETY: as above.
-        Ok(unsafe { Library::new(path) }?)
+    let library = unsafe { Library::new(&name) }?;
+    // Leaked on purpose: it stays loaded for the rest of the process.
+    let library: &'static Library = Box::leak(Box::new(library));
+    loaded.push((name, library));
+    Ok(library)
+}
+
+/// Whether the loader's message `said`, for `name`, means it did not find `name` itself. A path
+/// is looked at directly. For a bare name glibc's message starts with that name only then: a
+/// library it found is named by its full path, and a missing dependency by its own name.
+fn not_found(name: &Path, said: &str) -> bool {
+    if name.components().count() > 1 {
+        !name.exists()
+    } else {
+        said.starts_with(&format!("{}:", name.display()))
+    }
+}
+
+/// libloading's words for a failed load, then the system's reason (on Windows libloading says
+/// only "LoadLibraryExW failed").
+fn loader_error(error: &libloading::Error) -> String {
+    match std::error::Error::source(error) {
+        Some(reason) => format!("{error}: {reason}"),
+        None => error.to_string(),
     }
 }
 
@@ -662,6 +707,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     #[test]
     fn a_missing_library_names_sdl3() {
@@ -700,5 +746,71 @@ mod tests {
             error.to_string(),
             "SDL3 was not found. Use a complete port installation or build the project first."
         );
+    }
+
+    #[test]
+    fn sdl3_is_loaded_once_and_kept_for_the_process() {
+        // SDL's global state outlives SDL_QuitSubSystem, so the library is never unloaded (as
+        // Python's CDLL), and opening the mapper again reuses it.
+        let Some(path) = std::env::var_os("SPARTAN_TEST_SDL3").filter(|path| !path.is_empty())
+        else {
+            println!("skipped: set SPARTAN_TEST_SDL3");
+            return;
+        };
+        let path = PathBuf::from(path);
+        let first: &'static Library = load_library(Some(&path), Vec::new()).unwrap();
+        let again = load_library(Some(&path), Vec::new()).unwrap();
+        assert!(ptr::eq(first, again));
+        #[cfg(windows)]
+        {
+            // The same file, however its separators are written.
+            let spelled = PathBuf::from(path.to_string_lossy().replace('/', r"\"));
+            assert!(ptr::eq(first, load(&spelled).unwrap()));
+        }
+    }
+
+    #[test]
+    fn a_library_that_does_not_load_says_why() {
+        let port = tempfile::tempdir().unwrap();
+        let msys2 = tempfile::tempdir().unwrap();
+        let (broken, search) = if cfg!(windows) {
+            let broken = port.path().join("bin").join("SDL3.dll");
+            let search = search_list(port.path(), Some(msys2.path().into()));
+            (broken, search)
+        } else {
+            let broken = port.path().join("libSDL3.so.0");
+            (broken.clone(), vec![broken])
+        };
+        fs::create_dir_all(broken.parent().unwrap()).unwrap();
+        fs::write(&broken, b"not a library").unwrap();
+        let error = load_library(None, search).err().unwrap();
+        assert!(matches!(error, JoyError::Library(_)), "{error:?}");
+        let said = error.to_string();
+        // The system's reason, not only libloading's "LoadLibraryExW failed".
+        #[cfg(windows)]
+        assert!(said.contains("(os error "), "{said}");
+        #[cfg(not(windows))]
+        assert!(said.contains(&broken.display().to_string()), "{said}");
+    }
+
+    #[test]
+    fn only_a_name_the_loader_did_not_find_is_missing() {
+        // glibc names a bare name it did not find; a library it found is named by its path, and a
+        // missing dependency by the dependency's name.
+        let name = Path::new("libSDL3.so.0");
+        let missing = "cannot open shared object file: No such file or directory";
+        assert!(not_found(name, &format!("libSDL3.so.0: {missing}")));
+        assert!(!not_found(
+            name,
+            "/usr/lib/libSDL3.so.0: invalid ELF header"
+        ));
+        assert!(!not_found(name, &format!("libdecor-0.so.0: {missing}")));
+        // A path is looked at directly.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("libSDL3.so.0");
+        assert!(not_found(&path, &format!("{}: {missing}", path.display())));
+        fs::write(&path, b"not a library").unwrap();
+        let said = format!("{}: invalid ELF header", path.display());
+        assert!(!not_found(&path, &said));
     }
 }

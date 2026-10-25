@@ -486,10 +486,12 @@ pub fn configure_environment(
         })
     };
     let local = read(&path);
-    let explicit = match env.get("SDL_GAMECONTROLLERCONFIG_FILE") {
-        Some(file) if !file.is_empty() && port.join(file).is_file() => read(&port.join(file)),
-        _ => String::new(),
-    };
+    let explicit = env
+        .get("SDL_GAMECONTROLLERCONFIG_FILE")
+        .filter(|file| !file.is_empty())
+        .map(|file| port.join(file))
+        .filter(|file| file.is_file())
+        .map_or_else(String::new, |file| read(&file));
     let hint = env
         .get("SDL_GAMECONTROLLERCONFIG")
         .cloned()

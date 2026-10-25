@@ -480,6 +480,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 17. When the game exits with advice the Rust opens the Log page and scrolls to its end (the 2.7.0 Python scrolls the Advanced page to its log section). The Delete shader cache button of Performance and the Clear shader cache button of Advanced ask the same question, as the Python's two buttons do.
 18. PLAY checks the port folder for `run.py` and `bin/spartanport-probe` (or `out/`) before starting and names what is missing, with the releases page as the fix (the Python lets run.py fail with its developer message). The Windows exe links the C runtime statically (`.cargo/config.toml`), so it needs no VCRUNTIME140.dll.
 19. A `controls_layout` newer than the launcher's own (`CONTROLS_LAYOUT`, 4) is left as it is: `migrate_controls` returns the settings unchanged (the Python migrates every layout but its own). Only the migration leaves it: a Save still rebuilds `controls` from `control_changes` while `controls_layout` stays as it was. `src/core/controls.rs::tests::a_newer_layout_is_left_alone`.
+20. The controller mapper looks for SDL3 only in the port's `bin/` and `out/` and in MSYS2's `clang64/bin/` on Windows, and only as `libSDL3.so.0` and `libSDL3.so` on unix (`src/core/joysticks.rs`). The Python ended with `ctypes.util.find_library('SDL3')`, which also searches `PATH` on Windows and finds `libSDL3.dylib` on macOS; without SDL3 in those places the Rust says "SDL3 was not found…".
 
 ## Partly covered
 

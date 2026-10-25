@@ -93,8 +93,10 @@ impl Joysticks for FakeJoysticks {
     }
 
     fn select(&mut self, device: &Device) -> Result<(), JoyError> {
-        self.close_device();
-        self.script().selected = Some(device.clone());
+        // The previous device goes, as with SDL, but `closed` counts only the launcher's closes.
+        let mut script = self.script();
+        script.preview = None;
+        script.selected = Some(device.clone());
         Ok(())
     }
 
