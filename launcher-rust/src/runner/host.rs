@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use super::{discord, exit_code, guest_memory, this_exe, wait_for_pid, RunContext};
+use super::{discord, exit_code, guest_memory, this_exe, RunContext};
 use crate::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, ToolOutput, Window};
 use crate::core::platform::{self, no_console_window, no_window};
 
@@ -68,7 +68,7 @@ impl Host for SystemHost {
     }
 
     fn wait_for_pid(&self, pid: u32, limit: Duration) -> bool {
-        wait_for_pid(pid, limit)
+        platform::wait_for_process(pid, limit)
     }
 
     fn interrupted(&self) -> bool {

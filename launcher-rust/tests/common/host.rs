@@ -44,6 +44,8 @@ pub enum Interrupt {
     Always,
     /// While the game runs: `play` gives `None`, and `interrupted` is true from then on.
     DuringGame,
+    /// From the runner's `n`-th look on (1: the first).
+    FromPoll(usize),
 }
 
 pub struct FakeHost {
@@ -63,7 +65,10 @@ pub struct FakeHost {
     pub on_play: Option<Box<dyn Fn(&ToolCall)>>,
     /// Every `(pid, limit)` the runner waited for.
     pub waited: RefCell<Vec<(u32, Duration)>>,
-    played: Cell<bool>,
+    /// How many times the runner had looked for Ctrl+C when the game started; `None` until then.
+    pub polls_before_game: Cell<Option<usize>>,
+    /// How many times the runner looked for Ctrl+C.
+    polls: Cell<usize>,
 }
 
 impl Default for FakeHost {
@@ -78,7 +83,8 @@ impl Default for FakeHost {
             memory_mb: None,
             on_play: None,
             waited: RefCell::default(),
-            played: Cell::new(false),
+            polls_before_game: Cell::new(None),
+            polls: Cell::new(0),
         }
     }
 }
@@ -119,11 +125,11 @@ impl Host for FakeHost {
 
     fn play(&self, call: &ToolCall, _log: &mut dyn FnMut(String)) -> io::Result<Option<i32>> {
         self.calls.borrow_mut().push(Called::of(call));
+        self.polls_before_game.set(Some(self.polls.get()));
         if let Some(on_play) = &self.on_play {
             on_play(call);
         }
         if matches!(self.interrupt, Interrupt::DuringGame) {
-            self.played.set(true);
             return Ok(None);
         }
         Ok(Some(self.exit))
@@ -135,10 +141,13 @@ impl Host for FakeHost {
     }
 
     fn interrupted(&self) -> bool {
+        let poll = self.polls.get() + 1;
+        self.polls.set(poll);
         match self.interrupt {
             Interrupt::Never => false,
             Interrupt::Always => true,
-            Interrupt::DuringGame => self.played.get(),
+            Interrupt::DuringGame => self.polls_before_game.get().is_some(),
+            Interrupt::FromPoll(from) => poll >= from,
         }
     }
 

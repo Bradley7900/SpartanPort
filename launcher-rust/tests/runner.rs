@@ -253,7 +253,9 @@ impl InProcess {
 
     /// The variable `name` in the environment the game got.
     fn var(&self, name: &str) -> Option<String> {
-        self.game_call().env.unwrap().get(name).cloned()
+        let env = self.game_call().env;
+        let env = env.unwrap_or_else(|| panic!("the game got no environment\n{self}"));
+        env.get(name).cloned()
     }
 }
 
@@ -634,10 +636,10 @@ fn run_starts_the_probe_in_the_port() {
 fn spartan_probe_is_the_program_started() {
     // run.py: SPARTAN_PROBE, taken as is, before the port's bin/ and out/.
     let port = Port::new();
-    fs::remove_file(port.probe()).unwrap();
     let probe = port.root.join("tools").join(format!("my-probe{EXE}"));
     fs::create_dir_all(probe.parent().unwrap()).unwrap();
     fs::write(&probe, b"").unwrap();
+    // The port's bin/ has a probe too.
     let ran = port.run_on(
         FakeHost::default(),
         &[("SPARTAN_PROBE", &text(&probe))],
@@ -649,6 +651,7 @@ fn spartan_probe_is_the_program_started() {
         assert_eq!(call.program, probe.clone().into_os_string(), "{ran}");
     }
     // Without it, and with no probe in the port, nothing starts.
+    fs::remove_file(port.probe()).unwrap();
     let ran = port.run_on(FakeHost::default(), &[], &[]);
     assert_eq!(ran.code, 1, "{ran}");
     let message = format!("spartanport-probe{EXE} not found: build it with build.sh");
@@ -717,13 +720,21 @@ fn a_stale_isa_table_is_replaced() {
 
 #[test]
 fn a_ctrl_c_stops_before_the_game() {
-    // run.py's KeyboardInterrupt before Popen: no game runs on the folders the cleanup removes.
+    // The runner looks for Ctrl+C after --cpu-features, after the image steps, after the glyph
+    // probe and just before the start. One at any of them ends the run with 130, and no game runs
+    // on the folders the cleanup removes.
     let port = Port::new();
-    let mut host = FakeHost::default();
-    host.interrupt = Interrupt::Always;
-    let ran = port.run_on(host, &[], &[]);
-    assert_eq!(ran.code, 130, "{ran}");
-    assert!(ran.games().is_empty(), "{ran}");
+    let ran = port.run_on(FakeHost::default(), &[], &[]);
+    assert_eq!(ran.code, 0, "{ran}");
+    let checks = ran.host.polls_before_game.get().unwrap();
+    assert_eq!(checks, 4, "{ran}");
+    for poll in 1..=checks {
+        let mut host = FakeHost::default();
+        host.interrupt = Interrupt::FromPoll(poll);
+        let ran = port.run_on(host, &[], &[]);
+        assert_eq!(ran.code, 130, "Ctrl+C from check {poll}\n{ran}");
+        assert!(ran.games().is_empty(), "Ctrl+C from check {poll}\n{ran}");
+    }
 }
 
 #[test]
@@ -894,19 +905,24 @@ fn after_waits_for_the_old_process() {
 
 #[test]
 fn wait_for_pid_returns_when_the_process_ends() {
+    // `--after`'s wait: a process that sleeps 500 ms once started is waited for until it ends.
     let mut child = Command::new(FAKE_GAME)
-        .args(["--exit", "0", "--lines", "1", "--delay-ms", "300"])
+        .args(["--exit", "0", "--lines", "1", "--delay-ms", "500"])
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
+    // From the start on: the first start of a fresh build can itself take longer than the sleep
+    // (the antivirus scan), which would hide a wait that returns at once.
+    let started = Instant::now();
     // On Linux an exited child stays a zombie until it is reaped, and `kill(pid, 0)` still
     // succeeds on it: a thread reaps it, as the real caller's parent would.
     let pid = child.id();
-    let started = Instant::now();
     let reaper = std::thread::spawn(move || child.wait());
     assert!(SystemHost.wait_for_pid(pid, Duration::from_secs(10)));
-    assert!(started.elapsed() < Duration::from_secs(10));
+    let waited = started.elapsed();
     let _ = reaper.join();
+    assert!(waited >= Duration::from_millis(400), "{waited:?}");
+    assert!(waited < Duration::from_secs(10), "{waited:?}");
     // A pid that never existed: true at once.
     let started = Instant::now();
     assert!(SystemHost.wait_for_pid(u32::MAX - 1, Duration::from_secs(10)));

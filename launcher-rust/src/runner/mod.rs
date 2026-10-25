@@ -1152,12 +1152,6 @@ pub fn pause_menu_args(
     }
 }
 
-/// Waits up to `limit` for process `pid` to end (the previous game, for `--after`). `true` when it
-/// ended or never existed.
-pub fn wait_for_pid(pid: u32, limit: Duration) -> bool {
-    platform::wait_for_process(pid, limit)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
