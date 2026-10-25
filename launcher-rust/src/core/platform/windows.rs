@@ -183,6 +183,13 @@ impl Job {
         Job { handle }
     }
 
+    /// No job: the game stays in the caller's, and `terminate` does nothing.
+    pub fn none() -> Job {
+        Job {
+            handle: std::ptr::null_mut(),
+        }
+    }
+
     /// Ends every process in the job with exit code 1.
     pub fn terminate(&mut self) {
         if !self.handle.is_null() {

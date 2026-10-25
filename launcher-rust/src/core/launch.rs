@@ -1,6 +1,7 @@
 //! Starting the game, reading its merged output and stopping it.
 
-use super::log::RunLog;
+use super::i18n::tr;
+use super::log::{exit_hint, ExitHint, RunLog};
 use super::platform;
 use indexmap::IndexMap;
 use std::ffi::OsString;
@@ -18,8 +19,38 @@ const MAX_CHUNK: u64 = 64 * 1024;
 pub enum GameEvent {
     /// A piece of output: normally one whole line including its `\n`.
     Output(String),
-    /// The process ended; on Linux one killed by a signal N gives `-N`, as Python's `returncode`.
-    Exited(i32),
+    /// The process ended.
+    Exited(Exit),
+}
+
+/// How the game ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exit {
+    /// The `returncode`: on Linux one killed by a signal N gives `-N`, as Python's.
+    pub code: i32,
+    /// The advice of the last output line that asked for one.
+    pub hint: Option<ExitHint>,
+}
+
+/// Whether the game gets a process group of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Group {
+    /// PLAY: its own group (a job on Windows); STOP ends it with everything it started.
+    Own,
+    /// `--play`: the caller's group, no job; Ctrl+C reaches the game.
+    Caller,
+}
+
+/// What `spawn_game` starts and how.
+pub struct Launch<'a> {
+    pub command: &'a [String],
+    pub cwd: &'a Path,
+    /// Exactly the environment of the game.
+    pub env: &'a IndexMap<String, String>,
+    pub run_log: RunLog,
+    /// The language of the exit advice written to the run log.
+    pub lang: &'a str,
+    pub group: Group,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,14 +103,19 @@ impl GameHandle {
     }
 }
 
-/// Starts `command` in `cwd` with exactly `env`, stdin closed and stdout and stderr merged into
-/// one pipe. A thread reads that pipe and sends the events; it also writes `run_log`.
-pub fn spawn_game(
-    command: &[String],
-    cwd: &Path,
-    env: &IndexMap<String, String>,
-    run_log: RunLog,
-) -> Result<GameHandle, LaunchError> {
+/// Starts the game with stdin closed and stdout and stderr merged into one pipe. A thread reads
+/// that pipe and sends the events; it writes the run log, and when the game fails after printing
+/// a line with a known cause it adds the advice for it to the log.
+pub fn spawn_game(launch: Launch<'_>) -> Result<GameHandle, LaunchError> {
+    let Launch {
+        command,
+        cwd,
+        env,
+        run_log,
+        lang,
+        group,
+    } = launch;
+    let lang = lang.to_string();
     let (program, args) = command.split_first().ok_or(LaunchError::EmptyCommand)?;
     let (reader, writer) = std::io::pipe()?;
     let mut cmd = Command::new(program);
@@ -90,19 +126,26 @@ pub fn spawn_game(
         .stdin(Stdio::null())
         .stdout(Stdio::from(writer.try_clone()?))
         .stderr(Stdio::from(writer));
-    platform::prepare(&mut cmd);
+    match group {
+        Group::Own => platform::prepare(&mut cmd),
+        Group::Caller => platform::no_window(&mut cmd),
+    }
     // `cmd` owns the writer ends; dropping it after the spawn closes them in this process, so the
     // reader sees EOF once the child and any descendant holding the pipe are gone.
     let child = cmd.spawn();
     drop(cmd);
     let mut child = child?;
     let pid = child.id();
-    let job = platform::Job::attach(&child);
+    let job = match group {
+        Group::Own => platform::Job::attach(&child),
+        Group::Caller => platform::Job::none(),
+    };
     let (tx, events) = channel();
     std::thread::spawn(move || {
         let mut run_log = run_log;
         let mut reader = BufReader::new(reader);
         let mut buf = Vec::new();
+        let mut hint = None;
         loop {
             buf.clear();
             match reader.by_ref().take(MAX_CHUNK).read_until(b'\n', &mut buf) {
@@ -111,11 +154,15 @@ pub fn spawn_game(
             }
             let text = String::from_utf8_lossy(&buf).into_owned();
             run_log.write(&text);
+            hint = exit_hint(&text).or(hint);
             let _ = tx.send(GameEvent::Output(text));
         }
-        drop(run_log);
         let code = child.wait().map_or(-1, returncode);
-        let _ = tx.send(GameEvent::Exited(code));
+        if let Some(hint) = hint.filter(|_| code != 0) {
+            run_log.write(&format!("\n{}\n", tr(&lang, hint.text_en())));
+        }
+        drop(run_log);
+        let _ = tx.send(GameEvent::Exited(Exit { code, hint }));
     });
     Ok(GameHandle { pid, events, job })
 }

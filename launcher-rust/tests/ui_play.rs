@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use common::sfo;
 use iced_test::simulator::simulator;
 use serde_json::json;
+use spartanport_launcher::core::launch::Exit;
 use spartanport_launcher::core::log::ExitHint;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
@@ -252,7 +253,17 @@ fn describe_missing_labels_every_state() {
 #[test]
 fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = ready(dir.path(), &["--lines", "5", "--exit", "3"]);
+    let mut state = ready(
+        dir.path(),
+        &[
+            "--say",
+            "mmap failed of guest memory (error 1455)",
+            "--lines",
+            "5",
+            "--exit",
+            "3",
+        ],
+    );
     state.log.push_text("an older run\n");
     assert!(click(&state, "PLAY")
         .iter()
@@ -298,13 +309,7 @@ fn play_runs_the_fake_game_and_shows_its_lines_then_the_exit() {
     } else {
         ExitHint::LinuxMemory
     };
-    assert!(matches!(
-        state.game,
-        GameState::Running {
-            hint: Some(hint),
-            ..
-        } if hint == advice
-    ));
+    assert!(matches!(state.game, GameState::Running { .. }));
 
     let statuses = pump(&mut state, BOUND, idle);
     assert!(statuses.contains(&"Restarting with the new settings…".to_string()));
@@ -467,7 +472,13 @@ fn an_exit_hint_opens_the_log_and_unhides_the_launcher() {
         &mut state,
         Message::Game(GameMessage::Output(vec![line.to_string()])),
     );
-    send(&mut state, Message::Game(GameMessage::Exited(21)));
+    send(
+        &mut state,
+        Message::Game(GameMessage::Exited(Exit {
+            code: 21,
+            hint: Some(ExitHint::GuestMemory),
+        })),
+    );
     assert_eq!(state.page, Page::Log);
     let text = state.log.text();
     assert!(
@@ -485,7 +496,13 @@ fn an_exit_hint_opens_the_log_and_unhides_the_launcher() {
         &mut state,
         Message::Game(GameMessage::Output(vec![line.to_string()])),
     );
-    send(&mut state, Message::Game(GameMessage::Exited(21)));
+    send(
+        &mut state,
+        Message::Game(GameMessage::Exited(Exit {
+            code: 21,
+            hint: Some(ExitHint::GuestMemory),
+        })),
+    );
     assert!(state.visible);
     assert!(!play::exit_after_game(&state));
     assert_eq!(state.page, Page::Log);
@@ -494,7 +511,13 @@ fn an_exit_hint_opens_the_log_and_unhides_the_launcher() {
     send(&mut state, Message::Play);
     let running = pid(&state);
     send(&mut state, Message::Game(GameMessage::HideForGame(running)));
-    send(&mut state, Message::Game(GameMessage::Exited(0)));
+    send(
+        &mut state,
+        Message::Game(GameMessage::Exited(Exit {
+            code: 0,
+            hint: None,
+        })),
+    );
     assert!(!state.visible);
 }
 

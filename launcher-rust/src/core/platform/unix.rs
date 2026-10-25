@@ -83,6 +83,11 @@ impl Job {
         }
     }
 
+    /// No group of its own: the game stays in the caller's, and `terminate` does nothing.
+    pub fn none() -> Job {
+        Job { pgid: 0 }
+    }
+
     /// SIGTERM to the group, then SIGKILL after three seconds.
     pub fn terminate(&mut self) {
         if self.pgid <= 0 {

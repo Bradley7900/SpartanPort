@@ -19,8 +19,10 @@ use crate::core::game::{
     FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::launch::{run_command, spawn_game, GameEvent, GameHandle, LaunchError};
-use crate::core::log::{exit_hint, line_status, ExitHint, LineStatus, RunLog};
+use crate::core::launch::{
+    run_command, spawn_game, Exit, GameEvent, GameHandle, Group, Launch, LaunchError,
+};
+use crate::core::log::{line_status, LineStatus, RunLog};
 use crate::core::paths::Paths;
 use crate::ui::app::{show_page, Message, State};
 use crate::ui::home;
@@ -47,41 +49,26 @@ pub enum GameState {
     /// Started; `run.py` prepares the game.
     Preparing {
         handle: GameHandle,
-        /// Why the game may close, from its output.
-        hint: Option<ExitHint>,
         /// Whether `close_on_play` hid the window.
         hidden: bool,
     },
     /// The game said it entered its own code.
-    Running {
-        handle: GameHandle,
-        hint: Option<ExitHint>,
-        hidden: bool,
-    },
+    Running { handle: GameHandle, hidden: bool },
 }
 
 impl fmt::Debug for GameState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let started = |f: &mut fmt::Formatter<'_>, name, handle: &GameHandle, hint, hidden| {
+        let started = |f: &mut fmt::Formatter<'_>, name, handle: &GameHandle, hidden| {
             f.debug_struct(name)
                 .field("pid", &handle.pid)
-                .field("hint", hint)
                 .field("hidden", hidden)
                 .finish()
         };
         match self {
             GameState::Idle => f.write_str("Idle"),
             GameState::Copying => f.write_str("Copying"),
-            GameState::Preparing {
-                handle,
-                hint,
-                hidden,
-            } => started(f, "Preparing", handle, hint, hidden),
-            GameState::Running {
-                handle,
-                hint,
-                hidden,
-            } => started(f, "Running", handle, hint, hidden),
+            GameState::Preparing { handle, hidden } => started(f, "Preparing", handle, hidden),
+            GameState::Running { handle, hidden } => started(f, "Running", handle, hidden),
         }
     }
 }
@@ -91,8 +78,8 @@ impl fmt::Debug for GameState {
 pub enum GameMessage {
     /// Output pieces, normally whole lines with their `\n`.
     Output(Vec<String>),
-    /// The game ended with this code.
-    Exited(i32),
+    /// The game ended: its code and the advice its output asked for.
+    Exited(Exit),
     /// The `close_on_play` timer of the game with this pid.
     HideForGame(u32),
     /// The answer to the copy offer: yes or no, the Sc0 folder, the game (or update) folder.
@@ -374,9 +361,16 @@ fn start(state: &mut State) -> Task<Message> {
             .map_or_else(std::env::current_exe, Ok)
             .map(|exe| run_command(&exe, &[])),
     };
-    let started = command
-        .map_err(LaunchError::from)
-        .and_then(|command| spawn_game(&command, &state.paths.port_dir, &env, run_log));
+    let started = command.map_err(LaunchError::from).and_then(|command| {
+        spawn_game(Launch {
+            command: &command,
+            cwd: &state.paths.port_dir,
+            env: &env,
+            run_log,
+            lang: &lang,
+            group: Group::Own,
+        })
+    });
     let handle = match started {
         Ok(handle) => handle,
         Err(error) => {
@@ -388,7 +382,6 @@ fn start(state: &mut State) -> Task<Message> {
     let pid = handle.pid;
     state.game = GameState::Preparing {
         handle,
-        hint: None,
         hidden: false,
     };
     state.status = tr(&lang, "Preparing the game; it opens in its own window…");
@@ -420,9 +413,14 @@ pub fn drain_events(state: &State) -> Vec<GameMessage> {
     for _ in 0..DRAIN_LIMIT {
         match handle.events.try_recv() {
             Ok(GameEvent::Output(text)) => lines.push(text),
-            Ok(GameEvent::Exited(code)) => exited = Some(code),
+            Ok(GameEvent::Exited(exit)) => exited = Some(exit),
             Err(TryRecvError::Empty) => break,
-            Err(TryRecvError::Disconnected) => exited = Some(-1),
+            Err(TryRecvError::Disconnected) => {
+                exited = Some(Exit {
+                    code: -1,
+                    hint: None,
+                });
+            }
         }
         if exited.is_some() {
             break;
@@ -431,8 +429,8 @@ pub fn drain_events(state: &State) -> Vec<GameMessage> {
     if !lines.is_empty() {
         messages.push(GameMessage::Output(lines));
     }
-    if let Some(code) = exited {
-        messages.push(GameMessage::Exited(code));
+    if let Some(exit) = exited {
+        messages.push(GameMessage::Exited(exit));
     }
     messages
 }
@@ -450,7 +448,7 @@ pub fn drain(state: &mut State) -> Task<Message> {
 pub fn update(state: &mut State, message: GameMessage) -> Task<Message> {
     match message {
         GameMessage::Output(lines) => output(state, lines),
-        GameMessage::Exited(code) => exited(state, code),
+        GameMessage::Exited(exit) => exited(state, exit),
         GameMessage::HideForGame(pid) => hide_for_game(state, pid),
         GameMessage::AdoptAnswer(yes, source, folder) => {
             state.modal = None;
@@ -498,20 +496,13 @@ pub fn update(state: &mut State, message: GameMessage) -> Task<Message> {
 fn output(state: &mut State, lines: Vec<String>) -> Task<Message> {
     for line in &lines {
         state.log.push_text(line);
-        let found = exit_hint(line);
         match line_status(line) {
             Some(LineStatus::Running) => {
                 // Already Running after an in-game restart: the game stays as it is.
                 state.game = match std::mem::take(&mut state.game) {
-                    GameState::Preparing {
-                        handle,
-                        hint,
-                        hidden,
-                    } => GameState::Running {
-                        handle,
-                        hint,
-                        hidden,
-                    },
+                    GameState::Preparing { handle, hidden } => {
+                        GameState::Running { handle, hidden }
+                    }
                     other => other,
                 };
                 state.status = tr(&state.lang, "The game is running.");
@@ -521,23 +512,16 @@ fn output(state: &mut State, lines: Vec<String>) -> Task<Message> {
             }
             None => {}
         }
-        if let (Some(found), GameState::Preparing { hint, .. } | GameState::Running { hint, .. }) =
-            (found, &mut state.game)
-        {
-            *hint = Some(found);
-        }
     }
     log::scroll_to_end()
 }
 
 /// The game ended: the exit line and its advice, PLAY back, and the Home chips and trophies read
 /// again; a launcher hidden for the game closes instead.
-fn exited(state: &mut State, code: i32) -> Task<Message> {
+fn exited(state: &mut State, Exit { code, hint }: Exit) -> Task<Message> {
     let exit = exit_after_game(state);
-    let (mut handle, hint) = match std::mem::take(&mut state.game) {
-        GameState::Preparing { handle, hint, .. } | GameState::Running { handle, hint, .. } => {
-            (handle, hint)
-        }
+    let mut handle = match std::mem::take(&mut state.game) {
+        GameState::Preparing { handle, .. } | GameState::Running { handle, .. } => handle,
         other => {
             state.game = other;
             return Task::none();
