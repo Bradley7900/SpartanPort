@@ -26,8 +26,6 @@ ALLOWED_DROPS = {
 # Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
 # each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
 PENDING_PORTS = {
-    # Task 45
-    'tests/test_glyphs.py::GlyphTableTest::test_key_map_moves_the_key',
     # Task 48
     'tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit',
     'tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation',

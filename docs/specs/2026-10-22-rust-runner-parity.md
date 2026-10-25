@@ -65,7 +65,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_patches.py` | 30 | 30 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_mods.py` | 43 | 41 | 1 | 0 | 0 | 1 | 0 |
 | `tests/test_mod_conflicts.py` | 5 | 5 | 0 | 0 | 0 | 0 | 0 |
-| `tests/test_glyphs.py` | 37 | 36 | 0 | 0 | 0 | 0 | 1 |
+| `tests/test_glyphs.py` | 37 | 37 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_content.py` | 5 | 2 | 0 | 3 | 0 | 0 | 0 |
 | `tests/test_guest_memory.py` | 8 | 8 | 0 | 0 | 0 | 0 | 0 |
 | `tests/test_graphics_options.py` | 32 | 26 | 6 | 0 | 0 | 0 | 0 |
@@ -213,7 +213,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_glyphs.py::GlyphTableTest::test_glyph_of_each_style` | `src/runner/glyphs.rs::glyph_of_each_style` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_the_letters_of_the_controller_win_over_the_style` | `src/runner/glyphs.rs::the_letters_of_the_controller_win_over_the_style` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_pad_map_moves_the_glyph` | `src/runner/glyphs.rs::pad_map_moves_the_glyph` | ported |
-| `tests/test_glyphs.py::GlyphTableTest::test_key_map_moves_the_key` | — | dropped: pending port (Task 45); main changed it, the 2.7.0 row named `src/runner/glyphs.rs::key_map_moves_the_key` |
+| `tests/test_glyphs.py::GlyphTableTest::test_key_map_moves_the_key` | `src/runner/glyphs.rs::key_map_moves_the_key` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_rage_on_one_input_draws_its_key_on_l3_and_r3` | `src/runner/glyphs.rs::rage_on_one_input_draws_its_key_on_l3_and_r3` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_key_caps` | `src/runner/glyphs.rs::key_caps` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_gamepad_line` | `src/runner/glyphs.rs::gamepad_line` | ported |

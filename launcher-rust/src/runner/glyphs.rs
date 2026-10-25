@@ -35,7 +35,7 @@ use crate::core::fs::atomic_write;
 use crate::runner::dxt;
 
 /// Of the drawing: a change redraws the cached copies.
-pub const VERSION: u32 = 11;
+pub const VERSION: u32 = 12;
 pub const WADS: [&str; 3] = [
     "EXEC/WAD/PS4_LE/R_UI.WAD",
     "EXEC/WAD/PS4_LE/R_PERM.WAD",
@@ -194,6 +194,18 @@ pub const DEFAULT_KEYS: [(&str, &str); 13] = [
 
 /// The keys that move the sticks (`src/runtime_pad.c` key_axis), fixed as in the runtime.
 pub const STICK_KEYS: [(&str, &str); 2] = [("lstick", "WASD"), ("rstick", "Arrows")];
+
+/// The keys behind each stick direction, in the order they are labelled when one is remapped.
+pub const STICK_BINDINGS: [(&str, &str); 8] = [
+    ("move_up", "W"),
+    ("move_left", "A"),
+    ("move_down", "S"),
+    ("move_right", "D"),
+    ("look_up", "Up"),
+    ("look_left", "Left"),
+    ("look_down", "Down"),
+    ("look_right", "Right"),
+];
 
 /// Key caps for the longer SDL key names (casefolded); the others print their name in capitals.
 pub const KEY_LABELS: [(&str, &str); 34] = [
@@ -424,12 +436,16 @@ pub fn pad_buttons(pad_map: &str) -> IndexMap<String, String> {
 /// Game button -> keyboard key, with a `SPARTAN_KEY_MAP` value (`cross=Q,circle=Left Shift`)
 /// applied. Unlike the gamepad, L2/R2 are keys too. `None` (a button left without a key) keeps the
 /// default, except L3/R3 with Rage of Sparta on one input: they show the rage key, which presses
-/// both.
+/// both. A moved stick direction relabels `lstick`/`rstick` with the four keys (`T/F/G/H`).
 pub fn key_buttons(key_map: &str) -> IndexMap<String, String> {
     let mut buttons: IndexMap<String, String> = DEFAULT_KEYS
         .iter()
         .chain(STICK_KEYS.iter())
         .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    let mut directions: IndexMap<&str, String> = STICK_BINDINGS
+        .iter()
+        .map(|(k, v)| (*k, v.to_string()))
         .collect();
     let mut unbound = Vec::new();
     let mut rage = String::new();
@@ -437,7 +453,9 @@ pub fn key_buttons(key_map: &str) -> IndexMap<String, String> {
         let (game, host) = partition(entry);
         let game = game.to_lowercase();
         let none = host.to_lowercase() == "none";
-        if game == "rage" {
+        if let (Some(key), false) = (directions.get_mut(game.as_str()), host.is_empty()) {
+            *key = host;
+        } else if game == "rage" {
             rage = if none { String::new() } else { host };
         } else if buttons.contains_key(&game) && none {
             unbound.push(game);
@@ -450,6 +468,21 @@ pub fn key_buttons(key_map: &str) -> IndexMap<String, String> {
             if unbound.iter().any(|u| u == game) {
                 buttons.insert(game.to_string(), rage.clone());
             }
+        }
+    }
+    for (prefix, stick) in [("move_", "lstick"), ("look_", "rstick")] {
+        let names: Vec<&str> = STICK_BINDINGS
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| name.starts_with(prefix))
+            .collect();
+        let moved = STICK_BINDINGS
+            .iter()
+            .filter(|(name, _)| name.starts_with(prefix))
+            .any(|(name, default)| directions[name].to_lowercase() != default.to_lowercase());
+        if moved {
+            let keys: Vec<&str> = names.iter().map(|name| directions[name].as_str()).collect();
+            buttons.insert(stick.to_string(), keys.join("/"));
         }
     }
     buttons
@@ -2235,6 +2268,15 @@ pub(crate) mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
         assert_eq!(key_buttons(""), defaults);
+        assert_eq!(
+            key_buttons("move_up=T,move_left=F,move_down=G,move_right=H")["lstick"],
+            "T/F/G/H"
+        );
+        assert_eq!(
+            key_buttons("look_left=None")["rstick"],
+            "Up/None/Down/Right"
+        );
+        assert_eq!(key_buttons("move_up=w,move_left=a")["lstick"], "WASD"); // same keys, any case
         let keyboard_only: Vec<&str> = DEFAULT_KEYS
             .iter()
             .map(|(k, _)| *k)
@@ -2772,7 +2814,7 @@ pub(crate) mod tests {
         assert_eq!(
             stamp,
             format!(
-                "[11, \"keyboard\", null, \"\", \"cross=Q\", null, [[\"EXEC/WAD/PS4_LE/R_UI.WAD\", {}, {mtime}]]]",
+                "[12, \"keyboard\", null, \"\", \"cross=Q\", null, [[\"EXEC/WAD/PS4_LE/R_UI.WAD\", {}, {mtime}]]]",
                 meta.len()
             )
         );

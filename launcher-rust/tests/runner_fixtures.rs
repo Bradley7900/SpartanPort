@@ -411,6 +411,43 @@ fn painted_textures_match_pillow_within_tolerance() {
 }
 
 #[test]
+fn keyboard_glyphs_label_the_remapped_sticks() {
+    // `glyphs.render` of the keyboard stick icons with moved directions (the Python's own drawing).
+    let port = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let assets = glyphs::Assets::in_port(&port);
+    let painter = glyphs::Painter::new(&assets);
+    let folder = fixture_dir("glyphs")
+        .join("expected")
+        .join("keyboard_remapped");
+    let choice = glyphs::Choice {
+        style: "keyboard",
+        faces: None,
+        pad_map: "",
+        key_map: "move_up=T,move_left=F,move_down=G,move_right=H,look_left=None",
+    };
+    let mut names: Vec<PathBuf> = fs::read_dir(&folder)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 3);
+    for path in names {
+        let id = path.file_stem().unwrap().to_str().unwrap();
+        let expected = picture_of(&path);
+        let (_, texture) = glyphs::KEYBOARD_TEXTURES
+            .iter()
+            .find(|(name, _)| *name == id)
+            .unwrap();
+        let (w, h) = (expected.width, expected.height);
+        let painted =
+            glyphs::render(texture.form, texture.buttons, &choice, w, h, &painter).unwrap();
+        let value = psnr(&painted, &expected, [0, 0, w, h]);
+        println!("PSNR keyboard_remapped {id}: {value:.2} dB");
+        assert!(value >= 40.0, "{id}: {value:.2} dB");
+    }
+}
+
+#[test]
 fn glyph_mip_chains_match_pillow() {
     // `glyphs.encode` of Pillow's own drawing: the top level and every smaller (bicubic) level.
     let folder = fixture_dir("glyphs").join("expected");

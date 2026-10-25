@@ -43,7 +43,8 @@ generator stops when one does).
             shape (glow mask); flat elsewhere. expected: <style>/<texture>.png for the xbox, nintendo and
             keyboard styles with the default maps, the Python's own drawing: glyphs.render at the sizes of
             tests/test_glyphs.wad (inline 64, the select icon 64 x 40, QTE 128, atlas 256) and the controller
-            diagram at 512 x 256, glyphs.lyre_paint of the input for the lyre and gold textures. The bytes
+            diagram at 512 x 256, plus keyboard_remapped/<texture>.png, the keyboard stick icons drawn with
+            the key map move_up=T,move_left=F,move_down=G,move_right=H,look_left=None, glyphs.lyre_paint of the input for the lyre and gold textures. The bytes
             written from those pictures: encode/<style>/<texture>.<fourcc>, glyphs.encode of the PNG (its mip
             chain: the DXT1 QTE cross in the 7 levels of tests/test_glyphs.wad, the DXT5 select key down to
             1 x 1); encode_region/xbox/TXEACA5E71.dxt1, a DDS header and the glow mask's whole chain of 0xee
@@ -505,6 +506,7 @@ GLYPH_SIZE_OF = {'TXD43D1443': (64, 40)}
 LYRE_SIZE_OF = {'glow': 512}  # the other kinds: 1024
 # (style, texture, fourcc, mip levels or None for the chain down to 1 x 1) for glyphs.encode
 GLYPH_ENCODES = (('xbox', 'TX7FF61BF7', 'DXT1', 7), ('keyboard', 'TXD43D1443', 'DXT5', None))
+GLYPH_REMAP = 'move_up=T,move_left=F,move_down=G,move_right=H,look_left=None'  # the keyboard sticks, remapped
 GLYPH_REGION = ('xbox', 'TXEACA5E71')  # the glow mask (DXT1, 512 px) for glyphs.encode_region
 
 
@@ -600,6 +602,12 @@ def case_glyphs():
                 width, height = GLYPH_SIZE_OF.get(name, GLYPH_SIZES[form])
                 picture = glyphs.render(form, buttons, style, None, '', width, height, '')
             picture.save(expected / style / f'{name}.png')
+    (expected / 'keyboard_remapped').mkdir()
+    for name, (form, buttons) in glyphs.textures('keyboard').items():
+        if buttons in ('lstick', 'rstick'):
+            width, height = GLYPH_SIZE_OF.get(name, GLYPH_SIZES[form])
+            picture = glyphs.render(form, buttons, 'keyboard', None, '', width, height, GLYPH_REMAP)
+            picture.save(expected / 'keyboard_remapped' / f'{name}.png')
     for style, name, fourcc, levels in GLYPH_ENCODES:
         with Image.open(expected / style / f'{name}.png') as picture:
             length = mip_chain(picture.width, picture.height, fourcc, levels)
