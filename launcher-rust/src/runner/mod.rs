@@ -14,6 +14,7 @@ pub mod link_modules;
 pub mod pause_menu;
 pub mod plan;
 pub mod prepare;
+pub mod sce;
 pub mod window_icon;
 
 /// The synthetic probe inputs the runner's tests build (`tests/test_probe.py::package` and more).

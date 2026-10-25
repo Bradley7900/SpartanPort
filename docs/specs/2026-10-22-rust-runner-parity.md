@@ -81,18 +81,18 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 
 | Python test | Rust test (file::name) | Status |
 |---|---|---|
-| `tests/test_prepare.py::SelfTests::test_unpacked_elf_has_the_same_headers_and_payload_as_self` | `src/runner/prepare.rs::tests::unpacked_elf_has_the_same_headers_and_payload_as_self` | ported |
-| `tests/test_prepare.py::SelfTests::test_unpacked_elf_rejects_truncated_segments` | `src/runner/prepare.rs::tests::unpacked_elf_rejects_truncated_segments` | ported |
-| `tests/test_prepare.py::SelfTests::test_unpacked_elf_rejects_other_architectures_and_byte_orders` | `src/runner/prepare.rs::tests::unpacked_elf_rejects_other_architectures_and_byte_orders` | ported |
-| `tests/test_prepare.py::SelfTests::test_unpacked_elf_rejects_truncated_program_headers` | `src/runner/prepare.rs::tests::unpacked_elf_rejects_truncated_program_headers` | ported |
-| `tests/test_prepare.py::SelfTests::test_unpacked_elf_checks_image_limit_before_allocating` | `src/runner/prepare.rs::tests::unpacked_elf_checks_image_limit_before_allocating` | ported |
+| `tests/test_prepare.py::SelfTests::test_unpacked_elf_has_the_same_headers_and_payload_as_self` | `src/runner/sce.rs::tests::unpacked_elf_has_the_same_headers_and_payload_as_self` | ported |
+| `tests/test_prepare.py::SelfTests::test_unpacked_elf_rejects_truncated_segments` | `src/runner/sce.rs::tests::unpacked_elf_rejects_truncated_segments` | ported |
+| `tests/test_prepare.py::SelfTests::test_unpacked_elf_rejects_other_architectures_and_byte_orders` | `src/runner/sce.rs::tests::unpacked_elf_rejects_other_architectures_and_byte_orders` | ported |
+| `tests/test_prepare.py::SelfTests::test_unpacked_elf_rejects_truncated_program_headers` | `src/runner/sce.rs::tests::unpacked_elf_rejects_truncated_program_headers` | ported |
+| `tests/test_prepare.py::SelfTests::test_unpacked_elf_checks_image_limit_before_allocating` | `src/runner/sce.rs::tests::unpacked_elf_checks_image_limit_before_allocating` | ported |
 | `tests/test_prepare.py::SelfTests::test_libc_ret_contract_is_verified_from_symbol_and_code` | `src/runner/prepare.rs::tests::libc_ret_contract_is_verified_from_symbol_and_code` | ported |
 | `tests/test_prepare.py::SelfTests::test_report_with_non_latin_title_is_written_as_utf8` | `src/runner/prepare.rs::tests::report_with_non_latin_title_is_written_as_utf8` | ported |
-| `tests/test_prepare.py::SelfTests::test_file_offset_is_not_virtual_address` | `src/runner/prepare.rs::tests::file_offset_is_not_virtual_address` | ported |
-| `tests/test_prepare.py::SelfTests::test_truncated_payload_rejected` | `src/runner/prepare.rs::tests::truncated_payload_rejected` | ported |
-| `tests/test_prepare.py::SelfTests::test_encrypted_or_compressed_payload_rejected` | `src/runner/prepare.rs::tests::encrypted_or_compressed_payload_rejected` | ported |
-| `tests/test_prepare.py::SelfTests::test_missing_required_segment_rejected` | `src/runner/prepare.rs::tests::missing_required_segment_rejected` | ported |
-| `tests/test_prepare.py::SelfTests::test_bad_program_header_index_rejected` | `src/runner/prepare.rs::tests::bad_program_header_index_rejected` | ported |
+| `tests/test_prepare.py::SelfTests::test_file_offset_is_not_virtual_address` | `src/runner/sce.rs::tests::file_offset_is_not_virtual_address` | ported |
+| `tests/test_prepare.py::SelfTests::test_truncated_payload_rejected` | `src/runner/sce.rs::tests::truncated_payload_rejected` | ported |
+| `tests/test_prepare.py::SelfTests::test_encrypted_or_compressed_payload_rejected` | `src/runner/sce.rs::tests::encrypted_or_compressed_payload_rejected` | ported |
+| `tests/test_prepare.py::SelfTests::test_missing_required_segment_rejected` | `src/runner/sce.rs::tests::missing_required_segment_rejected` | ported |
+| `tests/test_prepare.py::SelfTests::test_bad_program_header_index_rejected` | `src/runner/sce.rs::tests::bad_program_header_index_rejected` | ported |
 | `tests/test_prepare.py::SelfTests::test_empty_game_files_are_named` | `src/runner/prepare.rs::tests::empty_game_files_are_named` | ported |
 | `tests/test_link_libc.py::ModuleTests::test_module_accepts_unpacked_elf_with_the_same_exports` | `src/runner/link_libc.rs::tests::module_accepts_unpacked_elf_with_the_same_exports` | ported |
 | `tests/test_link_libc.py::ModuleTests::test_module_reads_the_file_once_and_reports_its_hash` | `src/runner/link_libc.rs::tests::module_reads_the_file_once_and_reports_its_hash` | ported |
