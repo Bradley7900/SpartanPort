@@ -279,6 +279,9 @@ private:
     vk::UniqueDescriptorSetLayout reactive_desc_layout;
     vk::UniquePipelineLayout reactive_pipeline_layout;
     vk::UniquePipeline reactive_pipeline;
+    vk::UniqueDescriptorSetLayout stencil_reactive_desc_layout;
+    vk::UniquePipelineLayout stencil_reactive_pipeline_layout;
+    vk::UniquePipeline stencil_reactive_pipeline;
     vk::UniqueDescriptorSetLayout merge_desc_layout;
     vk::UniquePipelineLayout merge_pipeline_layout;
     vk::UniquePipeline merge_pipeline;

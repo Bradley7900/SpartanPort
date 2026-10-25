@@ -19,6 +19,7 @@
 #include "ffx_vk_portable.h"
 #include "video_core/host_shaders/upscale_merge_comp.h"
 #include "video_core/host_shaders/upscale_reactive_comp.h"
+#include "video_core/host_shaders/stencil_reactive_comp.h"
 #include "video_core/host_shaders/taa_comp.h"
 #include "video_core/host_shaders/taa_sharpen_comp.h"
 #include "video_core/host_shaders/taa_sharpen_ldr_comp.h"
@@ -446,6 +447,41 @@ void TemporalUpscaler::RunLdr() {
     }
     last_frame = now;
 
+    // Characters and interactive objects (any stencil but the world's) animate without object
+    // motion vectors: a reactive mask keeps FSR from ghosting them. SPARTAN_STENCIL_REACTIVE
+    // sets the reactivity (0 turns the mask off), toggle 1 << 28 switches it off at run time.
+    static const float stencil_value = [] {
+        const char* env = std::getenv("SPARTAN_STENCIL_REACTIVE");
+        return env && env[0] ? std::clamp(float(std::atof(env)), 0.0f, 1.0f) : 1.0f;
+    }();
+    const bool stencil_mask = stencil_value > 0.0f && !SpartanToggle::Disabled(1u << 28) &&
+                              (depth.info.props.has_stencil || depth_format == vk::Format::eD32SfloatS8Uint);
+    if (stencil_mask) {
+        barrier(vk::Image(reactive_image), vk::ImageLayout::eUndefined, all, vk::AccessFlagBits2::eNone,
+                vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderWrite);
+        const vk::DescriptorImageInfo stencil_info{
+            .imageView = CachedView(depth, depth_format, vk::ImageAspectFlagBits::eStencil),
+            .imageLayout = vk::ImageLayout::eGeneral};
+        const vk::DescriptorImageInfo mask_info{.imageView = *reactive_view,
+                                                .imageLayout = vk::ImageLayout::eGeneral};
+        const std::array<vk::WriteDescriptorSet, 2> writes{{
+            {.dstBinding = 0, .descriptorCount = 1, .descriptorType = vk::DescriptorType::eSampledImage,
+             .pImageInfo = &stencil_info},
+            {.dstBinding = 1, .descriptorCount = 1, .descriptorType = vk::DescriptorType::eStorageImage,
+             .pImageInfo = &mask_info},
+        }};
+        // The world's stencil value (frame_20261024-233122_3.txt: 129; characters 0, objects 128).
+        const std::array<u32, 2> push{129u, std::bit_cast<u32>(stencil_value)};
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *stencil_reactive_pipeline);
+        cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *stencil_reactive_pipeline_layout, 0,
+                                    writes);
+        cmdbuf.pushConstants(*stencil_reactive_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
+                             sizeof(push), push.data());
+        cmdbuf.dispatch((w + 7) / 8, (h + 7) / 8, 1);
+        barrier(vk::Image(reactive_image), vk::ImageLayout::eGeneral,
+                vk::PipelineStageFlagBits2::eComputeShader, vk::AccessFlagBits2::eShaderWrite, all,
+                vk::AccessFlagBits2::eShaderRead);
+    }
     // SPARTAN_DUMP_TRIGGER: the composite before FSR, motion, depth, then FSR's output.
     const int dump = DumpFrame();
     if (dump >= 0) {
@@ -455,6 +491,8 @@ void TemporalUpscaler::RunLdr() {
                     {vk::Image(motion_image), w, h, 4, "motion", "rg16f"}});
         DumpImages(instance, scheduler, cmdbuf, dump,
                    {{depth.GetImage(), w, h, 4, "depth", "f32", vk::ImageAspectFlagBits::eDepth}});
+        DumpImages(instance, scheduler, cmdbuf, dump,
+                   {{depth.GetImage(), w, h, 1, "stencil", "u8", vk::ImageAspectFlagBits::eStencil}});
     }
     FfxVkPortableUpscaleDispatchInfo info{};
     info.structSize = sizeof(info);
@@ -475,6 +513,12 @@ void TemporalUpscaler::RunLdr() {
                            FFX_VK_PORTABLE_RESOURCE_STATE_UNORDERED_ACCESS);
     info.exposure.structSize = sizeof(info.exposure);
     info.reactiveMask.structSize = sizeof(info.reactiveMask);
+    if (stencil_mask) {
+        info.reactiveMask = Describe(vk::Image(reactive_image), vk::Format::eR8Unorm, w, h,
+                                     vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
+                                     vk::ImageAspectFlagBits::eColor,
+                                     FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
+    }
     info.transparencyAndCompositionMask.structSize = sizeof(info.transparencyAndCompositionMask);
     const float sign = SpartanToggle::Disabled(1u << 26) ? -1.0f : 1.0f;
     info.jitterOffset = {sign * jitter[0], sign * jitter[1]};
@@ -784,6 +828,30 @@ void TemporalUpscaler::CreatePipelines() {
     merge_pipeline = compute(UPSCALE_MERGE_COMP, *merge_pipeline_layout);
     storage_layout(3, reactive_desc_layout, reactive_pipeline_layout, 3 * sizeof(float));
     reactive_pipeline = compute(UPSCALE_REACTIVE_COMP, *reactive_pipeline_layout);
+    {
+        // Stencil mask: the scene stencil (sampled) into the R8 reactive image.
+        const std::array<vk::DescriptorSetLayoutBinding, 2> bindings{{
+            {.binding = 0, .descriptorType = vk::DescriptorType::eSampledImage,
+             .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eCompute},
+            {.binding = 1, .descriptorType = vk::DescriptorType::eStorageImage,
+             .descriptorCount = 1, .stageFlags = vk::ShaderStageFlagBits::eCompute},
+        }};
+        stencil_reactive_desc_layout = Check(device.createDescriptorSetLayoutUnique({
+            .flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+            .bindingCount = u32(bindings.size()),
+            .pBindings = bindings.data(),
+        }));
+        const vk::PushConstantRange push{.stageFlags = vk::ShaderStageFlagBits::eCompute,
+                                         .offset = 0,
+                                         .size = 2 * sizeof(u32)};
+        stencil_reactive_pipeline_layout = Check(device.createPipelineLayoutUnique({
+            .setLayoutCount = 1,
+            .pSetLayouts = &*stencil_reactive_desc_layout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &push,
+        }));
+    }
+    stencil_reactive_pipeline = compute(STENCIL_REACTIVE_COMP, *stencil_reactive_pipeline_layout);
     storage_layout(2, taa_sharpen_desc_layout, taa_sharpen_pipeline_layout, sizeof(float));
     taa_sharpen_pipeline = compute(TAA_SHARPEN_COMP, *taa_sharpen_pipeline_layout);
     taa_sharpen_ldr_pipeline = compute(TAA_SHARPEN_LDR_COMP, *taa_sharpen_pipeline_layout);
