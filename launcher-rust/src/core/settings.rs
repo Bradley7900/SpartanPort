@@ -6,6 +6,7 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value};
 
+use crate::core::catalog::setting;
 use crate::core::controls::migrate_controls;
 use crate::core::fs::{atomic_write, read_json};
 use crate::core::paths::Paths;
@@ -35,6 +36,28 @@ impl Settings {
             Some(Value::Number(n)) => n.as_i64() == Some(1) || n.as_f64() == Some(1.0),
             Some(Value::String(s)) => s == "1",
             _ => false,
+        }
+    }
+
+    /// A flag with the Python `bool()` rule: null, false, 0, "", [] and {} are off, everything else
+    /// (so "0" too) is on. An absent key reads the catalog default.
+    pub fn flag(&self, key: &str) -> bool {
+        match self.0.get(key) {
+            None => setting(key).is_some_and(|row| row.default.is_on()),
+            Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0),
+            Some(Value::String(s)) => !s.is_empty(),
+            Some(Value::Array(a)) => !a.is_empty(),
+            Some(Value::Object(o)) => !o.is_empty(),
+        }
+    }
+
+    /// Like `get_str`, but an absent key reads the catalog default.
+    pub fn text(&self, key: &str) -> String {
+        match self.0.get(key) {
+            None => setting(key).map_or_else(String::new, |row| row.default.as_text()),
+            Some(_) => self.get_str(key),
         }
     }
 

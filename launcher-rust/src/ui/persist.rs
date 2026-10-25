@@ -489,6 +489,17 @@ mod tests {
     }
 
     #[test]
+    fn the_catalog_writes_the_shown_ini_keys_in_order() {
+        use crate::core::catalog::{File, SETTINGS};
+        let written: Vec<&str> = SETTINGS
+            .iter()
+            .filter(|row| row.file == File::Ini && row.written)
+            .map(|row| row.key)
+            .collect();
+        assert_eq!(written, SHOWN_INI_KEYS);
+    }
+
+    #[test]
     fn python_json_escapes_like_ensure_ascii() {
         let value =
             json!({"order": ["Мод", "a\"b\\c", "tab\there", "x\u{7f}", "🎮"], "disabled": []});

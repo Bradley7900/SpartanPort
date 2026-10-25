@@ -1,5 +1,6 @@
 //! Launcher logic with no UI dependency.
 
+pub mod catalog;
 pub mod controls;
 pub mod desktop;
 pub mod draw;
@@ -24,6 +25,7 @@ pub mod settings;
 pub mod sfo;
 pub mod steam;
 pub mod steam_art;
+pub mod store;
 pub mod trophies;
 pub mod update;
 pub mod voice_swap;
