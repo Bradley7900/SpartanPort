@@ -340,7 +340,7 @@ fn visiting_the_mods_page_is_not_a_change() {
     let mut state = state_in(dir.path());
     assert_eq!(state.mods.order, ["a"]);
     // What the page's refresh brings back on a visit.
-    let view = mods::load(&state.paths, state.store.app(), &state.installation);
+    let view = mods::load(&state.paths, &state.store, &state.installation);
     send(
         &mut state,
         Message::Mods(ModsMessage::Loaded(Box::new(view))),

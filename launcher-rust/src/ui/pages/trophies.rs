@@ -14,11 +14,13 @@ use crate::core::i18n::{tr, tr_fmt, trophy_text};
 use crate::core::installation::Installation;
 use crate::core::paths::Paths;
 use crate::core::settings::Settings;
+use crate::core::store::Store;
 use crate::core::trophies::{
     read_trp_icons, read_unlocked_trophies, reset_trophies, tier_color, tier_label, trophy_tier,
     Tier,
 };
 use crate::ui::app::{Message, State};
+use crate::ui::follow::{self, View};
 use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
@@ -60,16 +62,8 @@ pub struct TrophiesView {
     pub filter: Filter,
     /// Whether a load is under way.
     pub loading: bool,
-    /// The folders the read was made for (`FOLDERS`, in order).
-    pub folders: Vec<String>,
-}
-
-/// The settings a read of the page depends on.
-const FOLDERS: [&str; 3] = ["game_dir", "update_dir", "user_dir"];
-
-/// The values of `FOLDERS` in `settings`.
-fn folders(settings: &Settings) -> Vec<String> {
-    FOLDERS.iter().map(|key| settings.get_str(key)).collect()
+    /// The settings the read was made for (`follow::inputs`).
+    pub inputs: Vec<String>,
 }
 
 /// Trophies page events.
@@ -98,13 +92,18 @@ fn locked_icon(png: &[u8]) -> Option<Handle> {
     Some(Handle::from_rgba(width, height, rgba.into_raw()))
 }
 
-/// Reads the package of the game in `installation`, the tiers and the unlocked flags; runs on a
-/// thread.
-pub fn load(paths: &Paths, settings: &Settings, installation: &Installation) -> TrophiesView {
-    let mut view = TrophiesView {
-        folders: folders(settings),
-        ..TrophiesView::default()
-    };
+/// Reads the package of the game in `installation`, the tiers and the unlocked flags, for the
+/// settings in `store`.
+pub fn load(paths: &Paths, store: &Store, installation: &Installation) -> TrophiesView {
+    TrophiesView {
+        inputs: follow::inputs(View::Trophies, store),
+        ..read(paths, store.app(), installation)
+    }
+}
+
+/// `load` without the inputs; runs on a thread.
+fn read(paths: &Paths, settings: &Settings, installation: &Installation) -> TrophiesView {
+    let mut view = TrophiesView::default();
     let pngs = installation
         .trophy_package()
         .map(|path| read_trp_icons(&path))
@@ -127,8 +126,12 @@ pub fn refresh(state: &mut State) -> Task<Message> {
     let paths = state.paths.clone();
     let settings = state.store.app().clone();
     let installation = state.installation.clone();
-    blocking(move || load(&paths, &settings, &installation))
-        .map(|view| Message::Trophies(TrophiesMessage::Loaded(Box::new(view))))
+    let inputs = follow::inputs(View::Trophies, &state.store);
+    blocking(move || TrophiesView {
+        inputs,
+        ..read(&paths, &settings, &installation)
+    })
+    .map(|view| Message::Trophies(TrophiesMessage::Loaded(Box::new(view))))
 }
 
 fn trophies_dat(state: &State) -> PathBuf {
@@ -146,7 +149,8 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
         TrophiesMessage::Filter(filter) => state.trophies.filter = filter,
         // A read for folders typed over since is dropped: each keystroke starts one, and they
         // finish in any order (the read of the current folders is on its way or already in).
-        TrophiesMessage::Loaded(view) if view.folders != folders(state.store.app()) => {}
+        TrophiesMessage::Loaded(view)
+            if view.inputs != follow::inputs(View::Trophies, &state.store) => {}
         TrophiesMessage::Loaded(view) => {
             let filter = state.trophies.filter;
             state.trophies = *view;

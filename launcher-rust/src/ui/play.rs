@@ -23,8 +23,8 @@ use crate::core::launch::{
 use crate::core::log::{line_status, LineStatus, RunLog};
 use crate::core::paths::Paths;
 use crate::ui::app::{refresh_installation, show_page, Message, State};
+use crate::ui::follow::{follow, Cause};
 use crate::ui::home;
-use crate::ui::pages::game::game_changed;
 use crate::ui::pages::{log, trophies, Page};
 use crate::ui::persist;
 use crate::ui::tasks::{blocking, blocking_or};
@@ -464,7 +464,7 @@ pub fn update(state: &mut State, message: GameMessage) -> Task<Message> {
             }
             state.status.clear();
             // Whatever was copied already shows.
-            let changed = game_changed(state);
+            let changed = follow(state, Cause::Keys(&["game_dir", "update_dir"]));
             let next = match result {
                 // PLAY again: the next offer or check follows from what is on disk.
                 Ok(()) => play(state),

@@ -12,9 +12,10 @@ use crate::core::ini::Ini;
 use crate::core::installation::SEPARATE_FOLDERS;
 use crate::core::options::DISPLAY_MODES;
 use crate::core::settings::Settings;
-use crate::ui::app::{refresh_installation, Message, State};
+use crate::ui::app::{Message, State};
+use crate::ui::follow::{follow, Cause};
 use crate::ui::home;
-use crate::ui::pages::game::{self, folder_row};
+use crate::ui::pages::game::folder_row;
 use crate::ui::pages::performance::{self, aspect_options, select_row};
 use crate::ui::persist::{self, Persisted};
 use crate::ui::play::describe_missing;
@@ -103,13 +104,6 @@ impl SetupState {
     }
 }
 
-/// Reads the game and update folders again while the setup is open; does nothing otherwise.
-pub fn refresh_folders(state: &mut State) {
-    if state.setup.is_some() {
-        refresh_installation(state);
-    }
-}
-
 /// What the setup screen can ask for.
 #[derive(Debug, Clone)]
 pub enum SetupMessage {
@@ -176,7 +170,8 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
             performance::resolution_chosen(state);
             state.store.set("ui_language", json!(state.lang));
             // The restored folders are read first: a failed save leaves the setup open over them.
-            return Task::batch([game::game_changed(state), finish(state)]);
+            let folders = follow(state, Cause::Keys(&["game_dir", "update_dir", "user_dir"]));
+            return Task::batch([folders, finish(state)]);
         }
         SetupMessage::Next => {
             if let Some(step) = setup.step.next() {

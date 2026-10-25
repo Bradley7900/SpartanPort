@@ -2,6 +2,7 @@
 pub mod app;
 pub mod drawer;
 pub mod fire;
+pub mod follow;
 pub mod home;
 pub mod hover_menu;
 pub mod lang_menu;

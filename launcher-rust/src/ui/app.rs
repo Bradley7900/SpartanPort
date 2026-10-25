@@ -28,6 +28,7 @@ use crate::core::store::Store;
 use crate::core::update::{GitHubReleases, ReleaseHost};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
+use crate::ui::follow::{follow, Cause};
 use crate::ui::home::{self, HomeFacts};
 use crate::ui::hover_menu::HoverMenu;
 use crate::ui::lang_menu::{self, LangMenu, LangMessage};
@@ -246,10 +247,10 @@ impl State {
             window: None,
             now,
         };
-        home::refresh_facts(&mut state);
+        home::read_facts(&mut state);
         // The Mods page's lists now, as the Python launcher does, so the first visit does not count
         // as a change.
-        state.mods = mods::load(&state.paths, state.store.app(), &state.installation);
+        state.mods = mods::load(&state.paths, &state.store, &state.installation);
         performance::refresh_mod_resolutions(&mut state);
         game::refresh_game_patches(&mut state);
         game::refresh_backups(&mut state);
@@ -437,7 +438,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Stop => play::stop(state),
         Message::Save => return persist::save(state),
         // Save persists what `Set` stored.
-        Message::Set(key, value) => apply_set(state, &key, value),
+        Message::Set(key, value) => return apply_set(state, &key, value),
         Message::Aspect(aspect) => performance::choose_aspect(state, &aspect),
         Message::MonitorsListed(displays) => {
             let saved = state.store.text("monitor");
@@ -460,7 +461,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         Message::Browse(key) => return browse(state, key),
-        Message::Browsed(key, Some(path)) => return game::folder_chosen(state, &key, &path),
+        Message::Browsed(key, Some(path)) => {
+            return apply_set(state, &key, Value::String(path.display().to_string()));
+        }
         Message::Browsed(_, None) => {}
         Message::PatchToggled(name, on) => game::patch_toggled(state, &name, on),
         Message::Backup(message) => return game::backup_update(state, message),
@@ -470,8 +473,11 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             if !focused {
                 return controls::update(state, ControlsMessage::CaptureTimeout);
             }
-            // The player may have copied the game files in a file manager meanwhile.
-            setup::refresh_folders(state);
+            // The player may have copied the game files in a file manager meanwhile: the setup
+            // checks them again.
+            if state.setup.is_some() {
+                refresh_installation(state);
+            }
         }
         Message::Splash(message) => splash::apply(state, message),
         Message::Lang(message) => {
@@ -537,20 +543,13 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
     Task::none()
 }
 
-/// Stores a setting in the file it lives in, then refreshes what follows that key.
-pub fn apply_set(state: &mut State, key: &str, value: Value) {
-    state.store.set(key, value);
-    // "Load mods" decides whether the sizes of the mods are offered.
-    if key == "mods_enabled" {
-        performance::refresh_mod_resolutions(state);
+/// Stores a setting in the file it lives in; when its value changed, the views read from it follow
+/// (`follow`). A folder chosen in the dialog or typed into its field is read at once.
+pub fn apply_set(state: &mut State, key: &str, value: Value) -> Task<Message> {
+    if state.store.set(key, value) {
+        return follow(state, Cause::Keys(&[key]));
     }
-    // A folder chosen in the dialog or typed into its field is read at once (the setup shows it).
-    if key == "game_dir" || key == "update_dir" {
-        refresh_installation(state);
-    }
-    if key == "render_resolution" {
-        performance::resolution_chosen(state);
-    }
+    Task::none()
 }
 
 /// Reads the game and update folders of the settings again into `state.installation`.

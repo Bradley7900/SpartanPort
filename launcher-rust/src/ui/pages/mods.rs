@@ -26,7 +26,9 @@ use crate::core::mods::{
 use crate::core::patches::{builtin_xml, external_enabled, external_patches, PatchMeta};
 use crate::core::paths::Paths;
 use crate::core::settings::Settings;
+use crate::core::store::Store;
 use crate::ui::app::{Message, State};
+use crate::ui::follow::{self, View};
 use crate::ui::pages::performance;
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
@@ -60,16 +62,8 @@ pub struct ModsView {
     pub picture: Option<Handle>,
     /// Per mod: how many files it changes and whether it has game patch files.
     pub facts: BTreeMap<String, (usize, bool)>,
-    /// The folders the read was made for (`FOLDERS`, in order).
-    pub folders: Vec<String>,
-}
-
-/// The settings a read of the page depends on.
-const FOLDERS: [&str; 4] = ["mods_dir", "game_dir", "update_dir", "patches_dir"];
-
-/// The values of `FOLDERS` in `settings`.
-fn folders(settings: &Settings) -> Vec<String> {
-    FOLDERS.iter().map(|key| settings.get_str(key)).collect()
+    /// The settings the read was made for (`follow::inputs`).
+    pub inputs: Vec<String>,
 }
 
 /// Mods page events.
@@ -146,8 +140,16 @@ fn preset_names(paths: &Paths) -> (Vec<String>, bool) {
 }
 
 /// Reads the mods folder, the saved order and switches, the conflicts, the presets and the
-/// third-party patches of the game in `installation`; runs on a thread.
-pub fn load(paths: &Paths, settings: &Settings, installation: &Installation) -> ModsView {
+/// third-party patches of the game in `installation`, for the settings in `store`.
+pub fn load(paths: &Paths, store: &Store, installation: &Installation) -> ModsView {
+    ModsView {
+        inputs: follow::inputs(View::Mods, store),
+        ..read(paths, store.app(), installation)
+    }
+}
+
+/// `load` without the inputs; runs on a thread.
+fn read(paths: &Paths, settings: &Settings, installation: &Installation) -> ModsView {
     let root = paths.mods_dir(&settings.get_str("mods_dir"));
     let game = game_path(settings);
     let profile: Value = load_json(&paths.mods_json(), Value::Null);
@@ -171,7 +173,6 @@ pub fn load(paths: &Paths, settings: &Settings, installation: &Installation) -> 
         order,
         presets,
         presets_unreadable,
-        folders: folders(settings),
         ..ModsView::default()
     };
     for name in &view.order {
@@ -203,8 +204,12 @@ pub fn refresh(state: &State) -> Task<Message> {
     let paths = state.paths.clone();
     let settings = state.store.app().clone();
     let installation = state.installation.clone();
-    blocking(move || load(&paths, &settings, &installation))
-        .map(|view| Message::Mods(ModsMessage::Loaded(Box::new(view))))
+    let inputs = follow::inputs(View::Mods, &state.store);
+    blocking(move || ModsView {
+        inputs,
+        ..read(&paths, &settings, &installation)
+    })
+    .map(|view| Message::Mods(ModsMessage::Loaded(Box::new(view))))
 }
 
 fn mods_root(state: &State) -> PathBuf {
@@ -357,7 +362,7 @@ pub fn update(state: &mut State, message: ModsMessage) -> Task<Message> {
         ModsMessage::Refresh => return refresh(state),
         // A read for folders typed over since is dropped: each keystroke starts one, and they
         // finish in any order (the read of the current folders is on its way or already in).
-        ModsMessage::Loaded(view) if view.folders != folders(state.store.app()) => {}
+        ModsMessage::Loaded(view) if view.inputs != follow::inputs(View::Mods, &state.store) => {}
         ModsMessage::Loaded(view) => return loaded(state, *view),
         // A result for an older order or set of switches is dropped: threads finish out of order.
         ModsMessage::Conflicts(names, found) => {

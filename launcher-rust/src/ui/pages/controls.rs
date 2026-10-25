@@ -222,7 +222,7 @@ pub fn update(state: &mut State, message: ControlsMessage) -> Task<Message> {
         ControlsMessage::Device(device) => {
             show_device(state, device);
             state.controls.device_chosen = true;
-            apply_set(state, "controls_device", Value::from(device.value()));
+            return apply_set(state, "controls_device", Value::from(device.value()));
         }
         ControlsMessage::Capture(button) => {
             let now = Instant::now();
@@ -263,7 +263,7 @@ pub fn update(state: &mut State, message: ControlsMessage) -> Task<Message> {
         }
         ControlsMessage::PadStyle(style) => {
             state.controls.pad_style = style.clone();
-            apply_set(state, "pad_style", Value::String(style));
+            return apply_set(state, "pad_style", Value::String(style));
         }
         ControlsMessage::PadPick(button, name) => {
             if let Some(value) = state.controls.pad.get_mut(&button) {

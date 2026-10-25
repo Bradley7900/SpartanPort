@@ -250,7 +250,7 @@ pub fn make_mod(state: &State, name: &str, file: &str) {
 
 /// What the background read of the Mods page delivers.
 pub fn load_mods(state: &mut State) {
-    let view = mods::load(&state.paths, state.store.app(), &state.installation);
+    let view = mods::load(&state.paths, &state.store, &state.installation);
     let _ = app::update(state, Message::Mods(ModsMessage::Loaded(Box::new(view))));
 }
 
@@ -313,7 +313,7 @@ pub fn state_with_trophies(dir: &Path) -> State {
 
 /// What the background read of the Trophies page delivers.
 pub fn load_trophies(state: &mut State) {
-    let view = trophies::load(&state.paths, state.store.app(), &state.installation);
+    let view = trophies::load(&state.paths, &state.store, &state.installation);
     let _ = app::update(
         state,
         Message::Trophies(TrophiesMessage::Loaded(Box::new(view))),

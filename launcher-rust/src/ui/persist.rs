@@ -356,7 +356,7 @@ pub fn rebuild(state: &mut State, language: String, scale: f32) -> Task<Message>
     state.scale = scale;
     home::refresh_facts(state);
     // Read now, as the Python does, so the lists are in place before the new baseline.
-    let lists = mods::load(&state.paths, state.store.app(), &state.installation);
+    let lists = mods::load(&state.paths, &state.store, &state.installation);
     let conflicts = mods::update(state, ModsMessage::Loaded(Box::new(lists)));
     game::refresh_game_patches(state);
     state.saved = Some(gather(state));

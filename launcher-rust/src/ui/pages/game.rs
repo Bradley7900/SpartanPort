@@ -1,7 +1,7 @@
 //! The Game page: cheats, folders, save backups, the game language and the game patches.
 //!
-//! Every read of the disk happens in `game_changed`, `refresh_backups` and
-//! `refresh_game_patches`; `view` only draws what they stored in the state.
+//! Every read of the disk happens in `refresh_backups` and `refresh_game_patches`, which
+//! `follow` calls; `view` only draws what they stored in the state.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,6 @@ use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta}
 use crate::core::save_backup::{list_backups, restore, KEEP};
 use crate::ui::app::{Message, State};
 use crate::ui::home;
-use crate::ui::pages::{mods, performance, trophies};
 use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
@@ -66,34 +65,6 @@ pub fn browse_prompt(key: &str) -> &'static str {
 
 fn user_dir(state: &State) -> PathBuf {
     state.paths.user_dir(&state.store.text("user_dir"))
-}
-
-// --- Folders ---
-
-/// A folder was chosen in the dialog: store it and refresh what depends on it.
-pub fn folder_chosen(state: &mut State, key: &str, path: &Path) -> Task<Message> {
-    crate::ui::app::apply_set(state, key, Value::String(path.display().to_string()));
-    match key {
-        "game_dir" | "update_dir" => return game_changed(state),
-        "user_dir" => {
-            home::refresh_facts(state);
-            refresh_backups(state);
-            // The saves folder holds trophies.dat.
-            return trophies::refresh(state);
-        }
-        "mods_dir" | "patches_dir" => return mods::refresh(state),
-        _ => {}
-    }
-    Task::none()
-}
-
-/// The game or update folder changed: the title, the patches and the lists follow.
-pub fn game_changed(state: &mut State) -> Task<Message> {
-    home::refresh_facts(state);
-    performance::refresh_mod_resolutions(state);
-    refresh_game_patches(state);
-    refresh_backups(state);
-    Task::batch([trophies::refresh(state), mods::refresh(state)])
 }
 
 // --- Save backups ---

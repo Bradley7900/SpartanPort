@@ -142,9 +142,14 @@ pub struct HomeFacts {
     pub skipped: usize,
 }
 
-/// Re-reads the game folders, the saves folder and the last start's patch report.
+/// Re-reads the game folders, then the Home facts.
 pub fn refresh_facts(state: &mut State) {
     refresh_installation(state);
+    read_facts(state);
+}
+
+/// Re-reads the saves folder and the last start's patch report; the game is `State::installation`.
+pub fn read_facts(state: &mut State) {
     let savedata = user_dir(state).join("savedata");
     state.home = HomeFacts {
         saves: has_files(&savedata),
