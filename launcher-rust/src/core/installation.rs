@@ -34,6 +34,7 @@ impl Verdict {
 pub struct Installation {
     game: String,
     update: String,
+    game_path: PathBuf,
     meta: GameFolder,
     meta_path: PathBuf,
     info: Option<GameInfo>,
@@ -78,6 +79,7 @@ impl Installation {
         Installation {
             game: game_dir.to_string(),
             update: update_dir.to_string(),
+            game_path: game_path.to_path_buf(),
             info: meta.info(),
             meta,
             meta_path,
@@ -92,6 +94,11 @@ impl Installation {
 
     pub fn of(store: &Store) -> Self {
         Self::read(&store.text("game_dir"), &store.text("update_dir"))
+    }
+
+    /// The game folder: the current folder while the field is empty.
+    pub fn game_folder(&self) -> &Path {
+        &self.game_path
     }
 
     /// The folder the title, version and patches are read from: the update when it has an
@@ -317,6 +324,20 @@ mod tests {
         assert!(installation.verdict().passes());
         let same = Installation::read_from("", s(here.path()), here.path());
         assert!(same.verdict().same_folder);
+    }
+
+    #[test]
+    fn the_game_folder_is_here_for_an_empty_field() {
+        let here = tempfile::tempdir().unwrap();
+        let game = tempfile::tempdir().unwrap();
+        assert_eq!(
+            Installation::read_from("", "", here.path()).game_folder(),
+            here.path()
+        );
+        assert_eq!(
+            Installation::read_from(s(game.path()), "", here.path()).game_folder(),
+            game.path()
+        );
     }
 
     #[test]

@@ -98,18 +98,15 @@ fn locked_icon(png: &[u8]) -> Option<Handle> {
     Some(Handle::from_rgba(width, height, rgba.into_raw()))
 }
 
-/// Reads the package, the tiers and the unlocked flags; runs on a thread.
-pub fn load(paths: &Paths, settings: &Settings) -> TrophiesView {
+/// Reads the package of the game in `installation`, the tiers and the unlocked flags; runs on a
+/// thread.
+pub fn load(paths: &Paths, settings: &Settings, installation: &Installation) -> TrophiesView {
     let mut view = TrophiesView {
         folders: folders(settings),
         ..TrophiesView::default()
     };
-    let package = Installation::read(
-        &settings.get_str("game_dir"),
-        &settings.get_str("update_dir"),
-    )
-    .trophy_package();
-    let pngs = package
+    let pngs = installation
+        .trophy_package()
         .map(|path| read_trp_icons(&path))
         .unwrap_or_default();
     for (id, png) in pngs {
@@ -129,7 +126,8 @@ pub fn refresh(state: &mut State) -> Task<Message> {
     state.trophies.loading = true;
     let paths = state.paths.clone();
     let settings = state.store.app().clone();
-    blocking(move || load(&paths, &settings))
+    let installation = state.installation.clone();
+    blocking(move || load(&paths, &settings, &installation))
         .map(|view| Message::Trophies(TrophiesMessage::Loaded(Box::new(view))))
 }
 

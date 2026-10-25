@@ -17,6 +17,7 @@ use serde_json::Value;
 use crate::core::desktop::{linux_tools, open_path, LinuxTools};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
+use crate::core::installation::Installation;
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
@@ -116,6 +117,9 @@ pub struct State {
     pub updater: Updater,
     pub lang_menu: LangMenu,
     pub version_menu: HoverMenu,
+    /// The game and update folders as last read: the Home, the setup, PLAY and the pages answer
+    /// every question about the game from it.
+    pub installation: Installation,
     /// What the Home chips read from the disk.
     pub home: HomeFacts,
     /// Another picture for the Home art layer instead of the key art; only the snapshot tests set
@@ -136,8 +140,6 @@ pub struct State {
     pub visible: bool,
     /// Whether the window has the focus.
     pub focused: bool,
-    /// Whether the game folder passed the splash check; `None` until it ran.
-    pub game_ready: Option<bool>,
     /// Logical window size, for the drawer width.
     pub window_size: Size,
     /// The launcher window, once it has opened.
@@ -184,6 +186,7 @@ impl State {
         let aspect =
             aspect_of(&store.text("render_resolution")).unwrap_or_else(|| "16:9".to_string());
         let controls = ControlsView::new(store.app());
+        let installation = Installation::of(&store);
         // `start_monitor_listing` lists them under this one.
         let displays_backend = store.text("video_backend");
         let mut state = State {
@@ -224,6 +227,7 @@ impl State {
             updater: Updater::new(host),
             lang_menu: Default::default(),
             version_menu: Default::default(),
+            installation,
             home: Default::default(),
             art_override: None,
             modal: None,
@@ -238,7 +242,6 @@ impl State {
             fire: Default::default(),
             visible: true,
             focused: true,
-            game_ready: None,
             window_size: WINDOW_SIZE,
             window: None,
             now,
@@ -246,7 +249,7 @@ impl State {
         home::refresh_facts(&mut state);
         // The Mods page's lists now, as the Python launcher does, so the first visit does not count
         // as a change.
-        state.mods = mods::load(&state.paths, state.store.app());
+        state.mods = mods::load(&state.paths, state.store.app(), &state.installation);
         performance::refresh_mod_resolutions(&mut state);
         game::refresh_game_patches(&mut state);
         game::refresh_backups(&mut state);
@@ -541,13 +544,18 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
     if key == "mods_enabled" {
         performance::refresh_mod_resolutions(state);
     }
-    // The setup checks a folder chosen in the dialog or typed into its field.
+    // A folder chosen in the dialog or typed into its field is read at once (the setup shows it).
     if key == "game_dir" || key == "update_dir" {
-        setup::refresh_folders(state);
+        refresh_installation(state);
     }
     if key == "render_resolution" {
         performance::resolution_chosen(state);
     }
+}
+
+/// Reads the game and update folders of the settings again into `state.installation`.
+pub fn refresh_installation(state: &mut State) {
+    state.installation = Installation::of(&state.store);
 }
 
 /// Opens the folder dialog for the setting `key`; the answer comes back as `Browsed`.

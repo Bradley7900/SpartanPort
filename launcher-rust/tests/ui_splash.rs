@@ -25,8 +25,8 @@ fn state_in(dir: &std::path::Path) -> State {
 #[test]
 fn the_splash_shows_the_settings_then_the_update_check() {
     // Rulings R86 and R97: the splash checks the settings and the updates, each text for half of
-    // the 0.8 s. The graphics cards and the game folder are read in the background without a text
-    // of their own and do not hold the splash; their results still reach the Home.
+    // the 0.8 s. The graphics cards are read in the background without a text of their own and do
+    // not hold the splash; their result still reaches the Home.
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     let start = state.splash.started;
@@ -54,12 +54,6 @@ fn the_splash_shows_the_settings_then_the_update_check() {
         Message::Tick(start + Duration::from_millis(800)),
     );
     assert!(state.splash.flying());
-    // The background checks answer later.
-    let _ = app::update(
-        &mut state,
-        Message::Splash(SplashMessage::CheckDone(Check::GameFolder(true))),
-    );
-    assert_eq!(state.game_ready, Some(true));
 }
 
 #[test]

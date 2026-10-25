@@ -1,23 +1,18 @@
 //! The first-run setup (setup spec): three steps between the splash and the Home, shown while
 //! `State::setup` is `Some`.
 
-use std::path::Path;
-
 use iced::keyboard::key::Named;
 use iced::keyboard::Key;
 use iced::widget::{button, column, container, pick_list, row, space, stack, text};
 use iced::{Background, Center, Element, Fill, Left, Task};
 use serde_json::json;
 
-use crate::core::game::{
-    missing_game_files, same_folder, FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
-};
 use crate::core::i18n::{launcher_language, system_language, tr, tr_fmt};
 use crate::core::ini::Ini;
 use crate::core::installation::SEPARATE_FOLDERS;
 use crate::core::options::DISPLAY_MODES;
 use crate::core::settings::Settings;
-use crate::ui::app::{Message, State};
+use crate::ui::app::{refresh_installation, Message, State};
 use crate::ui::home;
 use crate::ui::pages::game::{self, folder_row};
 use crate::ui::pages::performance::{self, aspect_options, select_row};
@@ -87,62 +82,31 @@ impl Step {
     }
 }
 
-/// The setup while it is open.
+/// The setup while it is open. Its folder step shows the verdict of `State::installation`, the
+/// one PLAY checks: the folders are read from the disk when either of them changes and when the
+/// window gets the focus back, never on a redraw.
 #[derive(Debug, Clone)]
 pub struct SetupState {
     /// The step on screen.
     pub step: Step,
     /// What the launcher would save as it stands when the setup opened.
     pub defaults: Persisted,
-    /// The required files the game folder lacks. The two folders are read from the disk when the
-    /// setup opens, when either of them changes and when the window gets the focus back, never
-    /// on a redraw.
-    game_missing: Vec<(String, FileState)>,
-    /// The required files the update folder lacks; none while it is unset or is the game folder.
-    update_missing: Vec<(String, FileState)>,
-    /// Whether the update folder is the game folder.
-    same_folders: bool,
 }
 
 impl SetupState {
-    /// A setup on its first step, with the current values of `state` as the defaults and its
-    /// folders checked.
+    /// A setup on its first step, with the current values of `state` as the defaults.
     pub fn new(state: &State) -> SetupState {
-        let mut setup = SetupState {
+        SetupState {
             step: Step::Folders,
             defaults: persist::gather(state),
-            game_missing: Vec::new(),
-            update_missing: Vec::new(),
-            same_folders: false,
-        };
-        setup.check_folders(state.store.app());
-        setup
-    }
-
-    /// Reads the game and update folders of `settings` from the disk.
-    fn check_folders(&mut self, settings: &Settings) {
-        let game_dir = settings.get_str("game_dir");
-        let update_dir = settings.get_str("update_dir");
-        self.game_missing = missing_game_files(Path::new(&game_dir), REQUIRED_GAME_FILES);
-        self.same_folders =
-            !update_dir.is_empty() && !game_dir.is_empty() && same_folder(&update_dir, &game_dir);
-        self.update_missing = if update_dir.is_empty() || self.same_folders {
-            Vec::new()
-        } else {
-            missing_game_files(Path::new(&update_dir), REQUIRED_UPDATE_FILES)
-        };
-    }
-
-    /// Whether both folders passed their last check.
-    fn folders_pass(&self) -> bool {
-        self.game_missing.is_empty() && self.update_missing.is_empty() && !self.same_folders
+        }
     }
 }
 
-/// Checks the game and update folders again while the setup is open; does nothing otherwise.
+/// Reads the game and update folders again while the setup is open; does nothing otherwise.
 pub fn refresh_folders(state: &mut State) {
-    if let Some(setup) = state.setup.as_mut() {
-        setup.check_folders(state.store.app());
+    if state.setup.is_some() {
+        refresh_installation(state);
     }
 }
 
@@ -155,19 +119,20 @@ pub enum SetupMessage {
     Finish,
 }
 
-/// The red lines under the folder `key` (`game_dir` or `update_dir`) from the last check of the
+/// The red lines under the folder `key` (`game_dir` or `update_dir`) from the last reading of the
 /// folders; empty when the folder passes or the setup is closed.
 pub fn folder_problems(state: &State, key: &str) -> Vec<String> {
     let lang = state.lang.as_str();
-    let Some(setup) = state.setup.as_ref() else {
+    if state.setup.is_none() {
         return Vec::new();
-    };
+    }
+    let verdict = state.installation.verdict();
     let missing = match key {
-        "game_dir" => &setup.game_missing,
-        "update_dir" if setup.same_folders => {
+        "game_dir" => &verdict.game_missing,
+        "update_dir" if verdict.same_folder => {
             return vec![tr(lang, SEPARATE_FOLDERS)];
         }
-        "update_dir" => &setup.update_missing,
+        "update_dir" => &verdict.update_missing,
         _ => return Vec::new(),
     };
     if missing.is_empty() {
@@ -178,11 +143,12 @@ pub fn folder_problems(state: &State, key: &str) -> Vec<String> {
     lines
 }
 
-/// Whether Next may leave the current step: both folders pass on Folders, always on the others.
+/// Whether Next may leave the current step: on Folders, while the folders pass the verdict PLAY
+/// checks too; always on the others.
 pub fn can_advance(state: &State) -> bool {
     match state.setup.as_ref() {
         None => false,
-        Some(setup) if setup.step == Step::Folders => setup.folders_pass(),
+        Some(setup) if setup.step == Step::Folders => state.installation.verdict().passes(),
         Some(_) => true,
     }
 }
@@ -209,8 +175,7 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
             // The Aspect ratio box follows the restored resolution.
             performance::resolution_chosen(state);
             state.store.set("ui_language", json!(state.lang));
-            // A failed save leaves the setup open over the restored folders.
-            refresh_folders(state);
+            // The restored folders are read first: a failed save leaves the setup open over them.
             return Task::batch([game::game_changed(state), finish(state)]);
         }
         SetupMessage::Next => {

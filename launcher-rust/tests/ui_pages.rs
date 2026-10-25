@@ -676,6 +676,7 @@ fn typing_a_folder_sets_it_like_browse() {
 fn a_read_for_a_folder_typed_over_is_dropped() {
     // N2: each keystroke in a folder field starts a read of the Trophies and Mods lists, and the
     // reads finish in any order: one made for a path since typed over must not replace the list.
+    use spartanport_launcher::core::installation::Installation;
     use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
     use spartanport_launcher::ui::pages::trophies::{self, TrophiesMessage};
     let dir = tempfile::tempdir().unwrap();
@@ -691,8 +692,9 @@ fn a_read_for_a_folder_typed_over_is_dropped() {
         "mods_dir",
         mods_dir[..mods_dir.len() - 1].to_string().into(),
     );
-    let stale_trophies = trophies::load(&state.paths, state.store.app());
-    let stale_mods = mods::load(&state.paths, state.store.app());
+    let stale = Installation::of(&state.store);
+    let stale_trophies = trophies::load(&state.paths, state.store.app(), &stale);
+    let stale_mods = mods::load(&state.paths, state.store.app(), &stale);
     assert!(stale_trophies.icons.is_empty() && stale_mods.order.is_empty());
     state.store.set("game_dir", game.into());
     state.store.set("mods_dir", mods_dir.into());

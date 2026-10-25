@@ -19,9 +19,11 @@ use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, scene_size, Message, State, BAR_HEIGHT};
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::{performance, Page};
+use spartanport_launcher::ui::play;
 use spartanport_launcher::ui::setup::{can_advance, folder_problems, SetupMessage, Step};
 use spartanport_launcher::ui::splash::{Check, SplashMessage};
 use spartanport_launcher::ui::widgets::choice_pairs;
+use spartanport_launcher::ui::widgets::modal::ModalKind;
 
 /// A state over `dir` only, as the program opens it, with the splash already gone.
 fn opened(dir: &Path) -> State {
@@ -174,7 +176,7 @@ fn next_waits_for_a_complete_game_folder() {
     assert!(folder_problems(&state, "game_dir").is_empty());
     assert!(can_advance(&state));
     assert!(
-        state.home.info.is_some(),
+        state.installation.info().is_some(),
         "the Home facts follow the folder"
     );
     assert!(matches!(
@@ -252,6 +254,82 @@ fn the_folders_are_checked_again_on_a_change_or_the_focus() {
         ["Choose two separate folders for the game and its update, or leave the update folder empty."]
     );
     assert!(!can_advance(&state));
+}
+
+/// What PLAY refused with, or `None` when it started the game (the fake game, left to end).
+fn play_refusal(state: &mut State) -> Option<String> {
+    state.launch_command = Some(
+        [
+            env!("CARGO_BIN_EXE_fake-game"),
+            "--lines",
+            "1",
+            "--exit",
+            "0",
+        ]
+        .map(str::to_string)
+        .to_vec(),
+    );
+    let _ = app::update(state, Message::Play);
+    if let Some(shown) = state.modal.take() {
+        assert!(matches!(shown.kind, ModalKind::Error), "{shown:?}");
+        return Some(shown.text);
+    }
+    assert!(state.game.is_live(), "{:?}", state.game);
+    let started = std::time::Instant::now();
+    while !state.game.is_idle() {
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            state.game
+        );
+        for message in play::drain_events(state) {
+            let _ = app::update(state, Message::Game(message));
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    None
+}
+
+#[test]
+fn setup_and_play_give_the_same_verdict() {
+    // One reading of the folders answers both: the setup blocks exactly when PLAY refuses, and the
+    // refusal names what the setup lists. Each pair is made after the game folder was chosen, as
+    // when a file is moved away in a file manager: PLAY reads the folders again, and the setup
+    // shows that reading.
+    for pair in ["complete", "game without eboot.bin", "same folder"] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = opened(dir.path());
+        let dump = complete_dump(dir.path());
+        browsed(&mut state, "game_dir", &dump);
+        match pair {
+            "game without eboot.bin" => std::fs::remove_file(dump.join("eboot.bin")).unwrap(),
+            "same folder" => browsed(&mut state, "update_dir", &dump),
+            _ => {}
+        }
+        let refusal = play_refusal(&mut state);
+        assert_eq!(
+            !can_advance(&state),
+            refusal.is_some(),
+            "{pair}: {refusal:?}"
+        );
+        let problems: Vec<String> = ["game_dir", "update_dir"]
+            .into_iter()
+            .flat_map(|key| folder_problems(&state, key))
+            .filter(|line| line != "Missing or empty files:")
+            .collect();
+        assert_eq!(
+            problems.is_empty(),
+            refusal.is_none(),
+            "{pair}: {problems:?}"
+        );
+        for line in &problems {
+            let refusal = refusal.as_deref().unwrap_or_default();
+            assert!(
+                refusal.contains(line.as_str()),
+                "{pair}: {line:?} not in {refusal:?}"
+            );
+        }
+    }
 }
 
 /// The labels of the graphics card drop-down, in order.
@@ -423,7 +501,7 @@ fn skip_writes_the_defaults_but_keeps_the_language() {
     assert_eq!(saved["ui_language"], "pt");
     assert_eq!(state.store.text("fps_limit"), "0");
     assert!(
-        state.home.info.is_none(),
+        state.installation.info().is_none(),
         "the Home facts follow the restored folder"
     );
 }

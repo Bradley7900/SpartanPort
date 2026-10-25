@@ -14,18 +14,15 @@ use iced::{window, Task};
 use indexmap::IndexMap;
 
 use crate::core::env::{environment_of, game_environment};
-use crate::core::game::{
-    adopt_system_files, missing_game_files, same_folder, system_files_beside, FileState,
-    GameFolder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
-};
+use crate::core::game::{adopt_system_files, system_files_beside, FileState, GameFolder};
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::installation::SEPARATE_FOLDERS;
+use crate::core::installation::{Installation, SEPARATE_FOLDERS};
 use crate::core::launch::{
     run_command, spawn_game, Exit, GameEvent, GameHandle, Group, Launch, LaunchError,
 };
 use crate::core::log::{line_status, LineStatus, RunLog};
 use crate::core::paths::Paths;
-use crate::ui::app::{show_page, Message, State};
+use crate::ui::app::{refresh_installation, show_page, Message, State};
 use crate::ui::home;
 use crate::ui::pages::game::game_changed;
 use crate::ui::pages::{log, trophies, Page};
@@ -173,47 +170,38 @@ fn refuse(state: &mut State, text: String) -> Task<Message> {
     show_page(state, Page::Game)
 }
 
-fn folder_or_here(folder: &str) -> &str {
-    if folder.is_empty() {
-        "."
-    } else {
-        folder
-    }
-}
-
 /// The first folder (the game, then an update with an `eboot.bin`) whose system files sit in an
 /// Sc0 folder beside it, with that folder (Python `offer_system_files`). The folders up to
 /// `declined`, whose offer was just answered No, are passed over, as Python's loop goes on.
 fn system_files_offer(
-    game_dir: &str,
+    installation: &Installation,
     update_dir: &str,
     declined: Option<&str>,
 ) -> Option<(String, PathBuf)> {
-    let game = folder_or_here(game_dir);
-    let mut folders = vec![(game, false)];
+    let game = installation.game_folder();
+    let mut folders = vec![(game.display().to_string(), false)];
     if !update_dir.is_empty()
-        && !same_folder(update_dir, game)
+        && !installation.verdict().same_folder
         && Path::new(update_dir).join("eboot.bin").is_file()
     {
-        folders.push((update_dir, true));
+        folders.push((update_dir.to_string(), true));
     }
     let after = declined
-        .and_then(|declined| folders.iter().position(|(folder, _)| *folder == declined))
+        .and_then(|declined| folders.iter().position(|(folder, _)| folder == declined))
         .map_or(0, |at| at + 1);
     folders
         .into_iter()
         .skip(after)
         .find_map(|(folder, is_update)| {
             // The update's candidate must be the base game's title.
-            let reference = is_update.then(|| GameFolder::read(Path::new(game)));
-            let base = is_update.then(|| Path::new(game));
-            system_files_beside(folder, reference.as_ref(), base)
-                .map(|source| (folder.to_string(), source))
+            let reference = is_update.then(|| GameFolder::read(game));
+            let base = is_update.then_some(game);
+            system_files_beside(&folder, reference.as_ref(), base).map(|source| (folder, source))
         })
 }
 
-/// PLAY (Python `play`): saves the settings, checks the folders in the 2.6.0 order and starts
-/// the game. Nothing happens while a game runs or system files are copied.
+/// PLAY (Python `play`): saves the settings, reads the folders again, checks them in the 2.6.0
+/// order and starts the game. Nothing happens while a game runs or system files are copied.
 pub fn play(state: &mut State) -> Task<Message> {
     if !matches!(state.game, GameState::Idle) {
         return Task::none();
@@ -221,10 +209,8 @@ pub fn play(state: &mut State) -> Task<Message> {
     if !persist::collect_or_report(state) {
         return Task::none();
     }
-    if GameFolder::read(Path::new(&state.store.text("game_dir")))
-        .info()
-        .is_none()
-    {
+    refresh_installation(state);
+    if !state.installation.has_game() {
         let text = tr(
             &state.lang,
             "Choose the game folder with eboot.bin (CUSA01623).",
@@ -234,13 +220,13 @@ pub fn play(state: &mut State) -> Task<Message> {
     checks(state, None)
 }
 
-/// PLAY from the copy offers on: the offers, the files of the game and of the update, then the
-/// start. `declined` is the folder whose offer was just answered No.
+/// PLAY from the copy offers on: the offers, then the verdict of `state.installation` (the files
+/// of the game, one folder for both, the files of the update) and the start. `declined` is the
+/// folder whose offer was just answered No.
 fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
     let lang = state.lang.clone();
-    let game_dir = state.store.text("game_dir");
     let update_dir = state.store.text("update_dir");
-    if let Some((folder, source)) = system_files_offer(&game_dir, &update_dir, declined) {
+    if let Some((folder, source)) = system_files_offer(&state.installation, &update_dir, declined) {
         let text = tr_fmt(
             &lang,
             "The files in {} look like a PKG extraction: the system files (param.sfo, icon0.png, \
@@ -259,31 +245,29 @@ fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
         ));
         return Task::none();
     }
-    let missing = missing_game_files(Path::new(folder_or_here(&game_dir)), REQUIRED_GAME_FILES);
-    if !missing.is_empty() {
+    let verdict = state.installation.verdict();
+    if !verdict.game_missing.is_empty() {
         let text = tr_fmt(
             &lang,
             "The game dump is incomplete. Missing or empty files:\n\n{}\n\nDump the game again, \
              or copy these files from a complete dump.",
-            &[&describe_missing(&lang, &missing).join("\n")],
+            &[&describe_missing(&lang, &verdict.game_missing).join("\n")],
         );
         return refuse(state, text);
     }
-    if !update_dir.is_empty() && same_folder(&update_dir, folder_or_here(&game_dir)) {
+    if verdict.same_folder {
         let text = tr(&lang, SEPARATE_FOLDERS);
         return refuse(state, text);
     }
-    let missing = if update_dir.is_empty() {
-        Vec::new()
-    } else {
-        missing_game_files(Path::new(&update_dir), REQUIRED_UPDATE_FILES)
-    };
-    if !missing.is_empty() {
+    if !verdict.update_missing.is_empty() {
         let text = tr_fmt(
             &lang,
             "The update folder {} is incomplete. Missing or empty files:\n\n{}\n\nChoose the \
              folder of the update (eboot.bin, sce_sys), or leave it empty.",
-            &[&update_dir, &describe_missing(&lang, &missing).join("\n")],
+            &[
+                &update_dir,
+                &describe_missing(&lang, &verdict.update_missing).join("\n"),
+            ],
         );
         return refuse(state, text);
     }
@@ -455,8 +439,10 @@ pub fn update(state: &mut State, message: GameMessage) -> Task<Message> {
             if !matches!(state.game, GameState::Idle) {
                 return Task::none();
             }
-            // No: PLAY goes on with the next offer and the checks, as Python's loop does.
+            // No: PLAY goes on with the next offer and the checks, as Python's loop does, over
+            // the folders as they are now.
             if !yes {
+                refresh_installation(state);
                 return checks(state, Some(&folder));
             }
             state.game = GameState::Copying;

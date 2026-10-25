@@ -146,8 +146,8 @@ fn preset_names(paths: &Paths) -> (Vec<String>, bool) {
 }
 
 /// Reads the mods folder, the saved order and switches, the conflicts, the presets and the
-/// third-party patches; runs on a thread.
-pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
+/// third-party patches of the game in `installation`; runs on a thread.
+pub fn load(paths: &Paths, settings: &Settings, installation: &Installation) -> ModsView {
     let root = paths.mods_dir(&settings.get_str("mods_dir"));
     let game = game_path(settings);
     let profile: Value = load_json(&paths.mods_json(), Value::Null);
@@ -183,10 +183,6 @@ pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
             .insert(name.clone(), mod_info(&folder, game.as_deref()));
     }
     view.conflicts = conflicts(&root, &active(&view), game.as_deref());
-    let installation = Installation::read(
-        &settings.get_str("game_dir"),
-        &settings.get_str("update_dir"),
-    );
     if let Some(profile) = installation.profile() {
         view.external = external_patches(
             &paths.patches_dir(&settings.get_str("patches_dir")),
@@ -206,7 +202,8 @@ pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
 pub fn refresh(state: &State) -> Task<Message> {
     let paths = state.paths.clone();
     let settings = state.store.app().clone();
-    blocking(move || load(&paths, &settings))
+    let installation = state.installation.clone();
+    blocking(move || load(&paths, &settings, &installation))
         .map(|view| Message::Mods(ModsMessage::Loaded(Box::new(view))))
 }
 

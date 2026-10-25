@@ -1,7 +1,7 @@
 //! The splash screen: the start-up checks behind the monogram, then the monogram flies to the
 //! top-left corner (spec 4.2), the top-right one in a right-to-left language, where the Home view
 //! keeps it. It shows two checks (R97): the settings files can be read, and the updates; the
-//! graphics cards and the game folder are read in the background, for the Home and PLAY.
+//! graphics cards are read in the background, for the Home and the card choice.
 
 use std::time::Duration;
 
@@ -17,7 +17,6 @@ use iced::{
 
 use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
-use crate::core::installation::Installation;
 use crate::core::platform::tool::SystemTools;
 use crate::core::release::Release;
 use crate::ui::app::{scene_size, Message, State};
@@ -56,7 +55,6 @@ const HALO_PEAK: f32 = 0.35;
 #[derive(Debug, Clone)]
 pub enum Check {
     Gpus(Vec<GpuRow>),
-    GameFolder(bool),
     Update(Option<Vec<Release>>),
 }
 
@@ -168,7 +166,6 @@ pub fn apply(state: &mut State, message: SplashMessage) {
             }
             match check {
                 Check::Gpus(gpus) => state.gpus = gpus,
-                Check::GameFolder(ready) => state.game_ready = Some(ready),
                 Check::Update(Some(releases)) => start_up_offer(state, releases),
                 Check::Update(None) => {}
             }
@@ -182,22 +179,14 @@ pub fn start_up_offer(state: &mut State, releases: Vec<Release>) {
 }
 
 /// Starts the checks in parallel: the update check of the splash and, in the background, the
-/// graphics cards and the game folder; each answers with `SplashMessage::CheckDone`.
+/// graphics cards; each answers with `SplashMessage::CheckDone`.
 pub fn start_checks(state: &State) -> Task<Message> {
     let done = |check| Message::Splash(SplashMessage::CheckDone(check));
     let paths = state.paths.clone();
     let gpus =
         blocking(move || list_gpus(&SystemTools, &paths)).map(move |rows| done(Check::Gpus(rows)));
-    let game_dir = state.store.text("game_dir");
-    let update_dir = state.store.text("update_dir");
-    let game = blocking(move || {
-        Installation::read(&game_dir, &update_dir)
-            .verdict()
-            .passes()
-    })
-    .map(move |ready| done(Check::GameFolder(ready)));
     let update = update::start_up_check(state);
-    Task::batch([gpus, game, update])
+    Task::batch([gpus, update])
 }
 
 fn lerp(from: f32, to: f32, t: f32) -> f32 {

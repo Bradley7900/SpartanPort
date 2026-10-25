@@ -11,7 +11,6 @@ use iced::{Center, Element, Left, Right, Task};
 use serde_json::{Map, Value};
 
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::installation::Installation;
 use crate::core::options::LANGUAGES;
 use crate::core::patches::{builtin_xml, game_patch_metas, selectable, PatchMeta};
 use crate::core::save_backup::{list_backups, restore, KEEP};
@@ -203,14 +202,13 @@ pub fn store_game_patches(state: &mut State) {
     state.store.set("game_patches", Value::Object(all));
 }
 
-/// Reads the built-in patches of the game folder into `state.patches`, keeping the selection of
-/// the game that was shown until now.
+/// Reads the built-in patches of the game in `state.installation` into `state.patches`, keeping
+/// the selection of the game that was shown until now.
 pub fn refresh_game_patches(state: &mut State) {
     store_game_patches(state);
-    let installation = Installation::of(&state.store);
     let (title_id, profile) = (
-        installation.title_id().map(str::to_string),
-        installation.profile(),
+        state.installation.title_id().map(str::to_string),
+        state.installation.profile(),
     );
     let (Some(title_id), Some(profile)) = (title_id, profile) else {
         state.patches = PatchesView::default();

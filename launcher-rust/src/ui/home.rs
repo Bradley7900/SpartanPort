@@ -16,14 +16,13 @@ use iced::{
     Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
-use crate::core::game::GameInfo;
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::installation::Installation;
 use crate::core::options::{short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS};
 use crate::core::patches::patch_status;
 use crate::ui::app::{
-    home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
+    home_interactive_enabled, home_interactive_opacity, refresh_installation, scene_size, Message,
+    State,
 };
 use crate::ui::lang_menu;
 use crate::ui::version_menu;
@@ -134,25 +133,20 @@ const BLOCK_BOTTOM: f32 = 26.0;
 const TOP_RIGHT_TOP: f32 = 22.0;
 const TOP_RIGHT_RIGHT: f32 = 24.0;
 
-/// What the Home chips need from the disk, read once so `view` does no I/O.
+/// What the Home chips need from the disk besides the game (`State::installation`), read once so
+/// `view` does no I/O.
 #[derive(Debug, Clone, Default)]
 pub struct HomeFacts {
-    pub info: Option<GameInfo>,
-    pub title_id: Option<String>,
-    pub patchable: bool,
     pub saves: bool,
     /// Patches the last start left out (`patch_status.json`).
     pub skipped: usize,
 }
 
-/// Re-reads the game folder, the saves folder and the last start's patch report.
+/// Re-reads the game folders, the saves folder and the last start's patch report.
 pub fn refresh_facts(state: &mut State) {
-    let installation = Installation::of(&state.store);
+    refresh_installation(state);
     let savedata = user_dir(state).join("savedata");
     state.home = HomeFacts {
-        info: installation.info().cloned(),
-        title_id: installation.title_id().map(str::to_string),
-        patchable: installation.patchable(),
         saves: has_files(&savedata),
         skipped: patch_status(&state.paths.data_dir.join("out"))
             .map_or(0, |status| status.skipped.len()),
@@ -496,9 +490,9 @@ pub fn chips(state: &State) -> [String; 3] {
         Some(row) => format!("✓ {}", row.name),
         None => tr(lang, "• GPU: not checked"),
     };
-    let game = match &state.home.info {
+    let game = match state.installation.info() {
         Some(info) => {
-            let id = state.home.title_id.as_deref().unwrap_or(&info.title);
+            let id = state.installation.title_id().unwrap_or(&info.title);
             format!("✓ {id} · v{}", info.version)
         }
         None => tr(lang, "✗ No eboot.bin in the game folder"),
@@ -518,14 +512,15 @@ pub fn chips(state: &State) -> [String; 3] {
 /// game folder), else the in-game menu hint.
 pub fn status_line(state: &State) -> String {
     let busy = !state.game.is_idle();
-    let facts = &state.home;
+    let skipped = state.home.skipped;
+    let game = &state.installation;
     if busy && !state.status.is_empty() {
         state.status.clone()
-    } else if !busy && facts.skipped > 0 && facts.info.is_some() && facts.patchable {
+    } else if !busy && skipped > 0 && game.info().is_some() && game.patchable() {
         tr_fmt(
             &state.lang,
             "{} patches not found in this eboot.bin at the last start (see Log)",
-            &[&facts.skipped.to_string()],
+            &[&skipped.to_string()],
         )
     } else {
         tr(

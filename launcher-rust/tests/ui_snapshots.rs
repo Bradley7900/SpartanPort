@@ -40,6 +40,7 @@ use iced_test::simulator::Simulator;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
 use image::{ExtendedColorType, ImageEncoder, RgbaImage};
 use joysticks::{pad, FakeJoysticks};
+use spartanport_launcher::core::installation::Installation;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
@@ -160,6 +161,8 @@ fn fixture(dir: &Path, shot: Shot, size: Size, lang: &str) -> State {
     state.now = state.splash.started + CLOCK;
     show_fixed_paths(&mut state);
     if let Shot::Setup(step) = shot {
+        // The setup opens over the folder it shows, as the first start reads it.
+        state.installation = Installation::of(&state.store);
         let mut setup = SetupState::new(&state);
         setup.step = step;
         state.setup = Some(setup);
