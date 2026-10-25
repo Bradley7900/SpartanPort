@@ -1,6 +1,7 @@
 //! Launcher logic with no UI dependency.
 
 pub mod catalog;
+pub mod controller_mappings;
 pub mod controls;
 pub mod desktop;
 pub mod draw;

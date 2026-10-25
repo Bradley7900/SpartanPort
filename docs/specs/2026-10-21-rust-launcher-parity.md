@@ -67,10 +67,10 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 | 0 |
 | `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 | 0 |
 | `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 | 0 |
-| `tests/test_controller_mappings.py` | 15 | 0 | 0 | 0 | 0 | 0 | 15 |
-| `tests/test_controller_mapper_launch.py` | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
+| `tests/test_controller_mappings.py` | 15 | 15 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_controller_mapper_launch.py` | 3 | 2 | 0 | 0 | 0 | 0 | 1 |
 | `tests/test_controller_mapper_sdl.py` | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
-| **Total** | **382** | **139** | **85** | **27** | **2** | **98** | **31** |
+| **Total** | **382** | **156** | **85** | **27** | **2** | **98** | **14** |
 
 ## Map
 
@@ -431,23 +431,23 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_button_icons.py::ButtonIconTest::test_every_gamepad_button_has_an_icon_in_both_styles` | `src/ui/widgets/button_icon.rs::tests::every_gamepad_button_has_an_icon_in_both_styles` | ported |
 | `tests/test_button_icons.py::ButtonIconTest::test_styles_differ_where_the_controllers_do` | `src/ui/widgets/button_icon.rs::tests::styles_differ_where_the_controllers_do` | ported |
 | `tests/test_button_icons.py::ButtonIconTest::test_draw_fills_and_clears_the_canvas` | `tests/ui_snapshots.rs::controls`, `src/ui/widgets/button_icon.rs::tests::styles_differ_where_the_controllers_do` | replaced by `tests/ui_snapshots.rs::controls`, `src/ui/widgets/button_icon.rs::tests::styles_differ_where_the_controllers_do` |
-| `tests/test_controller_mappings.py::CaptureTest::test_release_gate_stability_and_noise` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::CaptureTest::test_hats_diagonals_axes_triggers_and_inversion` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::CaptureTest::test_stick_prompt_ignores_buttons_and_endpoint_trigger` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::CaptureTest::test_full_axes_conflict_but_opposite_halves_can_be_shared` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::CaptureTest::test_back_skip_and_cross_requirement` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::CaptureTest::test_start_with_a_held_button_is_rejected` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_edit_one_input_preserves_other_inputs_and_unknown_sdl_fields` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_partial_profile_can_start_with_any_button` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_platform_specific_saved_mapping_wins_over_generic` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_replace_only_this_guid_and_platform_preserving_comments` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_failed_commit_preserves_profile_and_cleans_temporary_file` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_invalid_mapping_does_not_write` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_explicit_overrides_have_priority_and_restarts_do_not_duplicate` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_no_profile_leaves_environment_untouched` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mappings.py::PersistenceTest::test_reserved_xinput_override_is_not_discarded` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mapper_launch.py::LaunchTest::test_direct_run_loads_profile_before_native_detection` | — | dropped: pending port (Task 50) |
-| `tests/test_controller_mapper_launch.py::LaunchTest::test_updater_preserves_profiles` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::CaptureTest::test_release_gate_stability_and_noise` | `src/core/controller_mappings.rs::tests::release_gate_stability_and_noise` | ported |
+| `tests/test_controller_mappings.py::CaptureTest::test_hats_diagonals_axes_triggers_and_inversion` | `src/core/controller_mappings.rs::tests::hats_diagonals_axes_triggers_and_inversion` | ported |
+| `tests/test_controller_mappings.py::CaptureTest::test_stick_prompt_ignores_buttons_and_endpoint_trigger` | `src/core/controller_mappings.rs::tests::stick_prompt_ignores_buttons_and_endpoint_trigger` | ported |
+| `tests/test_controller_mappings.py::CaptureTest::test_full_axes_conflict_but_opposite_halves_can_be_shared` | `src/core/controller_mappings.rs::tests::full_axes_conflict_but_opposite_halves_can_be_shared` | ported |
+| `tests/test_controller_mappings.py::CaptureTest::test_back_skip_and_cross_requirement` | `src/core/controller_mappings.rs::tests::back_skip_and_cross_requirement` | ported |
+| `tests/test_controller_mappings.py::CaptureTest::test_start_with_a_held_button_is_rejected` | `src/core/controller_mappings.rs::tests::start_with_a_held_button_is_rejected` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_edit_one_input_preserves_other_inputs_and_unknown_sdl_fields` | `src/core/controller_mappings.rs::tests::edit_one_input_preserves_other_inputs_and_unknown_sdl_fields` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_partial_profile_can_start_with_any_button` | `src/core/controller_mappings.rs::tests::partial_profile_can_start_with_any_button` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_platform_specific_saved_mapping_wins_over_generic` | `src/core/controller_mappings.rs::tests::platform_specific_saved_mapping_wins_over_generic` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_replace_only_this_guid_and_platform_preserving_comments` | `src/core/controller_mappings.rs::tests::replace_only_this_guid_and_platform_preserving_comments` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_failed_commit_preserves_profile_and_cleans_temporary_file` | `src/core/controller_mappings.rs::tests::failed_commit_preserves_profile_and_cleans_temporary_file` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_invalid_mapping_does_not_write` | `src/core/controller_mappings.rs::tests::invalid_mapping_does_not_write` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_explicit_overrides_have_priority_and_restarts_do_not_duplicate` | `src/core/controller_mappings.rs::tests::explicit_overrides_have_priority_and_restarts_do_not_duplicate` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_no_profile_leaves_environment_untouched` | `src/core/controller_mappings.rs::tests::no_profile_leaves_environment_untouched` | ported |
+| `tests/test_controller_mappings.py::PersistenceTest::test_reserved_xinput_override_is_not_discarded` | `src/core/controller_mappings.rs::tests::reserved_xinput_override_is_not_discarded` | ported |
+| `tests/test_controller_mapper_launch.py::LaunchTest::test_direct_run_loads_profile_before_native_detection` | `tests/runner.rs::direct_run_loads_profile_before_native_detection` | ported |
+| `tests/test_controller_mapper_launch.py::LaunchTest::test_updater_preserves_profiles` | `src/core/update.rs::tests::updater_preserves_profiles` | ported |
 | `tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game` | — | dropped: pending port (Task 52) |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_raw_capture_gamepad_preview_inversion_and_analog_trigger` | — | dropped: pending port (Task 51) |
 | `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_saved_mapping_loads_and_explicit_user_file_wins` | — | dropped: pending port (Task 51) |

@@ -28,6 +28,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::core::controller_mappings;
 use crate::core::env::{game_environment, Lookup};
 use crate::core::graphics_options;
 use crate::core::i18n::{launcher_language, system_language, tr};
@@ -352,6 +353,11 @@ impl<'a> Runner<'a> {
             for key in keys.split(',') {
                 self.env.shift_remove(key);
             }
+        }
+        // The controller profiles of the data folder: the CPU check, `--gamepad` and the game see
+        // the same mappings.
+        for line in controller_mappings::configure_environment(&mut self.env, data) {
+            self.say(&line);
         }
         // 4. The enabled mods' patch files: their "Resolution Patch - <size>" entries are render
         // resolutions too (SPARTAN_EXTRA_RESOLUTIONS tells the game). A selection that cannot be

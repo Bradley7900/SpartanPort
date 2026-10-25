@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 use serde_json::json;
+use spartanport_launcher::core::controller_mappings::{mapping_line, FILENAME};
 use spartanport_launcher::core::log::ExitHint;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, Window};
@@ -552,6 +553,48 @@ fn an_unsupported_cpu_stops_with_20() {
     assert!(ran.out.contains("CPU: missing AVX2\n"), "{ran}");
     assert!(ran.games().is_empty(), "{ran}");
     assert!(!port.out().join("boot.bin").exists());
+}
+
+#[test]
+fn direct_run_loads_profile_before_native_detection() {
+    // The CPU check, `--gamepad` and the game all see the data folder's controller profiles.
+    let port = Port::new();
+    let data = port.root.join("profiles");
+    fs::create_dir_all(&data).unwrap();
+    let bindings = [("a".to_string(), "b2".to_string())].into_iter().collect();
+    let profile = mapping_line(
+        "0300457e790000000600000000000000",
+        "USB",
+        &bindings,
+        "Windows",
+        true,
+    )
+    .unwrap();
+    fs::write(data.join(FILENAME), &profile).unwrap();
+    let mut host = FakeHost::default();
+    host.cpu = "CPU check stopped for test\n".into();
+    host.cpu_exit = 20;
+    let mut program = port.program(&[("SPARTAN_DATA_DIR", &text(&data))]);
+    for key in ["SDL_GAMECONTROLLERCONFIG", "SDL_GAMECONTROLLERCONFIG_FILE"] {
+        program.env.shift_remove(key);
+    }
+    let mut out = Vec::new();
+    let code = run_with(Port::context(&program, &mut out), &host);
+    let out = String::from_utf8_lossy(&out);
+    assert_eq!(code, 20, "{out}");
+    let calls = host.calls.borrow();
+    let seen: Vec<(String, Option<String>)> = calls
+        .iter()
+        .map(|call| {
+            let first = argv(call).get(1).cloned().unwrap_or_default();
+            let env = call.env.as_ref();
+            (
+                first,
+                env.and_then(|env| env.get("SDL_GAMECONTROLLERCONFIG").cloned()),
+            )
+        })
+        .collect();
+    assert_eq!(seen, [("--cpu-features".to_string(), Some(profile))]);
 }
 
 #[test]

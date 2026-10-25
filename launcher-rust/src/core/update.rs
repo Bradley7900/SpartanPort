@@ -294,7 +294,7 @@ pub fn relaunch_appimage(target: &Path, env: &IndexMap<String, String>) -> io::R
 }
 
 /// Names the player owns: an update never copies them over, at any depth.
-pub const USER_FILES: [&str; 10] = [
+pub const USER_FILES: [&str; 11] = [
     "user",
     "out",
     "mods",
@@ -305,6 +305,7 @@ pub const USER_FILES: [&str; 10] = [
     "mods_presets.json",
     "patches.json",
     "last_run.log",
+    "gamecontrollerdb.txt",
 ];
 
 fn is_user_file(name: &std::ffi::OsStr, windows: bool) -> bool {
@@ -812,8 +813,24 @@ mod tests {
                 "mods_presets.json",
                 "patches.json",
                 "last_run.log",
+                "gamecontrollerdb.txt",
             ]
         );
+    }
+
+    #[test]
+    fn updater_preserves_profiles() {
+        // The mapper's saved controllers belong to the player.
+        let name = crate::core::controller_mappings::FILENAME;
+        assert!(USER_FILES.contains(&name));
+        let dir = tempfile::tempdir().unwrap();
+        let (source, target) = (dir.path().join("src"), dir.path().join("dst"));
+        put(&source, "SpartanPort.exe", "new");
+        put(&source, name, "theirs");
+        put(&target, name, "mine");
+        install_over(&source, &target, 1, &mut || {}).unwrap();
+        assert_eq!(read(&target, "SpartanPort.exe"), "new");
+        assert_eq!(read(&target, name), "mine");
     }
 
     #[test]
