@@ -172,12 +172,16 @@ pub fn run_tool(call: &ToolCall) -> Result<ToolOutput, ToolError> {
     })
 }
 
+/// How a [`FakeTools`] answers a call.
+#[cfg(test)]
+type Answer = Box<dyn Fn(&ToolCall) -> Result<ToolOutput, ToolError> + Send + Sync>;
+
 /// A [`Tools`] for the tests: it records every call and answers from a program, so nothing
 /// starts and no wait happens.
 #[cfg(test)]
 pub struct FakeTools {
     calls: std::sync::Mutex<Vec<Called>>,
-    answer: Box<dyn Fn(&ToolCall) -> Result<ToolOutput, ToolError> + Send + Sync>,
+    answer: Answer,
 }
 
 /// An owned copy of a [`ToolCall`] a [`FakeTools`] got.
