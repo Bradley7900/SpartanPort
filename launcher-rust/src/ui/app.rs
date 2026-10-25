@@ -556,6 +556,11 @@ fn tick(state: &mut State, at: Instant) {
         .as_secs_f32()
         .min(0.1);
     state.now = at;
+    state.splash.advance(at);
+    // The fire stands still while a game runs: it shares the game's GPU.
+    if state.game.is_live() {
+        return;
+    }
     // No fire while the splash covers the window; it fills in during the flight to the corner.
     state.fire.set_intensity(intensity_for(
         !state.splash.done && !state.splash.flying(),
@@ -565,7 +570,6 @@ fn tick(state: &mut State, at: Instant) {
         state.store.flag("launcher_effects"),
     ));
     state.fire.tick(dt, scene_size(state));
-    state.splash.advance(at);
 }
 
 /// The scene: the window minus the tab bar; the whole window under the setup, which has no bar.
@@ -782,16 +786,10 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     // The splash needs the clock even when the fire is off.
     // The hover timers of the language menu need it too, and a slow clock keeps `now` fresh for
     // their stamps while the fire is off.
-    let clock = if (state.store.flag("launcher_effects") && state.visible)
-        || !state.splash.done
-        || lang_menu::timing(state)
-        || version_menu::timing(state)
-    {
-        iced::time::every(Duration::from_millis(33)).map(Message::Tick)
-    } else if state.visible || state.game.is_live() {
-        iced::time::every(IDLE_CLOCK).map(Message::Tick)
-    } else {
-        Subscription::none()
+    let clock = match clock(state) {
+        Clock::Fast => iced::time::every(Duration::from_millis(33)).map(Message::Tick),
+        Clock::Idle => iced::time::every(IDLE_CLOCK).map(Message::Tick),
+        Clock::Off => Subscription::none(),
     };
     Subscription::batch([
         keys,
@@ -801,6 +799,29 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         clock,
         controls::subscription(state),
     ])
+}
+
+/// How fast the clock runs.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Clock {
+    Fast,
+    Idle,
+    Off,
+}
+
+/// The clock the state needs. The fire, on the game's GPU, stays off the fast clock while a game
+/// is live; the slow one still carries the game's output.
+#[doc(hidden)]
+pub fn clock(state: &State) -> Clock {
+    let fire = state.store.flag("launcher_effects") && state.visible && !state.game.is_live();
+    if fire || !state.splash.done || lang_menu::timing(state) || version_menu::timing(state) {
+        Clock::Fast
+    } else if state.visible || state.game.is_live() {
+        Clock::Idle
+    } else {
+        Clock::Off
+    }
 }
 
 /// Whether the drawer moves: it slides in or out, or its width changes.

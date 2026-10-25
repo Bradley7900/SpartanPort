@@ -1125,3 +1125,69 @@ fn a_failed_listing_shows_the_error_and_play_still_works() {
     assert!(state.game.is_live());
     pump(&mut state, BOUND, idle);
 }
+
+/// A launcher with the effects on and the window visible, the fake game started (live, still Preparing).
+fn running_with_effects(dir: &Path, args: &[&str]) -> State {
+    let mut state = ready(dir, args);
+    set(&mut state, "launcher_effects", json!(true));
+    state.visible = true;
+    send(&mut state, Message::Play);
+    assert!(state.game.is_live());
+    state
+}
+
+#[test]
+fn the_fire_clock_slows_while_the_game_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = ready(dir.path(), &[]);
+    set(&mut state, "launcher_effects", json!(true));
+    state.visible = true;
+    assert_eq!(app::clock(&state), app::Clock::Fast);
+    let mut state = running_with_effects(
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    assert!(state.game.is_live());
+    assert_eq!(app::clock(&state), app::Clock::Idle);
+    send(&mut state, Message::Stop);
+    pump(&mut state, Duration::from_secs(5), idle);
+}
+
+#[test]
+fn the_fire_does_not_advance_while_the_game_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = running_with_effects(
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    let intensity = state.fire.intensity();
+    let particles = state.fire.particle_count();
+    let mut at = Instant::now();
+    for _ in 0..10 {
+        at += Duration::from_millis(33);
+        send(&mut state, Message::Tick(at));
+    }
+    assert_eq!(state.fire.intensity(), intensity);
+    assert_eq!(state.fire.particle_count(), particles);
+    send(&mut state, Message::Stop);
+    pump(&mut state, Duration::from_secs(5), idle);
+}
+
+#[test]
+fn the_fire_clock_comes_back_after_the_game_exits() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = running_with_effects(
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    send(&mut state, Message::Stop);
+    pump(&mut state, Duration::from_secs(5), idle);
+    assert_eq!(app::clock(&state), app::Clock::Fast);
+    // The fire runs again: ticks spawn particles.
+    let mut at = Instant::now();
+    for _ in 0..10 {
+        at += Duration::from_millis(33);
+        send(&mut state, Message::Tick(at));
+    }
+    assert!(state.fire.particle_count() > 0);
+}
