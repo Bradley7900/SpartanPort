@@ -1,13 +1,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-//! The runner from end to end (`--run`, `--after`, `--play`, the in-game restart), with
-//! `fake-probe` in place of `spartanport-probe` and the synthetic game of the `prepare` fixture: the
-//! real game is never started.
+//! The runner (`--run`, `--after`, `--play`, the in-game restart) on the synthetic game of the
+//! `prepare` fixture: the real game is never started. Most runs are in process on a [`FakeHost`],
+//! which records every tool and game start and answers for them; the in-game restart, Ctrl+C, the
+//! probe's working folder and `--play` start the launcher, with `fake-probe` in place of
+//! `spartanport-probe`.
 
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
@@ -18,12 +22,13 @@ use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, Window};
 use spartanport_launcher::core::settings::Settings;
 use spartanport_launcher::runner::{
-    isa_rewrite, patch_environment, play_with, restart_command, run_with, RunContext,
+    isa_rewrite, patch_environment, play_with, restart_command, run_with, Host, RunContext,
+    SystemHost, AFTER_LIMIT, GAMEPAD_PROBE_LIMIT,
 };
 
 #[path = "common/host.rs"]
 mod host;
-use host::FakeHost;
+use host::{Called, FakeHost, Interrupt};
 
 /// The launcher program cargo built for these tests.
 const LAUNCHER: &str = env!("CARGO_BIN_EXE_spartanport-launcher");
@@ -76,9 +81,10 @@ fn copy_into(from: &Path, folder: &Path) {
     fs::copy(from, folder.join(from.file_name().unwrap())).unwrap();
 }
 
-/// A port folder as a package holds it: `run.py`, the probe (`fake-probe`) in `bin/`, the icon and
-/// the built-in patches, with the synthetic game of the `prepare` fixture (plus the `link`
-/// fixture's `libSceFios2.prx`) as `game/`.
+/// A port folder as a package holds it: `run.py`, an empty probe in `bin/` (an in-process run
+/// never starts it; [`Port::with_probe`] puts `fake-probe` there), the icon and the built-in
+/// patches, with the synthetic game of the `prepare` fixture (plus the `link` fixture's
+/// `libSceFios2.prx`) as `game/`.
 struct Port {
     _dir: tempfile::TempDir,
     root: PathBuf,
@@ -89,6 +95,13 @@ impl Port {
         Port::in_folder("")
     }
 
+    /// A port whose probe is `fake-probe`, for the runs that start the launcher.
+    fn with_probe() -> Port {
+        let port = Port::new();
+        fs::copy(FAKE_PROBE, port.probe()).unwrap();
+        port
+    }
+
     /// A port in the folder `name` of a temporary folder (`""`: the temporary folder itself).
     fn in_folder(name: &str) -> Port {
         let dir = tempfile::tempdir().unwrap();
@@ -96,9 +109,9 @@ impl Port {
         fs::create_dir_all(&root).unwrap();
         fs::write(root.join("run.py"), b"").unwrap();
         fs::create_dir_all(root.join("bin")).unwrap();
-        fs::copy(
-            FAKE_PROBE,
+        fs::write(
             root.join("bin").join(format!("spartanport-probe{EXE}")),
+            b"",
         )
         .unwrap();
         let repo = manifest().join("..");
@@ -154,6 +167,25 @@ impl Port {
         }
     }
 
+    /// An in-process run in this port on `host`, with `extra` variables and `args` after `--run`.
+    fn run_on(&self, host: FakeHost, extra: &[(&str, &str)], args: &[&str]) -> InProcess {
+        let mut out = Vec::new();
+        let code = run_with(
+            RunContext {
+                port_dir: &self.root,
+                env: self.environment(extra),
+                args: args.iter().map(OsString::from).collect(),
+                out: &mut out,
+            },
+            &host,
+        );
+        InProcess {
+            code,
+            out: String::from_utf8_lossy(&out).into_owned(),
+            host,
+        }
+    }
+
     /// `LAUNCHER --run <args>` in this port with `extra` variables.
     fn run(&self, extra: &[(&str, &str)], args: &[&str]) -> Ran {
         let output = Command::new(LAUNCHER)
@@ -184,6 +216,82 @@ fn clean_environment() -> IndexMap<String, String> {
                 .any(|prefix| key.starts_with(prefix))
         })
         .collect()
+}
+
+/// What an in-process run gave: its exit code, what it printed and its host's record.
+struct InProcess {
+    code: i32,
+    out: String,
+    host: FakeHost,
+}
+
+impl InProcess {
+    /// The argv of every game start (the calls that are not `--cpu-features` or `--gamepad`), the
+    /// program first.
+    fn games(&self) -> Vec<Vec<String>> {
+        self.host
+            .calls
+            .borrow()
+            .iter()
+            .filter(|call| is_game(call))
+            .map(argv)
+            .collect()
+    }
+
+    /// The one game start.
+    fn game_call(&self) -> Called {
+        let calls = self.host.calls.borrow();
+        let games: Vec<&Called> = calls.iter().filter(|call| is_game(call)).collect();
+        assert_eq!(games.len(), 1, "{self}");
+        games[0].clone()
+    }
+
+    /// The argv of the one game start, the program first.
+    fn game(&self) -> Vec<String> {
+        argv(&self.game_call())
+    }
+
+    /// The variable `name` in the environment the game got.
+    fn var(&self, name: &str) -> Option<String> {
+        self.game_call().env.unwrap().get(name).cloned()
+    }
+}
+
+impl std::fmt::Display for InProcess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "code {}\n--- out\n{}--- calls", self.code, self.out)?;
+        for call in self.host.calls.borrow().iter() {
+            writeln!(f, "{:?}", argv(call))?;
+        }
+        Ok(())
+    }
+}
+
+fn is_game(call: &Called) -> bool {
+    let first = call.args.first().and_then(|arg| arg.to_str());
+    !matches!(first, Some("--cpu-features" | "--gamepad"))
+}
+
+fn argv(call: &Called) -> Vec<String> {
+    std::iter::once(&call.program)
+        .chain(&call.args)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// A host whose game reads `file` under its `--app0` folder, as `FAKE_PROBE_SHOW` did, and the
+/// text it read (`missing` without the file) once the game has started.
+fn showing(file: &'static str) -> (FakeHost, Rc<RefCell<Option<String>>>) {
+    let shown = Rc::new(RefCell::new(None));
+    let into = Rc::clone(&shown);
+    let mut host = FakeHost::default();
+    host.on_play = Some(Box::new(move |call: &ToolCall| {
+        let at = call.args.iter().position(|arg| arg == "--app0").unwrap();
+        let text = fs::read_to_string(Path::new(&call.args[at + 1]).join(file))
+            .unwrap_or_else(|_| "missing".to_string());
+        *into.borrow_mut() = Some(text);
+    }));
+    (host, shown)
 }
 
 /// What a run of the launcher gave.
@@ -254,19 +362,12 @@ fn in_order(stdout: &str, parts: &[&str]) {
 #[test]
 fn run_writes_every_derived_file_and_starts_the_probe_with_the_python_command_line() {
     let port = Port::new();
-    let printed_names = "SPARTAN_DERIVED,SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,\
-                         SPARTAN_ENGINE_FPS,SPARTAN_DMEM_MB,SPARTAN_CONFIG,SPARTAN_UPSCALER,\
-                         SPARTAN_READBACK_LINEAR,SPARTAN_WINDOW_ICON,SPARTAN_GPU_USER_DIR,\
-                         SPARTAN_PATCHES_ONLY,SPARTAN_DEFERRED_READBACK,SPARTAN_STALE_READBACK,\
-                         SPARTAN_ASYNC_SHADERS,SPARTAN_GLYPHS";
-    let ran = port.run(
-        &[
-            ("SPARTAN_TIMEOUT", "5"),
-            ("FAKE_PROBE_PRINT", printed_names),
-        ],
+    let ran = port.run_on(
+        FakeHost::default(),
+        &[("SPARTAN_TIMEOUT", "5")],
         &["--fullscreen", "two words"],
     );
-    assert_eq!(ran.code, Some(0), "{ran}");
+    assert_eq!(ran.code, 0, "{ran}");
     let out = port.out();
     for name in [
         "boot.bin",
@@ -305,40 +406,40 @@ fn run_writes_every_derived_file_and_starts_the_probe_with_the_python_command_li
         "two words".into(),
     ]
     .into();
-    assert_eq!(probe_runs(&ran.stdout), [expected], "{ran}");
+    assert_eq!(ran.games(), [expected], "{ran}");
     // What this run derived, so "Apply and restart" derives it again from the new options.
-    let one = |name: &str| printed(&ran.stdout, name).join("|");
+    let var = |name: &str| ran.var(name);
     assert_eq!(
-        one("SPARTAN_DERIVED"),
-        "SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,SPARTAN_ENGINE_FPS"
+        var("SPARTAN_DERIVED").as_deref(),
+        Some("SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,SPARTAN_ENGINE_FPS")
     );
-    assert_eq!(one("SPARTAN_EXTRA_RESOLUTIONS"), "");
-    assert_eq!(one("SPARTAN_VBLANK_HZ"), "60");
-    assert_eq!(one("SPARTAN_ENGINE_FPS"), "60");
-    assert!(ran.stdout.contains("SPARTAN_DMEM_MB is unset"), "{ran}");
-    assert!(ran.stdout.contains("SPARTAN_GLYPHS is unset"), "{ran}");
+    assert_eq!(var("SPARTAN_EXTRA_RESOLUTIONS").as_deref(), Some(""));
+    assert_eq!(var("SPARTAN_VBLANK_HZ").as_deref(), Some("60"));
+    assert_eq!(var("SPARTAN_ENGINE_FPS").as_deref(), Some("60"));
+    assert_eq!(var("SPARTAN_DMEM_MB"), None, "{ran}");
+    assert_eq!(var("SPARTAN_GLYPHS"), None, "{ran}");
     assert_eq!(
-        one("SPARTAN_CONFIG"),
-        text(&port.root.join("spartanport.ini"))
+        var("SPARTAN_CONFIG"),
+        Some(text(&port.root.join("spartanport.ini")))
     );
-    assert_eq!(one("SPARTAN_UPSCALER"), "none");
-    assert_eq!(one("SPARTAN_READBACK_LINEAR"), "1");
+    assert_eq!(var("SPARTAN_UPSCALER").as_deref(), Some("none"));
+    assert_eq!(var("SPARTAN_READBACK_LINEAR").as_deref(), Some("1"));
     assert_eq!(
-        one("SPARTAN_WINDOW_ICON"),
-        text(&out.join("window_icon.bmp"))
+        var("SPARTAN_WINDOW_ICON"),
+        Some(text(&out.join("window_icon.bmp")))
     );
-    assert_eq!(one("SPARTAN_GPU_USER_DIR"), text(&user));
-    assert_eq!(one("SPARTAN_PATCHES_ONLY"), "1");
+    assert_eq!(var("SPARTAN_GPU_USER_DIR"), Some(text(&user)));
+    assert_eq!(var("SPARTAN_PATCHES_ONLY").as_deref(), Some("1"));
     for name in [
         "SPARTAN_DEFERRED_READBACK",
         "SPARTAN_STALE_READBACK",
         "SPARTAN_ASYNC_SHADERS",
     ] {
-        assert_eq!(one(name), "1", "{name}");
+        assert_eq!(var(name).as_deref(), Some("1"), "{name}");
     }
     // The lines of the Python's steps, in its order, before the game's.
     in_order(
-        &ran.stdout,
+        &ran.out,
         &[
             "ゴッド・オブ・ウォーIII リマスタード | entry=0x",
             " imported symbols; ",
@@ -351,7 +452,6 @@ fn run_writes_every_derived_file_and_starts_the_probe_with_the_python_command_li
             "Patches: CUSA01623 01.02, eboot.bin sha256 ",
             "Patches: CUSA01623; ",
             "Engine frame rate: 60 FPS, live up to 60 (the frame rate patch was not found in this eboot.bin)",
-            "fake-probe argv:",
         ],
     );
 }
@@ -362,11 +462,9 @@ fn a_restarted_run_derives_the_inherited_values_again() {
     // included. The keys SPARTAN_DERIVED lists are derived again from the new options; the same
     // keys set by the player (not listed) are kept, as run.py's `setdefault`s keep them.
     let port = Port::new();
-    let names = "SPARTAN_DERIVED,SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,SPARTAN_DMEM_MB,\
-                 SPARTAN_ENGINE_FPS";
-    let first = port.run(&[("FAKE_PROBE_PRINT", names)], &[]);
-    assert_eq!(first.code, Some(0), "{first}");
-    let derived = printed(&first.stdout, "SPARTAN_DERIVED").join("|");
+    let first = port.run_on(FakeHost::default(), &[], &[]);
+    assert_eq!(first.code, 0, "{first}");
+    let derived = first.var("SPARTAN_DERIVED").unwrap();
     assert_eq!(
         derived,
         "SPARTAN_EXTRA_RESOLUTIONS,SPARTAN_VBLANK_HZ,SPARTAN_ENGINE_FPS"
@@ -374,31 +472,34 @@ fn a_restarted_run_derives_the_inherited_values_again() {
     // What a start with other options left: a mod's size, a patch's memory and VBlank needs and
     // its frame rate (SPARTAN_DMEM_MB is derived only when a patch needs it).
     let stale = [
-        ("FAKE_PROBE_PRINT", names),
         ("SPARTAN_EXTRA_RESOLUTIONS", "3440x1440"),
         ("SPARTAN_VBLANK_HZ", "144"),
         ("SPARTAN_DMEM_MB", "12288"),
         ("SPARTAN_ENGINE_FPS", "120"),
     ];
     let listed = format!("{derived},SPARTAN_DMEM_MB");
-    let restarted = port.run(&[&stale[..], &[("SPARTAN_DERIVED", &listed)]].concat(), &[]);
-    assert_eq!(restarted.code, Some(0), "{restarted}");
-    let one = |ran: &Ran, name: &str| printed(&ran.stdout, name).join("|");
-    assert_eq!(one(&restarted, "SPARTAN_DERIVED"), derived);
-    assert_eq!(one(&restarted, "SPARTAN_EXTRA_RESOLUTIONS"), "");
-    assert_eq!(one(&restarted, "SPARTAN_VBLANK_HZ"), "60");
-    assert_eq!(one(&restarted, "SPARTAN_ENGINE_FPS"), "60");
-    assert!(
-        restarted.stdout.contains("SPARTAN_DMEM_MB is unset"),
-        "{restarted}"
+    let restarted = port.run_on(
+        FakeHost::default(),
+        &[&stale[..], &[("SPARTAN_DERIVED", &listed)]].concat(),
+        &[],
     );
+    assert_eq!(restarted.code, 0, "{restarted}");
+    let var = |ran: &InProcess, name: &str| ran.var(name);
+    assert_eq!(var(&restarted, "SPARTAN_DERIVED"), Some(derived));
+    assert_eq!(
+        var(&restarted, "SPARTAN_EXTRA_RESOLUTIONS").as_deref(),
+        Some("")
+    );
+    assert_eq!(var(&restarted, "SPARTAN_VBLANK_HZ").as_deref(), Some("60"));
+    assert_eq!(var(&restarted, "SPARTAN_ENGINE_FPS").as_deref(), Some("60"));
+    assert_eq!(var(&restarted, "SPARTAN_DMEM_MB"), None, "{restarted}");
     // Not listed: the player's own VBlank rate and memory stay.
-    let own = port.run(&stale, &[]);
-    assert_eq!(own.code, Some(0), "{own}");
-    assert_eq!(one(&own, "SPARTAN_VBLANK_HZ"), "144");
-    assert_eq!(one(&own, "SPARTAN_DMEM_MB"), "12288");
-    assert_eq!(one(&own, "SPARTAN_EXTRA_RESOLUTIONS"), "");
-    assert_eq!(one(&own, "SPARTAN_ENGINE_FPS"), "60");
+    let own = port.run_on(FakeHost::default(), &stale, &[]);
+    assert_eq!(own.code, 0, "{own}");
+    assert_eq!(var(&own, "SPARTAN_VBLANK_HZ").as_deref(), Some("144"));
+    assert_eq!(var(&own, "SPARTAN_DMEM_MB").as_deref(), Some("12288"));
+    assert_eq!(var(&own, "SPARTAN_EXTRA_RESOLUTIONS").as_deref(), Some(""));
+    assert_eq!(var(&own, "SPARTAN_ENGINE_FPS").as_deref(), Some("60"));
 }
 
 #[test]
@@ -411,16 +512,11 @@ fn the_probes_exit_code_is_returned() {
     let mod_wad = port.root.join("mods/A/dvdroot_ps4/PART1.WAD");
     fs::create_dir_all(mod_wad.parent().unwrap()).unwrap();
     fs::write(&mod_wad, b"mod").unwrap();
-    let ran = port.run(
-        &[
-            ("FAKE_PROBE_EXIT", "7"),
-            ("FAKE_PROBE_SHOW", "dvdroot_ps4/PART1.WAD"),
-        ],
-        &[],
-    );
-    assert_eq!(ran.code, Some(7), "{ran}");
-    let runs = probe_runs(&ran.stdout);
-    let overlay = app0(&runs[0]);
+    let (mut host, shown) = showing("dvdroot_ps4/PART1.WAD");
+    host.exit = 7;
+    let ran = port.run_on(host, &[], &[]);
+    assert_eq!(ran.code, 7, "{ran}");
+    let overlay = app0(&ran.game());
     assert!(
         overlay
             .file_name()
@@ -430,11 +526,7 @@ fn the_probes_exit_code_is_returned() {
         "{ran}"
     );
     assert_eq!(overlay.parent(), Some(port.out().as_path()));
-    assert!(
-        ran.stdout
-            .contains("fake-probe show dvdroot_ps4/PART1.WAD: mod\n"),
-        "{ran}"
-    );
+    assert_eq!(shown.borrow().as_deref(), Some("mod"), "{ran}");
     assert!(!overlay.exists(), "the overlay is left in out/");
     assert_eq!(fs::read(&wad).unwrap(), original);
 }
@@ -442,16 +534,13 @@ fn the_probes_exit_code_is_returned() {
 #[test]
 fn an_unsupported_cpu_stops_with_20() {
     let port = Port::new();
-    let ran = port.run(
-        &[
-            ("FAKE_PROBE_CPU_EXIT", "20"),
-            ("FAKE_PROBE_MISSING", "AVX2"),
-        ],
-        &[],
-    );
-    assert_eq!(ran.code, Some(20), "{ran}");
-    assert!(ran.stdout.contains("CPU: missing AVX2\n"), "{ran}");
-    assert!(probe_runs(&ran.stdout).is_empty(), "{ran}");
+    let mut host = FakeHost::default();
+    host.cpu = "CPU: missing AVX2\n".into();
+    host.cpu_exit = 20;
+    let ran = port.run_on(host, &[], &[]);
+    assert_eq!(ran.code, 20, "{ran}");
+    assert!(ran.out.contains("CPU: missing AVX2\n"), "{ran}");
+    assert!(ran.games().is_empty(), "{ran}");
     assert!(!port.out().join("boot.bin").exists());
 }
 
@@ -460,14 +549,18 @@ fn a_missing_eboot_fails_with_the_python_message() {
     let port = Port::new();
     let empty = port.root.join("not a game");
     fs::create_dir_all(&empty).unwrap();
-    let ran = port.run(&[("SPARTAN_GAME_DIR", &text(&empty))], &[]);
-    assert_eq!(ran.code, Some(1), "{ran}");
+    let ran = port.run_on(
+        FakeHost::default(),
+        &[("SPARTAN_GAME_DIR", &text(&empty))],
+        &[],
+    );
+    assert_eq!(ran.code, 1, "{ran}");
     let message = format!(
         "No eboot.bin in {} (set SPARTAN_GAME_DIR).",
         empty.display()
     );
-    assert!(ran.stdout.contains(&message), "{ran}");
-    assert!(probe_runs(&ran.stdout).is_empty());
+    assert!(ran.out.contains(&message), "{ran}");
+    assert!(ran.games().is_empty(), "{ran}");
 }
 
 #[cfg(windows)]
@@ -480,11 +573,13 @@ fn a_game_on_a_share_reaches_the_probe_as_python_spells_it() {
         eprintln!(r"skipped: \\localhost\ is not reachable");
         return;
     };
-    let ran = port.run(&[("SPARTAN_GAME_DIR", &text(&game))], &[]);
-    assert_eq!(ran.code, Some(0), "{ran}");
-    let runs = probe_runs(&ran.stdout);
-    assert_eq!(runs.len(), 1, "{ran}");
-    let app0 = app0(&runs[0]);
+    let ran = port.run_on(
+        FakeHost::default(),
+        &[("SPARTAN_GAME_DIR", &text(&game))],
+        &[],
+    );
+    assert_eq!(ran.code, 0, "{ran}");
+    let app0 = app0(&ran.game());
     assert!(text(&app0).starts_with(r"\\localhost\"), "{ran}");
     assert_eq!(app0, resolved(&game), "{ran}");
 }
@@ -527,12 +622,68 @@ fn a_relative_data_dir_is_from_the_port() {
 
 #[test]
 fn run_starts_the_probe_in_the_port() {
-    let port = Port::new();
+    let port = Port::with_probe();
     let file = port.out().join("cwd.txt");
     let ran = port.run(&[("FAKE_PROBE_CWD", &text(&file))], &[]);
     assert_eq!(ran.code, Some(0), "{ran}");
     let cwd = fs::read_to_string(&file).unwrap();
     assert_eq!(resolved(Path::new(&cwd)), port.root, "{ran}");
+}
+
+#[test]
+fn spartan_probe_is_the_program_started() {
+    // run.py: SPARTAN_PROBE, taken as is, before the port's bin/ and out/.
+    let port = Port::new();
+    fs::remove_file(port.probe()).unwrap();
+    let probe = port.root.join("tools").join(format!("my-probe{EXE}"));
+    fs::create_dir_all(probe.parent().unwrap()).unwrap();
+    fs::write(&probe, b"").unwrap();
+    let ran = port.run_on(
+        FakeHost::default(),
+        &[("SPARTAN_PROBE", &text(&probe))],
+        &[],
+    );
+    assert_eq!(ran.code, 0, "{ran}");
+    assert_eq!(ran.games().len(), 1, "{ran}");
+    for call in ran.host.calls.borrow().iter() {
+        assert_eq!(call.program, probe.clone().into_os_string(), "{ran}");
+    }
+    // Without it, and with no probe in the port, nothing starts.
+    let ran = port.run_on(FakeHost::default(), &[], &[]);
+    assert_eq!(ran.code, 1, "{ran}");
+    let message = format!("spartanport-probe{EXE} not found: build it with build.sh");
+    assert!(ran.out.contains(&message), "{ran}");
+    assert!(ran.host.calls.borrow().is_empty(), "{ran}");
+}
+
+/// Whether a run whose `--cpu-features` prints `cpu`, with `extra` variables, starts the game with
+/// the ISA rewrite table.
+fn gets_the_isa_table(cpu: &str, extra: &[(&str, &str)]) -> bool {
+    let port = Port::new();
+    let mut host = FakeHost::default();
+    host.cpu = cpu.into();
+    let ran = port.run_on(host, extra, &[]);
+    assert_eq!(ran.code, 0, "{ran}");
+    ran.game().iter().any(|arg| arg == "--isa-rewrite")
+}
+
+#[test]
+fn a_missing_movbe_gets_the_isa_table() {
+    // run.py's parse_cpu_features and isa_rewrite_wanted: by default the CPU decides.
+    assert!(gets_the_isa_table("CPU: missing MOVBE, BMI1, LZCNT\n", &[]));
+    assert!(!gets_the_isa_table("CPU: complete\n", &[]));
+}
+
+#[test]
+fn isa_rewrite_0_skips_it() {
+    let off = [("SPARTAN_ISA_REWRITE", "0")];
+    assert!(!gets_the_isa_table("CPU: missing MOVBE, BMI1\n", &off));
+}
+
+#[test]
+fn isa_rewrite_1_forces_it() {
+    let on = [("SPARTAN_ISA_REWRITE", "1")];
+    assert!(gets_the_isa_table("CPU: complete\n", &on));
 }
 
 #[test]
@@ -544,22 +695,53 @@ fn a_stale_isa_table_is_replaced() {
     let table = port.out().join("isa-rewrite.bin");
     fs::write(&table, b"the table of an older image").unwrap();
     // A CPU without MOVBE asks for the table.
-    let ran = port.run(&[("FAKE_PROBE_MISSING", "MOVBE")], &[]);
-    assert_eq!(ran.code, Some(0), "{ran}");
+    let mut host = FakeHost::default();
+    host.cpu = "CPU: missing MOVBE\n".into();
+    let ran = port.run_on(host, &[], &[]);
+    assert_eq!(ran.code, 0, "{ran}");
     let check = tempfile::tempdir().unwrap();
     let sites = isa_rewrite::rewrite(&port.out().join("boot-linked.bin"), check.path()).unwrap();
     let fresh = fs::read(check.path().join("isa-rewrite.bin")).unwrap();
     assert_eq!(fs::read(&table).unwrap(), fresh);
     assert!(
-        ran.stdout
+        ran.out
             .lines()
             .any(|line| line == isa_rewrite::summary(&sites)),
         "{ran}"
     );
-    let argv = &probe_runs(&ran.stdout)[0];
+    let argv = ran.game();
     let at = argv.iter().position(|arg| arg == "--isa-rewrite").unwrap();
     assert_eq!(argv[at + 1], text(&table));
     assert_eq!(argv[at - 2], "--timeout");
+}
+
+#[test]
+fn a_ctrl_c_stops_before_the_game() {
+    // run.py's KeyboardInterrupt before Popen: no game runs on the folders the cleanup removes.
+    let port = Port::new();
+    let mut host = FakeHost::default();
+    host.interrupt = Interrupt::Always;
+    let ran = port.run_on(host, &[], &[]);
+    assert_eq!(ran.code, 130, "{ran}");
+    assert!(ran.games().is_empty(), "{ran}");
+}
+
+#[test]
+fn a_pool_above_ram_warns() {
+    // guest_memory: an 11200 MiB pool and its flex span, plus the probe's own 4096 MiB, on a PC
+    // with 4096 MiB of RAM. The game still starts.
+    let port = Port::new();
+    let mut host = FakeHost::default();
+    host.memory_mb = Some(4096);
+    let ran = port.run_on(host, &[("SPARTAN_DMEM_MB", "11200")], &[]);
+    assert_eq!(ran.code, 0, "{ran}");
+    let warning = "Memory: the guest memory pool commits 12224 MiB and the game needs about \
+                   16320 MiB in all, more than the 4096 MiB of RAM.";
+    assert!(
+        ran.out.lines().any(|line| line.starts_with(warning)),
+        "{ran}"
+    );
+    assert_eq!(ran.games().len(), 1, "{ran}");
 }
 
 #[test]
@@ -700,46 +882,40 @@ fn restart_command_quotes_spaces_and_quotes() {
 
 #[test]
 fn after_waits_for_the_old_process() {
-    let empty = tempfile::tempdir().unwrap();
-    let run_after = |pid: u32| {
-        Command::new(LAUNCHER)
-            .args(["--run", "--after", &pid.to_string()])
-            .env_clear()
-            .envs(clean_environment())
-            .env("SPARTAN_PORT_DIR", empty.path())
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
-    };
-    let started = Instant::now();
-    let mut old = Command::new(FAKE_GAME)
-        .args(["--lines", "1", "--delay-ms", "1500", "--exit", "0"])
+    // `--after <pid>` waits for that process first, then the run goes on with the other arguments.
+    let port = Port::new();
+    let ran = port.run_on(FakeHost::default(), &[], &["--after", "42", "--fullscreen"]);
+    assert_eq!(ran.code, 0, "{ran}");
+    assert_eq!(*ran.host.waited.borrow(), [(42, AFTER_LIMIT)]);
+    let game = ran.game();
+    assert_eq!(game.last().map(String::as_str), Some("--fullscreen"));
+    assert!(!game.iter().any(|arg| arg == "--after"), "{ran}");
+}
+
+#[test]
+fn wait_for_pid_returns_when_the_process_ends() {
+    let mut child = Command::new(FAKE_GAME)
+        .args(["--exit", "0", "--lines", "1", "--delay-ms", "300"])
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
-    let pid = old.id();
-    // On Linux an exited child stays a zombie until reaped (`kill(pid, 0)` still succeeds).
-    let reaper = std::thread::spawn(move || old.wait());
-    let output = run_after(pid);
-    let waited = started.elapsed();
-    let _ = reaper.join();
-    assert!(waited >= Duration::from_millis(1500), "{waited:?}");
-    // Then the run goes on (here to the missing probe).
-    assert_eq!(output.status.code(), Some(1));
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("not found: build it with build.sh"),
-        "{stdout}"
-    );
-    // A process already gone is not waited for.
+    // On Linux an exited child stays a zombie until it is reaped, and `kill(pid, 0)` still
+    // succeeds on it: a thread reaps it, as the real caller's parent would.
+    let pid = child.id();
     let started = Instant::now();
-    assert_eq!(run_after(u32::MAX - 1).status.code(), Some(1));
+    let reaper = std::thread::spawn(move || child.wait());
+    assert!(SystemHost.wait_for_pid(pid, Duration::from_secs(10)));
     assert!(started.elapsed() < Duration::from_secs(10));
+    let _ = reaper.join();
+    // A pid that never existed: true at once.
+    let started = Instant::now();
+    assert!(SystemHost.wait_for_pid(u32::MAX - 1, Duration::from_secs(10)));
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 #[test]
 fn a_restart_from_the_game_starts_the_exe_again() {
-    let port = Port::new();
+    let port = Port::with_probe();
     let child = Command::new(LAUNCHER)
         .arg("--run")
         .env_clear()
@@ -793,7 +969,7 @@ fn play_settings(port: &Port, user: &Path) -> Settings {
 
 #[test]
 fn play_writes_last_run_log_with_the_advice() {
-    let port = Port::new();
+    let port = Port::with_probe();
     let user = port.root.join("saves");
     let settings = play_settings(&port, &user);
     let paths = Paths::from_env(&port.root, &|_| None);
@@ -844,7 +1020,7 @@ fn play_writes_last_run_log_with_the_advice() {
 #[test]
 fn play_starts_the_game_with_the_saved_stream_memory() {
     // The saved choice, whatever the launcher inherited.
-    let port = Port::new();
+    let port = Port::with_probe();
     let user = port.root.join("saves");
     let paths = Paths::from_env(&port.root, &|_| None);
     for value in ["cached", "host", "device"] {
@@ -871,46 +1047,44 @@ fn play_starts_the_game_with_the_saved_stream_memory() {
 #[test]
 fn a_hanging_gamepad_probe_keeps_the_game_icons() {
     // run.py: a probe that does not answer within 15 s is a glyph failure; the game starts with
-    // its own button icons. This test takes those 15 s.
+    // its own button icons.
     let port = Port::new();
-    let started = Instant::now();
-    let ran = port.run(
-        &[
-            ("SPARTAN_GLYPH_STYLE", "auto"),
-            ("FAKE_PROBE_GAMEPAD", "hang"),
-            ("FAKE_PROBE_PRINT", "SPARTAN_GLYPHS"),
-        ],
-        &[],
-    );
-    assert!(started.elapsed() >= Duration::from_secs(15));
-    assert_eq!(ran.code, Some(0), "{ran}");
-    let runs = probe_runs(&ran.stdout);
-    assert_eq!(runs.len(), 1, "{ran}");
-    assert!(!runs[0].iter().any(|arg| arg == "--mount"), "{ran}");
+    let probe = text(&port.probe());
+    let mut host = FakeHost::default();
+    host.gamepad = Err(ToolError::TimedOut {
+        command: vec![probe.clone(), "--gamepad".into()],
+        limit: GAMEPAD_PROBE_LIMIT,
+    });
+    let ran = port.run_on(host, &[("SPARTAN_GLYPH_STYLE", "auto")], &[]);
+    assert_eq!(ran.code, 0, "{ran}");
+    let calls = ran.host.calls.borrow();
+    let asked = calls
+        .iter()
+        .find(|call| call.args == ["--gamepad"])
+        .expect("no --gamepad call");
+    assert_eq!(asked.program, OsString::from(&probe));
+    assert_eq!(asked.limit, Some(GAMEPAD_PROBE_LIMIT));
+    assert!(!ran.game().iter().any(|arg| arg == "--mount"), "{ran}");
     // subprocess.TimeoutExpired's text, the command as Python's repr of the list.
-    let probe = text(&port.probe()).replace('\\', "\\\\");
     let line = format!(
-        "Glyphs: Command '['{probe}', '--gamepad']' timed out after 15 seconds; the game keeps \
-         its own button icons"
+        "Glyphs: Command '['{}', '--gamepad']' timed out after 15 seconds; the game keeps its \
+         own button icons",
+        probe.replace('\\', "\\\\")
     );
-    assert!(ran.stdout.lines().any(|l| l == line), "{line}\n{ran}");
-    assert!(ran.stdout.contains("SPARTAN_GLYPHS is unset"), "{ran}");
+    assert!(ran.out.lines().any(|l| l == line), "{line}\n{ran}");
+    assert_eq!(ran.var("SPARTAN_GLYPHS"), None, "{ran}");
 }
 
 #[test]
 fn the_gamepad_probe_answers_the_auto_glyphs() {
     // No gamepad: the keyboard keys; this synthetic game has no button icons to repaint.
     let port = Port::new();
-    let ran = port.run(
-        &[
-            ("SPARTAN_GLYPH_STYLE", "auto"),
-            ("FAKE_PROBE_GAMEPAD", "Gamepad: none"),
-        ],
-        &[],
-    );
-    assert_eq!(ran.code, Some(0), "{ran}");
+    let mut host = FakeHost::default();
+    host.gamepad = Ok("Gamepad: none\n".into());
+    let ran = port.run_on(host, &[("SPARTAN_GLYPH_STYLE", "auto")], &[]);
+    assert_eq!(ran.code, 0, "{ran}");
     assert!(
-        ran.stdout
+        ran.out
             .lines()
             .any(|l| l == "Glyphs: no button icons found in this game folder"),
         "{ran}"
@@ -928,17 +1102,12 @@ fn an_update_folder_is_combined_into_a_view() {
     );
     fs::create_dir_all(update.join("dvdroot_ps4")).unwrap();
     fs::write(update.join("dvdroot_ps4/PART1.WAD"), b"update").unwrap();
-    let ran = port.run(
-        &[
-            ("SPARTAN_PATCH_DIR", &text(&update)),
-            ("FAKE_PROBE_SHOW", "dvdroot_ps4/PART1.WAD"),
-        ],
-        &[],
-    );
-    assert_eq!(ran.code, Some(0), "{ran}");
+    let (host, shown) = showing("dvdroot_ps4/PART1.WAD");
+    let ran = port.run_on(host, &[("SPARTAN_PATCH_DIR", &text(&update))], &[]);
+    assert_eq!(ran.code, 0, "{ran}");
     let line = format!("Game and update combined from {}", update.display());
-    assert!(ran.stdout.lines().any(|l| l == line), "{ran}");
-    let view = app0(&probe_runs(&ran.stdout)[0]);
+    assert!(ran.out.lines().any(|l| l == line), "{ran}");
+    let view = app0(&ran.game());
     assert!(
         view.file_name()
             .unwrap()
@@ -947,11 +1116,7 @@ fn an_update_folder_is_combined_into_a_view() {
         "{ran}"
     );
     assert_eq!(view.parent(), Some(port.out().as_path()));
-    assert!(
-        ran.stdout
-            .contains("fake-probe show dvdroot_ps4/PART1.WAD: update\n"),
-        "{ran}"
-    );
+    assert_eq!(shown.borrow().as_deref(), Some("update"), "{ran}");
     assert!(!view.exists(), "the view is left in out/");
     assert_ne!(
         fs::read(port.game().join("dvdroot_ps4/PART1.WAD")).unwrap(),
@@ -967,7 +1132,7 @@ fn ctrl_c_cleans_up_and_ends_with_130() {
     use nix::sys::signal::{kill, Signal};
     use nix::unistd::Pid;
     use std::io::{BufRead, BufReader};
-    let port = Port::new();
+    let port = Port::with_probe();
     let mod_wad = port.root.join("mods/A/dvdroot_ps4/PART1.WAD");
     fs::create_dir_all(mod_wad.parent().unwrap()).unwrap();
     fs::write(&mod_wad, b"mod").unwrap();

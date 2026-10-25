@@ -52,7 +52,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_link_libc.py` | 9 | 9 | 0 | 0 | 0 | 0 |
 | `tests/test_link_modules.py` | 2 | 2 | 0 | 0 | 0 | 0 |
 | `tests/test_isa_rewrite.py` | 21 | 19 | 1 | 1 | 0 | 0 |
-| `tests/test_run_isa.py` | 4 | 4 | 0 | 0 | 0 | 0 |
+| `tests/test_run_isa.py` | 4 | 0 | 4 | 0 | 0 | 0 |
 | `tests/test_patches.py` | 30 | 30 | 0 | 0 | 0 | 0 |
 | `tests/test_mods.py` | 43 | 41 | 1 | 0 | 0 | 1 |
 | `tests/test_mod_conflicts.py` | 5 | 5 | 0 | 0 | 0 | 0 |
@@ -66,7 +66,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 |
 | `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 |
 | `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 |
-| **Total** | **308** | **275** | **17** | **4** | **0** | **12** |
+| **Total** | **308** | **271** | **21** | **4** | **0** | **12** |
 
 ## Map
 
@@ -117,10 +117,10 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_isa_rewrite.py::TableTests::test_main_writes_table_for_executable_segments_only` | `src/runner/isa_rewrite.rs::tests::main_writes_table_for_executable_segments_only` | ported |
 | `tests/test_isa_rewrite.py::TableTests::test_main_reports_unavailable_input` | `src/runner/isa_rewrite.rs::tests::main_reports_unavailable_input` | ported |
 | `tests/test_isa_rewrite.py::TableTests::test_fixture_file_is_current` | `tests/runner_fixtures.rs::isa_table_matches_python` | replaced by `tests/runner_fixtures.rs::isa_table_matches_python` |
-| `tests/test_run_isa.py::RunIsaTests::test_parse_cpu_features` | `src/runner/mod.rs::tests::parse_cpu_features_reads_the_missing_line` | ported |
-| `tests/test_run_isa.py::RunIsaTests::test_rewrite_wanted_follows_cpu_by_default` | `src/runner/mod.rs::tests::rewrite_wanted_follows_cpu_by_default` | ported |
-| `tests/test_run_isa.py::RunIsaTests::test_rewrite_forced` | `src/runner/mod.rs::tests::rewrite_forced` | ported |
-| `tests/test_run_isa.py::RunIsaTests::test_rewrite_disabled` | `src/runner/mod.rs::tests::rewrite_disabled` | ported |
+| `tests/test_run_isa.py::RunIsaTests::test_parse_cpu_features` | `tests/runner.rs::a_missing_movbe_gets_the_isa_table` | replaced by `tests/runner.rs::a_missing_movbe_gets_the_isa_table` |
+| `tests/test_run_isa.py::RunIsaTests::test_rewrite_wanted_follows_cpu_by_default` | `tests/runner.rs::a_missing_movbe_gets_the_isa_table` | replaced by `tests/runner.rs::a_missing_movbe_gets_the_isa_table` |
+| `tests/test_run_isa.py::RunIsaTests::test_rewrite_forced` | `tests/runner.rs::isa_rewrite_1_forces_it` | replaced by `tests/runner.rs::isa_rewrite_1_forces_it` |
+| `tests/test_run_isa.py::RunIsaTests::test_rewrite_disabled` | `tests/runner.rs::isa_rewrite_0_skips_it` | replaced by `tests/runner.rs::isa_rewrite_0_skips_it` |
 | `tests/test_patches.py::ExternalPatchTests::test_selection_and_unsupported_lines` | `src/core/patches.rs::compile_tests::selection_and_unsupported_lines` | ported |
 | `tests/test_patches.py::ExternalPatchTests::test_an_older_builds_patch_file_left_by_an_update_is_not_external` | `src/core/patches.rs::compile_tests::an_older_builds_patch_file_left_by_an_update_is_not_external` | ported |
 | `tests/test_patches.py::ExternalPatchTests::test_built_in_file_is_not_external` | `src/core/patches.rs::compile_tests::built_in_file_is_not_external` | ported |
@@ -406,7 +406,8 @@ Rows marked `ported` or `replaced by` whose Rust tests cover the behaviour but n
 the Python test:
 
 - `tests/test_isa_rewrite.py::TableTests::test_fixture_file_is_current`: the Rust test compares the table and the sites with the generator fixture; whether the fixture is current is tests/test_runner_generators.py's job.
-- `tests/test_mods.py::ModTests::test_run_uses_overlay_propagates_exit_and_cleans_view`: the test runs the Rust runner with a fake probe (a binary, not the Python shebang script that is skipped on Windows).
+- `tests/test_run_isa.py::RunIsaTests::test_parse_cpu_features`: the Rust test runs the runner in process on a fake host; the names read from the `CPU: missing` line are not asserted, only that a missing set asks for the ISA table and `CPU: complete` does not.
+- `tests/test_mods.py::ModTests::test_run_uses_overlay_propagates_exit_and_cleans_view`: the test runs the Rust runner in process on a fake host, whose game start reads the mod's file under `--app0` (not the Python shebang script that is skipped on Windows).
 - `tests/test_mods.py::GameLayout::test_dvdroot_prefix_is_dropped_when_the_game_has_none`: the count of the lines printed on stderr is not asserted (the Rust test asserts the path mapping).
 - `tests/test_mods.py::GameLayout::test_region_mods_keep_metadata_conflicts_and_selection`: the selection and the conflicts of region mods, and the count of their mod_files, are not asserted.
 - `tests/test_glyphs.py::GlyphPatchTest::test_patch_keeps_every_size_and_only_touches_glyph_pixels`: the painted pixels are compared with Pillow by tolerance (PSNR), in tests/runner_fixtures.rs::painted_textures_match_pillow_within_tolerance, not byte for byte.

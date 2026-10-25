@@ -975,7 +975,7 @@ fn run_within(
 }
 
 /// Instruction sets `spartanport-probe --cpu-features` reports missing (empty when complete).
-pub fn parse_cpu_features(output: &str) -> Vec<String> {
+fn parse_cpu_features(output: &str) -> Vec<String> {
     output
         .lines()
         .find_map(|line| line.strip_prefix("CPU: missing "))
@@ -991,7 +991,7 @@ pub fn parse_cpu_features(output: &str) -> Vec<String> {
 }
 
 /// `SPARTAN_ISA_REWRITE=1` forces the ISA rewrite table, `0` disables it; otherwise the CPU decides.
-pub fn isa_rewrite_wanted(missing: &[String], env: &dyn Fn(&str) -> Option<String>) -> bool {
+fn isa_rewrite_wanted(missing: &[String], env: &dyn Fn(&str) -> Option<String>) -> bool {
     match env("SPARTAN_ISA_REWRITE").as_deref() {
         Some("1") => true,
         Some("0") => false,
@@ -1001,7 +1001,7 @@ pub fn isa_rewrite_wanted(missing: &[String], env: &dyn Fn(&str) -> Option<Strin
 
 /// The command that starts the game on Linux when GameMode is chosen in the launcher (empty on
 /// Windows, without the choice, or when `gamemoderun` is not on `PATH`).
-pub fn launch_prefix(env: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+fn launch_prefix(env: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
     if cfg!(windows) || env("SPARTAN_GAMEMODE").as_deref() != Some("1") {
         return Vec::new();
     }
@@ -1031,7 +1031,7 @@ fn is_executable(path: &Path) -> bool {
 }
 
 /// The probe: `SPARTAN_PROBE` when set (taken as is, like `run.py`), else `bin/` or `out/` of the port.
-pub fn find_executable(paths: &Paths, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+fn find_executable(paths: &Paths, env: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
     env("SPARTAN_PROBE")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
@@ -1161,52 +1161,6 @@ pub fn wait_for_pid(pid: u32, limit: Duration) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::platform::tool::{ToolError, ToolOutput};
-
-    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
-        let pairs: Vec<(String, String)> = pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        move |key| pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
-    }
-
-    #[test]
-    fn parse_cpu_features_reads_the_missing_line() {
-        assert_eq!(
-            parse_cpu_features("CPU: missing MOVBE, BMI1, LZCNT\n"),
-            ["MOVBE", "BMI1", "LZCNT"]
-        );
-        assert!(parse_cpu_features("CPU: complete\n").is_empty());
-    }
-
-    #[test]
-    fn rewrite_wanted_follows_cpu_by_default() {
-        assert!(isa_rewrite_wanted(&["MOVBE".to_string()], &env_of(&[])));
-        assert!(!isa_rewrite_wanted(&[], &env_of(&[])));
-    }
-
-    #[test]
-    fn rewrite_forced() {
-        assert!(isa_rewrite_wanted(
-            &[],
-            &env_of(&[("SPARTAN_ISA_REWRITE", "1")])
-        ));
-    }
-
-    #[test]
-    fn rewrite_disabled() {
-        let missing = ["MOVBE".to_string(), "BMI1".to_string()];
-        assert!(!isa_rewrite_wanted(
-            &missing,
-            &env_of(&[("SPARTAN_ISA_REWRITE", "0")])
-        ));
-    }
-
-    #[test]
-    fn launch_prefix_is_empty_without_gamemode() {
-        assert!(launch_prefix(&env_of(&[])).is_empty());
-    }
 
     fn words(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()
@@ -1254,50 +1208,6 @@ mod tests {
             "'/tmp/Spartan \"Port'\"'\"'s\"/spartanport' --run 'a\"b' '' 'it'\"'\"'s' '$HOME' \
              '*' x=y,z:a.b/c-d_e@f%g+h 'café'"
         );
-    }
-
-    /// A Ctrl+C that came before the game started: the game is not started, as run.py's
-    /// `KeyboardInterrupt` before `Popen`, so no game runs on the folders the cleanup removes. The
-    /// program does not exist: any try to start it would print its error and give 1.
-    #[test]
-    fn a_ctrl_c_before_the_start_does_not_start_the_game() {
-        let dir = tempfile::tempdir().unwrap();
-        let command = [dir.path().join("no-such-probe").into_os_string()];
-        let mut out = Vec::new();
-        let host = CtrlC(true);
-        let mut runner = Runner::new(&mut out, IndexMap::new(), &host);
-        assert_eq!(runner.play_game(&command), INTERRUPTED);
-        assert!(out.is_empty(), "{}", String::from_utf8_lossy(&out));
-        // Without Ctrl+C the start is tried, and here fails.
-        let mut out = Vec::new();
-        let host = CtrlC(false);
-        let mut runner = Runner::new(&mut out, IndexMap::new(), &host);
-        assert_eq!(runner.play_game(&command), 1);
-        assert!(!out.is_empty());
-    }
-
-    /// The real system, with its own answer to "did Ctrl+C come".
-    struct CtrlC(bool);
-
-    impl Host for CtrlC {
-        fn tool(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
-            SystemHost.tool(call)
-        }
-        fn play(&self, call: &ToolCall, log: &mut dyn FnMut(String)) -> io::Result<Option<i32>> {
-            SystemHost.play(call, log)
-        }
-        fn wait_for_pid(&self, pid: u32, limit: Duration) -> bool {
-            SystemHost.wait_for_pid(pid, limit)
-        }
-        fn interrupted(&self) -> bool {
-            self.0
-        }
-        fn this_process(&self) -> (PathBuf, u32) {
-            SystemHost.this_process()
-        }
-        fn physical_memory_mb(&self) -> Option<u64> {
-            SystemHost.physical_memory_mb()
-        }
     }
 
     #[test]
@@ -1561,16 +1471,5 @@ mod tests {
                 && log[0].ends_with("; no Exit to Desktop row"),
             "{log:?}"
         );
-    }
-
-    #[test]
-    fn find_executable_prefers_the_probe_variable() {
-        let dir = tempfile::tempdir().unwrap();
-        let probe = dir.path().join("my-probe");
-        std::fs::write(&probe, b"").unwrap();
-        let paths = Paths::from_env(dir.path(), &|_| None);
-        let env = env_of(&[("SPARTAN_PROBE", probe.to_str().unwrap_or(""))]);
-        assert_eq!(find_executable(&paths, &env), Some(probe));
-        assert_eq!(find_executable(&paths, &env_of(&[])), None);
     }
 }

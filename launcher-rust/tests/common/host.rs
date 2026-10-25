@@ -8,6 +8,7 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use indexmap::IndexMap;
 use spartanport_launcher::core::platform::tool::{ToolCall, ToolError, ToolOutput};
 use spartanport_launcher::runner::Host;
 
@@ -16,6 +17,8 @@ use spartanport_launcher::runner::Host;
 pub struct Called {
     pub program: OsString,
     pub args: Vec<OsString>,
+    /// The environment it got (`None`: this process's).
+    pub env: Option<IndexMap<String, String>>,
     pub cwd: Option<PathBuf>,
     pub limit: Option<Duration>,
 }
@@ -25,6 +28,7 @@ impl Called {
         Called {
             program: call.program.clone(),
             args: call.args.clone(),
+            env: call.env.cloned(),
             cwd: call.cwd.map(PathBuf::from),
             limit: call.limit,
         }
@@ -47,6 +51,8 @@ pub struct FakeHost {
     pub calls: RefCell<Vec<Called>>,
     /// What `--cpu-features` prints.
     pub cpu: String,
+    /// The exit code of `--cpu-features`.
+    pub cpu_exit: i32,
     /// What `--gamepad` gives.
     pub gamepad: Result<String, ToolError>,
     /// The game's exit code.
@@ -55,6 +61,8 @@ pub struct FakeHost {
     pub memory_mb: Option<u64>,
     /// Runs when the game starts, before it ends.
     pub on_play: Option<Box<dyn Fn(&ToolCall)>>,
+    /// Every `(pid, limit)` the runner waited for.
+    pub waited: RefCell<Vec<(u32, Duration)>>,
     played: Cell<bool>,
 }
 
@@ -63,11 +71,13 @@ impl Default for FakeHost {
         FakeHost {
             calls: RefCell::default(),
             cpu: String::new(),
+            cpu_exit: 0,
             gamepad: Ok(String::new()),
             exit: 0,
             interrupt: Interrupt::Never,
             memory_mb: None,
             on_play: None,
+            waited: RefCell::default(),
             played: Cell::new(false),
         }
     }
@@ -76,9 +86,9 @@ impl Default for FakeHost {
 impl Host for FakeHost {
     fn tool(&self, call: &ToolCall) -> Result<ToolOutput, ToolError> {
         self.calls.borrow_mut().push(Called::of(call));
-        let stdout = if call.args.iter().any(|arg| arg == "--gamepad") {
+        let (code, stdout) = if call.args.iter().any(|arg| arg == "--gamepad") {
             match &self.gamepad {
-                Ok(text) => text.clone(),
+                Ok(text) => (0, text.clone()),
                 Err(ToolError::TimedOut { command, limit }) => {
                     return Err(ToolError::TimedOut {
                         command: command.clone(),
@@ -99,10 +109,10 @@ impl Host for FakeHost {
                 }
             }
         } else {
-            self.cpu.clone()
+            (self.cpu_exit, self.cpu.clone())
         };
         Ok(ToolOutput {
-            code: Some(0),
+            code: Some(code),
             stdout,
         })
     }
@@ -119,7 +129,8 @@ impl Host for FakeHost {
         Ok(Some(self.exit))
     }
 
-    fn wait_for_pid(&self, _pid: u32, _limit: Duration) -> bool {
+    fn wait_for_pid(&self, pid: u32, limit: Duration) -> bool {
+        self.waited.borrow_mut().push((pid, limit));
         true
     }
 
