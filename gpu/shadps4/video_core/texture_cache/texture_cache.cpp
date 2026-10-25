@@ -1637,7 +1637,12 @@ void TextureCache::GarbageCollectImages() {
             const char* env = std::getenv("SPARTAN_GC_BUDGET_MB");
             return env ? std::strtoull(env, nullptr, 10) << 20 : 0;
         }();
-        if (instance.IsIntegrated() || forced_budget) {
+        // fp32-gcn1: GPUs under 4 GB use this rule too. The startup thresholds floor the critical
+        // mark at DEFAULT_CRITICAL_GC_MEMORY (3 GB), above all of a 2 GB card's VRAM: an R7 350
+        // logged "memory pressure, 1674 of 1536 MiB (critical 3072)" all session, the hard eviction
+        // never ran and images spilled to system memory (effects lagged, 30-60 FPS swings).
+        static const bool small_vram = instance.GetTotalMemoryBudget() < 4_GB;
+        if (instance.IsIntegrated() || forced_budget || small_vram) {
             const u64 budget = forced_budget ? forced_budget : instance.GetDeviceMemoryBudgetNow();
             if (budget != 0) {
                 trigger_gc_memory = budget / 10 * 7;
