@@ -17,7 +17,8 @@ use iced_x86::{
 };
 use sha2::{Digest, Sha256};
 
-use super::prepare::{span, u64_at, PrepareError, Segment, IMPORT_NAME_SIZE, PF_X};
+use super::prepare::{IMPORT_NAME_SIZE, PF_X};
+use super::sce::{span, u64_at, SceError, Segment};
 use crate::core::fs::atomic_write;
 
 /// What a register slot holds when its operand is not a register.
@@ -144,7 +145,7 @@ pub struct Site {
 #[derive(Debug, thiserror::Error)]
 pub enum IsaError {
     #[error(transparent)]
-    Prepare(#[from] PrepareError),
+    Sce(#[from] SceError),
     #[error("not a G3PROBE5 image")]
     NotLinked,
     #[error("{}: {source}", path.display())]
@@ -323,11 +324,11 @@ pub fn scan_segment(code: &[u8], address: u64) -> Vec<Site> {
 }
 
 /// `pos + count * size`, or the out-of-bounds error the Python's `span` gives that far.
-fn skip(data: &[u8], pos: u64, count: u64, size: u64) -> Result<u64, PrepareError> {
+fn skip(data: &[u8], pos: u64, count: u64, size: u64) -> Result<u64, SceError> {
     count
         .checked_mul(size)
         .and_then(|bytes| pos.checked_add(bytes))
-        .ok_or(PrepareError::Truncated {
+        .ok_or(SceError::Truncated {
             offset: pos,
             size: count.saturating_mul(size),
             len: data.len() as u64,

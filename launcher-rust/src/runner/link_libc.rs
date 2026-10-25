@@ -12,16 +12,15 @@ use std::path::{Path, PathBuf};
 
 use indexmap::IndexMap;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 use super::link_modules::patch_fs_loads;
 use super::prepare::{
-    file_name, hex, hex_number, i64_at, mapped, name_at, parse_self, place, read_self_bytes, span,
-    table, u16_at, u32_at, u64_at, u8_at, PrepareError, ProgramHeader, Segment, DT_NULL,
-    DT_SCE_JMPREL, DT_SCE_PLTRELSZ, DT_SCE_RELA, DT_SCE_RELASZ, DT_SCE_STRSZ, DT_SCE_STRTAB,
-    DT_SCE_SYMTAB, DT_SCE_SYMTABSZ, IMAGE_LIMIT, IMPORT_NAME_SIZE, PT_DYNAMIC, PT_LOAD,
-    PT_SCE_DYNLIBDATA, RELOCATION_SIZE, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT,
-    R_X86_64_RELATIVE, SHN_ABS, STT_FUNC, STT_OBJECT, SYMBOL_SIZE,
+    hex, IMPORT_NAME_SIZE, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE,
+};
+pub use super::sce::{encode_id, Identity, PlainNames, Relocation, Versioned};
+use super::sce::{
+    hex_number, i64_at, mapped, place, span, u64_at, Ids, ProgramHeader, SceError, SceModule,
+    Segment, IMAGE_LIMIT, PT_LOAD, SHN_ABS, STT_FUNC, STT_OBJECT,
 };
 use crate::core::fs::atomic_write;
 use crate::core::patches::ensure_ascii;
@@ -30,11 +29,6 @@ pub(super) const PT_TLS: u32 = 7;
 pub(super) const PT_SCE_PROCPARAM: u32 = 0x6100_0001;
 /// `DT_INIT`: the module's initializer, relative to its base.
 const DT_INIT: u64 = 12;
-/// The dynamic tags of a library id (`DT_SCE_EXPORT_LIB`, `DT_SCE_IMPORT_LIB`) and of a module id
-/// (`DT_SCE_MODULE_INFO`, `DT_SCE_NEEDED_MODULE`): the id in the top 16 bits, then the version,
-/// then the name's offset in the string table.
-const LIBRARY_TAGS: [u64; 2] = [0x6100_0013, 0x6100_0015];
-const MODULE_TAGS: [u64; 2] = [0x6100_000d, 0x6100_000f];
 pub(super) const R_X86_64_DTPMOD64: u32 = 16;
 pub(super) const STT_SECTION: u8 = 3;
 const STB_GLOBAL: u8 = 1;
@@ -51,15 +45,9 @@ const IMPORT_ADDENDS: std::ops::Range<i64> = 0..4096;
 #[derive(Debug, thiserror::Error)]
 pub enum LinkError {
     #[error(transparent)]
-    Prepare(#[from] PrepareError),
+    Sce(#[from] SceError),
     #[error("{}: {source}", path.display())]
     Io { path: PathBuf, source: io::Error },
-    #[error("conflicting module/library IDs")]
-    ConflictingIds,
-    #[error("unsupported symbol encoding '{0}'")]
-    SymbolEncoding(String),
-    #[error("no library or module with id '{0}'")]
-    UnknownId(String),
     #[error("linker expects freshly prepared G3PROBE2")]
     NotPrepared,
     #[error("import name {0} of boot.bin is not UTF-8")]
@@ -112,22 +100,6 @@ pub enum LinkError {
     AmbiguousExport(String),
 }
 
-/// What a library or module id of the dynamic tags stands for: a name and a version.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Versioned {
-    pub name: String,
-    pub version: u16,
-}
-
-/// What a symbol name `NID#library#module` means in any module: the NID, and the library and
-/// module that the local ids name in the module holding the symbol.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Identity {
-    pub nid: String,
-    pub library: Versioned,
-    pub module: Versioned,
-}
-
 /// One entry of a module's symbol table, with its name read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Symbol {
@@ -141,17 +113,6 @@ pub struct Symbol {
     pub size: u64,
     /// `None` for a symbol without a name and, in `link_modules`, for a plain name.
     pub identity: Option<Identity>,
-}
-
-/// One relocation of a module (`Elf64_Rela`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Relocation {
-    pub target: u64,
-    /// The low half of `r_info`.
-    pub kind: u32,
-    /// The symbol's index, the high half of `r_info`.
-    pub symbol: u64,
-    pub addend: i64,
 }
 
 /// A module as the linkers read it.
@@ -172,27 +133,16 @@ pub struct Module {
     pub relocations: Vec<Relocation>,
     /// `DT_INIT`, when the module has one.
     pub init: Option<u64>,
-    /// The library and module ids the symbol names use, by local id, in the order the dynamic
-    /// tags first name them.
-    pub libraries: IndexMap<String, Versioned>,
-    pub modules: IndexMap<String, Versioned>,
+    /// The library and module ids the symbol names use.
+    pub ids: Ids,
     /// The program headers whose bytes the SELF does not carry.
     pub missing: Vec<usize>,
-}
-
-/// What a symbol name other than `NID#library#module` (such as `module_start`) means.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum PlainNames {
-    /// An error: `link_libc` links encoded names only.
-    Refused,
-    /// No identity: `link_modules` leaves such a symbol unlinked.
-    Unlinkable,
 }
 
 impl Module {
     /// What `name` means through this module's ids: `None` when it is not `NID#library#module`.
     pub(super) fn identity(&self, name: &str) -> Result<Option<Identity>, LinkError> {
-        resolve(&self.libraries, &self.modules, name)
+        Ok(self.ids.resolve(name)?)
     }
 
     /// The first program header of `kind`.
@@ -220,154 +170,47 @@ impl Module {
         usize::try_from(index)
             .ok()
             .and_then(|index| self.symbols.get(index))
-            .ok_or(LinkError::Prepare(PrepareError::BadSymbolIndex(index)))
+            .ok_or(LinkError::Sce(SceError::BadSymbolIndex(index)))
     }
-}
-
-/// The local id of a library or module as symbol names spell it: `value` in base 64, most
-/// significant digit first, over `A–Z a–z 0–9 + -`.
-pub fn encode_id(value: u64) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-";
-    let mut digits = vec![ALPHABET[(value & 63) as usize]];
-    let mut rest = value >> 6;
-    while rest != 0 {
-        digits.push(ALPHABET[(rest & 63) as usize]);
-        rest >>= 6;
-    }
-    digits
-        .iter()
-        .rev()
-        .map(|&digit| char::from(digit))
-        .collect()
-}
-
-/// What `name` means through these ids: `None` when it is not `NID#library#module`.
-fn resolve(
-    libraries: &IndexMap<String, Versioned>,
-    modules: &IndexMap<String, Versioned>,
-    name: &str,
-) -> Result<Option<Identity>, LinkError> {
-    let parts: Vec<&str> = name.split('#').collect();
-    let [nid, library, module] = parts[..] else {
-        return Ok(None);
-    };
-    let id = |ids: &IndexMap<String, Versioned>, key: &str| {
-        ids.get(key)
-            .cloned()
-            .ok_or_else(|| LinkError::UnknownId(key.to_owned()))
-    };
-    Ok(Some(Identity {
-        nid: nid.to_owned(),
-        library: id(libraries, library)?,
-        module: id(modules, module)?,
-    }))
 }
 
 /// `identity` of `name`, which must be `NID#library#module`.
-fn encoded(identity: Option<Identity>, name: &str) -> Result<Identity, LinkError> {
-    identity.ok_or_else(|| LinkError::SymbolEncoding(name.to_owned()))
+fn encoded(identity: Option<Identity>, name: &str) -> Result<Identity, SceError> {
+    identity.ok_or_else(|| SceError::SymbolEncoding(name.to_owned()))
 }
 
-/// Reads the module in `path` (a SELF or an unpacked ELF) once: its dynamic tags, ids, symbols
-/// and relocations, and the file's hash.
+/// Reads the module in `path` (a SELF or an unpacked ELF) once, with the linkers' view of it: the
+/// symbols with their identities, the relocations and the ids.
 pub(super) fn load(path: &Path, plain: PlainNames) -> Result<Module, LinkError> {
-    let source = read_self_bytes(path)?;
-    let parsed = parse_self(&source)?;
-    let header = |kind, name| {
-        parsed
-            .program_headers
-            .iter()
-            .find(|p| p.kind == kind)
-            .ok_or(PrepareError::MissingSegment(name))
-    };
-    let dynamic = header(PT_DYNAMIC, "dynamic")?;
-    let mut entries = Vec::new();
-    for pos in (dynamic.offset..dynamic.offset.saturating_add(dynamic.filesz)).step_by(16) {
-        let record = span(&parsed.elf, pos, 16)?;
-        let tag = u64_at(record, 0)?;
-        if tag == DT_NULL {
-            break;
-        }
-        entries.push((tag, u64_at(record, 8)?));
-    }
-    let tags: HashMap<u64, u64> = entries.iter().copied().collect();
-    let library = header(PT_SCE_DYNLIBDATA, "SCE dynlib data")?;
-    let blob = span(&parsed.elf, library.offset, library.filesz)?;
-    let strings = table(blob, &tags, DT_SCE_STRTAB, DT_SCE_STRSZ)?;
-    let mut libraries = IndexMap::new();
-    let mut modules = IndexMap::new();
-    for &(tag, value) in &entries {
-        let ids = if LIBRARY_TAGS.contains(&tag) {
-            &mut libraries
-        } else if MODULE_TAGS.contains(&tag) {
-            &mut modules
-        } else {
-            continue;
-        };
-        let key = encode_id(value >> 48);
-        let id = Versioned {
-            name: name_at(strings, value & 0xffff_ffff)?,
-            version: (value >> 32) as u16,
-        };
-        if ids.get(&key).is_some_and(|known| *known != id) {
-            return Err(LinkError::ConflictingIds);
-        }
-        ids.insert(key, id);
-    }
-    let syms = table(blob, &tags, DT_SCE_SYMTAB, DT_SCE_SYMTABSZ)?;
-    let mut symbols = Vec::new();
-    for pos in (0..syms.len() as u64).step_by(SYMBOL_SIZE as usize) {
-        let record = span(syms, pos, SYMBOL_SIZE)?;
-        let info = u8_at(record, 4)?;
-        let name = name_at(strings, u64::from(u32_at(record, 0)?))?;
-        let identity = if name.is_empty() {
-            None
-        } else {
-            let identity = resolve(&libraries, &modules, &name)?;
-            match plain {
-                PlainNames::Refused => Some(encoded(identity, &name)?),
-                PlainNames::Unlinkable => identity,
-            }
-        };
-        symbols.push(Symbol {
-            name,
-            kind: info & 15,
-            binding: info >> 4,
-            section: u16_at(record, 6)?,
-            value: u64_at(record, 8)?,
-            size: u64_at(record, 16)?,
-            identity,
-        });
-    }
-    let mut relocations = Vec::new();
-    for (offset_tag, size_tag) in [
-        (DT_SCE_JMPREL, DT_SCE_PLTRELSZ),
-        (DT_SCE_RELA, DT_SCE_RELASZ),
-    ] {
-        let rela = table(blob, &tags, offset_tag, size_tag)?;
-        for pos in (0..rela.len() as u64).step_by(RELOCATION_SIZE as usize) {
-            let record = span(rela, pos, RELOCATION_SIZE)?;
-            let info = u64_at(record, 8)?;
-            relocations.push(Relocation {
-                target: u64_at(record, 0)?,
-                kind: (info & 0xffff_ffff) as u32,
-                symbol: info >> 32,
-                addend: i64_at(record, 16)?,
-            });
-        }
-    }
+    let m = SceModule::read(path)?;
+    let ids = m.ids(plain)?;
+    let symbols = m
+        .symbols
+        .iter()
+        .map(|s| {
+            Ok(Symbol {
+                name: s.name.clone(),
+                kind: s.kind,
+                binding: s.binding,
+                section: s.section,
+                value: s.value,
+                size: s.size,
+                identity: ids.identity(&s.name)?,
+            })
+        })
+        .collect::<Result<Vec<_>, LinkError>>()?;
+    let relocations = m.relocations()?;
     Ok(Module {
-        name: file_name(path),
-        sha256: Sha256::digest(&source).into(),
+        init: m.tag(DT_INIT),
+        name: m.file,
+        sha256: m.sha256,
         symbols,
-        elf: parsed.elf,
-        segments: parsed.segments,
-        program_headers: parsed.program_headers,
+        elf: m.info.elf,
+        segments: m.info.segments,
+        program_headers: m.info.program_headers,
         relocations,
-        init: tags.get(&DT_INIT).copied(),
-        libraries,
-        modules,
-        missing: parsed.missing,
+        ids,
+        missing: m.info.missing,
     })
 }
 
@@ -556,7 +399,7 @@ pub(super) fn map_module(
         .iter()
         .map(|p| p.vaddr.saturating_add(p.memsz))
         .max()
-        .ok_or(PrepareError::MissingSegment("loadable"))?;
+        .ok_or(SceError::MissingSegment("loadable"))?;
     let end = base.saturating_add(size);
     if end > IMAGE_LIMIT {
         return Err(LinkError::ImageTooLarge);
@@ -749,11 +592,13 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
         identities.insert(encoded(main.identity(name)?, name)?, index);
     }
     let main_libraries: HashMap<&Versioned, &str> = main
+        .ids
         .libraries
         .iter()
         .map(|(key, id)| (id, key.as_str()))
         .collect();
     let main_modules: HashMap<&Versioned, &str> = main
+        .ids
         .modules
         .iter()
         .map(|(key, id)| (id, key.as_str()))
@@ -828,16 +673,14 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
         .collect();
     let fs_loads_patched = patch_fs_loads(&mut boot.image, &main.loads(), 0);
     let main_tls = main_tls(&main, size)?;
-    let tls = libc
-        .header(PT_TLS)
-        .ok_or(PrepareError::MissingSegment("TLS"))?;
+    let tls = libc.header(PT_TLS).ok_or(SceError::MissingSegment("TLS"))?;
     if tls.filesz > tls.memsz || !mapped(loads, tls.vaddr, tls.memsz) {
         return Err(LinkError::LibcTlsLayout);
     }
     let procparam = main
         .header(PT_SCE_PROCPARAM)
-        .ok_or(PrepareError::MissingSegment("procparam"))?;
-    let init = libc.init.ok_or(PrepareError::MissingTag(DT_INIT))?;
+        .ok_or(SceError::MissingSegment("procparam"))?;
+    let init = libc.init.ok_or(SceError::MissingTag(DT_INIT))?;
     let init = base.checked_add(init).ok_or(LinkError::OutOfRange)?;
     let mut data = boot.header(b"G3PROBE4");
     push_words(
@@ -902,7 +745,7 @@ mod tests {
 
     use super::*;
     use crate::runner::packages::{dynamic, elf, package, self_fixture, Program, Sym};
-    use crate::runner::prepare::parse_self;
+    use crate::runner::sce::parse_self;
 
     const EXPORT_LIBRARY: u64 = 0x6100_0013;
     const MODULE_INFO: u64 = 0x6100_000d;

@@ -22,9 +22,9 @@ use super::link_libc::{
     STT_SECTION,
 };
 use super::prepare::{
-    hex, hex_number, mapped, place, PrepareError, Segment, PF_X, R_X86_64_64, R_X86_64_GLOB_DAT,
-    R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE,
+    hex, PF_X, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE,
 };
+use super::sce::{hex_number, mapped, place, SceError, Segment};
 
 pub const DEFAULT_MODULES: [&str; 2] = ["libc.prx", "libSceFios2.prx"];
 /// `mov rax, fs:[0]`: how the eboot and the modules read their thread pointer (initial-exec TLS).
@@ -318,7 +318,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
     let main_tls = main_tls(&main, size)?;
     let procparam = main
         .header(PT_SCE_PROCPARAM)
-        .ok_or(PrepareError::MissingSegment("procparam"))?;
+        .ok_or(SceError::MissingSegment("procparam"))?;
     let mut data = boot.header(b"G3PROBE5");
     push_words(&mut data, &[procparam.vaddr]);
     push_words(&mut data, &main_tls.words());
@@ -364,7 +364,7 @@ mod tests {
     use super::*;
     use crate::runner::link_libc::{Identity, Versioned};
     use crate::runner::packages::self_fixture;
-    use crate::runner::prepare::parse_self;
+    use crate::runner::sce::parse_self;
 
     fn libc_1() -> Versioned {
         Versioned {
