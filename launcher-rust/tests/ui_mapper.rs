@@ -402,6 +402,68 @@ fn failed_save_keeps_previous_profile_and_row_values() {
 }
 
 #[test]
+fn a_line_sdl_refuses_is_never_saved() {
+    // Python `commit`: SDL checks the line before it is saved. One it refuses leaves the file with
+    // the bytes it had (here another pad's profile).
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = launcher(dir.path());
+    let path = profiles(&state);
+    let other = mapping_line(
+        "03000000aaaa0000bbbb000000000000",
+        "Other pad",
+        &map(&[("a", "b0")]),
+        "Windows",
+        true,
+    )
+    .unwrap();
+    fs::write(&path, format!("{other}\n")).unwrap();
+    let before = fs::read_to_string(&path).unwrap();
+    let fake = FakeJoysticks::new("Windows", vec![pad(3, GUID)]);
+    common::open(&mut state, Page::Controls);
+    state.open_mapper_with(Box::new(fake.clone()));
+    fake.script().preview_error = Some("Couldn't parse mapping".to_string());
+    capture_button(&mut state, &fake, "a", 7);
+    // SDL was asked about the new line, and said no.
+    assert!(fake
+        .script()
+        .previewed
+        .iter()
+        .any(|line| line.contains("a:b7,")));
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
+    let shown = state.modal.take().expect("an error dialog");
+    assert!(matches!(shown.kind, ModalKind::Error), "{:?}", shown.kind);
+    assert_eq!(shown.title, "Could not save mapping");
+    assert_eq!(shown.text, "Couldn't parse mapping");
+    assert_eq!(mapper(&state).bindings, map(&[]));
+    assert_eq!(row(&state, "a").assigned, "Not configured");
+    assert_eq!(
+        mapper(&state).status,
+        "The change was not saved. Configure the control again to retry."
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn an_sdl3_that_does_not_load_says_why_in_a_dialog() {
+    // Python `open_controller_mapper`: an error opening SDL3 shows in a dialog titled as the page,
+    // and no page opens. The port's broken DLL fails in the loader, before SDL holds any state.
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = launcher(dir.path());
+    let broken = state.paths.port_dir.join("bin").join("SDL3.dll");
+    fs::create_dir_all(broken.parent().unwrap()).unwrap();
+    fs::write(&broken, b"not a library").unwrap();
+    common::open(&mut state, Page::Controls);
+    send(&mut state, MapperMessage::Open);
+    assert!(state.mapper.is_none());
+    assert_eq!(state.page, Page::Controls);
+    let shown = state.modal.take().expect("an error dialog");
+    assert!(matches!(shown.kind, ModalKind::Error), "{:?}", shown.kind);
+    assert_eq!(shown.title, "Set up a controller");
+    // The system's reason, as the loader gave it.
+    assert!(shown.text.contains("(os error "), "{}", shown.text);
+}
+
+#[test]
 fn parent_destroy_closes_sdl_without_saving() {
     let dir = tempfile::tempdir().unwrap();
     let (mut state, fake) = opened(dir.path());
