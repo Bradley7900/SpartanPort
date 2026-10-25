@@ -461,8 +461,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // Task 21 filled Modal(Dismiss)
         Message::Modal(ModalMessage::Dismiss) => state.modal = None,
         Message::Browse(key) => return browse(state, key),
+        // A folder chosen in the dialog or typed into its field is read at once. Choosing the
+        // folder already chosen reads it again (ruling R49): that is how the player has a dump
+        // copied into it meanwhile read, as the Python's variable trace fires on any write.
         Message::Browsed(key, Some(path)) => {
-            return apply_set(state, &key, Value::String(path.display().to_string()));
+            state
+                .store
+                .set(&key, Value::String(path.display().to_string()));
+            return follow(state, Cause::Keys(&[key.as_str()]));
         }
         Message::Browsed(_, None) => {}
         Message::PatchToggled(name, on) => game::patch_toggled(state, &name, on),
@@ -544,7 +550,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
 }
 
 /// Stores a setting in the file it lives in; when its value changed, the views read from it follow
-/// (`follow`). A folder chosen in the dialog or typed into its field is read at once.
+/// (`follow`).
 pub fn apply_set(state: &mut State, key: &str, value: Value) -> Task<Message> {
     if state.store.set(key, value) {
         return follow(state, Cause::Keys(&[key]));
