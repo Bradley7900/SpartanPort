@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use spartanport_launcher::core::draw;
 use spartanport_launcher::core::graphics_options;
-use spartanport_launcher::core::patches::{write_game_patches, PatchJob};
+use spartanport_launcher::core::patches::{apply, plan, PlanInput, Selection};
 use spartanport_launcher::runner::content_profile::{self, Sku};
 use spartanport_launcher::runner::isa_rewrite::{self, Site};
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
@@ -192,17 +192,19 @@ fn patches_match_python() {
         .to_vec();
     let mods = [input.join("mod.xml")];
     let mut log = Vec::new();
-    let job = PatchJob {
-        out: &out,
+    let job = PlanInput {
         game: &game,
         builtin_dir: &builtin,
+        out: &out,
         mod_patches: &mods,
-        extra: &extra,
-        only: true,
-        patches_dir: None,
-        patches_config: None,
+        selection: Selection::Script {
+            extra: &extra,
+            only: true,
+        },
+        external: None,
     };
-    write_game_patches(&job, &mut log).unwrap();
+    let chosen = plan(&job, &mut log).unwrap();
+    apply(&chosen, &out.join("eboot.elf"), &mut log).unwrap();
     for name in ["patches-merged.xml", "patches.bin", "patch_status.json"] {
         let actual = fs::read(out.join(name)).unwrap();
         assert_same_bytes(&actual, &expected("patches", name), name);

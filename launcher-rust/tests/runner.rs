@@ -16,13 +16,12 @@ use std::time::{Duration, Instant};
 use indexmap::IndexMap;
 use serde_json::json;
 use spartanport_launcher::core::log::ExitHint;
-use spartanport_launcher::core::patches::{patch_status, PatchStatus};
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::platform::tool::{run_tool, Stderr, ToolCall, ToolError, Window};
 use spartanport_launcher::core::settings::Settings;
 use spartanport_launcher::runner::{
-    isa_rewrite, patch_environment, play_with, restart_command, run_with, Host, RunContext,
-    SystemHost, AFTER_LIMIT, GAMEPAD_PROBE_LIMIT,
+    isa_rewrite, play_with, restart_command, run_with, Host, RunContext, SystemHost, AFTER_LIMIT,
+    GAMEPAD_PROBE_LIMIT,
 };
 use spartanport_launcher::startup::{start, Context};
 
@@ -832,37 +831,6 @@ fn a_pool_above_ram_warns() {
         "{ran}"
     );
     assert_eq!(ran.games().len(), 1, "{ran}");
-}
-
-#[test]
-fn a_corrupt_patch_status_defaults_the_engine_fps() {
-    // Review Focus: patch_status.json missing or cut short (a crash between the two writes).
-    let defaults = [
-        ("SPARTAN_VBLANK_HZ".to_string(), "60".to_string()),
-        ("SPARTAN_ENGINE_FPS".to_string(), "60".to_string()),
-    ];
-    assert_eq!(patch_environment(None), defaults);
-    let out = tempfile::tempdir().unwrap();
-    fs::write(out.path().join("patch_status.json"), "{").unwrap();
-    let status = patch_status(out.path());
-    assert_eq!(status, None);
-    assert_eq!(patch_environment(status.as_ref()), defaults);
-    // An applied frame rate patch and the notes' needs, in run.py's order.
-    let status = PatchStatus {
-        applied: vec!["Frame Rate Patch - 120 FPS".to_string()],
-        dmem_mb: Some(7104),
-        vblank_hz: Some(120),
-        ..PatchStatus::default()
-    };
-    let pairs: Vec<(String, String)> = [
-        ("SPARTAN_DMEM_MB", "7104"),
-        ("SPARTAN_VBLANK_HZ", "120"),
-        ("SPARTAN_ENGINE_FPS", "120"),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
-    assert_eq!(patch_environment(Some(&status)), pairs);
 }
 
 /// `CommandLineToArgvW`: how Windows programs read their command line.

@@ -24,7 +24,7 @@ mod packages;
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -36,7 +36,7 @@ use crate::core::legacy;
 use crate::core::log::RunLog;
 use crate::core::mods::{self, Overlay};
 use crate::core::options::RESOLUTIONS;
-use crate::core::patches::{self, PatchJob, PatchStatus};
+use crate::core::patches::{self, Applied, External, PlanInput, Selection};
 use crate::core::paths::Paths;
 use crate::core::platform;
 use crate::core::platform::tool::{Stderr, ToolCall, Window};
@@ -66,7 +66,7 @@ pub const INTERRUPTED: i32 = 130;
 /// The probe's exit code for a CPU without an instruction set the ISA rewrite covers.
 pub const UNSUPPORTED_CPU: i32 = 20;
 const EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
-/// The patches' default engine and VBlank rate (`run.py`).
+/// The engine rate without a frame rate patch (`run.py`).
 const DEFAULT_RATE: u32 = 60;
 
 /// Prepares the game image and starts the probe on it (`run.py` `main`, spec §5): `--after <pid>`
@@ -79,38 +79,6 @@ const DEFAULT_RATE: u32 = 60;
 pub fn run(context: RunContext<'_>) -> i32 {
     platform::catch_interrupt();
     run_with(context, &SystemHost)
-}
-
-/// The variables the applied patches decide after `patches.py` (`run.py`), in the order it sets
-/// them: `SPARTAN_DMEM_MB` when the notes ask for more direct memory, `SPARTAN_VBLANK_HZ` (the
-/// notes' rate, else 60) and `SPARTAN_ENGINE_FPS` (`engine_fps`, else the rate of the applied frame
-/// rate patch, else 60). `None`, for a game without a patch profile or a `patch_status.json` that is
-/// missing or cut short, gives the defaults. The first two are only set when the environment lacks
-/// them; the engine rate always is.
-pub fn patch_environment(status: Option<&PatchStatus>) -> Vec<(String, String)> {
-    let mut pairs = Vec::new();
-    if let Some(dmem) = status.and_then(|s| s.dmem_mb).filter(|&mb| mb != 0) {
-        pairs.push(("SPARTAN_DMEM_MB".to_string(), dmem.to_string()));
-    }
-    let vblank = status
-        .and_then(|s| s.vblank_hz)
-        .filter(|&hz| hz != 0)
-        .unwrap_or(DEFAULT_RATE);
-    pairs.push(("SPARTAN_VBLANK_HZ".to_string(), vblank.to_string()));
-    pairs.push((
-        "SPARTAN_ENGINE_FPS".to_string(),
-        engine_fps(status).to_string(),
-    ));
-    pairs
-}
-
-/// The highest engine rate a launch with `status` allows (`run.py`: 60 without a frame rate patch).
-fn engine_fps(status: Option<&PatchStatus>) -> u32 {
-    status.map_or(DEFAULT_RATE, |status| {
-        status
-            .engine_fps
-            .unwrap_or_else(|| graphics_options::applied_engine_fps(&status.applied))
-    })
 }
 
 /// `SPARTAN_RESTART_COMMAND`, what the in-game "Apply and restart" starts (`run.py`, from
@@ -546,19 +514,19 @@ impl<'a> Runner<'a> {
         }
         self.set_default("SPARTAN_READBACK_LINEAR", "1");
         // 11 and 12. The patches.
-        let status = match self.patches(&plan, &game, &mod_patch_files, &graphics) {
-            Ok(status) => status,
+        let applied = match self.patches(&plan, &game, &mod_patch_files, &graphics) {
+            Ok(applied) => applied,
             Err(code) => return code,
         };
-        for (key, value) in patch_environment(status.as_ref()) {
-            if key == "SPARTAN_ENGINE_FPS" || !self.env.contains_key(&key) {
-                self.derive(&key, value);
+        for (key, value) in applied.environment() {
+            if key == "SPARTAN_ENGINE_FPS" || !self.env.contains_key(key) {
+                self.derive(key, value);
             }
         }
         // The highest engine rate this launch allows (the menu picks a lower one live). Without
         // the frame rate patch the engine steps 1/60 s per frame: the present thread must not flip
         // faster, or the game speeds up.
-        let engine_fps = engine_fps(status.as_ref());
+        let engine_fps = applied.engine_fps;
         let chosen = graphics.options.engine_fps.parse().unwrap_or(engine_fps);
         let note = if engine_fps > DEFAULT_RATE || graphics.options.engine_fps == "60" {
             ""
@@ -745,82 +713,40 @@ impl<'a> Runner<'a> {
         Ok(())
     }
 
-    /// Steps 11 and 12: the patch selection (`SPARTAN_PATCHES`, `SPARTAN_PATCHES_ONLY`), then
-    /// `patches.py`'s compile into `patches.bin` and `patch_status.json`. Returns the status with
-    /// what `run.py` derives from it (the engine rate of the applied list, the notes' direct memory
-    /// and VBlank rate); `None` for a game without a patch profile.
+    /// Steps 11 and 12: the patch plan (the launcher's list goes to `SPARTAN_PATCHES` and
+    /// `SPARTAN_PATCHES_ONLY`; a game without a patch profile keeps the inherited ones), then its
+    /// compile into `patches.bin` and `patch_status.json`. Returns what the applied patches ask for.
     fn patches(
         &mut self,
         plan: &RunPlan,
         game: &Path,
         mod_patch_files: &[PathBuf],
         graphics: &graphics_options::Prepared,
-    ) -> Result<Option<PatchStatus>, i32> {
-        let (port, out) = (&plan.port, &plan.out);
-        let builtin = port.join("patches");
-        let profile = patches::game_profile_for(game);
-        let mut xml = profile.map(|profile| builtin.join(profile.xml));
-        if let Some(base) = xml.clone().filter(|_| !mod_patch_files.is_empty()) {
-            // The built-in patches plus the enabled mods' (the same file for the selection and
-            // the notes).
-            let merged = out.join("patches-merged.xml");
-            patches::merge_patch_files(&base, mod_patch_files, &merged, &mut *self.out)
-                .map_err(|error| self.fail(&format!("Patches: {error}")))?;
-            xml = Some(merged);
-        }
-        if let (Some(profile), Some(xml)) = (profile, &xml) {
-            let tag = profile.app_version;
-            let mut names =
-                patches::selected_patches(xml, tag, &plan.chosen_patches, plan.patches_only)
-                    .map_err(|error| self.fail(&format!("Patches: {error}")))?;
-            // A mod's patches that are on by default stay on when the launcher chose the list.
-            let defaults: Vec<String> = patches::default_enabled(mod_patch_files, tag)
-                .into_iter()
-                .filter(|name| !names.contains(name))
-                .collect();
-            names.extend(defaults);
-            // spartanport.ini decides the resolution and frame rate patches.
-            let names = graphics_options::patch_names(&names, &graphics.options, true);
-            let available = patches::available_patches(xml, tag)
-                .map_err(|error| self.fail(&format!("Patches: {error}")))?;
-            let log = &mut *self.out;
-            let names = graphics_options::restrict_with_log(&names, &available, &mut |line| {
-                say(log, &line)
-            });
-            self.set("SPARTAN_PATCHES", names.join(";"));
-            self.set("SPARTAN_PATCHES_ONLY", "1");
-        }
-        let status_file = out.join("patch_status.json");
-        if let Err(error) = fs::remove_file(&status_file) {
-            if error.kind() != io::ErrorKind::NotFound {
-                return Err(self.fail(&format!("{}: {error}", python_path(&status_file))));
-            }
-        }
-        let extra = split_patches(&self.get_or("SPARTAN_PATCHES", ""));
-        let job = PatchJob {
-            out,
+    ) -> Result<Applied, i32> {
+        let builtin = plan.port.join("patches");
+        let input = PlanInput {
             game,
             builtin_dir: &builtin,
+            out: &plan.out,
             mod_patches: mod_patch_files,
-            extra: &extra,
-            only: self.get("SPARTAN_PATCHES_ONLY") == Some("1"),
-            patches_dir: Some(&plan.patches_dir),
-            patches_config: Some(&plan.patches_config),
+            selection: Selection::Launch {
+                chosen: &plan.chosen_patches,
+                only: plan.patches_only,
+                graphics: &graphics.options,
+            },
+            external: Some(External {
+                dir: &plan.patches_dir,
+                config: &plan.patches_config,
+            }),
         };
-        patches::write_game_patches(&job, &mut *self.out)
+        let chosen = patches::plan(&input, &mut *self.out)
             .map_err(|error| self.fail(&format!("Patches: {error}")))?;
-        let (Some(profile), Some(xml)) = (profile, &xml) else {
-            return Ok(None);
-        };
-        // Only the patches found in this eboot.bin count: a frame rate patch that was skipped
-        // leaves the engine at 60 FPS, and the notes' memory and VBlank needs follow the list.
-        let mut status = patches::patch_status(out).unwrap_or_default();
-        let needs = patches::patch_requirements(xml, &status.applied, profile.app_version)
-            .map_err(|error| self.fail(&format!("Patches: {error}")))?;
-        status.engine_fps = Some(graphics_options::applied_engine_fps(&status.applied));
-        status.dmem_mb = needs.dmem_mb;
-        status.vblank_hz = needs.vblank_hz;
-        Ok(Some(status))
+        if let Some(list) = chosen.launcher_list() {
+            self.set("SPARTAN_PATCHES", list.join(";"));
+            self.set("SPARTAN_PATCHES_ONLY", "1");
+        }
+        patches::apply(&chosen, &plan.out.join("eboot.elf"), &mut *self.out)
+            .map_err(|error| self.fail(&format!("Patches: {error}")))
     }
 
     /// Step 13: the probe arguments of the glyph copies and of the pause menu's copy; sets
@@ -890,11 +816,6 @@ impl<'a> Runner<'a> {
             Err(error) => self.fail(&error.to_string()),
         }
     }
-}
-
-/// The patch names of a `;`-separated list (`SPARTAN_PATCHES`, `patches.py --extra`).
-fn split_patches(list: &str) -> Vec<String> {
-    list.split(';').map(str::to_string).collect()
 }
 
 /// `value` with Python's `{:,}` thousands separators.

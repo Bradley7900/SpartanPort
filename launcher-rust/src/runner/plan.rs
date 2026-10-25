@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use indexmap::IndexMap;
 
-use super::split_patches;
 use crate::core::catalog;
 use crate::core::mods;
 use crate::core::paths::Paths;
@@ -87,7 +86,11 @@ impl RunPlan {
             mods_switch: catalog_text("SPARTAN_MODS_ENABLED"),
             patches_dir: in_data("SPARTAN_PATCHES_DIR", "patches"),
             patches_config: in_data("SPARTAN_PATCHES_CONFIG", "patches.json"),
-            chosen_patches: split_patches(value("SPARTAN_PATCHES").unwrap_or_default()),
+            chosen_patches: value("SPARTAN_PATCHES")
+                .unwrap_or_default()
+                .split(';')
+                .map(str::to_string)
+                .collect(),
             patches_only: value("SPARTAN_PATCHES_ONLY") == Some("1"),
             user: in_data("SPARTAN_USER_DIR", "user"),
             probe,

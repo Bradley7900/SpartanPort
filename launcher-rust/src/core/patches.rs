@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 
 use super::fs::atomic_write;
 use super::game::{game_profile, GameProfile};
-use super::graphics_options::{patch_names, restrict_with_log, Options};
+use super::graphics_options::{applied_engine_fps, patch_names, restrict_with_log, Options};
 use super::options::{FRAME_RATE_PATCH_PREFIX, RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH};
 use super::paths::Paths;
 use super::python::{py_hex, py_int, py_list, py_repr, python_json};
@@ -50,9 +50,7 @@ pub struct PatchMeta {
     pub enabled_by_default: bool,
 }
 
-/// The report `patches.py` writes after a start (`patch_status.json`), in its key order. The
-/// Python writes only the first three keys; the last three are the launcher's, written only when
-/// set, and a file without them still reads.
+/// The report `patches.py` writes after a start (`patch_status.json`), in its key order.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PatchStatus {
     /// SHA-256 of the game's `eboot.bin` (`null` when it could not be read).
@@ -63,12 +61,6 @@ pub struct PatchStatus {
     /// Patch name to the reason it was left out.
     #[serde(default)]
     pub skipped: IndexMap<String, String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub engine_fps: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dmem_mb: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub vblank_hz: Option<u32>,
 }
 
 /// The built-in patch file of a game profile.
@@ -1549,101 +1541,6 @@ pub fn write_status(out: &Path, status: &PatchStatus) -> io::Result<()> {
     )
 }
 
-/// What `patches.py`'s command line gives it (`run.py` fills it from its environment).
-#[derive(Debug, Clone, Copy)]
-pub struct PatchJob<'a> {
-    /// `out/`: holds `eboot.elf`; receives `patches.bin`, `patch_status.json` and, with mods,
-    /// `patches-merged.xml`.
-    pub out: &'a Path,
-    /// The game folder (`eboot.bin`, `sce_sys/param.sfo`).
-    pub game: &'a Path,
-    /// The folder of the built-in patch files (`<port>/patches`).
-    pub builtin_dir: &'a Path,
-    /// The enabled mods' patch files, in load order (`--mod-patches`).
-    pub mod_patches: &'a [PathBuf],
-    /// Patch names (`--extra`: `SPARTAN_PATCHES` split at `;`).
-    pub extra: &'a [String],
-    /// `SPARTAN_PATCHES_ONLY=1`: `extra` is the whole selection.
-    pub only: bool,
-    /// Third-party patch files (`--patches-dir`), applied on the reference build only.
-    pub patches_dir: Option<&'a Path>,
-    /// Their selection, `patches.json` (`--patches-config`).
-    pub patches_config: Option<&'a Path>,
-}
-
-/// `patches.py`'s `main`: compiles the selected patches of the game's profile against
-/// `out/eboot.elf` into `out/patches.bin` and `out/patch_status.json`, and prints to `log` what
-/// the Python prints. A game without a profile gets a `patches.bin` without writes and no status.
-pub fn write_game_patches(job: &PatchJob<'_>, log: &mut dyn io::Write) -> Result<(), PatchError> {
-    let title = game_title_id(job.game);
-    let title = title.as_deref().unwrap_or("None");
-    let Some(profile) = game_profile_for(job.game) else {
-        write_patches(job.out, &[]).map_err(|error| with_path(job.out, error))?;
-        let _ = writeln!(log, "Patches: no patch profile for {title}: none applied");
-        return Ok(());
-    };
-    let mut xml = job.builtin_dir.join(profile.xml);
-    if !job.mod_patches.is_empty() {
-        let merged = job.out.join("patches-merged.xml");
-        merge_patch_files(&xml, job.mod_patches, &merged, log)?;
-        xml = merged;
-    }
-    let sha = eboot_sha256(job.game);
-    let _ = writeln!(
-        log,
-        "Patches: {title} {}, eboot.bin sha256 {}",
-        game_app_version(job.game).as_deref().unwrap_or("None"),
-        sha.as_deref().unwrap_or("None")
-    );
-    let names = selected_patches(&xml, profile.app_version, job.extra, job.only)?;
-    let elf = read_file(&job.out.join("eboot.elf"))?;
-    let segments = eboot_segments(&elf)?;
-    let image = eboot_image(&elf)?;
-    let (mut writes, skipped) = compile_patches(&xml, &names, None, &segments, Some(&image))?;
-    for (name, reason) in &skipped {
-        let _ = writeln!(log, "Patches: {name} skipped ({reason} in this eboot.bin)");
-    }
-    if let Some(dir) = job
-        .patches_dir
-        .filter(|_| sha.as_deref() == Some(REFERENCE_SHA256))
-    {
-        // Third-party files use the reference build's absolute addresses, so they are only
-        // applied there. After the built-in ones: an external patch of the same bytes wins.
-        let found = external_patches(dir, profile.app_version, &xml, profile.ids);
-        let selected = external_selection(&found, job.patches_config)?;
-        writes.extend(compile_external(
-            &selected,
-            profile.app_version,
-            &segments,
-            log,
-        ));
-    }
-    write_patches(job.out, &writes).map_err(|error| with_path(job.out, error))?;
-    let applied: Vec<String> = names
-        .iter()
-        .filter(|name| !skipped.contains_key(*name))
-        .cloned()
-        .collect();
-    let summary = if applied.is_empty() {
-        "none".to_string()
-    } else {
-        py_list(&applied)
-    };
-    let status = PatchStatus {
-        sha256: sha,
-        applied,
-        skipped,
-        ..PatchStatus::default()
-    };
-    write_status(job.out, &status).map_err(|error| with_path(job.out, error))?;
-    let _ = writeln!(
-        log,
-        "Patches: {title}; {} writes from {summary}",
-        writes.len()
-    );
-    Ok(())
-}
-
 // --- Plan
 
 /// What `plan` needs to choose the patches of a launch.
@@ -1684,12 +1581,23 @@ pub struct External<'a> {
 /// The patches chosen for a game, ready to apply.
 #[derive(Debug)]
 pub struct PatchPlan {
+    /// The game's patch profile (`None`: nothing to apply).
+    profile: Option<&'static GameProfile>,
+    /// The game's `TITLE_ID` and `APP_VER`, for the log.
+    title_id: Option<String>,
+    app_version: Option<String>,
+    /// SHA-256 of the game's `eboot.bin` (only with a profile).
+    sha256: Option<String>,
+    /// `out/`: receives `patches.bin` and `patch_status.json`.
+    out: PathBuf,
     /// The patch file the names come from (`None` without a profile).
     xml: Option<PathBuf>,
     /// The patches to compile, in order.
     names: Vec<String>,
     /// What the launcher handed over, as `SPARTAN_PATCHES` carries it.
     launcher_list: Option<Vec<String>>,
+    /// The third-party folder and its `patches.json`.
+    external: Option<(PathBuf, PathBuf)>,
 }
 
 impl PatchPlan {
@@ -1703,26 +1611,44 @@ impl PatchPlan {
 /// What the game folder says about its patches.
 struct Facts {
     profile: Option<&'static GameProfile>,
+    title_id: Option<String>,
+    app_version: Option<String>,
 }
 
 fn facts(game: &Path) -> Facts {
     Facts {
         profile: game_profile_for(game),
+        title_id: game_title_id(game),
+        app_version: game_app_version(game),
     }
 }
 
 /// Chooses the patches: merges the mods' patch files once into `out/patches-merged.xml` and
 /// resolves the names. Notes go to `log`.
 pub fn plan(input: &PlanInput, log: &mut dyn io::Write) -> Result<PatchPlan, PatchError> {
-    let Facts { profile } = facts(input.game);
+    let Facts {
+        profile,
+        title_id,
+        app_version,
+    } = facts(input.game);
     let mut plan = PatchPlan {
+        profile,
+        title_id,
+        app_version,
+        sha256: None,
+        out: input.out.to_path_buf(),
         xml: None,
         names: Vec::new(),
         launcher_list: None,
+        external: input
+            .external
+            .as_ref()
+            .map(|external| (external.dir.to_path_buf(), external.config.to_path_buf())),
     };
     let Some(profile) = profile else {
         return Ok(plan);
     };
+    plan.sha256 = eboot_sha256(input.game);
     let mut xml = input.builtin_dir.join(profile.xml);
     if !input.mod_patches.is_empty() {
         let merged = input.out.join("patches-merged.xml");
@@ -1761,6 +1687,136 @@ pub fn plan(input: &PlanInput, log: &mut dyn io::Write) -> Result<PatchPlan, Pat
     plan.names = names;
     Ok(plan)
 }
+
+// --- Apply
+
+/// `run.py`'s VBlank rate when no applied patch's note asks for one.
+const DEFAULT_VBLANK_HZ: u32 = 60;
+
+/// What a start got from its patches: the report and what the applied ones ask the runtime for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Applied {
+    /// The report written to `patch_status.json`; `None` for a game without a profile.
+    pub status: Option<PatchStatus>,
+    /// The highest engine rate the applied frame rate patch allows (60 without one).
+    pub engine_fps: u32,
+    /// Direct memory in MiB the applied patches' notes ask for.
+    pub dmem_mb: Option<u64>,
+    /// The VBlank rate the applied patches' notes ask for.
+    pub vblank_hz: Option<u32>,
+}
+
+impl Applied {
+    /// The variables `run.py` sets from the applied patches, in its order: `SPARTAN_DMEM_MB` when
+    /// the notes ask for more direct memory, `SPARTAN_VBLANK_HZ` (the notes' rate, else 60) and
+    /// `SPARTAN_ENGINE_FPS`. The runner sets the first two only when the environment lacks them,
+    /// the engine rate always.
+    pub fn environment(&self) -> Vec<(&'static str, String)> {
+        let mut pairs = Vec::new();
+        if let Some(dmem) = self.dmem_mb.filter(|&mb| mb != 0) {
+            pairs.push(("SPARTAN_DMEM_MB", dmem.to_string()));
+        }
+        let vblank = self
+            .vblank_hz
+            .filter(|&hz| hz != 0)
+            .unwrap_or(DEFAULT_VBLANK_HZ);
+        pairs.push(("SPARTAN_VBLANK_HZ", vblank.to_string()));
+        pairs.push(("SPARTAN_ENGINE_FPS", self.engine_fps.to_string()));
+        pairs
+    }
+}
+
+/// `patches.py`'s compile of `plan` against the game's `eboot_elf`: removes the last start's
+/// `patch_status.json` first, then writes `patches.bin` and, with a profile, the new status, and
+/// prints to `log` what the Python prints. A patch whose site is not found once is skipped. A game
+/// without a profile gets a `patches.bin` without writes and no status.
+pub fn apply(
+    plan: &PatchPlan,
+    eboot_elf: &Path,
+    log: &mut dyn io::Write,
+) -> Result<Applied, PatchError> {
+    let status_file = plan.out.join("patch_status.json");
+    if let Err(error) = std::fs::remove_file(&status_file) {
+        if error.kind() != io::ErrorKind::NotFound {
+            return Err(with_path(&status_file, error));
+        }
+    }
+    let out = &plan.out;
+    let title = plan.title_id.as_deref().unwrap_or("None");
+    let (Some(profile), Some(xml)) = (plan.profile, &plan.xml) else {
+        write_patches(out, &[]).map_err(|error| with_path(out, error))?;
+        let _ = writeln!(log, "Patches: no patch profile for {title}: none applied");
+        return Ok(Applied {
+            status: None,
+            engine_fps: applied_engine_fps(&[]),
+            dmem_mb: None,
+            vblank_hz: None,
+        });
+    };
+    let sha = plan.sha256.as_deref();
+    let _ = writeln!(
+        log,
+        "Patches: {title} {}, eboot.bin sha256 {}",
+        plan.app_version.as_deref().unwrap_or("None"),
+        sha.unwrap_or("None")
+    );
+    let elf = read_file(eboot_elf)?;
+    let segments = eboot_segments(&elf)?;
+    let image = eboot_image(&elf)?;
+    let (mut writes, skipped) = compile_patches(xml, &plan.names, None, &segments, Some(&image))?;
+    for (name, reason) in &skipped {
+        let _ = writeln!(log, "Patches: {name} skipped ({reason} in this eboot.bin)");
+    }
+    if let Some((dir, config)) = plan
+        .external
+        .as_ref()
+        .filter(|_| sha == Some(REFERENCE_SHA256))
+    {
+        // Third-party files use the reference build's absolute addresses, so they are only
+        // applied there. After the built-in ones: an external patch of the same bytes wins.
+        let found = external_patches(dir, profile.app_version, xml, profile.ids);
+        let selected = external_selection(&found, Some(config))?;
+        writes.extend(compile_external(
+            &selected,
+            profile.app_version,
+            &segments,
+            log,
+        ));
+    }
+    write_patches(out, &writes).map_err(|error| with_path(out, error))?;
+    let applied: Vec<String> = plan
+        .names
+        .iter()
+        .filter(|name| !skipped.contains_key(*name))
+        .cloned()
+        .collect();
+    let summary = if applied.is_empty() {
+        "none".to_string()
+    } else {
+        py_list(&applied)
+    };
+    let status = PatchStatus {
+        sha256: plan.sha256.clone(),
+        applied,
+        skipped,
+    };
+    write_status(out, &status).map_err(|error| with_path(out, error))?;
+    let _ = writeln!(
+        log,
+        "Patches: {title}; {} writes from {summary}",
+        writes.len()
+    );
+    // Only the patches found in this eboot.bin count: a frame rate patch that was skipped leaves
+    // the engine at 60 FPS, and the notes' memory and VBlank needs follow the same list.
+    let needs = patch_requirements(xml, &status.applied, profile.app_version)?;
+    Ok(Applied {
+        engine_fps: applied_engine_fps(&status.applied),
+        dmem_mb: needs.dmem_mb,
+        vblank_hz: needs.vblank_hz,
+        status: Some(status),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3127,15 +3183,15 @@ mod compile_tests {
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), expected);
         assert_eq!(patch_status(dir.path()), Some(status.clone()));
-        // The launcher's own keys come after the Python's, and only when set.
+        // Only the Python's three keys.
         status.sha256 = Some("ab".to_string());
-        status.engine_fps = Some(120);
-        status.dmem_mb = Some(11200);
-        status.vblank_hz = Some(144);
         write_status(dir.path(), &status).unwrap();
-        assert!(fs::read_to_string(&path)
-            .unwrap()
-            .ends_with(r#"}, "engine_fps": 120, "dmem_mb": 11200, "vblank_hz": 144}"#));
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(
+            written.starts_with(r#"{"sha256": "ab", "applied": ["#),
+            "{written}"
+        );
+        assert!(written.ends_with(r#"\n"}}"#), "{written}");
         assert_eq!(patch_status(dir.path()), Some(status));
     }
 
@@ -3412,37 +3468,6 @@ mod compile_tests {
     }
 
     #[test]
-    fn a_game_without_a_profile_gets_an_empty_patch_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let game = game_folder(
-            dir.path(),
-            &[("TITLE_ID", "CUSA99999"), ("TITLE", "Another Game")],
-        );
-        let out = dir.path().join("out");
-        let mut log = Vec::new();
-        let job = PatchJob {
-            out: &out,
-            game: &game,
-            builtin_dir: &repo("patches"),
-            mod_patches: &[],
-            extra: &[],
-            only: false,
-            patches_dir: None,
-            patches_config: None,
-        };
-        write_game_patches(&job, &mut log).unwrap();
-        let mut empty = b"G3PATCH2".to_vec();
-        empty.extend(0x40_0000u64.to_le_bytes());
-        empty.extend(0u64.to_le_bytes());
-        assert_eq!(fs::read(out.join("patches.bin")).unwrap(), empty);
-        assert!(!out.join("patch_status.json").exists());
-        assert_eq!(
-            String::from_utf8(log).unwrap(),
-            "Patches: no patch profile for CUSA99999: none applied\n"
-        );
-    }
-
-    #[test]
     fn third_party_patches_need_the_reference_build() {
         // The fixture's synthetic eboot.bin is not the reference build: the external files are
         // not even read.
@@ -3463,17 +3488,23 @@ mod compile_tests {
         fs::create_dir_all(&external).unwrap();
         fs::write(external.join("extra.xml"), EXTERNAL).unwrap();
         let mut log = Vec::new();
-        let job = PatchJob {
-            out: &out,
+        let extra = strings(&["Found"]);
+        let input = PlanInput {
             game: &game,
             builtin_dir: &builtin,
+            out: &out,
             mod_patches: &[],
-            extra: &strings(&["Found"]),
-            only: true,
-            patches_dir: Some(&external),
-            patches_config: None,
+            selection: Selection::Script {
+                extra: &extra,
+                only: true,
+            },
+            external: Some(External {
+                dir: &external,
+                config: &dir.path().join("patches.json"),
+            }),
         };
-        write_game_patches(&job, &mut log).unwrap();
+        let chosen = plan(&input, &mut log).unwrap();
+        apply(&chosen, &out.join("eboot.elf"), &mut log).unwrap();
         let log = String::from_utf8(log).unwrap();
         assert!(!log.contains("external"), "{log}");
         assert!(
@@ -3740,5 +3771,235 @@ mod plan_tests {
         let plan = plan(&input, &mut Vec::new()).unwrap();
         assert!(plan.names.is_empty());
         assert_eq!(plan.launcher_list(), None);
+    }
+}
+
+#[cfg(test)]
+mod apply_tests {
+    use super::compile_tests::sfo;
+    use super::*;
+    use std::fs;
+
+    /// The fixture's `eboot.elf` holds the first signature once and not the second.
+    const FOUND: &str = r#"Pattern="11 22 ?? 44 55 66" At="1""#;
+    const MISSING: &str = r#"Pattern="de ad be ef" At="0""#;
+    const FRAME_RATE: &str = "Frame Rate Patch - 120 FPS";
+
+    /// A patch of one line, at the site `signature` finds.
+    fn patch(name: &str, note: &str, signature: &str) -> String {
+        format!(
+            r#"<Metadata Name="{name}" Note="{note}" AppVer="01.02"><PatchList><Line Type="bytes" Address="0x401004" Value="9090" {signature}/></PatchList></Metadata>"#
+        )
+    }
+
+    /// A game folder with this title ID, a built-in patch file with these patches and an `out/`
+    /// holding the fixture's `eboot.elf`.
+    struct Setup {
+        _dir: tempfile::TempDir,
+        game: PathBuf,
+        builtin: PathBuf,
+        out: PathBuf,
+    }
+
+    fn setup(title_id: &str, patches: &[String]) -> Setup {
+        let input = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/runner/patches/input");
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        fs::create_dir_all(game.join("sce_sys")).unwrap();
+        fs::write(
+            game.join("sce_sys").join("param.sfo"),
+            sfo(&[
+                ("TITLE_ID", title_id),
+                ("APP_VER", "01.02"),
+                ("TITLE", "Another Game"),
+            ]),
+        )
+        .unwrap();
+        let builtin = dir.path().join("patches");
+        fs::create_dir_all(&builtin).unwrap();
+        fs::write(
+            builtin.join("CUSA01623.xml"),
+            format!(
+                "<Patch><TitleID><ID>CUSA01623</ID></TitleID>{}</Patch>",
+                patches.concat()
+            ),
+        )
+        .unwrap();
+        let out = dir.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        fs::copy(input.join("eboot.elf"), out.join("eboot.elf")).unwrap();
+        Setup {
+            _dir: dir,
+            game,
+            builtin,
+            out,
+        }
+    }
+
+    impl Setup {
+        /// The plan of exactly these names.
+        fn plan(&self, names: &[&str]) -> PatchPlan {
+            let extra: Vec<String> = names.iter().map(|name| name.to_string()).collect();
+            let input = PlanInput {
+                game: &self.game,
+                builtin_dir: &self.builtin,
+                out: &self.out,
+                mod_patches: &[],
+                selection: Selection::Script {
+                    extra: &extra,
+                    only: true,
+                },
+                external: None,
+            };
+            plan(&input, &mut Vec::new()).unwrap()
+        }
+
+        fn elf(&self) -> PathBuf {
+            self.out.join("eboot.elf")
+        }
+
+        fn status(&self) -> PathBuf {
+            self.out.join("patch_status.json")
+        }
+    }
+
+    #[test]
+    fn apply_without_profile_writes_empty_patches_bin_and_no_status() {
+        let other = setup("CUSA99999", &[]);
+        let mut log = Vec::new();
+        // Nothing to compile: the eboot is not read.
+        let missing = other.out.join("missing.elf");
+        let applied = apply(&other.plan(&[]), &missing, &mut log).unwrap();
+        let mut empty = b"G3PATCH2".to_vec();
+        empty.extend(0x40_0000u64.to_le_bytes());
+        empty.extend(0u64.to_le_bytes());
+        assert_eq!(fs::read(other.out.join("patches.bin")).unwrap(), empty);
+        assert!(!other.status().exists());
+        assert_eq!(
+            String::from_utf8(log).unwrap(),
+            "Patches: no patch profile for CUSA99999: none applied\n"
+        );
+        assert_eq!(
+            applied,
+            Applied {
+                status: None,
+                engine_fps: 60,
+                dmem_mb: None,
+                vblank_hz: None,
+            }
+        );
+    }
+
+    #[test]
+    fn a_skipped_frame_rate_patch_leaves_engine_at_60() {
+        // Its site is not in this eboot.bin: neither its rate nor its note counts.
+        let ours = setup(
+            "CUSA01623",
+            &[
+                patch("Found", "", FOUND),
+                patch(FRAME_RATE, "Requires setting VBlank to 120 FPS.", MISSING),
+            ],
+        );
+        let mut log = Vec::new();
+        let applied = apply(&ours.plan(&["Found", FRAME_RATE]), &ours.elf(), &mut log).unwrap();
+        let log = String::from_utf8(log).unwrap();
+        assert_eq!(applied.engine_fps, 60);
+        assert_eq!((applied.dmem_mb, applied.vblank_hz), (None, None));
+        let status = applied.status.unwrap();
+        assert_eq!(status.applied, ["Found"]);
+        assert_eq!(
+            status.skipped.get(FRAME_RATE).map(String::as_str),
+            Some("signature not found")
+        );
+        assert_eq!(patch_status(&ours.out), Some(status));
+        assert!(
+            log.contains(
+                "Patches: Frame Rate Patch - 120 FPS skipped (signature not found in this eboot.bin)\n"
+            ),
+            "{log}"
+        );
+    }
+
+    #[test]
+    fn applied_notes_give_dmem_and_vblank() {
+        let ours = setup(
+            "CUSA01623",
+            &[
+                patch("Big", "Requires setting DMEM to 4608 MB or more.", FOUND),
+                patch(FRAME_RATE, "Requires setting VBlank to 120 FPS.", FOUND),
+                patch("Unchosen", "Requires setting DMEM to 9000 MB.", FOUND),
+            ],
+        );
+        let applied = apply(
+            &ours.plan(&["Big", FRAME_RATE]),
+            &ours.elf(),
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            (applied.dmem_mb, applied.vblank_hz, applied.engine_fps),
+            (Some(DMEM_RETAIL_MB + 4608), Some(120), 120)
+        );
+        assert_eq!(applied.status.unwrap().applied, ["Big", FRAME_RATE]);
+    }
+
+    #[test]
+    fn apply_removes_a_stale_status_first() {
+        // The last start's report goes before anything else: a start that then fails leaves none.
+        let ours = setup("CUSA01623", &[patch("Found", "", FOUND)]);
+        let chosen = ours.plan(&["Found"]);
+        fs::write(
+            ours.status(),
+            r#"{"sha256": null, "applied": ["Old"], "skipped": {}}"#,
+        )
+        .unwrap();
+        fs::remove_file(ours.elf()).unwrap();
+        assert!(apply(&chosen, &ours.elf(), &mut Vec::new()).is_err());
+        assert!(!ours.status().exists());
+        // A game without a profile gets none either.
+        let other = setup("CUSA99999", &[]);
+        fs::write(other.status(), "{}").unwrap();
+        apply(&other.plan(&[]), &other.elf(), &mut Vec::new()).unwrap();
+        assert!(!other.status().exists());
+    }
+
+    #[test]
+    fn applied_environment_in_run_py_order() {
+        // run.py: SPARTAN_DMEM_MB when the notes ask for more memory, SPARTAN_VBLANK_HZ (60
+        // without a note), then SPARTAN_ENGINE_FPS.
+        let none = Applied {
+            status: None,
+            engine_fps: 60,
+            dmem_mb: None,
+            vblank_hz: None,
+        };
+        assert_eq!(
+            none.environment(),
+            [
+                ("SPARTAN_VBLANK_HZ", "60".to_string()),
+                ("SPARTAN_ENGINE_FPS", "60".to_string()),
+            ]
+        );
+        let needs = Applied {
+            status: None,
+            engine_fps: 120,
+            dmem_mb: Some(7104),
+            vblank_hz: Some(120),
+        };
+        assert_eq!(
+            needs.environment(),
+            [
+                ("SPARTAN_DMEM_MB", "7104".to_string()),
+                ("SPARTAN_VBLANK_HZ", "120".to_string()),
+                ("SPARTAN_ENGINE_FPS", "120".to_string()),
+            ]
+        );
+        // A note's 0 is no value (Python's `if value`).
+        let zero = Applied {
+            dmem_mb: Some(0),
+            vblank_hz: Some(0),
+            ..none.clone()
+        };
+        assert_eq!(zero.environment(), none.environment());
     }
 }

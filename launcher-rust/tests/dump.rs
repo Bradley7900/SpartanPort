@@ -11,7 +11,8 @@ use std::process::Command;
 use std::sync::OnceLock;
 
 use spartanport_launcher::core::patches::{
-    compile_patches, eboot_image, eboot_segments, write_game_patches, PatchJob, Write,
+    apply, compile_patches, eboot_image, eboot_segments, plan, External, PlanInput, Selection,
+    Write,
 };
 use spartanport_launcher::runner::link_modules::DEFAULT_MODULES;
 use spartanport_launcher::runner::pause_menu::{self, decode, MenuError, Op, Record, Script};
@@ -271,18 +272,23 @@ fn real_patches_bin_matches_python() {
             return;
         }
         let extra: Vec<String> = case.extra.split(';').map(str::to_string).collect();
-        let job = PatchJob {
-            out: &rust,
+        let job = PlanInput {
             game: &game,
             builtin_dir: &repo("patches"),
+            out: &rust,
             mod_patches: &case.mods,
-            extra: &extra,
-            only: case.only,
-            patches_dir: Some(&patches_dir),
-            patches_config: Some(&config),
+            selection: Selection::Script {
+                extra: &extra,
+                only: case.only,
+            },
+            external: Some(External {
+                dir: &patches_dir,
+                config: &config,
+            }),
         };
         let mut log = Vec::new();
-        write_game_patches(&job, &mut log).unwrap();
+        let chosen = plan(&job, &mut log).unwrap();
+        apply(&chosen, &rust.join("eboot.elf"), &mut log).unwrap();
         let log = String::from_utf8(log).unwrap();
         for name in ["patches.bin", "patch_status.json"] {
             let ours = fs::read(rust.join(name)).unwrap();
