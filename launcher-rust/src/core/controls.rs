@@ -550,7 +550,7 @@ fn keep_saved_rage(controls: &mut Map<String, Value>, rage: bool) {
 /// one who used Native Translation keeps that table; layouts 2 and 3 keep their saved actions. New
 /// actions or directions whose default input is already taken stay without one. Layout 2 keeps
 /// Rage of Sparta on the wheel click (`keep_saved_rage`). A layout newer than this launcher's is
-/// left as it is, so going back a version never rewrites the player's keys.
+/// left as it is by this migration (a Save still rebuilds `controls` from the page's edits).
 pub fn migrate_controls(saved: Map<String, Value>) -> Map<String, Value> {
     let previous = saved.get("controls_layout").and_then(Value::as_f64);
     if saved.is_empty() || previous.is_some_and(|n| n >= CONTROLS_LAYOUT as f64) {
@@ -1042,7 +1042,26 @@ mod tests {
         assert!(!keyboard_map(&invalid, true).contains("move_up="));
     }
 
-    // Rust only (not in the Python): going back to an older launcher never rewrites the keys.
+    #[test]
+    fn key_actions_cover_every_keyboard_only_row() {
+        // A row added to the keyboard table must also reach the rebuilt layout.
+        let in_pad_table = |button: &str| CONTROLS.iter().any(|row| row.button == button);
+        for row in table_rows(Kind::Key) {
+            if !in_pad_table(row.button) {
+                assert!(
+                    KEY_ACTIONS.iter().any(|action| action.button == row.button),
+                    "{} is missing from KEY_ACTIONS",
+                    row.button
+                );
+            }
+        }
+        assert_eq!(
+            KEY_ACTIONS.len(),
+            table_rows(Kind::Key).len() - CONTROLS.len()
+        );
+    }
+
+    // Rust only (not in the Python): the migration itself leaves a newer layout as it is.
     #[test]
     fn a_newer_layout_is_left_alone() {
         let saved = json!({"controls_layout": 5, "controls": {"keyboard": {"rage": "Q"}}});

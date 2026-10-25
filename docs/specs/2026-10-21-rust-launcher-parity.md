@@ -479,7 +479,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 16. Discord Rich Presence is on by default (R91; the Python's default was off): a new `settings.json` holds `"discord_rpc": true`, and the game gets `SPARTAN_DISCORD=1` unless the player switches it off. `tests/fixtures.rs` lists it with `ui_scale` in `DECIDED_DEFAULTS`, the only defaults allowed to differ from the Python's fixtures.
 17. When the game exits with advice the Rust opens the Log page and scrolls to its end (the 2.7.0 Python scrolls the Advanced page to its log section). The Delete shader cache button of Performance and the Clear shader cache button of Advanced ask the same question, as the Python's two buttons do.
 18. PLAY checks the port folder for `run.py` and `bin/spartanport-probe` (or `out/`) before starting and names what is missing, with the releases page as the fix (the Python lets run.py fail with its developer message). The Windows exe links the C runtime statically (`.cargo/config.toml`), so it needs no VCRUNTIME140.dll.
-19. A `controls_layout` newer than the launcher's own (`CONTROLS_LAYOUT`, 4) is left as it is: `migrate_controls` returns the settings unchanged, so going back to an older launcher never rewrites the player's keys (the Python migrates every layout but its own). `src/core/controls.rs::tests::a_newer_layout_is_left_alone`.
+19. A `controls_layout` newer than the launcher's own (`CONTROLS_LAYOUT`, 4) is left as it is: `migrate_controls` returns the settings unchanged (the Python migrates every layout but its own). Only the migration leaves it: a Save still rebuilds `controls` from `control_changes` while `controls_layout` stays as it was. `src/core/controls.rs::tests::a_newer_layout_is_left_alone`.
 
 ## Partly covered
 
