@@ -75,7 +75,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 | 0 |
 | `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 | 0 |
 | `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | **326** | **268** | **21** | **4** | **0** | **12** | **21** |
+| **Total** | **326** | **269** | **21** | **4** | **0** | **12** | **20** |
 
 ## Map
 
