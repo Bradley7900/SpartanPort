@@ -359,7 +359,8 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
 
     // Two filtered frames per presented one with frame generation: twice the outputs in turn.
     aa_pass.Create(device, instance.GetAllocator(), num_images * 2);
-    fsr_pass.Create(device, instance.GetAllocator(), num_images);
+    fsr_pass.Create(device, instance.GetAllocator(), num_images,
+                    instance.IsShaderFloat16Supported());
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
     if (swapchain.GetHDR()) {
         // spartanport: HDR output; the SDR picture is expanded until a flip says otherwise. With
