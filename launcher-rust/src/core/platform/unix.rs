@@ -192,7 +192,8 @@ mod tests {
     #[test]
     fn adding_keeps_other_mode_bits() {
         let temp = tempfile::tempdir().unwrap();
-        let added = file_with_mode(temp.path(), "added", 0o640);
+        // Group write is outside 0o755: Adding keeps it, Exactly drops it.
+        let added = file_with_mode(temp.path(), "added", 0o664);
         make_executable(&added, Exec::Adding).unwrap();
         assert_eq!(mode_of(&added), 0o775);
         let exact = file_with_mode(temp.path(), "exact", 0o640);

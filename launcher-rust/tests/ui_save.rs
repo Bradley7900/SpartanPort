@@ -580,6 +580,11 @@ fn every_setting_lights_save_persists_and_comes_back() {
     let mut state = state_in(dir.path());
     let mut expected_ini = Vec::new();
     for key in SHOWN_INI_KEYS.iter() {
+        // Off Windows the start-up monitor list replaces a value no display has, as the Python's
+        // refresh_monitors does, so a made-up monitor cannot come back.
+        if cfg!(not(windows)) && *key == "monitor" {
+            continue;
+        }
         let current = state.store.text(key);
         let value = if INI_FLAGS.contains(key) {
             if current == "1" { "0" } else { "1" }.to_string()
