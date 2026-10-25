@@ -20,7 +20,7 @@ use spartanport_launcher::core::controller_mappings::{mapping_line, FILENAME};
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::pages::mapper::{self, MapperMessage, MapperRow, MapperState};
 use spartanport_launcher::ui::pages::Page;
-use spartanport_launcher::ui::play::{self, GameState};
+use spartanport_launcher::ui::play::{self, GameMessage, GameState};
 use spartanport_launcher::ui::widgets::modal::ModalKind;
 
 /// The scripted pad's GUID.
@@ -240,6 +240,46 @@ fn mapper_is_not_opened_over_a_running_game() {
     assert!(matches!(shown.kind, ModalKind::Info), "{:?}", shown.kind);
     assert_eq!(shown.title, "Set up a controller");
     assert_eq!(shown.text, "Stop the game before setting up a controller.");
+    let _ = app::update(&mut state, Message::Stop);
+    wait_for_the_exit(&mut state);
+}
+
+#[test]
+fn a_play_after_a_copy_closes_the_mapper_before_the_game_starts() {
+    // The copy of the system files ends in PLAY; the mapper, opened while it ran, lets go of the
+    // pad before the game starts.
+    let dir = tempfile::tempdir().unwrap();
+    let dump = dir.path().join("dump");
+    full_dump(&dump);
+    let mut state = launcher(dir.path());
+    let _ = app::update(
+        &mut state,
+        Message::Set("game_dir".into(), dump.display().to_string().into()),
+    );
+    state.launch_command = Some(
+        [
+            env!("CARGO_BIN_EXE_fake-game"),
+            "--lines",
+            "1000",
+            "--delay-ms",
+            "50",
+            "--exit",
+            "0",
+        ]
+        .map(String::from)
+        .to_vec(),
+    );
+    let fake = FakeJoysticks::new("Windows", vec![pad(3, GUID)]);
+    common::open(&mut state, Page::Controls);
+    state.open_mapper_with(Box::new(fake.clone()));
+    assert_eq!(state.page, Page::Mapper);
+    state.game = GameState::Copying;
+    let closes = fake.script().closed;
+    let _ = app::update(&mut state, Message::Game(GameMessage::AdoptDone(Ok(()))));
+    assert!(state.game.is_live());
+    assert!(state.mapper.is_none());
+    assert!(fake.script().closed > closes);
+    assert_eq!(state.page, Page::Controls);
     let _ = app::update(&mut state, Message::Stop);
     wait_for_the_exit(&mut state);
 }

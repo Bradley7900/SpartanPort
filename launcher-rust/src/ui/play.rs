@@ -24,7 +24,7 @@ use crate::core::log::{line_status, LineStatus, RunLog};
 use crate::core::paths::Paths;
 use crate::ui::app::{refresh_installation, show_page, Message, State};
 use crate::ui::follow::{follow, Cause};
-use crate::ui::pages::{log, Page};
+use crate::ui::pages::{log, mapper, Page};
 use crate::ui::persist;
 use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::Modal;
@@ -330,8 +330,21 @@ pub fn launch_environment(state: &State) -> IndexMap<String, String> {
     )
 }
 
-/// Starts the game with a fresh log and `last_run.log` (the saves backup is `run.py`'s).
+/// Starts the game once the mapper let go of the pad: its SDL holds it and may write
+/// `gamecontrollerdb.txt` (a copy of the system files that ends in PLAY can find it open). Its
+/// page goes with it, back to Controls.
 fn start(state: &mut State) -> Task<Message> {
+    let left = if state.page == Page::Mapper {
+        show_page(state, Page::Controls)
+    } else {
+        Task::none()
+    };
+    mapper::close(state);
+    Task::batch([left, spawn(state)])
+}
+
+/// Starts the game with a fresh log and `last_run.log` (the saves backup is `run.py`'s).
+fn spawn(state: &mut State) -> Task<Message> {
     let lang = state.lang.clone();
     state.log.clear();
     let run_log = RunLog::open(&state.paths.run_log_path(&state.store.text("user_dir")));
