@@ -24,6 +24,8 @@ pub struct Script {
     /// What the preview reports while it is open.
     pub pressed: Vec<&'static str>,
     pub axes: [i16; 6],
+    /// What opening said (`warnings`): the profiles SDL's adapter could not read.
+    pub warnings: Vec<String>,
     // What the launcher did.
     pub selected: Option<Device>,
     /// The line being previewed.
@@ -143,5 +145,9 @@ impl Joysticks for FakeJoysticks {
         script.preview = None;
         script.selected = None;
         script.closed += 1;
+    }
+
+    fn warnings(&self) -> Vec<String> {
+        self.script().warnings.clone()
     }
 }

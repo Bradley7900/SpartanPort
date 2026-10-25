@@ -84,6 +84,10 @@ pub trait Joysticks {
     fn preview_state(&mut self) -> Option<(Vec<&'static str>, [i16; 6])>;
     fn end_preview(&mut self);
     fn close_device(&mut self);
+    /// What opening had to say: a profile file that could not be read (the Python printed it).
+    fn warnings(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// `SDL_INIT_GAMEPAD`, which brings up the joysticks and events too.
@@ -168,6 +172,8 @@ pub struct Sdl3 {
     ready: bool,
     /// Each hint this set, with the value it had.
     old_hints: Vec<(CString, Option<CString>)>,
+    /// What `configure_environment` said about the profiles while opening.
+    warnings: Vec<String>,
     /// `api` and the test functions point into it; it is never unloaded.
     library: &'static Library,
 }
@@ -185,7 +191,9 @@ impl Sdl3 {
         let mut env: IndexMap<String, String> = std::env::vars_os()
             .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)))
             .collect();
-        for line in configure_environment(&mut env, port, data_dir) {
+        // Printed as the Python did, and kept for the mapper page, as the window has no console.
+        let warnings = configure_environment(&mut env, port, data_dir);
+        for line in &warnings {
             eprintln!("{line}");
         }
         let mut hints = vec![("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1".to_string())];
@@ -216,6 +224,7 @@ impl Sdl3 {
             preview: ptr::null_mut(),
             ready: false,
             old_hints,
+            warnings,
             library,
         };
         // From here a failure drops `sdl`, which puts the hints back.
@@ -414,6 +423,10 @@ impl Joysticks for Sdl3 {
             self.pad = ptr::null_mut();
         }
         self.device = None;
+    }
+
+    fn warnings(&self) -> Vec<String> {
+        self.warnings.clone()
     }
 }
 

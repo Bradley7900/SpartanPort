@@ -282,6 +282,24 @@ fn opening_again_after_a_close_still_reads_the_pad() {
 }
 
 #[test]
+fn an_unreadable_profile_is_a_warning_of_opening() {
+    // The Python printed it to a console the windowed launcher does not have: the mapper page
+    // shows it instead.
+    let Some(mut rig) = Rig::new() else { return };
+    assert_eq!(rig.sdl().warnings(), Vec::<String>::new());
+    let profiles = rig.profiles();
+    fs::write(&profiles, b"\xff\xfe not UTF-8").unwrap();
+    rig.reopen();
+    let warnings = rig.sdl().warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    let prefix = format!(
+        "Controller mappings: could not read {}: ",
+        profiles.display()
+    );
+    assert!(warnings[0].starts_with(&prefix), "{warnings:?}");
+}
+
+#[test]
 fn the_fake_answers_like_the_sdl_adapter() {
     // The UI tests' stand-in: the same errors as SDL, its script in order, then rest.
     let mut fake = FakeJoysticks::new("Windows", vec![pad(7, "03000000faca0000f001000000000000")]);
@@ -322,4 +340,10 @@ fn the_fake_answers_like_the_sdl_adapter() {
     assert_eq!(fake.script().selected, None);
     assert_eq!(fake.script().previewed, ["bad", "good", "good"]);
     assert_eq!(fake.platform(), "Windows");
+    assert!(fake.warnings().is_empty());
+    fake.script().warnings = vec!["Controller mappings: could not read x: y".to_string()];
+    assert_eq!(
+        fake.warnings(),
+        ["Controller mappings: could not read x: y"]
+    );
 }
