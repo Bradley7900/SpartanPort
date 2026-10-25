@@ -116,10 +116,38 @@ fn listing_the_monitors_after_opening_is_not_a_change() {
     );
     send(&mut state, Message::MonitorsListed(displays));
     // The saved screen is gone: the primary default is shown, as it was when the files were read.
-    assert_eq!(state.settings.get_str("monitor"), "");
+    assert_eq!(state.store.text("monitor"), "");
     assert!(!dirty(&state));
     set(&mut state, "monitor", json!("1"));
     assert!(dirty(&state));
+}
+
+#[test]
+fn a_python_settings_file_saves_unchanged_but_for_the_key_set() {
+    // Review Focus 1: a settings.json the Python launcher wrote. The fixture holds "hdr": true, so
+    // the one key set turns it off.
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/collected/settings.json");
+    let original: Value = serde_json::from_slice(&fs::read(&fixture).unwrap()).unwrap();
+    assert_eq!(original["hdr"], json!(true));
+    let dir = tempfile::tempdir().unwrap();
+    fs::copy(&fixture, dir.path().join("settings.json")).unwrap();
+    let mut state = state_in(dir.path());
+    set(&mut state, "hdr", json!(false));
+    assert!(!state.store.flag("hdr"));
+    save(&mut state);
+    assert!(state.modal.is_none());
+    let back: Value =
+        serde_json::from_slice(&fs::read(dir.path().join("settings.json")).unwrap()).unwrap();
+    let mut back = back.as_object().unwrap().clone();
+    let mut original = original.as_object().unwrap().clone();
+    // Same keys in the same order: nothing new, nothing gone.
+    assert!(back.keys().eq(original.keys()));
+    for unwritten in ["launcher_effects", "controls_device"] {
+        assert!(!back.contains_key(unwritten), "{unwritten}");
+    }
+    assert_eq!(back.remove("hdr"), Some(json!(false)));
+    original.remove("hdr");
+    assert_eq!(back, original);
 }
 
 #[test]
@@ -169,7 +197,7 @@ fn saving_a_new_launcher_language_rebuilds_the_window_in_it() {
     save(&mut state);
     assert_eq!(state.lang, "ru");
     assert!(shows(&state, "ИГРАТЬ"));
-    assert_eq!(state.ini.values["vsync"], "0"); // the settings stay
+    assert_eq!(state.store.text("vsync"), "0"); // the settings stay
     assert_eq!(state.page, Page::Graphics);
     assert_eq!(state.drawer, DrawerState::Open(Page::Graphics));
     assert!(state.log.text().contains("line one"));
@@ -275,7 +303,7 @@ fn visiting_the_mods_page_is_not_a_change() {
     let mut state = state_in(dir.path());
     assert_eq!(state.mods.order, ["a"]);
     // What the page's refresh brings back on a visit.
-    let view = mods::load(&state.paths, &state.settings);
+    let view = mods::load(&state.paths, state.store.app());
     send(
         &mut state,
         Message::Mods(ModsMessage::Loaded(Box::new(view))),
@@ -395,7 +423,7 @@ fn save_preserves_external_changes_and_refreshes_the_controls() {
     assert_eq!(values["fps_limit"], "60");
     assert_eq!(values["external_runtime_key"], "keep");
     assert_eq!(values["vsync"], "0");
-    assert_eq!(state.ini.values["fps_limit"], "60");
+    assert_eq!(state.store.text("fps_limit"), "60");
     assert!(!dirty(&state));
 }
 
@@ -492,7 +520,7 @@ fn every_setting_lights_save_persists_and_comes_back() {
     let mut state = state_in(dir.path());
     let mut expected_ini = Vec::new();
     for key in SHOWN_INI_KEYS.iter() {
-        let current = state.ini.values[*key].clone();
+        let current = state.store.text(key);
         let value = if INI_FLAGS.contains(key) {
             if current == "1" { "0" } else { "1" }.to_string()
         } else {
@@ -511,7 +539,7 @@ fn every_setting_lights_save_persists_and_comes_back() {
         if key == "pad_style" || !(default.is_boolean() || default.is_string()) {
             continue;
         }
-        let current = state.settings.get(key).cloned().unwrap_or(Value::Null);
+        let current = state.store.json(key).cloned().unwrap_or(Value::Null);
         let value = other_value(dir.path(), key, &current);
         change_and_save(&mut state, key, Message::Set(key.clone(), value.clone()));
         expected_app.push((key.clone(), value));
@@ -538,10 +566,10 @@ fn every_setting_lights_save_persists_and_comes_back() {
 
     let reopened = state_in(dir.path());
     for (key, value) in &expected_ini {
-        assert_eq!(&reopened.ini.values[*key], value, "{key}");
+        assert_eq!(&reopened.store.text(key), value, "{key}");
     }
     for (key, value) in &expected_app {
-        assert_eq!(reopened.settings.get(key), Some(value), "{key}");
+        assert_eq!(reopened.store.json(key), Some(value), "{key}");
     }
     assert_eq!(reopened.controls.pad_style, "xbox");
     assert_eq!(reopened.controls.key["cross"], "Q");
@@ -678,7 +706,7 @@ fn unreadable_settings_files_warn_once_at_start() {
         shown.text
     );
     // The defaults are shown and nothing is written before a save.
-    assert_eq!(state.settings.get_str("ui_language"), "en");
+    assert_eq!(state.store.text("ui_language"), "en");
     assert_eq!(fs::read(state.paths.config_file()).unwrap(), b"{not json");
     assert_eq!(fs::read(state.paths.ini_path()).unwrap(), LATIN1_INI);
     assert!(!dirty(&state));

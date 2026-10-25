@@ -148,8 +148,8 @@ pub struct HomeFacts {
 /// Re-reads the game folder, the saves folder and the last start's patch report.
 pub fn refresh_facts(state: &mut State) {
     let meta = meta_folder(
-        &state.settings.get_str("game_dir"),
-        &state.settings.get_str("update_dir"),
+        &state.store.text("game_dir"),
+        &state.store.text("update_dir"),
     );
     let (title_id, _profile) = game_profile_of(&meta);
     let savedata = user_dir(state).join("savedata");
@@ -164,7 +164,7 @@ pub fn refresh_facts(state: &mut State) {
 }
 
 fn user_dir(state: &State) -> std::path::PathBuf {
-    state.paths.user_dir(&state.settings.get_str("user_dir"))
+    state.paths.user_dir(&state.store.text("user_dir"))
 }
 
 /// Whether `folder` holds a file at any depth (`save_backup._has_saves`).
@@ -491,16 +491,12 @@ fn choice_label(table: &[Choice], value: &str, lang: &str) -> String {
         .map_or_else(|| value.to_string(), |choice| tr(lang, choice.en))
 }
 
-fn ini_value<'a>(state: &'a State, key: &str) -> &'a str {
-    state.ini.values.get(key).map_or("", String::as_str)
-}
-
 /// The three chips, saves, game and graphics card (ruling R77: the settings line replaced the
 /// requirements chip).
 pub fn chips(state: &State) -> [String; 3] {
     let lang = state.lang.as_str();
     // Only the card the game will use, by its name (the probe lists no Vulkan version).
-    let gpu = match chosen_gpu(&state.gpus, &state.settings.get_str("gpu_id")) {
+    let gpu = match chosen_gpu(&state.gpus, &state.store.text("gpu_id")) {
         Some(row) => format!("✓ {}", row.name),
         None => tr(lang, "• GPU: not checked"),
     };
@@ -552,23 +548,23 @@ pub fn status_line(state: &State) -> String {
 pub fn quick_segments(state: &State) -> Vec<(String, bool)> {
     let lang = state.lang.as_str();
     let short = |table: &[Choice], key: &str| {
-        short_label(&choice_label(table, ini_value(state, key), lang)).to_string()
+        short_label(&choice_label(table, &state.store.text(key), lang)).to_string()
     };
-    let fps = match ini_value(state, "fps_limit") {
+    let fps = match state.store.text("fps_limit").as_str() {
         "0" => choice_label(FPS_LIMITS, "0", lang),
         limit => format!("{limit} FPS"),
     };
     // The saved index of the probe's list, or empty for the primary monitor.
     let monitor = state
-        .settings
-        .get_str("monitor")
+        .store
+        .text("monitor")
         .parse::<u32>()
         .map_or(1, |index| index.saturating_add(1));
     let items = [
         (short(OUTPUTS, "output_res"), true),
         (fps, true),
         (
-            choice_label(DISPLAY_MODES, ini_value(state, "display_mode"), lang),
+            choice_label(DISPLAY_MODES, &state.store.text("display_mode"), lang),
             false,
         ),
         (format!("{} {monitor}", tr(lang, "Monitor")), false),

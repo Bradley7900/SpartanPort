@@ -105,9 +105,9 @@ fn mockup_settings(state: &mut State) {
         ("fps_limit", "120"),
         ("display_mode", "fullscreen"),
     ] {
-        state.ini.values.insert(key.to_string(), value.to_string());
+        state.store.set(key, json!(value));
     }
-    state.settings.set("monitor", json!("0"));
+    state.store.set("monitor", json!("0"));
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn the_settings_line_leaves_out_the_parked_keys() {
     let before = home::quick_line(&state);
     // Keys the Graphics page does not show: the line does not follow them.
     for (key, value) in [("upscaler", "off"), ("preset", "3")] {
-        state.ini.values.insert(key.to_string(), value.to_string());
+        state.store.set(key, json!(value));
     }
     assert_eq!(home::quick_line(&state), before);
 }
@@ -161,7 +161,7 @@ fn the_monitor_counts_from_one() {
     let mut state = state_in(dir.path());
     mockup_settings(&mut state);
     for (saved, shown) in [("", "Monitor 1"), ("0", "Monitor 1"), ("1", "Monitor 2")] {
-        state.settings.set("monitor", json!(saved));
+        state.store.set("monitor", json!(saved));
         assert!(
             home::quick_line(&state).ends_with(&format!(" · {shown}")),
             "{saved:?}: {}",
@@ -212,7 +212,7 @@ fn the_hint_line_names_the_patches_the_last_start_left_out() {
     let mut state = state_in(dir.path());
     let dump = common::dump_with_patches(dir.path());
     state
-        .settings
+        .store
         .set("game_dir", json!(dump.display().to_string()));
     last_start_skipped(&state, &["Fix Beta", "Fix Gamma"]);
     home::refresh_facts(&mut state);
@@ -232,7 +232,7 @@ fn the_hint_line_names_the_patches_the_last_start_left_out() {
     assert_eq!(home::status_line(&state), hint);
     // As the Python's summary: no note without a game in the game folder.
     last_start_skipped(&state, &["Fix Beta"]);
-    state.settings.set("game_dir", json!(""));
+    state.store.set("game_dir", json!(""));
     home::refresh_facts(&mut state);
     assert_eq!(home::status_line(&state), hint);
 }
@@ -241,7 +241,7 @@ fn the_hint_line_names_the_patches_the_last_start_left_out() {
 fn the_home_shows_the_launcher_key_art_without_a_game_folder() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
-    state.settings.set("game_dir", "".into());
+    state.store.set("game_dir", "".into());
     home::refresh_facts(&mut state);
     let mut ui = simulator(app::view(&state));
     assert!(
@@ -392,7 +392,7 @@ fn the_graphics_card_chip_shows_only_the_name_of_the_card_the_game_uses() {
     // The probe's pick, by its name alone, in every language.
     assert_eq!(home::chips(&state)[2], "✓ NVIDIA GeForce RTX 4060");
     // The Graphics card setting wins over the probe's pick.
-    state.settings.set("gpu_id", json!("0"));
+    state.store.set("gpu_id", json!("0"));
     assert_eq!(home::chips(&state)[2], "✓ Intel(R) Arc(TM) Graphics");
     state.lang = "pt".into();
     assert_eq!(home::chips(&state)[2], "✓ Intel(R) Arc(TM) Graphics");
@@ -409,7 +409,7 @@ fn saves_chip_follows_the_savedata_folder() {
     let mut state = state_in(dir.path());
     let saves = state
         .paths
-        .user_dir(&state.settings.get_str("user_dir"))
+        .user_dir(&state.store.text("user_dir"))
         .join("savedata");
     std::fs::create_dir_all(&saves).unwrap();
     std::fs::write(saves.join("slot0"), b"x").unwrap();
@@ -506,7 +506,7 @@ fn picking_portuguese_changes_the_tab_labels() {
     lang(&mut state, LangMessage::Toggle);
     lang(&mut state, LangMessage::Pick("pt".to_string()));
     assert_eq!(state.lang, "pt");
-    assert_eq!(state.settings.get_str("ui_language"), "pt");
+    assert_eq!(state.store.text("ui_language"), "pt");
     assert!(!state.lang_menu.open);
     assert_eq!(tr("pt", "Graphics"), "Gráficos");
     {
@@ -531,7 +531,7 @@ fn arabic_sets_rtl() {
     assert!(state.rtl);
     lang(&mut state, LangMessage::Pick("en".to_string()));
     assert!(!state.rtl);
-    assert_eq!(state.settings.get("ui_language"), Some(&json!("en")));
+    assert_eq!(state.store.json("ui_language"), Some(&json!("en")));
 }
 
 #[test]

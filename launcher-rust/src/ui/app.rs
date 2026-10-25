@@ -16,12 +16,12 @@ use serde_json::Value;
 use crate::core::desktop::{linux_tools, open_path, LinuxTools};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display, GpuRow};
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
-use crate::core::ini::{read_ini, Ini, INI_DEFAULTS, INI_FLAGS};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
 use crate::core::release::ReleaseId;
-use crate::core::settings::{read_app_settings, Settings, SettingsFile};
+use crate::core::settings::SettingsFile;
+use crate::core::store::Store;
 use crate::core::update::{can_self_update, installed_release, stamp_path};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
@@ -60,8 +60,8 @@ pub const DRAWER_SLIDE: Duration = Duration::from_millis(220);
 /// Everything the window shows; only `update` changes it.
 pub struct State {
     pub paths: Paths,
-    pub settings: Settings,
-    pub ini: Ini,
+    /// `settings.json` and the ini: every setting is read and stored through it.
+    pub store: Store,
     /// What the files held after the last save (or at the start): Save is active while the
     /// window differs from it (`persist::dirty`).
     pub saved: Option<Persisted>,
@@ -126,9 +126,6 @@ pub struct State {
     pub settings_file: SettingsFile,
     /// The first-run setup while it is open; `None` on every other start.
     pub setup: Option<SetupState>,
-    /// Whether the Home fire burns (the `launcher_effects` setting).
-    pub effects: bool,
-
     /// What the Linux options of the Advanced page can use, probed once at the start.
     pub linux_tools: LinuxTools,
     /// Whether this install can replace itself (Windows, or an AppImage).
@@ -162,33 +159,26 @@ impl State {
     /// Reads `settings.json` and the ini (one warning when either is there but unreadable);
     /// everything else starts empty.
     pub fn new(paths: Paths) -> State {
-        let (settings, settings_file) = read_app_settings(&paths);
-        let (ini, ini_unreadable) = read_ini(&paths.ini_path());
-        let unreadable: Vec<PathBuf> = [
-            (
-                settings_file == SettingsFile::Unreadable,
-                paths.config_file(),
-            ),
-            (ini_unreadable, paths.ini_path()),
-        ]
-        .into_iter()
-        .filter_map(|(failed, file)| failed.then_some(file))
-        .collect();
-        let lang = launcher_language(&settings.get_str("ui_language"), system_language);
+        let (store, unreadable) = Store::load(&paths);
+        // What the load found at `config_file`, after its portable migration.
+        let config = paths.config_file();
+        let settings_file = if unreadable.contains(&config) {
+            SettingsFile::Unreadable
+        } else if config.exists() {
+            SettingsFile::Read
+        } else {
+            SettingsFile::Missing
+        };
+        let lang = launcher_language(&store.text("ui_language"), system_language);
         // The desktop's scale, which `window_zoom` takes out, is known once the window opens.
-        let scale = theme::ui_scale(&settings.get_str("ui_scale"));
+        let scale = theme::ui_scale(&store.text("ui_scale"));
         let now = Instant::now();
         let rtl = is_rtl(&lang);
-        let aspect = aspect_of(
-            ini.values
-                .get("render_resolution")
-                .map_or("", String::as_str),
-        )
-        .unwrap_or_else(|| "16:9".to_string());
-        let controls = ControlsView::new(&settings);
-        let effects = advanced::effects_enabled(&settings);
+        let aspect =
+            aspect_of(&store.text("render_resolution")).unwrap_or_else(|| "16:9".to_string());
+        let controls = ControlsView::new(store.app());
         // `start_monitor_listing` lists them under this one.
-        let displays_backend = settings.get_str("video_backend");
+        let displays_backend = store.text("video_backend");
         let installed = installed_release(&stamp_path(
             &paths.port_dir,
             std::env::var_os("APPDIR")
@@ -199,8 +189,7 @@ impl State {
         ));
         let mut state = State {
             paths,
-            settings,
-            ini,
+            store,
             saved: None,
             page: Page::Home,
             drawer: DrawerState::Closed,
@@ -243,8 +232,6 @@ impl State {
             settings_unreadable: !unreadable.is_empty(),
             settings_file,
             setup: None,
-            effects,
-
             linux_tools: if cfg!(windows) {
                 LinuxTools::default()
             } else {
@@ -262,7 +249,7 @@ impl State {
         home::refresh_facts(&mut state);
         // The Mods page's lists now, as the Python launcher does, so the first visit does not count
         // as a change.
-        state.mods = mods::load(&state.paths, &state.settings);
+        state.mods = mods::load(&state.paths, state.store.app());
         performance::refresh_mod_resolutions(&mut state);
         game::refresh_game_patches(&mut state);
         game::refresh_backups(&mut state);
@@ -404,14 +391,14 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         // The monitor the window opened on: the zoom takes its scale out of GUI Scale.
         Message::DesktopScale(factor) => {
             state.desktop_scale = factor;
-            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"));
+            state.scale = theme::ui_scale(&state.store.text("ui_scale"));
             return fit_window(state);
         }
         // GUI Scale (1x or 1.5x) keeps its size on the new desktop; the window is neither refitted
         // nor moved. Its logical size changes with the zoom, so it is read again.
         Message::DesktopRescaled(factor) => {
             state.desktop_scale = factor;
-            state.scale = theme::ui_scale(&state.settings.get_str("ui_scale"));
+            state.scale = theme::ui_scale(&state.store.text("ui_scale"));
             if let Some(id) = state.window {
                 return window::size(id).map(Message::Resized);
             }
@@ -436,9 +423,9 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         Message::Set(key, value) => apply_set(state, &key, value),
         Message::Aspect(aspect) => performance::choose_aspect(state, &aspect),
         Message::MonitorsListed(displays) => {
-            let saved = state.settings.get_str("monitor");
+            let saved = state.store.text("monitor");
             state.monitor_pairs = monitor_options(&displays);
-            state.settings.set(
+            state.store.set(
                 "monitor",
                 Value::String(monitor_selection(&displays, &saved)),
             );
@@ -533,30 +520,17 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
     Task::none()
 }
 
-/// Stores a setting: the ini keys go to the ini values as text, every other key to the app settings.
+/// Stores a setting in the file it lives in, then refreshes what follows that key.
 pub fn apply_set(state: &mut State, key: &str, value: Value) {
-    let in_ini = INI_DEFAULTS.iter().any(|(name, _)| *name == key) || INI_FLAGS.contains(&key);
-    if !in_ini {
-        state.settings.set(key, value);
-        // "Load mods" decides whether the sizes of the mods are offered.
-        if key == "launcher_effects" {
-            state.effects = advanced::effects_enabled(&state.settings);
-        }
-        if key == "mods_enabled" {
-            performance::refresh_mod_resolutions(state);
-        }
-        // The setup checks a folder chosen in the dialog or typed into its field.
-        if key == "game_dir" || key == "update_dir" {
-            setup::refresh_folders(state);
-        }
-        return;
+    state.store.set(key, value);
+    // "Load mods" decides whether the sizes of the mods are offered.
+    if key == "mods_enabled" {
+        performance::refresh_mod_resolutions(state);
     }
-    let text = match value {
-        Value::Bool(on) => if on { "1" } else { "0" }.to_string(),
-        Value::String(text) => text,
-        other => other.to_string(),
-    };
-    state.ini.values.insert(key.to_string(), text);
+    // The setup checks a folder chosen in the dialog or typed into its field.
+    if key == "game_dir" || key == "update_dir" {
+        setup::refresh_folders(state);
+    }
     if key == "render_resolution" {
         performance::resolution_chosen(state);
     }
@@ -564,7 +538,7 @@ pub fn apply_set(state: &mut State, key: &str, value: Value) {
 
 /// Opens the folder dialog for the setting `key`; the answer comes back as `Browsed`.
 fn browse(state: &State, key: String) -> Task<Message> {
-    let start = match state.settings.get_str(&key) {
+    let start = match state.store.text(&key) {
         current if current.is_empty() => state.paths.port_dir.clone(),
         current => PathBuf::from(current),
     };
@@ -580,7 +554,7 @@ fn browse(state: &State, key: String) -> Task<Message> {
 /// Lists the monitors in the background; the splash does not wait for it.
 pub fn start_monitor_listing(state: &State) -> Task<Message> {
     let paths = state.paths.clone();
-    let backend = state.settings.get_str("video_backend");
+    let backend = state.store.text("video_backend");
     blocking(move || list_displays(&paths, &backend)).map(Message::MonitorsListed)
 }
 
@@ -597,7 +571,7 @@ fn tick(state: &mut State, at: Instant) {
         state.setup.is_some(),
         state.focused,
         state.visible,
-        state.effects,
+        state.store.flag("launcher_effects"),
     ));
     state.fire.tick(dt, scene_size(state));
     state.splash.advance(at);
@@ -817,7 +791,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
     // The splash needs the clock even when the fire is off.
     // The hover timers of the language menu need it too, and a slow clock keeps `now` fresh for
     // their stamps while the fire is off.
-    let clock = if (state.effects && state.visible)
+    let clock = if (state.store.flag("launcher_effects") && state.visible)
         || !state.splash.done
         || lang_menu::timing(state)
         || version_menu::timing(state)

@@ -11,6 +11,7 @@ use crate::core::game::{
     missing_game_files, same_folder, FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{launcher_language, system_language, tr, tr_fmt};
+use crate::core::ini::Ini;
 use crate::core::options::DISPLAY_MODES;
 use crate::core::settings::Settings;
 use crate::ui::app::{Message, State};
@@ -111,7 +112,7 @@ impl SetupState {
             update_missing: Vec::new(),
             same_folders: false,
         };
-        setup.check_folders(&state.settings);
+        setup.check_folders(state.store.app());
         setup
     }
 
@@ -138,7 +139,7 @@ impl SetupState {
 /// Checks the game and update folders again while the setup is open; does nothing otherwise.
 pub fn refresh_folders(state: &mut State) {
     if let Some(setup) = state.setup.as_mut() {
-        setup.check_folders(&state.settings);
+        setup.check_folders(state.store.app());
     }
 }
 
@@ -198,11 +199,16 @@ pub fn update(state: &mut State, message: SetupMessage) -> Task<Message> {
         SetupMessage::Finish => return finish(state),
         SetupMessage::Skip => {
             let defaults = setup.defaults.clone();
-            state.settings = Settings(defaults.app);
-            state.ini.values = defaults.ini;
+            // The window's ini keys go back; the file's other keys stay as they were read.
+            let mut values = state.store.ini().values.clone();
+            values.extend(defaults.ini);
+            let lines = state.store.ini().lines.clone();
+            state
+                .store
+                .replace(Settings(defaults.app), Ini { values, lines });
             // The Aspect ratio box follows the restored resolution.
             performance::resolution_chosen(state);
-            state.settings.set("ui_language", json!(state.lang));
+            state.store.set("ui_language", json!(state.lang));
             // A failed save leaves the setup open over the restored folders.
             refresh_folders(state);
             return Task::batch([game::game_changed(state), finish(state)]);
@@ -235,7 +241,7 @@ pub fn key_pressed(state: &mut State, key: &Key) -> Task<Message> {
 
 /// A language was picked in the menu: the window is rebuilt in it, without writing anything.
 pub fn language_picked(state: &mut State) -> Task<Message> {
-    let language = launcher_language(&state.settings.get_str("ui_language"), system_language);
+    let language = launcher_language(&state.store.text("ui_language"), system_language);
     let scale = state.scale;
     // The baseline stays what the files held when the setup opened, so Finish writes every edit.
     let saved = state.saved.clone();
@@ -355,12 +361,7 @@ fn gpu_body(state: &State) -> Element<'_, Message> {
 fn video_body(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     let hint = |english: &str| tr(lang, english);
-    let display_mode = state
-        .ini
-        .values
-        .get("display_mode")
-        .cloned()
-        .unwrap_or_default();
+    let display_mode = state.store.text("display_mode");
     let aspect = min_width(
         SELECT_MIN,
         pick_list(

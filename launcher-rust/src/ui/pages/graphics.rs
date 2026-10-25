@@ -11,17 +11,12 @@ use crate::core::i18n::tr;
 use crate::core::options::{ANISOTROPY, DISPLAY_MODES};
 use crate::ui::app::{Message, State};
 use crate::ui::theme;
-use crate::ui::widgets::{checkbox, checkbox_ini, row, section, select, select_pairs};
-
-/// An ini flag is on when its value is `"1"`.
-fn ini_on(state: &State, key: &str) -> bool {
-    state.ini.values.get(key).is_some_and(|value| value == "1")
-}
+use crate::ui::widgets::{checkbox, row, section, select, select_pairs};
 
 pub fn view(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     let hint = |english: &str| tr(lang, english);
-    let ini = |key: &str| state.ini.values.get(key).cloned().unwrap_or_default();
+    let ini = |key: &str| state.store.text(key);
 
     // The list the probe made, or just the primary default while it has not answered.
     let pairs: Vec<(String, String)> = if state.monitor_pairs.is_empty() {
@@ -39,7 +34,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         (value, label)
     })
     .collect();
-    let monitor = state.settings.get_str("monitor");
+    let monitor = state.store.text("monitor");
 
     // The Python marks a row that needs a new start of the game with a small `restart` note.
     let anisotropy_label = format!(
@@ -53,7 +48,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         .on_press(Message::OpenFolder(
             state
                 .paths
-                .user_dir(&state.settings.get_str("user_dir"))
+                .user_dir(&state.store.text("user_dir"))
                 .join("screenshots"),
         ));
 
@@ -75,18 +70,18 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 "The screen the game opens its window on. Primary is the monitor the system considers the main one."
             )),
         ),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "vsync",
             &tr(lang, "VSync"),
-            ini_on(state, "vsync"),
+            state.store.flag("vsync"),
             Some(&hint("Off allows tearing for the lowest latency.")),
         ),
         checkbox(
             state.rtl,
             "hdr",
             &tr(lang, "Allow HDR output"),
-            state.settings.get_bool("hdr"),
+            state.store.flag("hdr"),
             Some(&hint("When HDR is on in Windows and the display supports it.")),
         ),
         section(state.rtl, &tr(lang, "Textures")),
@@ -99,11 +94,11 @@ pub fn view(state: &State) -> Element<'_, Message> {
             )),
         ),
         section(state.rtl, &tr(lang, "Overlay")),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "show_fps",
             &tr(lang, "Show performance overlay"),
-            ini_on(state, "show_fps"),
+            state.store.flag("show_fps"),
             Some(&hint(
                 "Items, size and corner: in-game menu (Insert / R3+L2) > Overlay."
             )),

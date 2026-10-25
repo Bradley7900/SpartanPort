@@ -206,19 +206,19 @@ pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
 /// Reads the lists again in the background.
 pub fn refresh(state: &State) -> Task<Message> {
     let paths = state.paths.clone();
-    let settings = state.settings.clone();
+    let settings = state.store.app().clone();
     blocking(move || load(&paths, &settings))
         .map(|view| Message::Mods(ModsMessage::Loaded(Box::new(view))))
 }
 
 fn mods_root(state: &State) -> PathBuf {
-    state.paths.mods_dir(&state.settings.get_str("mods_dir"))
+    state.paths.mods_dir(&state.store.text("mods_dir"))
 }
 
 /// Works the conflicts of the enabled mods out again in the background.
 fn refresh_conflicts(state: &State) -> Task<Message> {
     let root = mods_root(state);
-    let game = game_path(&state.settings);
+    let game = game_path(state.store.app());
     let names = active(&state.mods);
     blocking(move || {
         let found = conflicts(&root, &names, game.as_deref());
@@ -369,7 +369,7 @@ pub fn update(state: &mut State, message: ModsMessage) -> Task<Message> {
         ModsMessage::Refresh => return refresh(state),
         // A read for folders typed over since is dropped: each keystroke starts one, and they
         // finish in any order (the read of the current folders is on its way or already in).
-        ModsMessage::Loaded(view) if view.folders != folders(&state.settings) => {}
+        ModsMessage::Loaded(view) if view.folders != folders(state.store.app()) => {}
         ModsMessage::Loaded(view) => return loaded(state, *view),
         // A result for an older order or set of switches is dropped: threads finish out of order.
         ModsMessage::Conflicts(names, found) => {
@@ -796,7 +796,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
         state.rtl,
         "mods_enabled",
         &tr(lang, "Load mods"),
-        state.settings.get_bool("mods_enabled"),
+        state.store.flag("mods_enabled"),
         row![
             text(count).style(theme::text_muted),
             flat(tr(lang, "Open folder"), ModsMessage::OpenFolder),
@@ -821,7 +821,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     }
     // Open opens the setting, or the data folder's one when it is empty (Python `open_path`).
     let folder_row = |key: &str, label: &str, default: &Path| {
-        let value = state.settings.get_str(key);
+        let value = state.store.text(key);
         let open = if value.is_empty() {
             default.to_path_buf()
         } else {

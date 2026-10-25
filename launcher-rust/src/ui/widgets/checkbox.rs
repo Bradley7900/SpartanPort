@@ -1,5 +1,6 @@
 //! Check boxes as setting rows (mockup `.row` with `.cb`): the name, then the box at the row's end;
-//! the name toggles it too. One stores a JSON bool, the other the ini's `"1"` / `"0"`.
+//! the name toggles it too. A toggle sends a bool, which the store keeps as a JSON bool or as the
+//! ini's `"1"` / `"0"`.
 
 use iced::widget::{checkbox as check_box, mouse_area};
 use iced::Element;
@@ -58,19 +59,7 @@ pub fn checkbox_beside<'a>(
     beside(rtl, name, label, boxed, action, None)
 }
 
-fn setting<'a>(
-    rtl: bool,
-    key: &str,
-    label: &str,
-    checked: bool,
-    hint: Option<&str>,
-    value: impl Fn(bool) -> Value + 'a,
-) -> Element<'a, Message> {
-    let key = key.to_string();
-    let toggle = move |on| Message::Set(key.clone(), value(on));
-    toggle_row(rtl, label, checked, Some(toggle), hint)
-}
-
+/// The check box row of the setting `key`: a toggle sends `Set(key, bool)`.
 pub fn checkbox<'a>(
     rtl: bool,
     key: &str,
@@ -78,17 +67,7 @@ pub fn checkbox<'a>(
     checked: bool,
     hint: Option<&str>,
 ) -> Element<'a, Message> {
-    setting(rtl, key, label, checked, hint, Value::Bool)
-}
-
-pub fn checkbox_ini<'a>(
-    rtl: bool,
-    key: &str,
-    label: &str,
-    checked: bool,
-    hint: Option<&str>,
-) -> Element<'a, Message> {
-    setting(rtl, key, label, checked, hint, |on| {
-        Value::String(if on { "1" } else { "0" }.to_string())
-    })
+    let key = key.to_string();
+    let toggle = move |on| Message::Set(key.clone(), Value::Bool(on));
+    toggle_row(rtl, label, checked, Some(toggle), hint)
 }

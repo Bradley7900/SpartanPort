@@ -41,11 +41,7 @@ pub fn scroll_to_end() -> Task<Message> {
 
 /// Opens `last_run.log` of the current user folder.
 pub fn open_last_run_message(state: &State) -> Message {
-    Message::OpenPath(
-        state
-            .paths
-            .run_log_path(&state.settings.get_str("user_dir")),
-    )
+    Message::OpenPath(state.paths.run_log_path(&state.store.text("user_dir")))
 }
 
 /// `MAX_LOG_LINES` with a space between the thousands, as `6 000`.

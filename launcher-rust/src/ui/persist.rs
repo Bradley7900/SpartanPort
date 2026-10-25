@@ -18,7 +18,7 @@ use crate::core::controls::{control_changes, Kind};
 use crate::core::fs::{atomic_write, load_json};
 use crate::core::gpu::{list_displays, monitor_options, monitor_selection, Display};
 use crate::core::i18n::{is_rtl, launcher_language, system_language, tr, tr_fmt};
-use crate::core::ini::{load_ini, save_ini, INI_FLAGS};
+use crate::core::ini::{load_ini, save_ini};
 use crate::core::settings::{save_settings, Settings};
 use crate::ui::app::{self, Message, State};
 use crate::ui::home;
@@ -104,8 +104,8 @@ fn text_of(value: Option<&Value>) -> String {
 
 /// The settings the window shows (Python `gather`); reads the state and changes nothing.
 pub fn gather(state: &State) -> Persisted {
-    // `Set` already stored every edit in the settings and the ini values.
-    let mut app = state.settings.0.clone();
+    // `Set` already stored every edit in the store.
+    let mut app = state.store.app().0.clone();
     if let Some(title_id) = &state.patches.title_id {
         let chosen = state
             .patches
@@ -120,12 +120,7 @@ pub fn gather(state: &State) -> Persisted {
         all.insert(title_id.clone(), strings(chosen));
         app.insert("game_patches".to_string(), Value::Object(all));
     }
-    let mut ini = state.ini.values.clone();
-    // A switch is a check box in the window: anything but "1" reads as off.
-    for key in SHOWN_INI_KEYS.iter().filter(|key| INI_FLAGS.contains(key)) {
-        let on = ini.get(*key).is_some_and(|value| value == "1");
-        ini.insert((*key).to_string(), if on { "1" } else { "0" }.to_string());
-    }
+    let ini = state.store.ini_to_write();
     let mut controls = Map::new();
     controls.insert(
         "key".to_string(),
@@ -187,13 +182,13 @@ pub fn dirty(state: &State) -> bool {
 /// Never on Windows, where no window system is selectable. The choice on screen is kept when the
 /// new list has it, else the collected one, else the primary default. True when it listed again.
 pub fn refresh_monitors(state: &mut State) -> bool {
-    let backend = state.settings.get_str("video_backend");
+    let backend = state.store.text("video_backend");
     if cfg!(windows) || backend == state.displays_backend {
         return false;
     }
     let displays = list_displays(&state.paths, &backend);
     state.monitor_pairs = monitor_options(&displays);
-    let visible = state.settings.get_str("monitor");
+    let visible = state.store.text("monitor");
     let selected = if state
         .monitor_pairs
         .iter()
@@ -204,7 +199,7 @@ pub fn refresh_monitors(state: &mut State) -> bool {
         let collected = text_of(state.saved.as_ref().and_then(|s| s.app.get("monitor")));
         monitor_selection(&displays, &collected)
     };
-    state.settings.set("monitor", Value::String(selected));
+    state.store.set("monitor", Value::String(selected));
     state.displays = displays;
     state.displays_backend = backend;
     true
@@ -254,11 +249,11 @@ pub fn collect(state: &mut State) -> Result<(), PersistError> {
         }
     }
     write_files(state, &pending, &edited, &disk.lines)?;
-    state.settings = Settings(pending.app);
-    let resolution = state.ini.values.get("render_resolution").cloned();
-    state.ini = load_ini(&ini_path);
+    let changed = state
+        .store
+        .replace(Settings(pending.app), load_ini(&ini_path));
     // The ini may hold a size changed outside the launcher: the Aspect ratio box follows it.
-    if state.ini.values.get("render_resolution") != resolution.as_ref() {
+    if changed.iter().any(|key| key == "render_resolution") {
         performance::resolution_chosen(state);
     }
     state.saved = Some(gather(state));
@@ -341,8 +336,8 @@ pub fn save(state: &mut State) -> Task<Message> {
     if !collect_or_report(state) {
         return Task::none();
     }
-    let language = launcher_language(&state.settings.get_str("ui_language"), system_language);
-    let scale = theme::ui_scale(&state.settings.get_str("ui_scale"));
+    let language = launcher_language(&state.store.text("ui_language"), system_language);
+    let scale = theme::ui_scale(&state.store.text("ui_scale"));
     let rezoomed = scale != state.scale;
     if language != state.lang || rezoomed {
         let rebuilt = rebuild(state, language, scale);
@@ -365,7 +360,7 @@ pub fn rebuild(state: &mut State, language: String, scale: f32) -> Task<Message>
     state.scale = scale;
     home::refresh_facts(state);
     // Read now, as the Python does, so the lists are in place before the new baseline.
-    let lists = mods::load(&state.paths, &state.settings);
+    let lists = mods::load(&state.paths, state.store.app());
     let conflicts = mods::update(state, ModsMessage::Loaded(Box::new(lists)));
     game::refresh_game_patches(state);
     state.saved = Some(gather(state));

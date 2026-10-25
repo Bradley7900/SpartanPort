@@ -6,9 +6,10 @@ mod common;
 use iced::{Element, Size};
 use iced_test::core::Settings;
 use iced_test::simulator::{simulator, Simulator};
-use serde_json::Value;
+use serde_json::{json, Value};
 use spartanport_launcher::core::options::UPSCALERS;
 use spartanport_launcher::ui::app::Message;
+use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::widgets::modal::ModalMessage;
 use spartanport_launcher::ui::widgets::{self, ModalKind};
 
@@ -44,18 +45,18 @@ fn select_emits_set_with_the_value_not_the_label() {
 }
 
 #[test]
-fn checkbox_ini_emits_one_and_zero() {
-    for (checked, expected) in [(true, "0"), (false, "1")] {
-        let messages = click(
-            widgets::checkbox_ini(false, "vsync", "Vsync", checked, None),
-            "Vsync",
-        );
-        assert_eq!(messages.len(), 1);
-        assert!(
-            matches!(&messages[0], Message::Set(key, Value::String(v)) if key == "vsync" && v == expected),
-            "{checked}: {messages:?}"
-        );
-    }
+fn a_check_box_sends_a_bool() {
+    // An ini switch too: the store writes the bool as "1" / "0".
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = common::state(dir.path());
+    common::open(&mut state, Page::Graphics);
+    let sent = common::messages(&state, "VSync");
+    assert!(
+        sent.iter().any(
+            |message| matches!(message, Message::Set(key, value) if key == "vsync" && *value == json!(false))
+        ),
+        "{sent:?}"
+    );
     let messages = click(
         widgets::checkbox(false, "fx", "Effects", false, Some("hint")),
         "Effects",
@@ -67,7 +68,7 @@ fn checkbox_ini_emits_one_and_zero() {
 fn a_check_box_sits_at_the_end_of_its_row() {
     // Mockup `.row` with `.cb`: the name first, the box at the row's end; mirrored right to left.
     for rtl in [false, true] {
-        let row = widgets::checkbox_ini(rtl, "vsync", "Vsync", true, Some("A note."));
+        let row = widgets::checkbox(rtl, "vsync", "Vsync", true, Some("A note."));
         let mut ui = Simulator::with_size(Settings::default(), Size::new(600.0, 200.0), row);
         let boxed = ui
             .find(iced_test::selector::id(widgets::row::control_id("Vsync")))

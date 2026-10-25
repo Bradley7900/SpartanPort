@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use iced::widget::{button, column, pick_list, text};
 use iced::Element;
+use serde_json::Value;
 
 use crate::core::gpu::{no_msaa_decision, MsaaDecision};
 use crate::core::i18n::{tr, tr_fmt};
@@ -20,8 +21,7 @@ use crate::ui::app::{Message, State};
 use crate::ui::pages::advanced::clear_cache_blocked;
 use crate::ui::theme;
 use crate::ui::widgets::{
-    checkbox, checkbox_ini, choice_pairs, min_width, row, section, select_pairs, SELECT_MIN,
-    SELECT_TEXT,
+    checkbox, choice_pairs, min_width, row, section, select_pairs, SELECT_MIN, SELECT_TEXT,
 };
 
 /// Suffix of the labels of the sizes a mod adds.
@@ -36,11 +36,11 @@ pub fn refresh_mod_resolutions(state: &mut State) {
 }
 
 fn mod_sizes(state: &State) -> Vec<String> {
-    if !state.settings.get_bool("mods_enabled") {
+    if !state.store.flag("mods_enabled") {
         return Vec::new();
     }
-    let root = state.paths.mods_dir(&state.settings.get_str("mods_dir"));
-    let game = state.settings.get_str("game_dir");
+    let root = state.paths.mods_dir(&state.store.text("mods_dir"));
+    let game = state.store.text("game_dir");
     let game = (!game.is_empty()).then(|| PathBuf::from(game));
     // The Mods page's order and switches, which Save (Task 32) has not written to mods.json yet.
     let names = if state.mods.order.is_empty() {
@@ -119,12 +119,7 @@ pub fn aspect_resolution_options(state: &State) -> Vec<(String, String)> {
 }
 
 fn current_resolution(state: &State) -> String {
-    state
-        .ini
-        .values
-        .get("render_resolution")
-        .cloned()
-        .unwrap_or_default()
+    state.store.text("render_resolution")
 }
 
 /// Chooses an aspect ratio and moves the render resolution to its closest size.
@@ -133,7 +128,7 @@ pub fn choose_aspect(state: &mut State, aspect: &str) {
     let current = current_resolution(state);
     if let Some(closest) = closest_resolution(aspect, &current, &resolution_values(state)) {
         if closest != current {
-            state.ini.values.insert("render_resolution".into(), closest);
+            state.store.set("render_resolution", Value::String(closest));
         }
     }
 }
@@ -149,7 +144,7 @@ pub fn resolution_chosen(state: &mut State) {
 
 /// `NO_MSAA` with Automatic naming the chosen card and the game's decision for it.
 pub fn no_msaa_label(state: &State, lang: &str) -> Vec<(String, String)> {
-    let decision = no_msaa_decision(&state.gpus, &state.settings.get_str("gpu_id"));
+    let decision = no_msaa_decision(&state.gpus, &state.store.text("gpu_id"));
     NO_MSAA
         .iter()
         .map(|choice| {
@@ -191,8 +186,7 @@ pub struct SelectRow {
 
 /// The drop-downs of the page; `view` builds them from this list.
 pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
-    let ini = |key: &str| state.ini.values.get(key).cloned().unwrap_or_default();
-    let app = |key: &str| state.settings.get_str(key);
+    let stored = |key: &str| state.store.text(key);
     let cards = gpu_pairs(state)
         .into_iter()
         .map(|(value, label)| {
@@ -213,32 +207,40 @@ pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
         row(
             "fps_limit",
             choice_pairs(FPS_LIMITS, lang),
-            ini("fps_limit"),
+            stored("fps_limit"),
         ),
         row(
             "frames_queued",
             choice_pairs(FRAMES_QUEUED, lang),
-            ini("frames_queued"),
+            stored("frames_queued"),
         ),
         row(
             "engine_fps",
             choice_pairs(ENGINE_FPS_CHOICES, lang),
-            ini("engine_fps"),
+            stored("engine_fps"),
         ),
         row(
             "render_resolution",
             aspect_resolution_options(state),
-            ini("render_resolution"),
+            stored("render_resolution"),
         ),
-        row("gpu_id", cards, app("gpu_id")),
+        row("gpu_id", cards, stored("gpu_id")),
         row(
             "stream_memory",
             choice_pairs(STREAM_MEMORY, lang),
-            app("stream_memory"),
+            stored("stream_memory"),
         ),
-        row("draw_pipe", choice_pairs(DRAW_PIPE, lang), app("draw_pipe")),
-        row("readbacks", choice_pairs(READBACKS, lang), app("readbacks")),
-        row("no_msaa", no_msaa_label(state, lang), app("no_msaa")),
+        row(
+            "draw_pipe",
+            choice_pairs(DRAW_PIPE, lang),
+            stored("draw_pipe"),
+        ),
+        row(
+            "readbacks",
+            choice_pairs(READBACKS, lang),
+            stored("readbacks"),
+        ),
+        row("no_msaa", no_msaa_label(state, lang), stored("no_msaa")),
     ]
 }
 
@@ -251,11 +253,6 @@ fn delete_cache_button<'a>(state: &State, lang: &str) -> Element<'a, Message> {
     } else {
         delete.on_press(Message::ClearShaderCache).into()
     }
-}
-
-/// An ini flag is on when its value is `"1"`.
-fn ini_on(state: &State, key: &str) -> bool {
-    state.ini.values.get(key).is_some_and(|value| value == "1")
 }
 
 /// The drop-down of `key` as the Performance page draws it (its pairs and current value).
@@ -334,7 +331,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "pipeline_binary_cache",
             &tr(lang, "Use pipeline binary cache (A/B test)"),
-            state.settings.get_bool("pipeline_binary_cache"),
+            state.store.flag("pipeline_binary_cache"),
             Some(&hint(
                 "Reuse saved Vulkan pipelines. Disable to compare FPS with normal compilation. Takes effect on the next launch; saved caches are preserved."
             )),
@@ -343,16 +340,16 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "background_warmup",
             &tr(lang, "Load shader cache in the background"),
-            state.settings.get_bool("background_warmup"),
+            state.store.flag("background_warmup"),
             Some(&hint(
                 "The game opens at once and the saved shaders load while you play; a small note in the corner shows the progress. Switch it off to wait on the loading screen instead."
             )),
         ),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "async_shaders",
             &tr(lang, "Compile new shaders in the background"),
-            ini_on(state, "async_shaders"),
+            state.store.flag("async_shaders"),
             Some(&hint(
                 "Fewer stutters in new areas: the game keeps running while new shaders compile. An object or effect may appear a moment later. Switch it off if something stays missing."
             )),
@@ -361,7 +358,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "disk_shaders",
             &restart("Reuse compiled shaders from disk"),
-            state.settings.get_bool("disk_shaders"),
+            state.store.flag("disk_shaders"),
             Some(&hint(
                 "Shaders compiled in earlier sessions load from the shader cache instead of compiling again, so objects no longer appear a few frames late after starting or loading a save, and the cache is not rewritten every session (antivirus scans each written file). The first launch with it on rebuilds the cache once. Switch it off if an object, effect or color looks wrong only after a restart and is fine on the first run of a new cache."
             )),
@@ -370,7 +367,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "shader_prefetch",
             &restart("Read the shader cache into memory at start"),
-            state.settings.get_bool("shader_prefetch"),
+            state.store.flag("shader_prefetch"),
             Some(&hint(
                 "A background thread reads the saved shaders into memory while the game starts; a note in the lower right corner shows the progress. Loading a shader then does not hold up a frame. Needs the option above. Switch it off on a slow hard drive or with little free RAM if the first minute stutters more or the game starts slower."
             )),
@@ -379,7 +376,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "shader_notes",
             &restart("Show shader notes in the corner"),
-            state.settings.get_bool("shader_notes"),
+            state.store.flag("shader_notes"),
             Some(&hint(
                 "A note in the lower right corner shows the shader cache being read at start and the shaders being compiled, so a short stutter has a visible reason. Switch it off to keep the screen clean."
             )),
@@ -396,7 +393,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "parallel_warmup",
             &tr(lang, "Fast shader cache loading (parallel)"),
-            state.settings.get_bool("parallel_warmup"),
+            state.store.flag("parallel_warmup"),
             Some(&hint(
                 "Loading screen only: builds the cached pipelines on several CPU threads."
             )),
@@ -418,20 +415,20 @@ pub fn view(state: &State) -> Element<'_, Message> {
                 "System RAM can improve FPS on NVIDIA laptops. Choose GPU memory to restore the previous behavior. Applies on the next game launch."
             )),
         ),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "stale_readback",
             &restart("Game reads GPU data without waiting (big FPS gain)"),
-            ini_on(state, "stale_readback"),
+            state.store.flag("stale_readback"),
             Some(&hint(
                 "About 40 to 66 FPS in a heavy scene. Needs deferred GPU readbacks. Switch it off if lighting or objects look wrong."
             )),
         ),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "deferred_readback",
             &restart("Deferred GPU readbacks"),
-            ini_on(state, "deferred_readback"),
+            state.store.flag("deferred_readback"),
             Some(&hint(
                 "Fewer waits for the GPU. Switch it off if textures or shadows look wrong."
             )),
@@ -440,7 +437,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             state.rtl,
             "partial_height_views",
             &restart("Fast screen effects (Rage of Sparta, weapons)"),
-            state.settings.get_bool("partial_height_views"),
+            state.store.flag("partial_height_views"),
             Some(&hint(
                 "Keeps powers and weapon effects at full FPS. Switch it off if a screen effect (blur, distortion, the color change of a power) looks stretched, shifted or wrong."
             )),

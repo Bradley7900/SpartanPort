@@ -9,7 +9,6 @@ use std::process::{Command, Stdio};
 
 use iced::widget::{button, column, row as layout, text};
 use iced::{Center, Element, Task};
-use serde_json::Value;
 
 use crate::core::desktop::{host_environment, windows_shortcut, write_linux_shortcut};
 use crate::core::i18n::{tr, tr_fmt};
@@ -46,16 +45,6 @@ pub struct CheckRow {
     pub enabled: bool,
 }
 
-/// Whether the Home fire burns: on unless `launcher_effects` is explicitly off.
-pub fn effects_enabled(settings: &Settings) -> bool {
-    match settings.get("launcher_effects") {
-        Some(Value::Bool(on)) => *on,
-        Some(Value::Number(n)) => n.as_f64() != Some(0.0),
-        Some(Value::String(s)) => s != "0" && s != "false",
-        _ => true,
-    }
-}
-
 /// Whether the game runs, which blocks clearing its shader cache.
 pub fn clear_cache_blocked(state: &State) -> bool {
     // As `if self.process: return` does.
@@ -71,7 +60,7 @@ fn restart(lang: &str, english: &str) -> String {
 
 /// The drop-downs of the page: the language, the scale and (off Windows) the window system.
 pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
-    let app = |key: &str| state.settings.get_str(key);
+    let app = |key: &str| state.store.text(key);
     let mut rows = vec![
         SelectRow {
             key: "ui_language",
@@ -106,11 +95,7 @@ fn check_row(
         key,
         label,
         hint,
-        checked: if key == "launcher_effects" {
-            effects_enabled(&state.settings)
-        } else {
-            state.settings.get_bool(key)
-        },
+        checked: state.store.flag(key),
         enabled,
     }
 }
@@ -564,7 +549,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
                 modal(state, ModalKind::Info, body);
                 return Task::none();
             }
-            let user = state.paths.user_dir(&state.settings.get_str("user_dir"));
+            let user = state.paths.user_dir(&state.store.text("user_dir"));
             return blocking(move || cache_size(&user)).map(Message::ShaderCacheSized);
         }
         Message::ShaderCacheSized(0) => modal(
@@ -573,7 +558,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             tr(&lang, "The shader cache is already empty."),
         ),
         Message::ShaderCacheSized(bytes) => {
-            let cache = cache_dir(&state.paths.user_dir(&state.settings.get_str("user_dir")));
+            let cache = cache_dir(&state.paths.user_dir(&state.store.text("user_dir")));
             let body = tr_fmt(
                 &lang,
                 "Delete the shader cache ({} MB in {})? The game compiles the shaders again, so the next start stutters for a few minutes.",
@@ -587,7 +572,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
         }
         Message::ClearShaderCacheConfirmed => {
             state.modal = None;
-            let user = state.paths.user_dir(&state.settings.get_str("user_dir"));
+            let user = state.paths.user_dir(&state.store.text("user_dir"));
             return blocking(move || clear_cache(&user)).map(Message::ShaderCacheCleared);
         }
         Message::ShaderCacheCleared(Ok(())) => modal(
@@ -625,7 +610,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
             if !persist::collect_unless_unreadable(state) {
                 return Task::none();
             }
-            let (paths, settings) = (state.paths.clone(), state.settings.clone());
+            let (paths, settings) = (state.paths.clone(), state.store.app().clone());
             return blocking(move || add_to_steam(&paths, &settings, &lang))
                 .map(Message::SteamDone);
         }

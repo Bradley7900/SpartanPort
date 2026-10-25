@@ -204,7 +204,7 @@ pub fn play(state: &mut State) -> Task<Message> {
     if !persist::collect_or_report(state) {
         return Task::none();
     }
-    if game_info(&state.settings.get_str("game_dir")).is_none() {
+    if game_info(&state.store.text("game_dir")).is_none() {
         let text = tr(
             &state.lang,
             "Choose the game folder with eboot.bin (CUSA01623).",
@@ -218,8 +218,8 @@ pub fn play(state: &mut State) -> Task<Message> {
 /// start. `declined` is the folder whose offer was just answered No.
 fn checks(state: &mut State, declined: Option<&str>) -> Task<Message> {
     let lang = state.lang.clone();
-    let game_dir = state.settings.get_str("game_dir");
-    let update_dir = state.settings.get_str("update_dir");
+    let game_dir = state.store.text("game_dir");
+    let update_dir = state.store.text("update_dir");
     if let Some((folder, source)) = system_files_offer(&game_dir, &update_dir, declined) {
         let text = tr_fmt(
             &lang,
@@ -326,7 +326,7 @@ fn launch_error_text(error: &LaunchError) -> String {
 /// variables of a bundle, `LD_LIBRARY_PATH` included, reach it) plus what the settings ask for.
 pub fn launch_environment(state: &State) -> IndexMap<String, String> {
     game_environment(
-        &state.settings,
+        state.store.app(),
         &state.paths,
         &state.lang,
         &environment_of(std::env::vars_os()),
@@ -338,11 +338,7 @@ pub fn launch_environment(state: &State) -> IndexMap<String, String> {
 fn start(state: &mut State) -> Task<Message> {
     let lang = state.lang.clone();
     state.log.clear();
-    let run_log = RunLog::open(
-        &state
-            .paths
-            .run_log_path(&state.settings.get_str("user_dir")),
-    );
+    let run_log = RunLog::open(&state.paths.run_log_path(&state.store.text("user_dir")));
     let env = launch_environment(state);
     let command = match &state.launch_command {
         Some(command) => Ok(command.clone()),
@@ -370,7 +366,7 @@ fn start(state: &mut State) -> Task<Message> {
         hidden: false,
     };
     state.status = tr(&lang, "Preparing the game; it opens in its own window…");
-    if state.settings.get_bool("close_on_play") {
+    if state.store.flag("close_on_play") {
         return blocking(|| std::thread::sleep(HIDE_DELAY))
             .map(move |()| Message::Game(GameMessage::HideForGame(pid)));
     }

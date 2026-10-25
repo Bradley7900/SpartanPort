@@ -127,7 +127,7 @@ pub fn load(paths: &Paths, settings: &Settings) -> TrophiesView {
 pub fn refresh(state: &mut State) -> Task<Message> {
     state.trophies.loading = true;
     let paths = state.paths.clone();
-    let settings = state.settings.clone();
+    let settings = state.store.app().clone();
     blocking(move || load(&paths, &settings))
         .map(|view| Message::Trophies(TrophiesMessage::Loaded(Box::new(view))))
 }
@@ -151,7 +151,7 @@ fn dialog(state: &mut State, kind: ModalKind, body: String) {
 fn trophies_dat(state: &State) -> PathBuf {
     state
         .paths
-        .user_dir(&state.settings.get_str("user_dir"))
+        .user_dir(&state.store.text("user_dir"))
         .join("trophies.dat")
 }
 
@@ -163,7 +163,7 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
         TrophiesMessage::Filter(filter) => state.trophies.filter = filter,
         // A read for folders typed over since is dropped: each keystroke starts one, and they
         // finish in any order (the read of the current folders is on its way or already in).
-        TrophiesMessage::Loaded(view) if view.folders != folders(&state.settings) => {}
+        TrophiesMessage::Loaded(view) if view.folders != folders(state.store.app()) => {}
         TrophiesMessage::Loaded(view) => {
             let filter = state.trophies.filter;
             state.trophies = *view;

@@ -282,7 +282,7 @@ fn the_card_step_lists_automatic_and_the_cards() {
         &mut state,
         Message::Splash(SplashMessage::CheckDone(Check::Gpus(gpu_rows(&ARC_LAPTOP)))),
     );
-    assert_eq!(state.settings.get_str("gpu_id"), "1");
+    assert_eq!(state.store.text("gpu_id"), "1");
     let mut ui = simulator(app::view(&state));
     assert_eq!(
         gpu_labels(&state),
@@ -299,12 +299,7 @@ fn the_card_step_lists_automatic_and_the_cards() {
 
 /// The label the Display mode drop-down shows for the current ini value.
 fn display_mode_label(state: &State) -> Option<String> {
-    let current = state
-        .ini
-        .values
-        .get("display_mode")
-        .cloned()
-        .unwrap_or_default();
+    let current = state.store.text("display_mode");
     choice_pairs(DISPLAY_MODES, "en")
         .into_iter()
         .find(|(value, _)| *value == current)
@@ -340,10 +335,7 @@ fn the_video_step_edits_the_ini_values() {
             assert!(ui.find(label).is_ok(), "{label}");
         }
     }
-    assert_eq!(
-        state.ini.values.get("display_mode").map(String::as_str),
-        Some("windowed")
-    );
+    assert_eq!(state.store.text("display_mode"), "windowed");
     assert_eq!(display_mode_label(&state).as_deref(), Some("Windowed"));
     assert_eq!(
         row_shown(&state, "fps_limit"),
@@ -356,7 +348,7 @@ fn the_video_step_edits_the_ini_values() {
         ("engine_fps", "144"),
     ] {
         let _ = app::update(&mut state, Message::Set(key.into(), value.into()));
-        assert_eq!(state.ini.values.get(key).map(String::as_str), Some(value));
+        assert_eq!(state.store.text(key), value);
     }
     assert_eq!(display_mode_label(&state).as_deref(), Some("Fullscreen"));
     assert_eq!(row_shown(&state, "fps_limit").0, "60");
@@ -372,10 +364,7 @@ fn an_ini_without_settings_is_shown_and_kept() {
     std::fs::write(&ini, "# mine\nfps_limit=60\nextra=kept\n").unwrap();
     let mut state = at_step(dir.path(), Step::Video);
     assert!(state.setup.is_some());
-    assert_eq!(
-        state.ini.values.get("fps_limit").map(String::as_str),
-        Some("60")
-    );
+    assert_eq!(state.store.text("fps_limit"), "60");
     assert_eq!(row_shown(&state, "fps_limit").0, "60");
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Frame rate limit").is_ok());
@@ -432,10 +421,7 @@ fn skip_writes_the_defaults_but_keeps_the_language() {
     let saved = settings_file(dir.path());
     assert_eq!(saved["game_dir"], "");
     assert_eq!(saved["ui_language"], "pt");
-    assert_eq!(
-        state.ini.values.get("fps_limit").map(String::as_str),
-        Some("0")
-    );
+    assert_eq!(state.store.text("fps_limit"), "0");
     assert!(
         state.home.info.is_none(),
         "the Home facts follow the restored folder"
@@ -446,13 +432,13 @@ fn skip_writes_the_defaults_but_keeps_the_language() {
 fn skip_puts_the_aspect_back_with_the_resolution() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = at_step(dir.path(), Step::Video);
-    let resolution = |state: &State| state.ini.values.get("render_resolution").cloned();
+    let resolution = |state: &State| state.store.text("render_resolution");
     assert_eq!(state.aspect, "16:9");
     assert!(performance::aspect_options(&state).contains(&"21:9".to_string()));
     let _ = app::update(&mut state, Message::Aspect("21:9".into()));
-    assert_ne!(resolution(&state).as_deref(), Some("native"));
+    assert_ne!(resolution(&state), "native");
     setup(&mut state, SetupMessage::Skip);
-    assert_eq!(resolution(&state).as_deref(), Some("native"));
+    assert_eq!(resolution(&state), "native");
     // The aspect of the restored resolution.
     assert_eq!(state.aspect, "16:9");
 }
@@ -487,10 +473,7 @@ fn a_failed_finish_keeps_the_setup_open() {
     );
     assert!(state.modal.is_none());
     assert!(state.setup.is_some());
-    assert_eq!(
-        state.ini.values.get("fps_limit").map(String::as_str),
-        Some("60")
-    );
+    assert_eq!(state.store.text("fps_limit"), "60");
 }
 
 fn press(state: &mut State, key: Key) {

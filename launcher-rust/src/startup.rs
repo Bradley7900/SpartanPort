@@ -130,7 +130,7 @@ pub fn prepare(paths: &Paths, migrate: bool) {
         let appimage = env("APPIMAGE");
         let icon = paths.port_dir.join("launcher").join("spartanport.png");
         desktop::integrate_desktop(
-            settings.get_bool("desktop_integration"),
+            settings.flag("desktop_integration"),
             appimage.as_deref(),
             &icon,
             &paths.data_dir,

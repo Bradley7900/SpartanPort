@@ -64,13 +64,11 @@ impl Store {
         (Store { app, ini }, unreadable)
     }
 
+    /// An ini key is on only as `"1"` (its default's text when absent); a `settings.json` key
+    /// follows Python's `bool()`.
     pub fn flag(&self, key: &str) -> bool {
         match setting(key) {
-            Some(row) if row.file == File::Ini => self
-                .ini
-                .values
-                .get(key)
-                .map_or_else(|| row.default.is_on(), |value| value == "1"),
+            Some(row) if row.file == File::Ini => self.text(key) == "1",
             _ => self.app.flag(key),
         }
     }
@@ -177,6 +175,27 @@ mod tests {
         assert_eq!(store.ini().values["vsync"], "1");
         assert!(!store.set("vsync", json!(true))); // unchanged
         assert!(store.app().get("vsync").is_none());
+    }
+
+    #[test]
+    fn an_ini_key_reads_on_only_as_one() {
+        let (_dir, mut store) = fresh();
+        // Every key absent: the default's text decides, so "0" (fps_limit) is off.
+        let app = store.app().clone();
+        let empty = Ini {
+            values: IndexMap::new(),
+            lines: Vec::new(),
+        };
+        store.replace(app, empty);
+        assert!(!store.flag("fps_limit"));
+        assert!(store.flag("vsync"));
+        assert!(!store.flag("cheat_very_hard"));
+        // A number the window shows as a check box (default 1).
+        assert!(store.flag("mouse_lock"));
+        store.set("mouse_lock", json!(false));
+        assert!(!store.flag("mouse_lock"));
+        store.set("mouse_lock", json!("2"));
+        assert!(!store.flag("mouse_lock"));
     }
 
     #[test]

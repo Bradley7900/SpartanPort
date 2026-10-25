@@ -29,16 +29,6 @@ impl Settings {
         }
     }
 
-    /// `true`, the number 1 or the string "1".
-    pub fn get_bool(&self, key: &str) -> bool {
-        match self.0.get(key) {
-            Some(Value::Bool(b)) => *b,
-            Some(Value::Number(n)) => n.as_i64() == Some(1) || n.as_f64() == Some(1.0),
-            Some(Value::String(s)) => s == "1",
-            _ => false,
-        }
-    }
-
     /// A flag with the Python `bool()` rule: null, false, 0, "", [] and {} are off, everything else
     /// (so "0" too) is on. An absent key reads the catalog default.
     pub fn flag(&self, key: &str) -> bool {

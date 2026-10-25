@@ -22,8 +22,8 @@ use crate::ui::play::GameState;
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::widgets::{
-    checkbox_ini, folder, min_width, row, section, select, toggle_row, Modal, ModalKind,
-    ModalMessage, SELECT_MIN, SELECT_TEXT,
+    checkbox, folder, min_width, row, section, select, toggle_row, Modal, ModalKind, ModalMessage,
+    SELECT_MIN, SELECT_TEXT,
 };
 use crate::APP_NAME;
 
@@ -68,7 +68,7 @@ pub fn browse_prompt(key: &str) -> &'static str {
 }
 
 fn user_dir(state: &State) -> PathBuf {
-    state.paths.user_dir(&state.settings.get_str("user_dir"))
+    state.paths.user_dir(&state.store.text("user_dir"))
 }
 
 // --- Folders ---
@@ -193,8 +193,8 @@ pub fn backup_update(state: &mut State, message: BackupMessage) -> Task<Message>
 
 fn saved_choice(state: &State, title_id: &str) -> Option<BTreeSet<String>> {
     let list = state
-        .settings
-        .get("game_patches")?
+        .store
+        .json("game_patches")?
         .get(title_id)?
         .as_array()?;
     Some(
@@ -217,12 +217,12 @@ pub fn store_game_patches(state: &mut State) {
         .filter(|meta| state.patches.chosen.contains(&meta.name))
         .map(|meta| Value::String(meta.name.clone()))
         .collect();
-    let mut all = match state.settings.get("game_patches") {
+    let mut all = match state.store.json("game_patches") {
         Some(Value::Object(map)) => map.clone(),
         _ => Map::new(),
     };
     all.insert(title_id, Value::Array(names));
-    state.settings.set("game_patches", Value::Object(all));
+    state.store.set("game_patches", Value::Object(all));
 }
 
 /// Reads the built-in patches of the game folder into `state.patches`, keeping the selection of
@@ -230,8 +230,8 @@ pub fn store_game_patches(state: &mut State) {
 pub fn refresh_game_patches(state: &mut State) {
     store_game_patches(state);
     let meta = meta_folder(
-        &state.settings.get_str("game_dir"),
-        &state.settings.get_str("update_dir"),
+        &state.store.text("game_dir"),
+        &state.store.text("update_dir"),
     );
     let (title_id, profile) = game_profile_of(&meta);
     let (Some(title_id), Some(profile)) = (title_id, profile) else {
@@ -271,14 +271,9 @@ pub fn patch_toggled(state: &mut State, name: &str, on: bool) {
 
 // --- View ---
 
-/// An ini flag is on when its value is `"1"`.
-fn ini_on(state: &State, key: &str) -> bool {
-    state.ini.values.get(key).is_some_and(|value| value == "1")
-}
-
 /// A folder row with its note under it.
 pub fn folder_row<'a>(state: &State, key: &str, label: &str, note: &str) -> Element<'a, Message> {
-    let value = state.settings.get_str(key);
+    let value = state.store.text(key);
     // Python `open_path`: an empty saves folder opens `DATA_DIR/user`; an unset game or update
     // folder has nothing to open.
     let open = if key == "user_dir" {
@@ -366,25 +361,25 @@ fn patches_section(state: &State) -> Element<'_, Message> {
 pub fn view(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     let hint = |english: &str| tr(lang, english);
-    let language = state.settings.get_str("language");
+    let language = state.store.text("language");
     let default_saves = state.paths.data_dir.join("user").display().to_string();
 
     column![
         section(state.rtl, &tr(lang, "Cheats")),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "cheat_double_jumps",
             &tr(lang, "Infinite Double Jumps"),
-            ini_on(state, "cheat_double_jumps"),
+            state.store.flag("cheat_double_jumps"),
             Some(&hint(
                 "Repeat air jumps without landing. Also available in the in-game Cheats menu."
             )),
         ),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "cheat_very_hard",
             &tr(lang, "Unlock Very Hard"),
-            ini_on(state, "cheat_very_hard"),
+            state.store.flag("cheat_very_hard"),
             Some(&hint(
                 "Select Very Hard without completing the game. Does not change existing save difficulty. In-game: enable before opening New Game."
             )),

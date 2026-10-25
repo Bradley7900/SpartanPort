@@ -158,7 +158,7 @@ fn show_fixed_paths(state: &mut State) {
     let port = Path::new(SHOWN_PORT);
     state.paths = Paths::from_env(port, &|_| None);
     state
-        .settings
+        .store
         .set("game_dir", port.join("dump").display().to_string().into());
     state.saved = Some(persist::gather(state));
 }

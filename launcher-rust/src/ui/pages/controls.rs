@@ -30,8 +30,7 @@ use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
 use crate::ui::widgets::button_icon::game_button;
 use crate::ui::widgets::{
-    button_icon, checkbox, checkbox_ini, min_width, row, section, select, slider, SELECT_MIN,
-    SELECT_TEXT,
+    button_icon, checkbox, min_width, row, section, select, slider, SELECT_MIN, SELECT_TEXT,
 };
 
 /// A waiting key box gives up after this long.
@@ -527,7 +526,7 @@ pub struct KeyRow {
 
 /// The rows of the keyboard & mouse table; `view` draws them.
 pub fn key_rows(state: &State, lang: &str) -> Vec<KeyRow> {
-    let combined = state.settings.get_bool("rage_one_input");
+    let combined = state.store.flag("rage_one_input");
     table_rows(Kind::Key)
         .into_iter()
         .map(|row| {
@@ -654,11 +653,7 @@ pub fn pad_pick(button: &str, pairs: &[(String, String)], label: &str) -> Messag
 /// An ini number, or its default when it is not one.
 fn ini_number(state: &State, key: &str) -> f32 {
     let parse = |text: &str| text.trim().parse::<f32>().ok();
-    state
-        .ini
-        .values
-        .get(key)
-        .and_then(|text| parse(text))
+    parse(&state.store.text(key))
         .or_else(|| {
             INI_DEFAULTS
                 .iter()
@@ -666,11 +661,6 @@ fn ini_number(state: &State, key: &str) -> f32 {
                 .and_then(|(_, text)| parse(text))
         })
         .unwrap_or_default()
-}
-
-/// An ini flag is on when its value is `"1"`.
-fn ini_on(state: &State, key: &str) -> bool {
-    state.ini.values.get(key).is_some_and(|value| value == "1")
 }
 
 fn note<'a>(body: String) -> Element<'a, Message> {
@@ -765,7 +755,7 @@ fn pad_line<'a>(row: PadRow, pad_style: &str) -> Element<'a, Message> {
 
 fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
     let hint = |english: &str| tr(lang, english);
-    let rage_on = state.settings.get_bool("rage_one_input");
+    let rage_on = state.store.flag("rage_one_input");
     let mut lines = column![].spacing(6);
     for key_row in key_rows(state, lang) {
         if key_row.button == "rage" {
@@ -779,12 +769,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
         }
         lines = lines.push(key_line(key_row));
     }
-    let aim_style = state
-        .ini
-        .values
-        .get("mouse_aim_style")
-        .cloned()
-        .unwrap_or_default();
+    let aim_style = state.store.text("mouse_aim_style");
     column![
         section(state.rtl, &tr(lang, "Keyboard & Mouse Mapping")),
         note(tr(
@@ -804,7 +789,7 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
             select(
                 "stick_prompts",
                 STICK_PROMPTS,
-                &state.settings.get_str("stick_prompts"),
+                &state.store.text("stick_prompts"),
                 lang
             ),
             Some(&hint(STICK_HINT)),
@@ -839,11 +824,11 @@ fn keyboard_section<'a>(state: &State, lang: &str) -> Element<'a, Message> {
             ),
             Some(&hint(SENSITIVITY_HINT)),
         ),
-        checkbox_ini(
+        checkbox(
             state.rtl,
             "mouse_lock",
             &tr(lang, "Keep the mouse in the game window"),
-            ini_on(state, "mouse_lock"),
+            state.store.flag("mouse_lock"),
             Some(&hint(MOUSE_LOCK_HINT)),
         ),
     ]
@@ -910,7 +895,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
             select(
                 "glyph_style",
                 GLYPH_STYLES,
-                &state.settings.get_str("glyph_style"),
+                &state.store.text("glyph_style"),
                 lang
             ),
             Some(&tr(lang, GLYPH_HINT)),

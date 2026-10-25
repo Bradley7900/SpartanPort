@@ -187,12 +187,12 @@ pub fn start_checks(state: &State) -> Task<Message> {
     let done = |check| Message::Splash(SplashMessage::CheckDone(check));
     let paths = state.paths.clone();
     let gpus = blocking(move || list_gpus(&paths)).map(move |rows| done(Check::Gpus(rows)));
-    let game_dir = state.settings.get_str("game_dir");
-    let update_dir = state.settings.get_str("update_dir");
+    let game_dir = state.store.text("game_dir");
+    let update_dir = state.store.text("update_dir");
     let game = blocking(move || ready_to_play(&game_dir, &update_dir))
         .map(move |ready| done(Check::GameFolder(ready)));
     let wants_update = can_self_update(&|key| std::env::var(key).ok(), cfg!(windows))
-        && state.settings.get_bool("check_updates");
+        && state.store.flag("check_updates");
     let update = if wants_update {
         blocking(|| list_releases(cfg!(windows)).ok())
             .map(move |releases| done(Check::Update(releases)))

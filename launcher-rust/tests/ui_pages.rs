@@ -7,6 +7,7 @@ use common::{
     browsed, click, dump_with_patches, gpu_rows, load_mods, load_trophies, make_mod, messages,
     open, state, state_with_trophies, two_displays, write_mod_patch, ARC_LAPTOP,
 };
+use spartanport_launcher::core::env::game_environment;
 use spartanport_launcher::core::gpu::{display_label, parse_display_list};
 use spartanport_launcher::core::options::DISPLAY_MODES;
 use spartanport_launcher::ui::app::{self, Message};
@@ -18,20 +19,44 @@ fn graphics_rows_change_the_right_keys() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
     open(&mut state, Page::Graphics);
-    assert_eq!(state.ini.values["vsync"], "1");
+    assert_eq!(state.store.text("vsync"), "1");
     click(&mut state, "VSync");
-    assert_eq!(state.ini.values["vsync"], "0");
-    assert!(!state.settings.get_bool("hdr"));
+    assert_eq!(state.store.text("vsync"), "0");
+    assert!(!state.store.flag("hdr"));
     click(&mut state, "Allow HDR output");
-    assert!(state.settings.get_bool("hdr"));
+    assert!(state.store.flag("hdr"));
     // iced_test cannot open a pick_list: the pure mapping stands in for the click.
     let pick = select_message("display_mode", DISPLAY_MODES, "en", "Borderless").unwrap();
     assert!(
         matches!(&pick, Message::Set(key, value) if key == "display_mode" && value == "borderless")
     );
     let _ = app::update(&mut state, pick);
-    assert_eq!(state.ini.values["display_mode"], "borderless");
-    assert!(state.settings.get("display_mode").is_none());
+    assert_eq!(state.store.text("display_mode"), "borderless");
+    assert!(state.store.json("display_mode").is_none());
+}
+
+#[test]
+fn a_stored_string_zero_shows_checked_like_the_game_gets_it() {
+    // Python truthiness: "0" is a non-empty string, so the game gets SPARTAN_HDR=1, and the box
+    // shows what the game gets.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("settings.json"), r#"{"hdr": "0"}"#).unwrap();
+    let mut state = state(dir.path());
+    open(&mut state, Page::Graphics);
+    // A checked box unchecks.
+    let sent = messages(&state, "Allow HDR output");
+    assert!(
+        matches!(&sent[..], [Message::Set(key, value)] if key == "hdr" && *value == serde_json::json!(false)),
+        "{sent:?}"
+    );
+    let env = game_environment(
+        state.store.app(),
+        &state.paths,
+        "en",
+        &indexmap::IndexMap::new(),
+        true,
+    );
+    assert_eq!(env["SPARTAN_HDR"], "1");
 }
 
 /// The window of `state` at `width` × `height` with `page` open, once the drawer has stopped.
@@ -195,7 +220,7 @@ fn monitor_row_lists_the_probe_indices() {
         .map(|(value, _)| Message::Set("monitor".into(), value.clone().into()))
         .unwrap();
     let _ = app::update(&mut state, pick);
-    assert_eq!(state.settings.get_str("monitor"), "1");
+    assert_eq!(state.store.text("monitor"), "1");
 }
 
 #[test]
@@ -216,15 +241,15 @@ fn graphics_page_offers_the_choice() {
     assert_eq!(state.monitor_pairs[2].1, "B · 1280 × 720");
 
     // A saved choice comes back; one whose monitor is gone falls back to the primary default.
-    state.settings.set("monitor", "2".into());
+    state.store.set("monitor", "2".into());
     let _ = app::update(&mut state, Message::MonitorsListed(two_displays()));
-    assert_eq!(state.settings.get_str("monitor"), "");
-    state.settings.set("monitor", "1".into());
+    assert_eq!(state.store.text("monitor"), "");
+    state.store.set("monitor", "1".into());
     let _ = app::update(&mut state, Message::MonitorsListed(two_displays()));
-    assert_eq!(state.settings.get_str("monitor"), "1");
+    assert_eq!(state.store.text("monitor"), "1");
     let _ = app::update(&mut state, Message::MonitorsListed(Vec::new()));
     assert_eq!(state.monitor_pairs.len(), 1);
-    assert_eq!(state.settings.get_str("monitor"), "");
+    assert_eq!(state.store.text("monitor"), "");
 
     // The screenshots button opens <saves>/screenshots, made first when missing.
     let sent = messages(&state, "Open the screenshots folder");
@@ -250,7 +275,7 @@ fn an_empty_folder_setting_opens_the_data_folder_one() {
     state.lang = "en".into();
     let _ = app::update(&mut state, Message::ShowPage(Page::Mods));
     // The Mods folder row comes first; its setting is empty.
-    assert_eq!(state.settings.get_str("mods_dir"), "");
+    assert_eq!(state.store.text("mods_dir"), "");
     let sent = tall_messages(&state, "Open");
     let expected = state.paths.mods_dir("");
     assert!(
@@ -271,10 +296,10 @@ fn values(pairs: &[(String, String)]) -> Vec<&str> {
 fn aspect_follows_and_filters_the_render_resolution() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
-    assert_eq!(state.ini.values["render_resolution"], "native");
+    assert_eq!(state.store.text("render_resolution"), "native");
     assert_eq!(state.aspect, "16:9");
     let _ = app::update(&mut state, Message::Aspect("16:10".into()));
-    assert_eq!(state.ini.values["render_resolution"], "1920x1200");
+    assert_eq!(state.store.text("render_resolution"), "1920x1200");
     assert_eq!(
         values(&performance::aspect_resolution_options(&state)),
         ["1280x800", "1440x900", "1920x1200", "2560x1600"]
@@ -339,7 +364,7 @@ fn no_msaa_auto_label_names_the_card_and_the_decision() {
     );
     assert_eq!(options[1].1, "Off (fixes black lines)");
     assert_eq!(options[2].1, "On");
-    state.settings.set("gpu_id", "0".into());
+    state.store.set("gpu_id", "0".into());
     assert_eq!(
         performance::no_msaa_label(&state, "en")[0].1,
         "Automatic (Intel(R) Arc(TM) Graphics: off)"
@@ -348,17 +373,17 @@ fn no_msaa_auto_label_names_the_card_and_the_decision() {
     state.gpus = gpu_rows(&[("0", "AMD Radeon RX 6600", "discrete", "", "0")]);
     assert_eq!(performance::no_msaa_label(&state, "en")[0].1, "Automatic");
     state.gpus = Vec::new();
-    state.settings.set("gpu_id", "".into());
+    state.store.set("gpu_id", "".into());
     assert_eq!(performance::no_msaa_label(&state, "en")[0].1, "Automatic");
     state.gpus = gpu_rows(&[("0", "x", "discrete", "OFF", "1")]);
     assert_eq!(performance::no_msaa_label(&state, "en")[0].1, "Automatic");
     state.gpus = gpu_rows(&ARC_LAPTOP);
-    state.settings.set("gpu_id", "0".into());
+    state.store.set("gpu_id", "0".into());
     assert_eq!(
         performance::no_msaa_label(&state, "pt")[0].1,
         "Automático (Intel(R) Arc(TM) Graphics: desligado)"
     );
-    state.settings.set("gpu_id", "1".into());
+    state.store.set("gpu_id", "1".into());
     assert_eq!(
         performance::no_msaa_label(&state, "pt")[0].1,
         "Automático (NVIDIA GeForce RTX 4060 Laptop GPU: ligado)"
@@ -385,7 +410,7 @@ fn performance_page_offers_the_choice() {
     state.lang = "en".into();
     state.gpus = gpu_rows(&ARC_LAPTOP);
     open(&mut state, Page::Performance);
-    assert_eq!(state.settings.get_str("no_msaa"), "");
+    assert_eq!(state.store.text("no_msaa"), "");
     // The page shows the rows with their hints. The text inside a closed pick_list is not a
     // widget the simulator can find, so the options are checked through `rows` below.
     page_has(
@@ -408,7 +433,7 @@ fn performance_page_offers_the_choice() {
         Message::Set(row.key.into(), value.clone().into())
     };
     let _ = app::update(&mut state, pick(&boxes, "Off (fixes black lines)"));
-    assert_eq!(state.settings.get_str("no_msaa"), "1");
+    assert_eq!(state.store.text("no_msaa"), "1");
     // The graphics card list offers Automatic and both cards, in the order of the probe.
     let cards = row("gpu_id");
     let labels: Vec<&str> = cards.pairs.iter().map(|(_, l)| l.as_str()).collect();
@@ -422,7 +447,7 @@ fn performance_page_offers_the_choice() {
     );
     // Choosing a card relabels Automatic at once and keeps the multisampling choice.
     let _ = app::update(&mut state, pick(&cards, "Intel(R) Arc(TM) Graphics"));
-    assert_eq!(state.settings.get_str("gpu_id"), "0");
+    assert_eq!(state.store.text("gpu_id"), "0");
     let boxes = performance::rows(&state, "en")
         .into_iter()
         .find(|row| row.key == "no_msaa")
@@ -432,7 +457,7 @@ fn performance_page_offers_the_choice() {
         "Automatic (Intel(R) Arc(TM) Graphics: off)"
     );
     assert_eq!(boxes.current, "1");
-    assert_eq!(state.settings.get_str("no_msaa"), "1");
+    assert_eq!(state.store.text("no_msaa"), "1");
     // The Portuguese page shows the translated title, hint and label.
     state.lang = "pt".into();
     let hint = spartanport_launcher::core::i18n::tr("pt", performance::NO_MSAA_HINT);
@@ -460,7 +485,7 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     set(&mut state, "render_resolution", "3440x1440");
     performance::refresh_mod_resolutions(&mut state);
     assert_eq!(performance::resolution_options(&state).len(), builtin);
-    assert_eq!(state.ini.values["render_resolution"], "3440x1440");
+    assert_eq!(state.store.text("render_resolution"), "3440x1440");
 
     // A size that is not built in carries the (mod) label while its mod is on.
     write_mod_patch(&patches, "3840x1080");
@@ -470,7 +495,7 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     assert_eq!(options.len(), builtin + 1);
     let label = options.iter().find(|(v, _)| v == "3840x1080").unwrap();
     assert_eq!(label.1, "3840 × 1080 · 32:9 (mod)");
-    assert_eq!(state.ini.values["render_resolution"], "3840x1080");
+    assert_eq!(state.store.text("render_resolution"), "3840x1080");
     assert_eq!(state.aspect, "32:9");
     let listed = performance::aspect_resolution_options(&state);
     let label = listed.iter().find(|(v, _)| v == "3840x1080").unwrap();
@@ -487,7 +512,7 @@ fn a_saved_mod_resolution_stays_chosen_while_its_mod_is_on() {
     std::fs::remove_file(state.paths.mods_json()).unwrap();
     performance::refresh_mod_resolutions(&mut state);
     assert_eq!(performance::resolution_options(&state).len(), builtin + 1);
-    state.settings.set("mods_enabled", false.into());
+    state.store.set("mods_enabled", false.into());
     performance::refresh_mod_resolutions(&mut state);
     assert_eq!(performance::resolution_options(&state).len(), builtin);
 }
@@ -507,10 +532,7 @@ fn choosing_the_game_folder_refreshes_title_and_patches() {
     assert_eq!(state.patches.title_id, None);
     let dump = dump_with_patches(dir.path());
     browsed(&mut state, "game_dir", &dump);
-    assert_eq!(
-        state.settings.get_str("game_dir"),
-        dump.display().to_string()
-    );
+    assert_eq!(state.store.text("game_dir"), dump.display().to_string());
     assert_eq!(state.patches.title_id.as_deref(), Some("CUSA01623"));
     let names: Vec<&str> = state
         .patches
@@ -525,10 +547,7 @@ fn choosing_the_game_folder_refreshes_title_and_patches() {
     assert_eq!(home::chips(&state)[1], "✓ CUSA01623 · v01.02");
     // Cancelling the dialog changes nothing.
     let _ = app::update(&mut state, Message::Browsed("game_dir".into(), None));
-    assert_eq!(
-        state.settings.get_str("game_dir"),
-        dump.display().to_string()
-    );
+    assert_eq!(state.store.text("game_dir"), dump.display().to_string());
 }
 
 #[test]
@@ -539,7 +558,7 @@ fn a_long_folder_stays_on_one_line_in_its_field() {
     let mut state = state(dir.path());
     state.lang = "en".into();
     let folder = r"C:\Users\Someone\Documents\My Games\GOW III\God.of.War.III.Remastered.PS4-CUSA01623\CUSA01623";
-    state.settings.set("game_dir", folder.into());
+    state.store.set("game_dir", folder.into());
     let mut ui = settled(&mut state, Page::Game, 1280.0, 800.0);
     let field = ui.find(folder).unwrap();
     assert!(
@@ -585,7 +604,7 @@ fn typing_a_folder_sets_it_like_browse() {
     for message in sent {
         let _ = app::update(&mut state, message);
     }
-    assert_eq!(state.settings.get_str("game_dir"), dump);
+    assert_eq!(state.store.text("game_dir"), dump);
     // The refresh of a browsed folder: the Home reads the dump.
     assert_eq!(
         spartanport_launcher::ui::home::chips(&state)[1],
@@ -602,21 +621,21 @@ fn a_read_for_a_folder_typed_over_is_dropped() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_with_trophies(dir.path());
     make_mod(&state, "Ultrawide", "a.bin");
-    let game = state.settings.get_str("game_dir");
+    let game = state.store.text("game_dir");
     let mods_dir = state.paths.mods_dir("").display().to_string();
     // The reads started while the fields held one character less.
     state
-        .settings
+        .store
         .set("game_dir", game[..game.len() - 1].to_string().into());
-    state.settings.set(
+    state.store.set(
         "mods_dir",
         mods_dir[..mods_dir.len() - 1].to_string().into(),
     );
-    let stale_trophies = trophies::load(&state.paths, &state.settings);
-    let stale_mods = mods::load(&state.paths, &state.settings);
+    let stale_trophies = trophies::load(&state.paths, state.store.app());
+    let stale_mods = mods::load(&state.paths, state.store.app());
     assert!(stale_trophies.icons.is_empty() && stale_mods.order.is_empty());
-    state.settings.set("game_dir", game.into());
-    state.settings.set("mods_dir", mods_dir.into());
+    state.store.set("game_dir", game.into());
+    state.store.set("mods_dir", mods_dir.into());
     // The reads for the whole paths finish first, the older ones after them.
     load_trophies(&mut state);
     load_mods(&mut state);
@@ -656,10 +675,10 @@ fn unchecking_a_patch_lands_in_game_patches() {
     open(&mut state, Page::Game);
     click_tall(&mut state, "Fix Alpha  (Ann)");
     assert!(!state.patches.chosen.contains("Fix Alpha"));
-    let saved = state.settings.get("game_patches").unwrap();
+    let saved = state.store.json("game_patches").unwrap();
     assert_eq!(saved["CUSA01623"], serde_json::json!([]));
     click_tall(&mut state, "Fix Alpha  (Ann)");
-    let saved = state.settings.get("game_patches").unwrap();
+    let saved = state.store.json("game_patches").unwrap();
     assert_eq!(saved["CUSA01623"], serde_json::json!(["Fix Alpha"]));
 }
 
@@ -755,7 +774,7 @@ fn choosing_brazilian_portuguese_starts_the_game_with_id_17() {
     let mut state = state(dir.path());
     let pick = select_message("language", LANGUAGES, "en", "Portuguese (Brazil)").unwrap();
     let _ = app::update(&mut state, pick);
-    assert_eq!(state.settings.get_str("language"), "17");
+    assert_eq!(state.store.text("language"), "17");
 }
 
 #[test]
@@ -1125,7 +1144,7 @@ fn device_is_its_own_choice() {
     controls_update(&mut state, ControlsMessage::GamepadDetected(true));
     assert_eq!(state.controls.device, Device::Gamepad);
     assert!(!state.controls.device_chosen);
-    assert!(state.settings.get("controls_device").is_none());
+    assert!(state.store.json("controls_device").is_none());
     assert!(tall_has(&state, "GAMEPAD MAPPING"));
     assert!(!tall_has(&state, "KEYBOARD & MOUSE MAPPING"));
 
@@ -1136,7 +1155,7 @@ fn device_is_its_own_choice() {
     click(&mut state, "Keyboard & mouse");
     assert_eq!(state.controls.device, Device::Keyboard);
     assert!(state.controls.device_chosen);
-    assert_eq!(state.settings.get_str("controls_device"), "keyboard");
+    assert_eq!(state.store.text("controls_device"), "keyboard");
     assert!(tall_has(&state, "KEYBOARD & MOUSE MAPPING"));
     assert!(!tall_has(&state, "GAMEPAD MAPPING"));
     assert_eq!((&state.controls.key, &state.controls.pad), (&key, &pad));
@@ -1145,10 +1164,10 @@ fn device_is_its_own_choice() {
     assert_eq!(state.controls.device, Device::Keyboard);
     click(&mut state, "Gamepad");
     assert_eq!(state.controls.device, Device::Gamepad);
-    assert_eq!(state.settings.get_str("controls_device"), "gamepad");
+    assert_eq!(state.store.text("controls_device"), "gamepad");
     assert_eq!((&state.controls.key, &state.controls.pad), (&key, &pad));
     // The saved choice comes back and the probe does not run.
-    let again = ControlsView::new(&state.settings);
+    let again = ControlsView::new(state.store.app());
     assert_eq!(again.device, Device::Gamepad);
     assert!(again.device_chosen);
     let mut reopened = state;
@@ -1182,7 +1201,7 @@ fn nintendo_names_follow_the_button_positions() {
     assert_eq!(state.controls.pad_style, "playstation");
     click_tall(&mut state, "Nintendo");
     assert_eq!(state.controls.pad_style, "nintendo");
-    assert_eq!(state.settings.get_str("pad_style"), "nintendo");
+    assert_eq!(state.store.text("pad_style"), "nintendo");
     // The table relabels its boxes; L2, R2 and Touchpad left keep their fixed text.
     let rows = controls::pad_rows(&state, "en");
     let row = |button: &str| {
@@ -1319,10 +1338,10 @@ fn reset_buttons_and_the_rage_rows() {
             .unwrap()
             .enabled
     };
-    assert!(state.settings.get_bool("rage_one_input"));
+    assert!(state.store.flag("rage_one_input"));
     assert!(!enabled(&state, "l3") && !enabled(&state, "r3") && enabled(&state, "rage"));
     click_tall(&mut state, "Rage of Sparta on one input (L3 + R3 together)");
-    assert!(!state.settings.get_bool("rage_one_input"));
+    assert!(!state.store.flag("rage_one_input"));
     assert!(enabled(&state, "l3") && enabled(&state, "r3") && !enabled(&state, "rage"));
     assert!(enabled(&state, "cross"));
 
@@ -1805,15 +1824,15 @@ fn language_and_scale_rows_change_settings() {
     state.lang = "en".into();
     let pick = pick_row(&state, "ui_language", "pt");
     let _ = app::update(&mut state, pick);
-    assert_eq!(state.settings.get_str("ui_language"), "pt");
+    assert_eq!(state.store.text("ui_language"), "pt");
     // The interface changes language when the launcher opens again (Save is Task 32).
     assert_eq!(state.lang, "en");
     let pick = pick_row(&state, "ui_scale", "1.5");
     let _ = app::update(&mut state, pick);
-    assert_eq!(state.settings.get_str("ui_scale"), "1.5");
+    assert_eq!(state.store.text("ui_scale"), "1.5");
     // R90: a file from before shows its closest choice, "auto" as 1x and "2" as 1.5x.
     for (stored, shown) in [("auto", "1"), ("2", "1.5")] {
-        state.settings.set("ui_scale", stored.into());
+        state.store.set("ui_scale", stored.into());
         let rows = advanced::rows(&state, "en");
         let row = rows.iter().find(|row| row.key == "ui_scale").unwrap();
         assert_eq!(row.current, shown, "{stored}");
@@ -1863,8 +1882,8 @@ fn performance_page_has_the_shader_cache_rows() {
             "Delete shader cache",
         ],
     );
-    assert!(state.settings.get_bool("disk_shaders"));
-    assert!(!state.settings.get_bool("shader_notes"));
+    assert!(state.store.flag("disk_shaders"));
+    assert!(!state.store.flag("shader_notes"));
     // The rows sit below the first screen: a tall window reaches them.
     let mut ui = settled(&mut state, Page::Performance, 1280.0, 4000.0);
     for label in [
@@ -1881,8 +1900,8 @@ fn performance_page_has_the_shader_cache_rows() {
     for message in emitted.into_iter().take(2) {
         let _ = app::update(&mut state, message);
     }
-    assert!(!state.settings.get_bool("disk_shaders"));
-    assert!(state.settings.get_bool("shader_notes"));
+    assert!(!state.store.flag("disk_shaders"));
+    assert!(state.store.flag("shader_notes"));
     state.lang = "pt".into();
     page_has(
         &state,
@@ -1961,13 +1980,13 @@ fn effects_row_toggles_the_fire() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
     state.lang = "en".into();
-    assert!(state.effects);
+    assert!(state.store.flag("launcher_effects"));
     open(&mut state, Page::Advanced);
     click(&mut state, "Effects");
-    assert_eq!(state.settings.get("launcher_effects"), Some(&false.into()));
-    assert!(!state.effects);
+    assert_eq!(state.store.json("launcher_effects"), Some(&false.into()));
+    assert!(!state.store.flag("launcher_effects"));
     click(&mut state, "Effects");
-    assert!(state.effects);
+    assert!(state.store.flag("launcher_effects"));
     // Saved off: the next start begins with the fire off.
     std::fs::write(
         dir.path().join("settings.json"),
@@ -1975,7 +1994,7 @@ fn effects_row_toggles_the_fire() {
     )
     .unwrap();
     let again = common::state(dir.path());
-    assert!(!again.effects);
+    assert!(!again.store.flag("launcher_effects"));
 }
 
 #[test]
@@ -2107,7 +2126,7 @@ fn diagnostics_is_a_plain_section_after_the_others() {
     }
     drop(ui);
     click_tall(&mut state, "Frame statistics in the log (every 5 s)");
-    assert!(state.settings.get_bool("frame_stats"));
+    assert!(state.store.flag("frame_stats"));
 }
 
 #[test]
@@ -2216,9 +2235,7 @@ line two"
     assert_eq!(state.log.len(), 2);
 
     // Open last_run.log targets <user_dir>/last_run.log.
-    let expected = state
-        .paths
-        .run_log_path(&state.settings.get_str("user_dir"));
+    let expected = state.paths.run_log_path(&state.store.text("user_dir"));
     assert!(matches!(
         log::open_last_run_message(&state),
         Message::OpenPath(path) if path == expected

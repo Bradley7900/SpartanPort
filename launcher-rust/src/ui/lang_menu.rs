@@ -48,7 +48,7 @@ pub fn update(state: &mut State, message: LangMessage) {
             menu.open = false;
             menu.hover_since = None;
             menu.leave_since = None;
-            state.settings.set("ui_language", json!(code));
+            state.store.set("ui_language", json!(code));
             return;
         }
     };
