@@ -18,7 +18,7 @@ use crate::core::trophies::{
     trophy_tier, Tier,
 };
 use crate::ui::app::{Message, State};
-use crate::ui::play::GameState;
+use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette};
 use crate::ui::widgets::{Modal, ModalKind, ModalMessage, SELECT_TEXT};
@@ -132,14 +132,6 @@ pub fn refresh(state: &mut State) -> Task<Message> {
         .map(|view| Message::Trophies(TrophiesMessage::Loaded(Box::new(view))))
 }
 
-/// Whether the game is running, which blocks a reset.
-fn game_running(state: &State) -> bool {
-    match state.game {
-        GameState::Idle | GameState::Copying => false,
-        GameState::Preparing { .. } | GameState::Running { .. } => true,
-    }
-}
-
 fn dialog(state: &mut State, kind: ModalKind, body: String) {
     state.modal = Some(Modal {
         kind,
@@ -170,10 +162,10 @@ pub fn update(state: &mut State, message: TrophiesMessage) -> Task<Message> {
             state.trophies.filter = filter;
         }
         TrophiesMessage::Reset => {
-            if game_running(state) {
-                let body = tr(&lang, "Close the game before resetting the trophies.");
-                dialog(state, ModalKind::Info, body);
-            } else if state.trophies.unlocked.is_empty() {
+            if refuse_while_live(state, LiveAction::ResetTrophies) {
+                return Task::none();
+            }
+            if state.trophies.unlocked.is_empty() {
                 dialog(state, ModalKind::Info, tr(&lang, "No trophy is unlocked."));
             } else {
                 let count = state.trophies.unlocked.len().to_string();

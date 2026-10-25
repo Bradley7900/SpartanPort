@@ -18,7 +18,6 @@ use crate::core::options::{
 };
 use crate::core::patches::resolution_names;
 use crate::ui::app::{Message, State};
-use crate::ui::pages::advanced::clear_cache_blocked;
 use crate::ui::theme;
 use crate::ui::widgets::{
     checkbox, choice_pairs, min_width, row, section, select_pairs, SELECT_MIN, SELECT_TEXT,
@@ -248,7 +247,7 @@ pub fn rows(state: &State, lang: &str) -> Vec<SelectRow> {
 /// held while the game runs.
 fn delete_cache_button<'a>(state: &State, lang: &str) -> Element<'a, Message> {
     let delete = button(text(tr(lang, "Delete shader cache"))).style(theme::button_flat);
-    if clear_cache_blocked(state) {
+    if state.game.is_live() {
         delete.into()
     } else {
         delete.on_press(Message::ClearShaderCache).into()

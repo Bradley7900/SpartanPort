@@ -797,7 +797,7 @@ pub fn subscription(state: &State) -> Subscription<Message> {
         || version_menu::timing(state)
     {
         iced::time::every(Duration::from_millis(33)).map(Message::Tick)
-    } else if state.visible || play::game_live(state) {
+    } else if state.visible || state.game.is_live() {
         iced::time::every(IDLE_CLOCK).map(Message::Tick)
     } else {
         Subscription::none()

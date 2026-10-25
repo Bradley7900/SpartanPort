@@ -20,7 +20,7 @@ use crate::core::steam_art;
 use crate::ui::app::{Message, State};
 use crate::ui::pages::performance::SelectRow;
 use crate::ui::persist;
-use crate::ui::play::GameState;
+use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::update::UpdateMessage;
@@ -43,15 +43,6 @@ pub struct CheckRow {
     pub checked: bool,
     /// False for a tool this system does not have.
     pub enabled: bool,
-}
-
-/// Whether the game runs, which blocks clearing its shader cache.
-pub fn clear_cache_blocked(state: &State) -> bool {
-    // As `if self.process: return` does.
-    match state.game {
-        GameState::Idle | GameState::Copying => false,
-        GameState::Preparing { .. } | GameState::Running { .. } => true,
-    }
 }
 
 fn restart(lang: &str, english: &str) -> String {
@@ -344,7 +335,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     }
 
     let clear = button(text(tr(lang, "Clear shader cache"))).style(theme::button_flat);
-    let clear = if clear_cache_blocked(state) {
+    let clear = if state.game.is_live() {
         clear
     } else {
         clear.on_press(Message::ClearShaderCache)
@@ -544,9 +535,7 @@ pub fn update(state: &mut State, message: Message) -> Task<Message> {
     match message {
 
         Message::ClearShaderCache => {
-            if clear_cache_blocked(state) {
-                let body = tr(&lang, "Close the game before deleting the shader cache.");
-                modal(state, ModalKind::Info, body);
+            if refuse_while_live(state, LiveAction::ClearShaderCache) {
                 return Task::none();
             }
             let user = state.paths.user_dir(&state.store.text("user_dir"));

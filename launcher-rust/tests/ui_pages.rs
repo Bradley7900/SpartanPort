@@ -702,7 +702,7 @@ fn restore_asks_first_and_is_blocked_while_running() {
     assert_eq!(state.backups, ["20261009-180000"]);
     assert_eq!(state.backup_choice, "20261009-180000");
     // An idle game does not block it; `ui_play.rs` covers a running one.
-    assert!(!game::restore_blocked(&state));
+    assert!(!state.game.is_live());
 
     let _ = app::update(&mut state, Message::Backup(BackupMessage::Restore));
     let asked = state.modal.clone().unwrap();
@@ -1844,7 +1844,7 @@ fn clear_cache_is_blocked_while_running() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state(dir.path());
     // An idle game does not block it; `ui_play.rs` covers a running one.
-    assert!(!advanced::clear_cache_blocked(&state));
+    assert!(!state.game.is_live());
     state.game = GameState::Idle;
     let cache = dir.path().join("user").join("cache");
     std::fs::create_dir_all(&cache).unwrap();

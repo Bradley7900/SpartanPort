@@ -25,7 +25,6 @@ use crate::ui::app::{
     home_interactive_enabled, home_interactive_opacity, scene_size, Message, State,
 };
 use crate::ui::lang_menu;
-use crate::ui::play::GameState;
 use crate::ui::version_menu;
 
 use crate::ui::theme::{
@@ -521,7 +520,7 @@ pub fn chips(state: &State) -> [String; 3] {
 /// left out (ruling R85, the tail of the Python's `summary()`, which needs a patchable game in the
 /// game folder), else the in-game menu hint.
 pub fn status_line(state: &State) -> String {
-    let busy = !matches!(state.game, GameState::Idle);
+    let busy = !state.game.is_idle();
     let facts = &state.home;
     if busy && !state.status.is_empty() {
         state.status.clone()
@@ -624,11 +623,7 @@ pub fn monogram() -> Handle {
 fn play_row(state: &State, enabled: bool, opacity: f32) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     // PLAY waits while the system files are copied; a started game turns it into RUNNING and STOP.
-    let (running, copying) = match state.game {
-        GameState::Idle => (false, false),
-        GameState::Copying => (false, true),
-        GameState::Preparing { .. } | GameState::Running { .. } => (true, false),
-    };
+    let (running, copying) = (state.game.is_live(), state.game.is_copying());
     let (label, press) = if running {
         (tr(lang, "RUNNING"), None)
     } else {

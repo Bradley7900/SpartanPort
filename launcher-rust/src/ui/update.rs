@@ -19,7 +19,6 @@ use crate::core::update::{
     download, list_releases, relaunch_appimage, release_checksum, replace_appimage, update_dir,
 };
 use crate::ui::app::{Message, State};
-use crate::ui::pages::game::restore_blocked;
 use crate::ui::play::{self, WORKER_LOST};
 use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::{Modal, ModalKind, ModalMessage};
@@ -253,7 +252,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
                     .map(PathBuf::from)
             };
             let plan = install_decision(
-                restore_blocked(state),
+                state.game.is_live(),
                 cfg!(windows),
                 is_packaged(),
                 appimage.as_deref(),
@@ -297,12 +296,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
         UpdateMessage::Confirmed(release) => {
             state.modal = None;
             // The question may have been asked before the game started.
-            if play::game_live(state) {
-                show(
-                    state,
-                    ModalKind::Info,
-                    tr(&lang, "Close the game before updating."),
-                );
+            if play::refuse_while_live(state, play::LiveAction::Update) {
                 return Task::none();
             }
             let url = release.url.clone();

@@ -110,9 +110,51 @@ fn live(game: &GameState) -> Option<&GameHandle> {
     }
 }
 
-/// Whether a game runs: the clock keeps draining its output while this holds.
-pub fn game_live(state: &State) -> bool {
-    live(&state.game).is_some()
+impl GameState {
+    /// Whether a game runs (preparing or running): the clock keeps draining its output while
+    /// this holds. Copying system files does not count, as Python checks `self.process`.
+    pub fn is_live(&self) -> bool {
+        live(self).is_some()
+    }
+
+    /// Whether nothing is going on.
+    pub fn is_idle(&self) -> bool {
+        matches!(self, GameState::Idle)
+    }
+
+    /// Whether the system files of a PKG extraction are being copied.
+    pub fn is_copying(&self) -> bool {
+        matches!(self, GameState::Copying)
+    }
+}
+
+/// What the player asked for that cannot happen while the game is live.
+#[derive(Debug, Clone, Copy)]
+pub enum LiveAction {
+    RestoreSaves,
+    ResetTrophies,
+    ClearShaderCache,
+    Update,
+}
+
+/// With the game live, opens the Info "Close the game before ..." and returns true so the caller
+/// stops.
+pub fn refuse_while_live(state: &mut State, action: LiveAction) -> bool {
+    if !state.game.is_live() {
+        return false;
+    }
+    let english = match action {
+        LiveAction::RestoreSaves => "Close the game before restoring saves.",
+        LiveAction::ResetTrophies => "Close the game before resetting the trophies.",
+        LiveAction::ClearShaderCache => "Close the game before deleting the shader cache.",
+        LiveAction::Update => "Close the game before updating.",
+    };
+    state.modal = Some(Modal {
+        kind: ModalKind::Info,
+        title: APP_NAME.to_string(),
+        text: tr(&state.lang, english),
+    });
+    true
 }
 
 /// Whether the launcher closes once the running game exits: `close_on_play` hid its window.

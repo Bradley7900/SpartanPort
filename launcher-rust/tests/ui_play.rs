@@ -18,9 +18,8 @@ use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
-use spartanport_launcher::ui::pages::trophies::TrophiesMessage;
-use spartanport_launcher::ui::pages::{advanced, game, Page};
-use spartanport_launcher::ui::play::{self, GameMessage, GameState};
+use spartanport_launcher::ui::pages::Page;
+use spartanport_launcher::ui::play::{self, GameMessage, GameState, LiveAction};
 use spartanport_launcher::ui::update::{UpdateMessage, UpdateState};
 use spartanport_launcher::ui::widgets::modal::{ModalKind, ModalMessage};
 
@@ -703,38 +702,57 @@ fn play_offers_the_system_files_of_a_pkg_extraction() {
 }
 
 #[test]
-fn a_running_game_blocks_restore_reset_and_cache_clear() {
+fn every_live_action_is_refused_while_the_game_runs() {
+    let table = [
+        (
+            LiveAction::RestoreSaves,
+            "Close the game before restoring saves.",
+        ),
+        (
+            LiveAction::ResetTrophies,
+            "Close the game before resetting the trophies.",
+        ),
+        (
+            LiveAction::ClearShaderCache,
+            "Close the game before deleting the shader cache.",
+        ),
+        (LiveAction::Update, "Close the game before updating."),
+    ];
     let dir = tempfile::tempdir().unwrap();
     let mut state = ready(
         dir.path(),
         &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
     );
-    assert!(!game::restore_blocked(&state));
-    assert!(!advanced::clear_cache_blocked(&state));
+    assert!(state.game.is_idle() && !state.game.is_live());
+    for (action, _) in table {
+        assert!(!play::refuse_while_live(&mut state, action));
+        assert!(state.modal.is_none(), "{:?}", state.modal);
+    }
     send(&mut state, Message::Play);
-    assert!(game::restore_blocked(&state));
-    assert!(advanced::clear_cache_blocked(&state));
-    send(&mut state, Message::Trophies(TrophiesMessage::Reset));
-    let shown = state.modal.take().unwrap();
-    assert_eq!(shown.text, "Close the game before resetting the trophies.");
-    send(&mut state, Message::ClearShaderCache);
-    let shown = state.modal.take().unwrap();
-    assert_eq!(
-        shown.text,
-        "Close the game before deleting the shader cache."
-    );
-    send(
-        &mut state,
-        Message::Game(GameMessage::Output(vec![
-            "Entering original x86-64 code\n".to_string()
-        ])),
-    );
-    assert!(game::restore_blocked(&state));
-    assert!(advanced::clear_cache_blocked(&state));
+    for running in [false, true] {
+        if running {
+            send(
+                &mut state,
+                Message::Game(GameMessage::Output(vec!["Entering original x86-64 code
+"
+                .to_string()])),
+            );
+        }
+        assert!(state.game.is_live());
+        for (action, text) in table {
+            assert!(play::refuse_while_live(&mut state, action));
+            let shown = state.modal.take().unwrap();
+            assert_eq!(shown.text, text);
+            assert!(matches!(shown.kind, ModalKind::Info), "{:?}", shown.kind);
+        }
+    }
     send(&mut state, Message::Stop);
     pump(&mut state, BOUND, idle);
-    assert!(!game::restore_blocked(&state));
-    assert!(!advanced::clear_cache_blocked(&state));
+    assert!(!state.game.is_live());
+    for (action, _) in table {
+        assert!(!play::refuse_while_live(&mut state, action));
+        assert!(state.modal.is_none(), "{:?}", state.modal);
+    }
 }
 
 #[test]
@@ -770,7 +788,7 @@ fn a_confirmed_update_waits_for_the_game() {
     state.update = UpdateState::Ready(vec![release.clone()]);
     // The install question was open when the game started: its Yes must not install over it.
     send(&mut state, Message::Play);
-    assert!(play::game_live(&state));
+    assert!(state.game.is_live());
     let task = app::update(
         &mut state,
         Message::Update(UpdateMessage::Confirmed(release.clone())),
@@ -872,9 +890,9 @@ fn a_restart_keeps_the_running_game() {
     );
     assert_eq!(pid(&state), running);
     assert_eq!(state.status, "The game is running.");
-    assert!(play::game_live(&state));
+    assert!(state.game.is_live());
     assert!(play::exit_after_game(&state));
-    assert!(game::restore_blocked(&state));
+    assert!(state.game.is_live());
     // PLAY stays RUNNING, STOP stays.
     assert!(click(&state, "RUNNING").is_empty());
     assert!(click(&state, "STOP")

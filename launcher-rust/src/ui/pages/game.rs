@@ -18,7 +18,7 @@ use crate::core::save_backup::{list_backups, restore, KEEP};
 use crate::ui::app::{Message, State};
 use crate::ui::home;
 use crate::ui::pages::{mods, performance, trophies};
-use crate::ui::play::GameState;
+use crate::ui::play::{refuse_while_live, LiveAction};
 use crate::ui::tasks::blocking;
 use crate::ui::theme;
 use crate::ui::widgets::{
@@ -107,14 +107,6 @@ pub fn refresh_backups(state: &mut State) {
     state.backup_choice = state.backups.first().cloned().unwrap_or_default();
 }
 
-/// Whether the game is running, which blocks a restore of the saves.
-pub fn restore_blocked(state: &State) -> bool {
-    match state.game {
-        GameState::Idle | GameState::Copying => false,
-        GameState::Preparing { .. } | GameState::Running { .. } => true,
-    }
-}
-
 /// Replaces the saves with backup `name`; returns the name of the backup of the replaced saves.
 pub fn restore_saves(user_dir: &Path, name: &str) -> Result<Option<String>, String> {
     restore(user_dir, name, None)
@@ -143,8 +135,7 @@ pub fn backup_update(state: &mut State, message: BackupMessage) -> Task<Message>
             if name.is_empty() {
                 return Task::none();
             }
-            if restore_blocked(state) {
-                info(state, tr(&lang, "Close the game before restoring saves."));
+            if refuse_while_live(state, LiveAction::RestoreSaves) {
                 return Task::none();
             }
             state.modal = Some(Modal {

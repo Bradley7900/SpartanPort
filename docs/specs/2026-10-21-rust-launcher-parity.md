@@ -71,7 +71,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_artwork.py::LauncherArtworkTest::test_missing_artwork_shows_the_ports_logo` | `tests/ui_snapshots.rs::home` | replaced by `tests/ui_snapshots.rs::home` |
 | `tests/test_launcher_aspect.py::AspectFilterTest::test_aspect_follows_and_filters_the_render_resolution` | `tests/ui_pages.rs::aspect_follows_and_filters_the_render_resolution` | ported |
 | `tests/test_launcher_cache.py::ClearShaderCache::test_asks_then_deletes` | `tests/ui_pages.rs::deleting_the_shader_cache_asks_then_deletes` | ported |
-| `tests/test_launcher_cache.py::ClearShaderCache::test_refuses_while_the_game_runs` | `tests/ui_play.rs::a_running_game_blocks_restore_reset_and_cache_clear` | ported |
+| `tests/test_launcher_cache.py::ClearShaderCache::test_refuses_while_the_game_runs` | `tests/ui_play.rs::every_live_action_is_refused_while_the_game_runs` | ported |
 | `tests/test_launcher_cache.py::ClearShaderCache::test_empty_cache_needs_no_question` | `tests/ui_pages.rs::deleting_the_shader_cache_asks_then_deletes` | ported |
 | `tests/test_launcher_close_on_play.py::CloseOnPlayTest::test_active_game_hides_window_without_destroying_the_reader_owner` | `tests/ui_play.rs::close_on_play_hides_only_while_running` | ported |
 | `tests/test_launcher_close_on_play.py::CloseOnPlayTest::test_early_failure_and_stale_timer_do_not_hide_the_launcher` | `tests/ui_play.rs::close_on_play_hides_only_while_running` | ported |
