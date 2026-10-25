@@ -226,19 +226,18 @@ const CARD_WIDTH: f32 = 640.0;
 /// The splash's dark background with the fire over it, which fills in while the monogram flies to
 /// the corner.
 pub fn background(state: &State) -> Element<'_, Message> {
-    stack![
-        container(space())
-            .width(Fill)
-            .height(Fill)
-            .style(|_| container::Style {
-                background: Some(Background::Color(SPLASH_BG)),
-                ..container::Style::default()
-            }),
-    ]
-    .extend(fire::layer(state))
-    .width(Fill)
-    .height(Fill)
-    .into()
+    let dark = container(space())
+        .width(Fill)
+        .height(Fill)
+        .style(|_| container::Style {
+            background: Some(Background::Color(SPLASH_BG)),
+            ..container::Style::default()
+        });
+    stack![dark]
+        .extend(fire::layer(state))
+        .width(Fill)
+        .height(Fill)
+        .into()
 }
 
 /// Corner monogram, language button and the centred card of the current step.
