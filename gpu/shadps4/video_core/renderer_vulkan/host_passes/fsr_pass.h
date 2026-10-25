@@ -17,7 +17,8 @@ public:
         float rcas_attenuation{0.25f};
     };
 
-    void Create(vk::Device device, VmaAllocator allocator, u32 num_images);
+    /// use_fp16=false builds the full-precision shaders (GPUs without shaderFloat16).
+    void Create(vk::Device device, VmaAllocator allocator, u32 num_images, bool use_fp16 = true);
 
     vk::ImageView Render(vk::CommandBuffer cmdbuf, vk::ImageView input, vk::Extent2D input_size,
                          vk::Extent2D output_size, Settings settings, bool hdr);
