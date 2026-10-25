@@ -69,36 +69,27 @@ impl RunPlan {
         let text = |key: &str, default: &str| value(key).unwrap_or(default).to_string();
         let catalog_text = |key: &str| text(key, catalog::run_default(key).unwrap_or_default());
 
-        let data = path("SPARTAN_DATA_DIR", paths.data_dir.clone());
-        // The defaults that live in the data folder follow the one given (`Paths` has the others).
-        let in_data = |key: &str, default: PathBuf, name: &str| {
-            if value("SPARTAN_DATA_DIR").is_some() {
-                path(key, data.join(name))
-            } else {
-                path(key, default)
-            }
-        };
+        // Unset, the data folder is the resolved port (`paths.data_dir` is the unresolved one); a
+        // given one, like every path here, joins to the port rather than using the `Paths` methods.
+        let data = path("SPARTAN_DATA_DIR", port.clone());
+        let in_data = |key: &str, name: &str| path(key, data.join(name));
         let parent = port.parent().unwrap_or(&port).to_path_buf();
         let probe = value("SPARTAN_PROBE")
             .map(PathBuf::from)
             .or_else(|| paths.find_tool("spartanport-probe"));
         RunPlan {
             out: data.join("out"),
-            config: in_data("SPARTAN_CONFIG", paths.ini_path(), "spartanport.ini"),
+            config: in_data("SPARTAN_CONFIG", "spartanport.ini"),
             game: path("SPARTAN_GAME_DIR", parent.join(GAME_FOLDER)),
             update: value("SPARTAN_PATCH_DIR").map(|dir| port.join(dir)),
-            mods_dir: in_data("SPARTAN_MODS_DIR", paths.mods_dir(""), "mods"),
-            mods_config: in_data("SPARTAN_MODS_CONFIG", paths.mods_json(), "mods.json"),
+            mods_dir: in_data("SPARTAN_MODS_DIR", "mods"),
+            mods_config: in_data("SPARTAN_MODS_CONFIG", "mods.json"),
             mods_switch: catalog_text("SPARTAN_MODS_ENABLED"),
-            patches_dir: in_data("SPARTAN_PATCHES_DIR", paths.patches_dir(""), "patches"),
-            patches_config: in_data(
-                "SPARTAN_PATCHES_CONFIG",
-                paths.patches_json(),
-                "patches.json",
-            ),
+            patches_dir: in_data("SPARTAN_PATCHES_DIR", "patches"),
+            patches_config: in_data("SPARTAN_PATCHES_CONFIG", "patches.json"),
             chosen_patches: split_patches(value("SPARTAN_PATCHES").unwrap_or_default()),
             patches_only: value("SPARTAN_PATCHES_ONLY") == Some("1"),
-            user: in_data("SPARTAN_USER_DIR", paths.user_dir(""), "user"),
+            user: in_data("SPARTAN_USER_DIR", "user"),
             probe,
             isa_rewrite: match value("SPARTAN_ISA_REWRITE") {
                 Some("1") => Some(true),
@@ -136,7 +127,9 @@ mod tests {
     #[test]
     fn defaults_are_the_paths_ones() {
         let dir = tempfile::tempdir().unwrap();
-        let (paths, plan) = read(dir.path(), &[]);
+        // A port folder already in its resolved form, so Paths and the plan agree on it.
+        let port = mods::resolve(dir.path()).unwrap();
+        let (paths, plan) = read(&port, &[]);
         assert_eq!(plan.data, paths.data_dir);
         assert_eq!(plan.out, paths.data_dir.join("out"));
         assert_eq!(plan.config, paths.ini_path());
@@ -265,5 +258,23 @@ mod tests {
         let vars: Vec<(&str, &str)> = names.iter().map(|name| (*name, "")).collect();
         let (_, empty) = read(dir.path(), &vars);
         assert_eq!(format!("{empty:?}"), format!("{plain:?}"));
+    }
+
+    #[test]
+    fn data_defaults_follow_the_resolved_port() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+        std::fs::create_dir_all(dir.path().join("port")).unwrap();
+        // The same folder by two names: Paths keeps the one it was given.
+        let given = dir.path().join("sub").join("..").join("port");
+        let (paths, plan) = read(&given, &[]);
+        assert_eq!(paths.data_dir, given);
+        assert_ne!(plan.port, given);
+        assert_eq!(plan.data, plan.port);
+        assert_eq!(plan.out, plan.port.join("out"));
+        assert_eq!(plan.config, plan.port.join("spartanport.ini"));
+        assert_eq!(plan.mods_dir, plan.port.join("mods"));
+        assert_eq!(plan.patches_config, plan.port.join("patches.json"));
+        assert_eq!(plan.user, plan.port.join("user"));
     }
 }
