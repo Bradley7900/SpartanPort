@@ -2311,10 +2311,7 @@ mod update_flow {
     use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
     use spartanport_launcher::ui::app::{self, Message};
     use spartanport_launcher::ui::splash::{self, Check, SplashMessage};
-    use spartanport_launcher::ui::update::{
-        confirm_text, install_decision, is_older, offer_decision, start_up_check, Decision,
-        InstallPlan, Listing, UpdateMessage,
-    };
+    use spartanport_launcher::ui::update::{start_up_check, Listing, UpdateMessage};
     use spartanport_launcher::ui::widgets::ModalKind;
     use spartanport_launcher::VERSION;
 
@@ -2431,14 +2428,6 @@ mod update_flow {
     }
 
     #[test]
-    fn offer_decision_follows_newer_and_manual() {
-        assert_eq!(offer_decision(true, true), Decision::Offer);
-        assert_eq!(offer_decision(true, false), Decision::Offer);
-        assert_eq!(offer_decision(false, true), Decision::Latest);
-        assert_eq!(offer_decision(false, false), Decision::Nothing);
-    }
-
-    #[test]
     fn the_start_up_list_is_ready() {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
@@ -2548,61 +2537,75 @@ mod update_flow {
     }
 
     #[test]
-    fn install_is_blocked_while_running() {
-        let package = InstallTarget::WindowsPackage;
-        assert_eq!(install_decision(true, &package), InstallPlan::Blocked);
-        assert_eq!(install_decision(false, &package), InstallPlan::Confirm);
-    }
-
-    #[test]
-    fn windows_source_tree_opens_the_page() {
+    fn install_asks_and_marks_an_older_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let question = "Install version {} now? The launcher closes, installs it and opens again. Saves and settings are kept.";
+        let asked = |installed: ReleaseId, picked: Release| {
+            let (fake, calls) = FakeReleases::new();
+            let mut state = state_with(dir.path(), fake.installed(installed).host());
+            let task = app::update(&mut state, Message::Update(UpdateMessage::Install(picked)));
+            assert_eq!(task.units(), 0);
+            assert!(calls.try_recv().is_err());
+            assert!(matches!(
+                state.modal.as_ref().map(|m| &m.kind),
+                Some(ModalKind::YesNo { .. })
+            ));
+            modal_text(&state)
+        };
+        let installed = release("2.6.0", None, false).id;
         assert_eq!(
-            install_decision(false, &InstallTarget::WindowsSource),
-            InstallPlan::OpenPage
+            asked(installed.clone(), release("2.5.0", None, false)),
+            format!(
+                "{}
+{OLDER}",
+                question.replace("{}", "2.5.0")
+            )
         );
+        assert_eq!(
+            asked(installed.clone(), release("2.7.0", None, false)),
+            question.replace("{}", "2.7.0")
+        );
+        // A test build of the installed version is not older.
+        let text = asked(installed, release("2.6.0", Some("x"), true));
+        assert!(text.starts_with("Install version 2.6.0 · x now?"), "{text}");
+        assert!(!text.ends_with(OLDER), "{text}");
     }
 
     #[test]
-    fn linux_needs_a_writable_appimage_folder() {
+    fn install_follows_the_hosts_target() {
+        let dir = tempfile::tempdir().unwrap();
         let folder = PathBuf::from("/opt/app");
         let image = |writable| InstallTarget::AppImage {
             folder: folder.clone(),
             writable,
         };
-        assert_eq!(
-            install_decision(false, &InstallTarget::Elsewhere),
-            InstallPlan::OpenPage
-        );
-        assert_eq!(install_decision(false, &image(true)), InstallPlan::Confirm);
-        assert_eq!(
-            install_decision(false, &image(false)),
-            InstallPlan::ReadOnly(folder.clone())
-        );
-    }
-
-    #[test]
-    fn install_asks_and_marks_an_older_release() {
-        let installed = release("2.6.0", None, false).id;
-        let question = "Install version {} now? The launcher closes, installs it and opens again. \
-                        Saves and settings are kept.";
-        let older = release("2.5.0", None, false);
-        assert!(is_older(&older, &installed));
-        assert_eq!(
-            confirm_text("en", &older, &installed),
-            format!("{}\n{OLDER}", question.replace("{}", "2.5.0"))
-        );
-        let newer = release("2.7.0", None, false);
-        assert!(!is_older(&newer, &installed));
-        assert_eq!(
-            confirm_text("en", &newer, &installed),
-            question.replace("{}", "2.7.0")
-        );
-        // A test build of the installed version is not older.
-        let test = release("2.6.0", Some("x"), true);
-        assert!(!is_older(&test, &installed));
-        let text = confirm_text("en", &test, &installed);
-        assert!(text.starts_with("Install version 2.6.0 · x now?"), "{text}");
-        assert!(!text.ends_with(OLDER), "{text}");
+        let mut newer = release("2.7.0", None, false);
+        newer.page = RELEASES_PAGE.to_string();
+        let install = |target: InstallTarget| {
+            let (fake, calls) = FakeReleases::new();
+            let mut state = state_with(dir.path(), fake.target(target).host());
+            let _ = app::update(
+                &mut state,
+                Message::Update(UpdateMessage::Install(newer.clone())),
+            );
+            (state, calls)
+        };
+        // Not an install the launcher can do: the release page opens.
+        let (state, calls) = install(InstallTarget::Elsewhere);
+        assert!(state.modal.is_none());
+        assert_eq!(next_call(&calls), Call::OpenPage(RELEASES_PAGE.to_string()));
+        // A writable AppImage and a package ask first.
+        for target in [image(true), InstallTarget::WindowsPackage] {
+            let (state, calls) = install(target);
+            assert!(matches!(
+                state.modal.as_ref().map(|m| &m.kind),
+                Some(ModalKind::YesNo {
+                    yes: Message::Update(UpdateMessage::Confirmed(_)),
+                    ..
+                })
+            ));
+            assert!(calls.try_recv().is_err());
+        }
     }
 
     #[test]

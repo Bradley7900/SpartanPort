@@ -144,7 +144,7 @@ pub enum UpdateMessage {
 
 /// What a finished check means for the user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decision {
+enum Decision {
     /// A newer stable is listed.
     Offer,
     /// Manual check: nothing newer.
@@ -160,12 +160,12 @@ pub fn ready(state: &mut State, releases: Vec<Release>) {
 }
 
 /// Whether `release`'s version is below the installed one.
-pub fn is_older(release: &Release, installed: &ReleaseId) -> bool {
+fn is_older(release: &Release, installed: &ReleaseId) -> bool {
     version_tuple(&release.id.version) < version_tuple(&installed.version)
 }
 
 /// The install question, with a warning when `release` is older than the installed one.
-pub fn confirm_text(lang: &str, release: &Release, installed: &ReleaseId) -> String {
+fn confirm_text(lang: &str, release: &Release, installed: &ReleaseId) -> String {
     let mut text = tr_fmt(
         lang,
         "Install version {} now? The launcher closes, installs it and opens again. Saves and settings are kept.",
@@ -179,7 +179,7 @@ pub fn confirm_text(lang: &str, release: &Release, installed: &ReleaseId) -> Str
 }
 
 /// Python `check_update`'s `show`, over the list.
-pub fn offer_decision(newer: bool, manual: bool) -> Decision {
+fn offer_decision(newer: bool, manual: bool) -> Decision {
     if newer {
         Decision::Offer
     } else if manual {
@@ -191,7 +191,7 @@ pub fn offer_decision(newer: bool, manual: bool) -> Decision {
 
 /// What installing a release does (Python `install_update`, before the download).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InstallPlan {
+enum InstallPlan {
     Blocked,
     /// Download by hand: open the release page.
     OpenPage,
@@ -202,7 +202,7 @@ pub enum InstallPlan {
 }
 
 /// Decides an install from the host's target.
-pub fn install_decision(busy: bool, target: &InstallTarget) -> InstallPlan {
+fn install_decision(busy: bool, target: &InstallTarget) -> InstallPlan {
     if busy {
         return InstallPlan::Blocked;
     }
