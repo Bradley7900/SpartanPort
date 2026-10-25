@@ -108,20 +108,8 @@ static UI_EXTRA: &[(&str, &[(&str, &str)])] = &[
         &[("pt", "Configuração inicial")],
     ),
     (
-        "Step {} of {}",
-        &[("pt", "Passo {} de {}")],
-    ),
-    (
         "Video",
         &[("pt", "Vídeo")],
-    ),
-    (
-        "Skip",
-        &[("pt", "Pular")],
-    ),
-    (
-        "Back",
-        &[("pt", "Voltar")],
     ),
     (
         "Next",

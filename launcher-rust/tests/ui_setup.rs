@@ -127,7 +127,7 @@ fn the_setup_reads_in_portuguese() {
     state.lang = "pt".into();
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Configuração inicial").is_ok());
-    assert!(ui.find("Passo 1 de 3 · Pastas").is_ok());
+    assert!(ui.find("Etapa 1 de 3 · Pastas").is_ok());
     assert!(ui.find("Pular").is_ok());
     assert!(ui.find("Avançar").is_ok());
 }
@@ -522,7 +522,7 @@ fn a_language_pick_rebuilds_without_writing() {
     assert_eq!(state.setup.as_ref().unwrap().step, Step::Gpu);
     assert!(!dir.path().join("settings.json").exists());
     let mut ui = simulator(app::view(&state));
-    assert!(ui.find("Passo 2 de 3 · Placa de vídeo").is_ok());
+    assert!(ui.find("Etapa 2 de 3 · Placa de vídeo").is_ok());
 }
 
 #[test]
