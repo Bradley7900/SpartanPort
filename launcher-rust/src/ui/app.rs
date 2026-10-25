@@ -20,10 +20,9 @@ use crate::core::i18n::{is_rtl, launcher_language, system_language, tr};
 use crate::core::log::{LogBuffer, MAX_LOG_LINES};
 use crate::core::options::aspect_of;
 use crate::core::paths::Paths;
-use crate::core::release::ReleaseId;
 use crate::core::settings::SettingsFile;
 use crate::core::store::Store;
-use crate::core::update::{can_self_update, GitHubReleases, ReleaseHost};
+use crate::core::update::{GitHubReleases, ReleaseHost};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
 use crate::ui::home::{self, HomeFacts};
@@ -43,7 +42,7 @@ use crate::ui::setup::{self, SetupMessage, SetupState};
 use crate::ui::splash::{self, SplashMessage, SplashState};
 use crate::ui::tasks::blocking;
 use crate::ui::theme::{self, palette, window_zoom, CINZEL_BOLD};
-use crate::ui::update::{self, UpdateMessage, UpdateState};
+use crate::ui::update::{self, UpdateMessage, Updater};
 use crate::ui::version_menu::{self, VersionMessage};
 use crate::ui::widgets;
 use crate::ui::widgets::modal::{Modal, ModalKind, ModalMessage};
@@ -107,13 +106,9 @@ pub struct State {
     pub backups: Vec<String>,
     /// The backup chosen in the Saves row.
     pub backup_choice: String,
-    /// Where the releases come from and where an install goes; a fake in the UI tests.
-    pub host: Arc<dyn ReleaseHost>,
-    pub update: UpdateState,
-    /// The installed release: the stamp beside the launcher, or this version.
-    pub installed: ReleaseId,
-    /// The percentages the update worker sends; `update::drain` empties it on each clock tick.
-    pub update_progress: Option<std::sync::mpsc::Receiver<u8>>,
+    /// The release list, the installed release and the download; its host is a fake in the UI
+    /// tests.
+    pub updater: Updater,
     pub lang_menu: LangMenu,
     pub version_menu: HoverMenu,
     /// What the Home chips read from the disk.
@@ -131,8 +126,6 @@ pub struct State {
     pub setup: Option<SetupState>,
     /// What the Linux options of the Advanced page can use, probed once at the start.
     pub linux_tools: LinuxTools,
-    /// Whether this install can replace itself (Windows, or an AppImage).
-    pub self_update: bool,
     pub fire: Fire,
     /// Whether the window is shown; `close_on_play` hides it while the game runs.
     pub visible: bool,
@@ -188,7 +181,6 @@ impl State {
         let controls = ControlsView::new(store.app());
         // `start_monitor_listing` lists them under this one.
         let displays_backend = store.text("video_backend");
-        let installed = host.installed();
         let mut state = State {
             paths,
             store,
@@ -223,10 +215,7 @@ impl State {
             patches: Default::default(),
             backups: Vec::new(),
             backup_choice: String::new(),
-            host,
-            update: Default::default(),
-            installed,
-            update_progress: None,
+            updater: Updater::new(host),
             lang_menu: Default::default(),
             version_menu: Default::default(),
             home: Default::default(),
@@ -240,7 +229,6 @@ impl State {
             } else {
                 linux_tools(&|key| std::env::var(key).ok())
             },
-            self_update: can_self_update(&|key| std::env::var(key).ok(), cfg!(windows)),
             fire: Default::default(),
             visible: true,
             focused: true,

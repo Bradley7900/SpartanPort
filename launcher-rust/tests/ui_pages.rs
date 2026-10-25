@@ -2000,11 +2000,11 @@ fn effects_row_toggles_the_fire() {
 #[test]
 fn check_updates_row_hidden_without_self_update() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state(dir.path());
-    state.self_update = false;
+    let fake = common::releases::FakeReleases::new().0.self_update(false);
+    let state = common::state_with(dir.path(), fake.host());
     assert!(!advanced::check_keys(&state).contains(&"check_updates"));
     assert!(advanced::check_keys(&state).contains(&"close_on_play"));
-    state.self_update = true;
+    let state = common::state(dir.path());
     assert!(advanced::check_keys(&state).contains(&"check_updates"));
 }
 
@@ -2015,7 +2015,6 @@ fn the_launcher_buttons_wrap_instead_of_squeezing() {
     // Portuguese has the longest labels of the row; 1280 × 800 gives the narrowest drawer. The row
     // of Windows (with Check for updates) on every system.
     state.lang = "pt".into();
-    state.self_update = true;
     open(&mut state, Page::Advanced);
     let _ = app::update(
         &mut state,
@@ -2308,21 +2307,22 @@ fn log_header_translates() {
 /// nothing here reaches the network or spawns anything.
 mod update_flow {
     use std::path::PathBuf;
-    use std::sync::mpsc;
 
     use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
     use spartanport_launcher::ui::app::{self, Message};
-    use spartanport_launcher::ui::splash;
+    use spartanport_launcher::ui::splash::{self, Check, SplashMessage};
     use spartanport_launcher::ui::update::{
-        confirm_text, install_decision, is_older, newer, offer_decision, releases, Decision,
-        InstallPlan, UpdateMessage, UpdateState,
+        confirm_text, install_decision, is_older, offer_decision, start_up_check, Decision,
+        InstallPlan, Listing, UpdateMessage,
     };
     use spartanport_launcher::ui::widgets::ModalKind;
     use spartanport_launcher::VERSION;
 
     use spartanport_launcher::core::update::{InstallTarget, RELEASES_PAGE};
 
-    use super::common::releases::{next_call, Call, FakeReleases};
+    use super::common::releases::{
+        downloading_state, next_call, state_installed, Call, FakeReleases,
+    };
     use super::common::{run_task, state, state_with};
 
     const OLDER: &str = "This version is older than the installed one.";
@@ -2356,14 +2356,6 @@ mod update_flow {
             .unwrap_or_default()
     }
 
-    fn downloading(release: Release) -> UpdateState {
-        UpdateState::Downloading {
-            releases: vec![release.clone()],
-            release,
-            percent: 0,
-        }
-    }
-
     #[test]
     fn a_list_with_a_newer_stable_is_ready_and_newer() {
         let dir = tempfile::tempdir().unwrap();
@@ -2374,9 +2366,9 @@ mod update_flow {
             release(VERSION, None, false),
         ];
         let _ = app::update(&mut state, checked(false, Ok(list.clone())));
-        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
-        assert_eq!(releases(&state), list.as_slice());
-        assert_eq!(newer(&state), Some(&list[0]));
+        assert_eq!(state.updater.listing(), Listing::Listed);
+        assert_eq!(state.updater.releases(), list.as_slice());
+        assert_eq!(state.updater.newer(), Some(&list[0]));
         assert!(state.modal.is_none());
         assert_eq!(state.status, status);
     }
@@ -2387,7 +2379,7 @@ mod update_flow {
         let mut state = state(dir.path());
         let list = vec![release(VERSION, None, false)];
         let _ = app::update(&mut state, checked(true, Ok(list.clone())));
-        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert_eq!(state.updater.releases(), list.as_slice());
         assert_eq!(
             modal_text(&state),
             format!("You have the latest version ({VERSION}).")
@@ -2415,7 +2407,8 @@ mod update_flow {
         state.modal = None;
         let _ = app::update(&mut state, checked(false, Err("offline".into())));
         assert!(state.modal.is_none());
-        assert!(matches!(&state.update, UpdateState::Failed(error) if error == "offline"));
+        assert_eq!(state.updater.listing(), Listing::Failed);
+        assert_eq!(state.updater.error(), Some("offline"));
     }
 
     #[test]
@@ -2423,9 +2416,9 @@ mod update_flow {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
         let list = vec![release("2.7.0", None, false)];
-        state.update = UpdateState::Ready(list.clone());
+        let _ = app::update(&mut state, checked(false, Ok(list.clone())));
         let _ = app::update(&mut state, checked(true, Err("offline".into())));
-        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert_eq!(state.updater.releases(), list.as_slice());
         assert_eq!(modal_text(&state), "Could not check for updates: offline");
         assert!(matches!(
             state.modal.as_ref().map(|m| &m.kind),
@@ -2433,7 +2426,7 @@ mod update_flow {
         ));
         state.modal = None;
         let _ = app::update(&mut state, checked(false, Err("offline".into())));
-        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert_eq!(state.updater.releases(), list.as_slice());
         assert!(state.modal.is_none());
     }
 
@@ -2451,15 +2444,19 @@ mod update_flow {
         let mut state = state(dir.path());
         let list = vec![release("2.7.0", None, false), release("2.6.0", None, false)];
         splash::start_up_offer(&mut state, list.clone());
-        assert!(matches!(&state.update, UpdateState::Ready(shown) if *shown == list));
+        assert_eq!(state.updater.listing(), Listing::Listed);
+        assert_eq!(state.updater.releases(), list.as_slice());
         // A download keeps its state.
         let fetching = release("2.7.0", None, false);
-        state.update = downloading(fetching.clone());
+        let mut state = downloading_state(
+            dir.path(),
+            release(VERSION, None, false).id,
+            fetching.clone(),
+            0,
+        );
         splash::start_up_offer(&mut state, vec![release("2.8.0", None, false)]);
-        assert!(matches!(
-            &state.update,
-            UpdateState::Downloading { release, .. } if *release == fetching
-        ));
+        assert_eq!(state.updater.downloading(), Some((&fetching, 0)));
+        assert_eq!(state.updater.releases(), [fetching].as_slice());
     }
 
     #[test]
@@ -2467,7 +2464,7 @@ mod update_flow {
         let dir = tempfile::tempdir().unwrap();
         let mut state = state(dir.path());
         let installed = release(VERSION, None, false);
-        assert_eq!(installed.id, state.installed);
+        assert_eq!(installed.id, *state.updater.installed());
         let task = app::update(
             &mut state,
             Message::Update(UpdateMessage::Install(installed)),
@@ -2476,7 +2473,7 @@ mod update_flow {
         assert_eq!(task.units(), 0);
 
         // The stamp's channel is frozen at build time; the list's follows the API.
-        state.installed = release("2.7.0", None, true).id;
+        let mut state = state_installed(dir.path(), release("2.7.0", None, true).id);
         let task = app::update(
             &mut state,
             Message::Update(UpdateMessage::Install(release("2.7.0", None, false))),
@@ -2541,10 +2538,7 @@ mod update_flow {
             &mut state,
             Message::Update(UpdateMessage::Confirmed(newer.clone())),
         );
-        assert!(matches!(
-            &state.update,
-            UpdateState::Downloading { percent: 0, .. }
-        ));
+        assert_eq!(state.updater.downloading(), Some((&newer, 0)));
         let sent = run_task(task);
         assert_eq!(next_call(&calls), Call::Install(newer.url));
         assert!(
@@ -2614,17 +2608,18 @@ mod update_flow {
     #[test]
     fn install_is_ignored_while_downloading() {
         let dir = tempfile::tempdir().unwrap();
-        let mut state = state(dir.path());
         let fetching = release("2.7.0", None, false);
-        state.update = downloading(fetching.clone());
+        let mut state = downloading_state(
+            dir.path(),
+            release(VERSION, None, false).id,
+            fetching.clone(),
+            0,
+        );
         let task = app::update(
             &mut state,
             Message::Update(UpdateMessage::Install(release("2.5.0", None, false))),
         );
-        assert!(matches!(
-            &state.update,
-            UpdateState::Downloading { release, .. } if *release == fetching
-        ));
+        assert_eq!(state.updater.downloading(), Some((&fetching, 0)));
         assert!(state.modal.is_none());
         assert_eq!(task.units(), 0);
     }
@@ -2632,33 +2627,110 @@ mod update_flow {
     #[test]
     fn a_failed_download_goes_back_to_the_list() {
         let dir = tempfile::tempdir().unwrap();
-        let mut state = state(dir.path());
         let fetched = release("2.7.0", None, false);
-        state.update = downloading(fetched.clone());
-        let (_sender, receiver) = mpsc::channel();
-        state.update_progress = Some(receiver);
+        let mut state = downloading_state(
+            dir.path(),
+            release(VERSION, None, false).id,
+            fetched.clone(),
+            0,
+        );
         let _ = app::update(
             &mut state,
             Message::Update(UpdateMessage::Done(Err("boom".into()))),
         );
-        assert!(matches!(&state.update, UpdateState::Ready(list) if *list == vec![fetched]));
+        assert_eq!(state.updater.listing(), Listing::Listed);
+        assert_eq!(state.updater.releases(), [fetched].as_slice());
+        assert!(state.updater.downloading().is_none());
         assert_eq!(modal_text(&state), "Update failed: boom");
         assert!(matches!(
             state.modal.as_ref().map(|m| &m.kind),
             Some(ModalKind::Error)
         ));
-        assert!(state.update_progress.is_none());
     }
 
     #[test]
     fn progress_updates_the_percent() {
         let dir = tempfile::tempdir().unwrap();
-        let mut state = state(dir.path());
-        state.update = downloading(release("2.7.0", None, false));
+        let fetching = release("2.7.0", None, false);
+        let mut state = downloading_state(
+            dir.path(),
+            release(VERSION, None, false).id,
+            fetching.clone(),
+            0,
+        );
         let _ = app::update(&mut state, Message::Update(UpdateMessage::Progress(42)));
-        assert!(matches!(
-            state.update,
-            UpdateState::Downloading { percent: 42, .. }
-        ));
+        assert_eq!(state.updater.downloading(), Some((&fetching, 42)));
+    }
+
+    #[test]
+    fn a_confirmed_install_shows_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fake, calls) = FakeReleases::new();
+        let mut state = state_with(dir.path(), fake.progress(42).host());
+        let newer = release("2.7.0", None, false);
+        let _ = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Confirmed(newer.clone())),
+        );
+        // The fake sent its percent before it reported the call; the clock drains it.
+        assert_eq!(next_call(&calls), Call::Install(newer.url));
+        let _ = app::update(&mut state, Message::Tick(iced::time::Instant::now()));
+        let mut ui = iced_test::simulator::simulator(app::view(&state));
+        assert!(ui.find("Downloading version 2.7.0… 42%").is_ok());
+    }
+
+    #[test]
+    fn a_silent_check_asks_the_host() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fake, calls) = FakeReleases::new();
+        let list = vec![release("2.7.0", None, false)];
+        let mut state = state_with(dir.path(), fake.list(Ok(list.clone())).host());
+        assert_eq!(state.updater.listing(), Listing::Fetching);
+        let task = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Check { manual: false }),
+        );
+        assert_eq!(next_call(&calls), Call::List);
+        for message in run_task(task) {
+            let _ = app::update(&mut state, message);
+        }
+        assert_eq!(state.updater.releases(), list.as_slice());
+        assert!(state.modal.is_none());
+        assert!(calls.try_recv().is_err());
+    }
+
+    #[test]
+    fn the_start_up_check_needs_self_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let on = serde_json::json!(true);
+        let list = vec![release("2.7.0", None, false)];
+        let update_of = |sent: Vec<Message>| match sent.as_slice() {
+            [Message::Splash(SplashMessage::CheckDone(Check::Update(found)))] => found.clone(),
+            other => panic!("{other:?}"),
+        };
+
+        // It cannot update itself: the host is not asked, even with the setting on.
+        let (fake, calls) = FakeReleases::new();
+        let mut state = state_with(
+            dir.path(),
+            fake.self_update(false).list(Ok(list.clone())).host(),
+        );
+        let _ = app::update(&mut state, Message::Set("check_updates".into(), on.clone()));
+        assert_eq!(update_of(run_task(start_up_check(&state))), None);
+        assert!(calls.try_recv().is_err());
+
+        // It can, with the setting off: still not asked.
+        let (fake, calls) = FakeReleases::new();
+        let state = state_with(dir.path(), fake.list(Ok(list.clone())).host());
+        assert!(!state.store.flag("check_updates"));
+        assert_eq!(update_of(run_task(start_up_check(&state))), None);
+        assert!(calls.try_recv().is_err());
+
+        // Both: the host lists.
+        let (fake, calls) = FakeReleases::new();
+        let mut state = state_with(dir.path(), fake.list(Ok(list.clone())).host());
+        let _ = app::update(&mut state, Message::Set("check_updates".into(), on));
+        assert_eq!(update_of(run_task(start_up_check(&state))), Some(list));
+        assert_eq!(next_call(&calls), Call::List);
     }
 }

@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use spartanport_launcher::core::release::{Release, ReleaseId};
 use spartanport_launcher::core::update::{InstallTarget, ReleaseHost};
+use spartanport_launcher::ui::app::{self, Message, State};
+use spartanport_launcher::ui::update::{self, UpdateMessage};
 
 /// What the window asked of the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +25,8 @@ pub struct FakeReleases {
     target: InstallTarget,
     list: Result<Vec<Release>, String>,
     install: Result<(), String>,
+    progress: u8,
+    self_update: bool,
     calls: Mutex<Sender<Call>>,
 }
 
@@ -35,6 +39,8 @@ impl FakeReleases {
             target: InstallTarget::WindowsPackage,
             list: Ok(Vec::new()),
             install: Ok(()),
+            progress: 100,
+            self_update: true,
             calls: Mutex::new(sender),
         };
         (fake, receiver)
@@ -60,6 +66,18 @@ impl FakeReleases {
         self
     }
 
+    /// The percent the install reports.
+    pub fn progress(mut self, percent: u8) -> Self {
+        self.progress = percent;
+        self
+    }
+
+    /// Whether the install can replace itself; true by default.
+    pub fn self_update(mut self, answer: bool) -> Self {
+        self.self_update = answer;
+        self
+    }
+
     pub fn host(self) -> Arc<dyn ReleaseHost> {
         Arc::new(self)
     }
@@ -78,14 +96,19 @@ impl ReleaseHost for FakeReleases {
         self.target.clone()
     }
 
+    fn self_update(&self) -> bool {
+        self.self_update
+    }
+
     fn list(&self) -> Result<Vec<Release>, String> {
         self.report(Call::List);
         self.list.clone()
     }
 
     fn install(&self, release: &Release, progress: &mut dyn FnMut(u8)) -> Result<(), String> {
+        // The percent goes first, so a test that saw the call may drain it at once.
+        progress(self.progress);
         self.report(Call::Install(release.url.clone()));
-        progress(100);
         self.install.clone()
     }
 
@@ -99,4 +122,42 @@ pub fn next_call(calls: &Receiver<Call>) -> Call {
     calls
         .recv_timeout(Duration::from_secs(2))
         .expect("the host was not called")
+}
+
+/// A state whose host says `id` is the installed release.
+pub fn state_installed(dir: &std::path::Path, id: ReleaseId) -> State {
+    super::state_with(dir, FakeReleases::new().0.installed(id).host())
+}
+
+/// Feeds `releases` to `state` as the answer of a silent check.
+pub fn ready(state: &mut State, releases: Vec<Release>) {
+    let result = Ok(releases);
+    let _ = app::update(
+        state,
+        Message::Update(UpdateMessage::Checked {
+            manual: false,
+            result,
+        }),
+    );
+}
+
+/// A state installed as `installed` that lists `[release]` and downloads it, with `percent` shown.
+pub fn downloading_state(
+    dir: &std::path::Path,
+    installed: ReleaseId,
+    release: Release,
+    percent: u8,
+) -> State {
+    let (fake, calls) = FakeReleases::new();
+    let fake = fake.installed(installed).progress(percent);
+    let mut state = super::state_with(dir, fake.host());
+    ready(&mut state, vec![release.clone()]);
+    let _ = app::update(
+        &mut state,
+        Message::Update(UpdateMessage::Confirmed(release.clone())),
+    );
+    // The fake sent its percent before it reported the call.
+    assert_eq!(next_call(&calls), Call::Install(release.url));
+    update::drain(&mut state);
+    state
 }

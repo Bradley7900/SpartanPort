@@ -13,7 +13,7 @@ use crate::ui::theme::{
     button_flat, container_card, faded_button, mirror_padding, mirror_x, palette, text_muted,
     CINZEL_BOLD,
 };
-use crate::ui::update::{self, UpdateMessage, UpdateState};
+use crate::ui::update::{self, Listing, UpdateMessage};
 
 /// Id of the container that holds the button, for the tests.
 pub const BUTTON_ID: &str = "version-button";
@@ -38,10 +38,10 @@ pub enum VersionMessage {
     Pick(Release),
 }
 
-/// Applies the hover timers; when the menu just opened over `UpdateState::None` or `Failed`,
+/// Applies the hover timers; when the menu just opened with no list or a failed one,
 /// returns the task of a silent check. While a download runs the menu stays closed (spec 4.2).
 pub fn update(state: &mut State, message: VersionMessage) -> Task<Message> {
-    if matches!(state.update, UpdateState::Downloading { .. }) {
+    if state.updater.downloading().is_some() {
         let menu = &mut state.version_menu;
         menu.open = false;
         menu.hover_since = None;
@@ -55,7 +55,7 @@ pub fn update(state: &mut State, message: VersionMessage) -> Task<Message> {
             menu.open = false;
             menu.hover_since = None;
             menu.leave_since = None;
-            if release.id.same_build(&state.installed) {
+            if release.id.same_build(state.updater.installed()) {
                 return Task::none();
             }
             return update::update(state, UpdateMessage::Install(release));
@@ -68,7 +68,7 @@ pub fn update(state: &mut State, message: VersionMessage) -> Task<Message> {
     let was_open = state.version_menu.open;
     let now = state.now;
     hover_menu::apply(&mut state.version_menu, hover, now);
-    let stale = matches!(state.update, UpdateState::None | UpdateState::Failed(_));
+    let stale = state.updater.stale();
     if !was_open && state.version_menu.open && stale {
         return update::update(state, UpdateMessage::Check { manual: false });
     }
@@ -83,18 +83,15 @@ pub fn timing(state: &State) -> bool {
 /// The installed release, with the newer stable noted; the download's progress while one runs.
 pub fn button_text(state: &State) -> String {
     let lang = state.lang.as_str();
-    if let UpdateState::Downloading {
-        release, percent, ..
-    } = &state.update
-    {
+    if let Some((release, percent)) = state.updater.downloading() {
         return tr_fmt(
             lang,
             "Downloading version {}… {}%",
             &[&release.id.short(), &percent.to_string()],
         );
     }
-    let mut label = state.installed.label(lang);
-    if let Some(newer) = update::newer(state) {
+    let mut label = state.updater.installed().label(lang);
+    if let Some(newer) = state.updater.newer() {
         label.push_str(" · ");
         label.push_str(&tr_fmt(lang, "{} available", &[&newer.id.version]));
     }
@@ -104,7 +101,7 @@ pub fn button_text(state: &State) -> String {
 
 /// The button, before the language one in the top-right corner.
 pub fn button_view(state: &State) -> Element<'_, Message> {
-    let downloading = matches!(state.update, UpdateState::Downloading { .. });
+    let downloading = state.updater.downloading().is_some();
     let enabled = home_interactive_enabled(state);
     let opacity = home_interactive_opacity(state);
     let pressed = button(text(button_text(state)).size(12))
@@ -175,20 +172,20 @@ pub fn menu(state: &State) -> Element<'_, Message> {
     let lang = state.lang.as_str();
     let mut list = column![].width(MENU_WIDTH).spacing(2);
     list = list.push(header(lang, "Releases"));
-    match &state.update {
-        UpdateState::None | UpdateState::Checking => {
+    match state.updater.listing() {
+        Listing::Fetching => {
             list = list.push(muted_row(tr(lang, "Fetching…")));
         }
-        UpdateState::Failed(_) => {
+        Listing::Failed => {
             list = list.push(muted_row(tr(lang, "Could not fetch the versions")));
         }
-        UpdateState::Ready(_) | UpdateState::Downloading { .. } => {
-            let releases = update::releases(state);
-            let newer = update::newer(state).map(|r| &r.id);
+        Listing::Listed => {
+            let releases = state.updater.releases();
+            let newer = state.updater.newer().map(|r| &r.id);
             for r in stables(releases) {
                 list = list.push(release_row(
                     r,
-                    r.id.same_build(&state.installed),
+                    r.id.same_build(state.updater.installed()),
                     newer == Some(&r.id),
                     lang,
                 ));
@@ -203,10 +200,9 @@ pub fn menu(state: &State) -> Element<'_, Message> {
                 };
                 list = list.push(muted_row(tr(lang, key)));
             } else {
-                let rows = column(
-                    pre.into_iter()
-                        .map(|r| release_row(r, r.id.same_build(&state.installed), false, lang)),
-                )
+                let rows = column(pre.into_iter().map(|r| {
+                    release_row(r, r.id.same_build(state.updater.installed()), false, lang)
+                }))
                 .spacing(2);
                 list = list.push(
                     container(scrollable(rows)).max_height(VISIBLE_PRERELEASES as f32 * ROW_HEIGHT),

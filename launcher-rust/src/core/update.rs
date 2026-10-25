@@ -398,6 +398,8 @@ pub trait ReleaseHost: Send + Sync {
     fn installed(&self) -> ReleaseId;
     /// Where an install would go; asked at each Install, because the folder may change.
     fn target(&self) -> InstallTarget;
+    /// Whether this install can replace itself (Windows, or an AppImage); read once.
+    fn self_update(&self) -> bool;
     /// The releases of this system, newest first.
     fn list(&self) -> Result<Vec<release::Release>, String>;
     /// Downloads and installs `release`, reporting the percent done.
@@ -462,6 +464,10 @@ impl ReleaseHost for GitHubReleases {
         let folder = real.parent().map(Path::to_path_buf).unwrap_or_default();
         let writable = tempfile::NamedTempFile::new_in(&folder).is_ok();
         InstallTarget::AppImage { folder, writable }
+    }
+
+    fn self_update(&self) -> bool {
+        self.windows || self.appimage.is_some()
     }
 
     fn list(&self) -> Result<Vec<release::Release>, String> {

@@ -10,6 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use std::sync::Arc;
+
+use common::releases::{next_call, Call, FakeReleases};
 use common::sfo;
 use iced_test::simulator::simulator;
 use serde_json::json;
@@ -17,11 +20,12 @@ use spartanport_launcher::core::launch::Exit;
 use spartanport_launcher::core::log::ExitHint;
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
+use spartanport_launcher::core::update::ReleaseHost;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::play::{self, GameMessage, GameState, LiveAction};
-use spartanport_launcher::ui::update::{UpdateMessage, UpdateState};
+use spartanport_launcher::ui::update::{UpdateMessage, Listing};
 use spartanport_launcher::ui::widgets::modal::{ModalKind, ModalMessage};
 
 /// The longest any test waits for the fake game.
@@ -33,12 +37,17 @@ const HINT: &str = "In the game: Insert or R3+L2 opens the port's menu.";
 
 /// A launcher over `dir` only (its port and data folder), with the splash already gone.
 fn state_in(dir: &Path) -> State {
+    state_over(dir, FakeReleases::new().0.host())
+}
+
+/// `state_in` over a release host of the test's.
+fn state_over(dir: &Path, host: Arc<dyn ReleaseHost>) -> State {
     let root = dir.display().to_string();
     let env = move |key: &str| match key {
         "APPDATA" | "USERPROFILE" | "HOME" | "XDG_CONFIG_HOME" => Some(root.clone()),
         _ => None,
     };
-    let mut state = State::new(Paths::from_env(dir, &env));
+    let mut state = State::with_host(Paths::from_env(dir, &env), host);
     state.splash.done = true;
     state
 }
@@ -87,9 +96,13 @@ fn text_of(path: &Path) -> String {
 
 /// A launcher over `dir` whose game folder is a full dump and whose PLAY starts the fake game.
 fn ready(dir: &Path, args: &[&str]) -> State {
+    ready_over(state_in(dir), dir, args)
+}
+
+/// `ready` over a state of the test's.
+fn ready_over(mut state: State, dir: &Path, args: &[&str]) -> State {
     let dump = dir.join("dump");
     full_dump(&dump);
-    let mut state = state_in(dir);
     set(&mut state, "game_dir", json!(text_of(&dump)));
     fake_game(&mut state, args);
     state
@@ -808,7 +821,13 @@ fn a_confirmed_update_waits_for_the_game() {
         url: "https://example.invalid/SpartanPort.zip".into(),
         page: "https://example.invalid/releases".into(),
     };
-    state.update = UpdateState::Ready(vec![release.clone()]);
+    send(
+        &mut state,
+        Message::Update(UpdateMessage::Checked {
+            manual: false,
+            result: Ok(vec![release.clone()]),
+        }),
+    );
     // The install question was open when the game started: its Yes must not install over it.
     send(&mut state, Message::Play);
     assert!(state.game.is_live());
@@ -817,8 +836,8 @@ fn a_confirmed_update_waits_for_the_game() {
         Message::Update(UpdateMessage::Confirmed(release.clone())),
     );
     assert_eq!(task.units(), 0);
-    assert!(matches!(&state.update, UpdateState::Ready(list) if *list == vec![release]));
-    assert!(state.update_progress.is_none());
+    assert_eq!(state.updater.releases(), [release].as_slice());
+    assert!(state.updater.downloading().is_none());
     let shown = state.modal.take().expect("a dialog");
     assert_eq!(shown.text, "Close the game before updating.");
     send(&mut state, Message::Stop);
@@ -1043,4 +1062,66 @@ fn play_starts_the_launcher_exe_with_run() {
         "{}",
         state.log.text()
     );
+}
+
+#[test]
+fn install_while_the_game_runs_says_close_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (fake, calls) = FakeReleases::new();
+    let mut state = ready_over(
+        state_over(dir.path(), fake.host()),
+        dir.path(),
+        &["--lines", "1000", "--delay-ms", "50", "--exit", "0"],
+    );
+    send(&mut state, Message::Play);
+    assert!(play::game_live(&state));
+    let newer = Release {
+        id: ReleaseId {
+            channel: Channel::Release,
+            version: "9.9.9".into(),
+            build: None,
+        },
+        published: "2026-10-22T00:00:00Z".into(),
+        url: "https://example.invalid/SpartanPort.zip".into(),
+        page: "https://example.invalid/releases".into(),
+    };
+    let task = app::update(&mut state, Message::Update(UpdateMessage::Install(newer)));
+    assert_eq!(task.units(), 0);
+    let shown = state.modal.take().expect("a dialog");
+    assert!(matches!(shown.kind, ModalKind::Info), "{shown:?}");
+    assert_eq!(shown.text, "Close the game before updating.");
+    // Nothing reached the host.
+    assert!(calls.try_recv().is_err());
+    send(&mut state, Message::Stop);
+    pump(&mut state, BOUND, idle);
+}
+
+#[test]
+fn a_failed_listing_shows_the_error_and_play_still_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let (fake, calls) = FakeReleases::new();
+    let host = fake.list(Err("offline".into())).host();
+    let mut state = ready_over(
+        state_over(dir.path(), host),
+        dir.path(),
+        &["--lines", "1", "--exit", "0"],
+    );
+    let task = app::update(
+        &mut state,
+        Message::Update(UpdateMessage::Check { manual: false }),
+    );
+    assert_eq!(next_call(&calls), Call::List);
+    for message in common::run_task(task) {
+        send(&mut state, message);
+    }
+    assert_eq!(state.updater.listing(), Listing::Failed);
+    assert_eq!(state.updater.error(), Some("offline"));
+    assert!(state.modal.is_none());
+    state.version_menu.open = true;
+    assert!(shows(&state, "Could not fetch the versions"));
+
+    // The failure does not touch PLAY.
+    send(&mut state, Message::Play);
+    assert!(play::game_live(&state));
+    pump(&mut state, BOUND, idle);
 }

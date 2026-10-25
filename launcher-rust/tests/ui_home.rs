@@ -2,7 +2,7 @@
 //! The Home page (chips, quick line, PLAY) and the language menu.
 
 mod common;
-use common::releases::{next_call, Call, FakeReleases};
+use common::releases::{downloading_state, next_call, state_installed, Call, FakeReleases};
 use common::state_with;
 
 use std::path::Path;
@@ -22,7 +22,7 @@ use spartanport_launcher::ui::drawer::DrawerState;
 use spartanport_launcher::ui::home;
 use spartanport_launcher::ui::lang_menu::LangMessage;
 use spartanport_launcher::ui::pages::Page;
-use spartanport_launcher::ui::update::UpdateState;
+use spartanport_launcher::ui::update::{Listing, UpdateMessage};
 use spartanport_launcher::ui::version_menu::VersionMessage;
 use spartanport_launcher::ui::widgets::modal::{Modal, ModalKind};
 
@@ -578,7 +578,7 @@ fn release(channel: Channel, version: &str, build: Option<&str>) -> Release {
 }
 
 fn ready_with(state: &mut State, releases: Vec<Release>) {
-    state.update = UpdateState::Ready(releases);
+    common::releases::ready(state, releases);
 }
 
 /// The installed release the labels below name, whatever `VERSION` is.
@@ -593,18 +593,20 @@ fn stable_2_6_0() -> ReleaseId {
 #[test]
 fn the_version_button_names_the_installed_release() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
+    let state = state_installed(dir.path(), ReleaseId::fallback());
     let mut ui = simulator(app::view(&state));
     assert!(ui
         .find(format!("Release · {} ▾", spartanport_launcher::VERSION).as_str())
         .is_ok());
     drop(ui);
-    state.installed = ReleaseId {
-        channel: Channel::PreRelease,
-        version: "2.6.0".into(),
-        build: Some("issue209-test1".into()),
-    };
+    let state = state_installed(
+        dir.path(),
+        ReleaseId {
+            channel: Channel::PreRelease,
+            version: "2.6.0".into(),
+            build: Some("issue209-test1".into()),
+        },
+    );
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Pre-release · 2.6.0 · issue209-test1 ▾").is_ok());
 }
@@ -612,8 +614,7 @@ fn the_version_button_names_the_installed_release() {
 #[test]
 fn the_version_button_offers_a_newer_stable() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = stable_2_6_0();
+    let mut state = state_installed(dir.path(), stable_2_6_0());
     ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("Release · 2.6.0 · 2.7.0 available ▾").is_ok());
@@ -634,8 +635,7 @@ fn the_version_button_offers_a_newer_stable() {
 #[test]
 fn the_version_button_sits_before_the_language_one() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = stable_2_6_0();
+    let mut state = state_installed(dir.path(), stable_2_6_0());
     let label = "Release · 2.6.0 ▾";
     let x = |state: &State, label: &str| {
         let mut ui = simulator(app::view(state));
@@ -649,21 +649,15 @@ fn the_version_button_sits_before_the_language_one() {
 #[test]
 fn the_version_button_is_not_pressable_while_downloading_or_dimmed() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = stable_2_6_0();
     let newest = release(Channel::Release, "2.7.0", None);
-    state.update = UpdateState::Downloading {
-        releases: vec![newest.clone()],
-        release: newest.clone(),
-        percent: 42,
-    };
+    let state = downloading_state(dir.path(), stable_2_6_0(), newest, 42);
     let label = "Downloading version 2.7.0… 42%";
     assert!(simulator(app::view(&state)).find(label).is_ok());
     assert!(!click(&state, label)
         .iter()
         .any(|message| matches!(message, Message::VersionMenu(VersionMessage::Toggle))));
 
-    state.update = UpdateState::None;
+    let mut state = state_installed(dir.path(), stable_2_6_0());
     state.modal = Some(Modal {
         kind: ModalKind::Info,
         title: "T".into(),
@@ -690,17 +684,22 @@ fn the_version_button_is_not_pressable_while_downloading_or_dimmed() {
 #[test]
 fn the_version_menu_stays_closed_while_downloading() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
     let newest = release(Channel::Release, "2.7.0", None);
-    let downloading = UpdateState::Downloading {
-        releases: vec![newest.clone()],
-        release: newest.clone(),
-        percent: 42,
-    };
-    state.update = downloading.clone();
+    let (fake, calls) = FakeReleases::new();
+    let mut state = state_with(dir.path(), fake.progress(42).host());
     let t0 = Instant::now();
     state.now = t0;
+    // A download that starts closes an open list.
+    ready_with(&mut state, vec![newest.clone()]);
+    open_menu(&mut state);
+    let _ = app::update(
+        &mut state,
+        Message::Update(UpdateMessage::Confirmed(newest.clone())),
+    );
+    assert_eq!(next_call(&calls), Call::Install(newest.url));
+    tick(&mut state, t0 + Duration::from_millis(500));
+    assert!(!state.version_menu.open);
+
     for message in [
         VersionMessage::Enter,
         VersionMessage::Tick(t0 + Duration::from_millis(450)),
@@ -719,13 +718,6 @@ fn the_version_menu_stays_closed_while_downloading() {
             .any(|message| matches!(message, Message::VersionMenu(_))),
         "{sent:?}"
     );
-
-    // A download that starts closes an open list.
-    ready_with(&mut state, vec![newest]);
-    open_menu(&mut state);
-    state.update = downloading;
-    tick(&mut state, t0 + Duration::from_millis(500));
-    assert!(!state.version_menu.open);
 }
 
 #[test]
@@ -735,18 +727,19 @@ fn hovering_the_version_button_opens_and_fetches() {
     let mut state = state_with(dir.path(), fake.host());
     let t0 = Instant::now();
     state.now = t0;
-    assert!(matches!(state.update, UpdateState::None));
+    assert!(state.updater.stale());
     let _ = version(&mut state, VersionMessage::Enter);
     tick(&mut state, t0 + Duration::from_millis(450));
     assert!(state.version_menu.open);
-    assert!(matches!(state.update, UpdateState::Checking));
+    assert_eq!(state.updater.listing(), Listing::Fetching);
+    assert!(!state.updater.stale());
     assert_eq!(next_call(&calls), Call::List);
 
     let mut state = state_in(dir.path());
     ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
     let _ = version(&mut state, VersionMessage::Toggle);
     assert!(state.version_menu.open);
-    assert!(matches!(state.update, UpdateState::Ready(_)));
+    assert_eq!(state.updater.listing(), Listing::Listed);
 }
 
 #[test]
@@ -794,8 +787,7 @@ fn open_menu(state: &mut State) {
 #[test]
 fn the_open_menu_lists_three_stables_and_every_prerelease() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = stable_2_6_0();
+    let mut state = state_installed(dir.path(), stable_2_6_0());
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
     let mut ui = simulator(app::view(&state));
@@ -816,20 +808,18 @@ fn the_open_menu_lists_three_stables_and_every_prerelease() {
 #[test]
 fn the_menu_marks_the_installed_and_the_new() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = ReleaseId {
+    let list = vec![
+        release(Channel::Release, "2.8.0", None),
+        release(Channel::Release, "2.7.0", None),
+        release(Channel::Release, "2.6.0", None),
+    ];
+    let mut installed = ReleaseId {
         channel: Channel::Release,
         version: "2.7.0".into(),
         build: None,
     };
-    ready_with(
-        &mut state,
-        vec![
-            release(Channel::Release, "2.8.0", None),
-            release(Channel::Release, "2.7.0", None),
-            release(Channel::Release, "2.6.0", None),
-        ],
-    );
+    let mut state = state_installed(dir.path(), installed.clone());
+    ready_with(&mut state, list.clone());
     open_menu(&mut state);
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("✓ 2.7.0").is_ok());
@@ -841,7 +831,10 @@ fn the_menu_marks_the_installed_and_the_new() {
     drop(ui);
 
     // A stamp that says pre-release still matches the stable row of its version.
-    state.installed.channel = Channel::PreRelease;
+    installed.channel = Channel::PreRelease;
+    let mut state = state_installed(dir.path(), installed);
+    ready_with(&mut state, list);
+    open_menu(&mut state);
     let mut ui = simulator(app::view(&state));
     assert!(ui.find("✓ 2.7.0").is_ok());
 }
@@ -849,8 +842,7 @@ fn the_menu_marks_the_installed_and_the_new() {
 #[test]
 fn an_unmatched_install_has_no_tick_but_still_a_new() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
-    state.installed = stable_2_6_0();
+    let mut state = state_installed(dir.path(), stable_2_6_0());
     ready_with(
         &mut state,
         vec![
@@ -914,9 +906,12 @@ fn the_menu_says_fetching_and_failed() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     state.version_menu.open = true;
-    state.update = UpdateState::None;
     assert!(simulator(app::view(&state)).find("Fetching…").is_ok());
-    state.update = UpdateState::Failed("offline".into());
+    let failed = Message::Update(UpdateMessage::Checked {
+        manual: false,
+        result: Err("offline".into()),
+    });
+    let _ = app::update(&mut state, failed);
     assert!(simulator(app::view(&state))
         .find("Could not fetch the versions")
         .is_ok());
@@ -926,8 +921,12 @@ fn the_menu_says_fetching_and_failed() {
 fn picking_a_row_closes_and_installs() {
     let dir = tempfile::tempdir().unwrap();
     let (fake, calls) = FakeReleases::new();
-    let mut state = state_with(dir.path(), fake.target(InstallTarget::WindowsSource).host());
-    state.installed = stable_2_6_0();
+    let mut state = state_with(
+        dir.path(),
+        fake.installed(stable_2_6_0())
+            .target(InstallTarget::WindowsSource)
+            .host(),
+    );
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
     let sent = click(&state, "2.8.0");
@@ -943,11 +942,14 @@ fn picking_a_row_closes_and_installs() {
     assert_eq!(next_call(&calls), Call::OpenPage(page));
 
     let mut state = state_in(dir.path());
-    state.installed = ReleaseId::fallback();
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
     // The row's channel differs from the stamp's: still the installed release.
-    let installed = release(Channel::PreRelease, &state.installed.version, None);
+    let installed = release(
+        Channel::PreRelease,
+        &state.updater.installed().version,
+        None,
+    );
     let task = version(&mut state, VersionMessage::Pick(installed));
     assert!(!state.version_menu.open);
     assert_eq!(task.units(), 0);

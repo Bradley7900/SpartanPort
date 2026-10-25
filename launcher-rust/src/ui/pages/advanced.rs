@@ -112,7 +112,7 @@ pub fn launcher_checks(state: &State, lang: &str) -> Vec<CheckRow> {
             true,
         ),
     ];
-    if state.self_update {
+    if state.updater.self_update() {
         checks.push(check_row(
             state,
             "check_updates",
@@ -295,7 +295,7 @@ pub fn view(state: &State) -> Element<'_, Message> {
     }
 
     let mut buttons = layout![].spacing(6).align_y(Center);
-    if state.self_update {
+    if state.updater.self_update() {
         buttons = buttons.push(flat(
             tr(lang, "Check for updates"),
             Message::Update(UpdateMessage::Check { manual: true }),

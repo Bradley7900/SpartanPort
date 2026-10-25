@@ -19,7 +19,6 @@ use crate::core::game::ready_to_play;
 use crate::core::gpu::{list_gpus, GpuRow};
 use crate::core::i18n::tr;
 use crate::core::release::Release;
-use crate::core::update::can_self_update;
 use crate::ui::app::{scene_size, Message, State};
 use crate::ui::home;
 use crate::ui::tasks::blocking;
@@ -191,14 +190,7 @@ pub fn start_checks(state: &State) -> Task<Message> {
     let update_dir = state.store.text("update_dir");
     let game = blocking(move || ready_to_play(&game_dir, &update_dir))
         .map(move |ready| done(Check::GameFolder(ready)));
-    let wants_update = can_self_update(&|key| std::env::var(key).ok(), cfg!(windows))
-        && state.store.flag("check_updates");
-    let update = if wants_update {
-        let host = state.host.clone();
-        blocking(move || host.list().ok()).map(move |releases| done(Check::Update(releases)))
-    } else {
-        Task::done(done(Check::Update(None)))
-    };
+    let update = update::start_up_check(state);
     Task::batch([gpus, game, update])
 }
 

@@ -23,7 +23,7 @@ use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
 use spartanport_launcher::ui::pages::Page;
 use spartanport_launcher::ui::persist::{dirty, SHOWN_INI_KEYS};
 use spartanport_launcher::ui::play::GameState;
-use spartanport_launcher::ui::update::{newer, UpdateState};
+use spartanport_launcher::ui::update::UpdateMessage;
 use spartanport_launcher::ui::widgets::modal::ModalKind;
 
 const SAVE_FAILED: &str =
@@ -211,7 +211,7 @@ fn rebuilding_keeps_the_status_of_a_running_game() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path());
     state.log.push_text("The game is running.\n");
-    state.update = UpdateState::Ready(vec![Release {
+    let listed = vec![Release {
         id: ReleaseId {
             channel: Channel::Release,
             version: "2.9.0".to_string(),
@@ -220,14 +220,21 @@ fn rebuilding_keeps_the_status_of_a_running_game() {
         published: String::new(),
         url: String::new(),
         page: String::new(),
-    }]);
+    }];
+    let checked = UpdateMessage::Checked {
+        manual: false,
+        result: Ok(listed),
+    };
+    send(&mut state, Message::Update(checked));
     set(&mut state, "ui_language", json!("ru"));
     save(&mut state);
     assert_eq!(state.lang, "ru");
     assert!(matches!(state.game, GameState::Idle));
     assert!(state.log.text().contains("The game is running."));
-    assert!(matches!(state.update, UpdateState::Ready(_)));
-    assert_eq!(newer(&state).map(|r| r.id.version.as_str()), Some("2.9.0"));
+    assert_eq!(
+        state.updater.newer().map(|r| r.id.version.as_str()),
+        Some("2.9.0")
+    );
 }
 
 #[test]
