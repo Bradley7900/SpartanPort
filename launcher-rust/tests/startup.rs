@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The program's start: what the arguments ask for, the first language and the window.
 
+use std::ffi::OsString;
 use std::path::Path;
 
 use iced::{window, Point, Size};
@@ -16,35 +17,77 @@ use spartanport_launcher::ui::theme::window_zoom;
 #[test]
 fn arguments_route_to_their_roles() {
     let none: [&str; 0] = [];
-    assert_eq!(route(&none), Route::Launcher);
+    assert_eq!(route(&none), Route::Launcher { migrate: true });
     assert_eq!(route(&["--version"]), Route::Version);
     // The update installer: `--install-update TARGET PID`, on Windows only.
     let update = ["--install-update", r"C:\Port", "1234"];
-    assert_eq!(route_on(&update, true), Route::InstallUpdate);
-    assert_eq!(route_on(&update, false), Route::Launcher);
+    assert_eq!(
+        route_on(&update, true),
+        Route::InstallUpdate {
+            target: r"C:\Port".into(),
+            pid: 1234
+        }
+    );
+    // Not the installer elsewhere, so it is the window, and it still does not migrate.
+    assert_eq!(route_on(&update, false), Route::Launcher { migrate: false });
     assert_eq!(
         route_on(&["--install-update", "a.zip"], true),
-        Route::Launcher
+        Route::Launcher { migrate: false }
     );
     assert_eq!(
         route_on(&["--install-update", "a", "1", "b"], true),
-        Route::Launcher
+        Route::Launcher { migrate: false }
     );
     // `--script` is an ordinary argument now.
-    assert_eq!(route(&["--script", "prepare.py"]), Route::Launcher);
+    assert_eq!(
+        route(&["--script", "prepare.py"]),
+        Route::Launcher { migrate: true }
+    );
     assert_eq!(route(&["--script", "x.py", "--version"]), Route::Version);
     // Anything else opens the window; the Python ignores unknown arguments too.
-    assert_eq!(route(&["--fullscreen"]), Route::Launcher);
-    assert_eq!(route(&["play"]), Route::Launcher);
+    assert_eq!(route(&["--fullscreen"]), Route::Launcher { migrate: true });
+    assert_eq!(route(&["play"]), Route::Launcher { migrate: true });
+}
+
+#[test]
+fn install_update_carries_target_and_pid() {
+    assert_eq!(
+        route_on(&["--install-update", "C:/t", "42"], true),
+        Route::InstallUpdate {
+            target: "C:/t".into(),
+            pid: 42
+        }
+    );
+    // An unreadable pid is 0, as the launcher has always taken it.
+    assert_eq!(
+        route_on(&["--install-update", "C:/t", "x"], true),
+        Route::InstallUpdate {
+            target: "C:/t".into(),
+            pid: 0
+        }
+    );
+}
+
+#[test]
+fn run_carries_everything_after_it() {
+    let args = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>();
+    assert_eq!(route(&["--run"]), Route::Run { args: Vec::new() });
+    assert_eq!(
+        route(&["--run", "--timeout", "5", "--play"]),
+        Route::Run {
+            args: args(&["--timeout", "5", "--play"])
+        }
+    );
 }
 
 #[test]
 fn run_and_play_are_their_own_routes() {
-    assert_eq!(route(&["--run"]), Route::Run);
-    assert_eq!(route(&["--run", "--timeout", "5"]), Route::Run);
     // `--play` counts anywhere, as in the Python `main`.
-    assert_eq!(route(&["--play"]), Route::Play);
-    assert_eq!(route(&["--fullscreen", "--play"]), Route::Play);
+    assert_eq!(route(&["--play"]), Route::Play { migrate: true });
+    assert_eq!(
+        route(&["--fullscreen", "--play"]),
+        Route::Play { migrate: true }
+    );
 }
 
 #[test]
@@ -347,6 +390,17 @@ fn the_desktop_scale_is_read_when_the_window_opens() {
 
 #[test]
 fn voice_swap_is_its_own_role() {
-    assert_eq!(route(&["--voice-swap", "--help"]), Route::VoiceSwap);
-    assert_eq!(route(&["--voice-swap", "a", "--play"]), Route::VoiceSwap);
+    let args = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>();
+    assert_eq!(
+        route(&["--voice-swap", "--help"]),
+        Route::VoiceSwap {
+            args: args(&["--help"])
+        }
+    );
+    assert_eq!(
+        route(&["--voice-swap", "a", "--play"]),
+        Route::VoiceSwap {
+            args: args(&["a", "--play"])
+        }
+    );
 }

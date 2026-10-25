@@ -29,7 +29,7 @@ fn main() {
     let port_dir = default_port_dir(&exe_dir);
     match startup::route(&args) {
         Route::Version => println!("{APP_NAME} {VERSION}"),
-        Route::Run => {
+        Route::Run { args } => {
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
             // What the packaged Python launcher did on import, for its `--run` too.
             let mut env = environment_of(std::env::vars_os());
@@ -37,17 +37,16 @@ fn main() {
             let context = RunContext {
                 port_dir: &paths.port_dir,
                 env,
-                // Everything after `--run`.
-                args: args.iter().skip(1).cloned().collect(),
+                args,
                 out: &mut std::io::stdout(),
             };
             std::process::exit(runner::run(context))
         }
-        Route::Play => {
+        Route::Play { migrate } => {
             // As the Python `main`: the old name's files and the settings first.
             startup::forward_environment();
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
-            startup::prepare(&paths, startup::migrates(&args));
+            startup::prepare(&paths, migrate);
             let settings = load_app_settings(&paths);
             // Without a usable game folder there is nothing to play yet: the window opens instead.
             if ready_to_play(
@@ -65,37 +64,30 @@ fn main() {
             }
             open_window(paths);
         }
-        Route::InstallUpdate => {
+        Route::InstallUpdate { target, pid } => {
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
-            let target = PathBuf::from(&args[1]);
-            let pid = args[2].to_str().and_then(|pid| pid.parse().ok());
             let lang = launcher_language(
                 &load_app_settings(&paths).get_str("ui_language"),
                 system_language,
             );
-            std::process::exit(startup::install_update(
-                &exe_dir,
-                &target,
-                pid.unwrap_or(0),
-                &lang,
-            ))
+            std::process::exit(startup::install_update(&exe_dir, &target, pid, &lang))
         }
-        Route::VoiceSwap => {
+        Route::VoiceSwap { args } => {
             // As the AppImage runs from a mount, `OWD` is the folder the player typed paths in.
             let base = std::env::var_os("OWD");
             let code = voice_swap::main(
-                &args[1..],
+                &args,
                 base.as_deref().map(Path::new),
                 &mut std::io::stdout(),
                 &mut std::io::stderr(),
             );
             std::process::exit(code)
         }
-        Route::Launcher => {
+        Route::Launcher { migrate } => {
             // Before the folders below are read from the environment.
             startup::forward_environment();
             let paths = Paths::from_env(&port_dir, &|key| std::env::var(key).ok());
-            startup::prepare(&paths, startup::migrates(&args));
+            startup::prepare(&paths, migrate);
             open_window(paths);
         }
     }

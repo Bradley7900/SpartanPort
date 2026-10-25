@@ -1,8 +1,8 @@
 //! The program's start (Python `main`): what the arguments ask for, and the steps that run before
 //! the window opens. None of these steps stops the launcher.
 
-use std::ffi::OsStr;
-use std::path::Path;
+use std::ffi::{OsStr, OsString};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -17,21 +17,22 @@ use crate::core::{desktop, legacy, platform};
 use crate::ui::update::is_packaged;
 use crate::APP_NAME;
 
-/// What the command line asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the command line asks for, with the arguments each role takes.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Route {
     /// `--version`: the name and the version.
     Version,
-    /// `--run`: the Rust runner.
-    Run,
+    /// `--run`: the Rust runner, with everything after it.
+    Run { args: Vec<OsString> },
     /// `--play`: the Rust runner's play role.
-    Play,
+    Play { migrate: bool },
     /// `--install-update TARGET PID`: the downloaded version installs itself over the old one.
-    InstallUpdate,
-    /// `--voice-swap`: the voice-line tool.
-    VoiceSwap,
+    /// A `pid` that is not a number is 0.
+    InstallUpdate { target: PathBuf, pid: u32 },
+    /// `--voice-swap`: the voice-line tool, with everything after it.
+    VoiceSwap { args: Vec<OsString> },
     /// Anything else: the window.
-    Launcher,
+    Launcher { migrate: bool },
 }
 
 /// [`route_on`] for the system this program runs on.
@@ -44,21 +45,35 @@ pub fn route<S: AsRef<OsStr>>(args: &[S]) -> Route {
 /// counts anywhere, as in the Python `main`. Other arguments, `--script` included, are ignored.
 pub fn route_on<S: AsRef<OsStr>>(args: &[S], windows: bool) -> Route {
     let is = |arg: &S, flag: &str| arg.as_ref() == OsStr::new(flag);
+    let rest = || {
+        args[1..]
+            .iter()
+            .map(|arg| arg.as_ref().to_owned())
+            .collect()
+    };
     match args.first() {
-        Some(first) if is(first, "--run") => return Route::Run,
-        Some(first) if is(first, "--voice-swap") => return Route::VoiceSwap,
+        Some(first) if is(first, "--run") => return Route::Run { args: rest() },
+        Some(first) if is(first, "--voice-swap") => return Route::VoiceSwap { args: rest() },
         Some(first) if is(first, "--install-update") && windows && args.len() == 3 => {
-            return Route::InstallUpdate;
+            return Route::InstallUpdate {
+                target: PathBuf::from(args[1].as_ref()),
+                pid: args[2]
+                    .as_ref()
+                    .to_str()
+                    .and_then(|pid| pid.parse().ok())
+                    .unwrap_or(0),
+            };
         }
         _ => {}
     }
     if args.iter().any(|arg| is(arg, "--version")) {
         return Route::Version;
     }
+    let migrate = migrates(args);
     if args.iter().any(|arg| is(arg, "--play")) {
-        return Route::Play;
+        return Route::Play { migrate };
     }
-    Route::Launcher
+    Route::Launcher { migrate }
 }
 
 /// Whether [`prepare`] moves the old name's files: not for the downloaded copy that installs an
