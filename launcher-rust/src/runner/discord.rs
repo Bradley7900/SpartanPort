@@ -1259,10 +1259,10 @@ mod tests {
                 let conn = accept(&listener, Duration::from_secs(2));
                 let mut transport = ipc::from_stream(conn);
                 let hello = pack(Opcode::Handshake, &json!({"v": 1, "client_id": "123"}));
-                let got = read_exact(&mut transport, hello.len(), &never, Some(READ)).unwrap();
+                let got = read_exact(&mut *transport, hello.len(), &never, Some(READ)).unwrap();
                 assert_eq!(got, hello);
                 transport.write(&pack(Opcode::Frame, &ready())).unwrap();
-                let (_, request) = read_frame(&mut transport, &never, Some(READ)).unwrap();
+                let (_, request) = read_frame(&mut *transport, &never, Some(READ)).unwrap();
                 let start = &request["args"]["activity"]["timestamps"]["start"];
                 starts.push(start.as_u64().unwrap());
                 transport.write(&pack(Opcode::Frame, &answered())).unwrap();
@@ -1273,15 +1273,15 @@ mod tests {
                 transport.write(&ping).unwrap();
                 let echo = [&header(Opcode::Pong, 2)[..], b"\xff\x00"].concat();
                 assert_eq!(
-                    read_exact(&mut transport, 10, &never, Some(READ)).unwrap(),
+                    read_exact(&mut *transport, 10, &never, Some(READ)).unwrap(),
                     echo
                 );
                 pong_sent.send(()).unwrap();
-                let (_, clear) = read_frame(&mut transport, &never, Some(READ)).unwrap();
+                let (_, clear) = read_frame(&mut *transport, &never, Some(READ)).unwrap();
                 assert!(clear["args"].get("activity").is_none());
                 let close = pack(Opcode::Close, &json!({}));
                 assert_eq!(
-                    read_exact(&mut transport, 10, &never, Some(READ)).unwrap(),
+                    read_exact(&mut *transport, 10, &never, Some(READ)).unwrap(),
                     close
                 );
             }

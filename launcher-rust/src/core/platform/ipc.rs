@@ -146,7 +146,8 @@ mod imp {
     use std::path::Path;
     use std::time::Duration;
 
-    /// How long a write waits for the peer.
+    /// How long a write waits for the peer: the runner's Discord POLL (Python `POLL_SECONDS`),
+    /// repeated here because core never names the runner.
     const WRITE_TIMEOUT: Duration = Duration::from_millis(100);
 
     /// A Unix socket (Python `SocketTransport`); a write gives up after WRITE_TIMEOUT.
