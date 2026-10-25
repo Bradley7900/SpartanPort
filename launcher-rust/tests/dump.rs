@@ -763,7 +763,10 @@ fn real_menu_enemy_health_bar_follows_screen_y_with_native_animation() {
         .unwrap();
     let y = new.one("HLScreenLocY").unwrap();
     assert_eq!(row.at, y.at + y.size);
-    assert_eq!(row.at + row.size, display.at + display.size);
+    // Display's new rows follow it, up to the end of the page.
+    assert_eq!(row.at + row.size, new.one("NativeDisplay0").unwrap().at);
+    let last = new.one("NativeDisplayApply").unwrap();
+    assert_eq!(last.at + last.size, display.at + display.size);
     for (kind, layer) in [(1, 8), (2, 9)] {
         let code = new.block_bytes(first_block(row, kind)).unwrap();
         let clip = push(&new, b"menuItem3Select");
@@ -806,9 +809,12 @@ fn real_menu_display_initializes_health_value_before_the_row_is_selected() {
         })
         .map(|op| new.string(new.lit + op.operand as usize).unwrap())
         .collect();
+    // The page draws its rows again before it goes to its first row: the same value each time.
+    assert!(!assignments.is_empty());
+    let values: HashSet<&str> = assignments.iter().map(String::as_str).collect();
     assert_eq!(
-        assignments,
-        ["[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]"]
+        values,
+        HashSet::from(["[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]"])
     );
 }
 
@@ -945,22 +951,25 @@ fn real_menu_options_row() {
         new.one("PauseOptions").unwrap(),
         new.by_name("HLDisplay")[1],
     );
-    assert_eq!(new.records.len(), old.records.len() + 21);
+    assert_eq!(new.records.len(), old.records.len() + 62);
     assert_eq!(row.parent, options.at - 4);
     let cheats = new.one("HLNativeCheats").unwrap();
+    let graphics = new.one("HLNativeGraphics").unwrap();
     assert_eq!(
         options.size,
-        old.one("PauseOptions").unwrap().size + pause_menu::ROW_SIZE + cheats.size
+        old.one("PauseOptions").unwrap().size + pause_menu::ROW_SIZE + cheats.size + graphics.size
     );
-    assert_eq!(row.at + row.size, cheats.at);
+    assert_eq!(row.at + row.size, graphics.at);
+    assert_eq!(graphics.at + graphics.size, cheats.at);
     // The WAD entry, the script header and the padding agree with the new size.
     let size = le32(&m.data, new.base - 0x40 + 4);
     let old_size = le32(&m.original, old.base - 0x40 + 4);
     assert_eq!(le32(&m.data, new.base + 8), size - 4);
-    // Six dedicated native slider instances (352 bytes each) and their 64-byte references.
+    // Six sliders plus three scrollbars' isolated meshes, models, templates, instances and
+    // references.
     assert_eq!(
         m.data.len() - m.original.len(),
-        ((size + 15) & !15) - ((old_size + 15) & !15) + 2496
+        ((size + 15) & !15) - ((old_size + 15) & !15) + 11040
     );
     assert_eq!(glyphs::entries(&m.data).last().unwrap().name, "GroupEnd");
 }
@@ -997,7 +1006,7 @@ fn real_menu_every_other_goto_is_unchanged() {
     let health = new
         .records
         .iter()
-        .position(|r| r.at == display.at + display.size - 0x44)
+        .position(|r| new.name_of(r) == Some("HLSubtitleDis") && r.parent == display.at - 4)
         .unwrap();
     let original_indices: Vec<usize> = new
         .records
@@ -1021,10 +1030,23 @@ fn real_menu_every_other_goto_is_unchanged() {
         .collect();
     changed.sort_unstable();
     let wad_choose = moved(position(&old, dead));
-    let cheats = position(&new, new.one("HLNativeCheats").unwrap());
-    // Only the neighbors of the four added rows change destinations.
+    let index_of = |name: &str| position(&new, new.one(name).unwrap());
+    let (cheats, graphics) = (index_of("HLNativeCheats"), index_of("HLNativeGraphics"));
+    let apply = index_of("NativeDisplayApply");
+    let controls_first = index_of("NativeControl0");
+    let controls_apply = index_of("NativeControlsApply");
+    // Only the neighbors of the added rows change destinations.
     let mut expected = vec![
-        wad_choose, wad_choose, inserted, inserted, health, health, cheats, cheats,
+        wad_choose,
+        wad_choose,
+        inserted,
+        inserted,
+        health,
+        apply,
+        graphics,
+        cheats,
+        controls_first,
+        controls_apply,
     ];
     expected.sort_unstable();
     assert_eq!(changed, expected);
@@ -1131,7 +1153,8 @@ fn objects(data: &[u8]) -> HashMap<String, (usize, usize)> {
         .collect()
 }
 
-/// The states `native_cheats` adds (with or without `NativeMultipliersLink`).
+/// The Cheats, Multipliers, Graphics Settings and Display states `native_cheats` adds that the
+/// Python tests check (with or without `NativeMultipliersLink`).
 fn native_names(with_link: bool) -> Vec<String> {
     let mut names: Vec<String> = ["HLNativeCheats", "NativeCheats", "NativeMultipliers"]
         .map(String::from)
@@ -1142,27 +1165,46 @@ fn native_names(with_link: bool) -> Vec<String> {
     names.push("NativeMultiplierReset".to_string());
     names.extend((0..8).map(|i| format!("NativeCheat{i}")));
     names.extend((0..6).map(|i| format!("NativeMultiplier{i}")));
+    names.extend(
+        [
+            "HLNativeGraphics",
+            "NativeGraphics",
+            "NativeGraphicsReset",
+            "NativeGraphicsConfirm",
+            "NativeGraphicsResetYes",
+            "NativeGraphicsResetNo",
+        ]
+        .map(String::from),
+    );
+    names.extend((0..4).map(|i| format!("NativeGraphic{i}")));
+    names.extend((0..8).map(|i| format!("NativeDisplay{i}")));
+    names.extend(
+        [
+            "NativeDisplayApply",
+            "NativeDisplayConfirm",
+            "NativeDisplayYes",
+            "NativeDisplayNo",
+        ]
+        .map(String::from),
+    );
     names
 }
 
 #[test]
-fn real_menu_cheats_is_between_game_settings_and_audio() {
+fn real_menu_graphics_and_cheats_follow_game_settings_before_audio() {
     let Some(m) = menu() else {
         return;
     };
     let s = Script::parse(&m.data).unwrap();
-    let row = s.one("HLNativeCheats").unwrap();
+    let state = |name: &str| s.one(name).unwrap().at - 4;
     let (up, down) = (&pause_menu::UP, &pause_menu::DOWN);
-    assert_eq!(target(&s, "HLGSettings", down), row.at - 4);
-    assert_eq!(target(&s, "HLAudio", up), row.at - 4);
-    assert_eq!(
-        target(&s, "HLNativeCheats", up),
-        s.one("HLGSettings").unwrap().at - 4
-    );
-    assert_eq!(
-        target(&s, "HLNativeCheats", down),
-        s.one("HLAudio").unwrap().at - 4
-    );
+    let (graphics, cheats) = (state("HLNativeGraphics"), state("HLNativeCheats"));
+    assert_eq!(target(&s, "HLGSettings", down), graphics);
+    assert_eq!(target(&s, "HLNativeGraphics", up), state("HLGSettings"));
+    assert_eq!(target(&s, "HLNativeGraphics", down), cheats);
+    assert_eq!(target(&s, "HLAudio", up), cheats);
+    assert_eq!(target(&s, "HLNativeCheats", up), graphics);
+    assert_eq!(target(&s, "HLNativeCheats", down), state("HLAudio"));
 }
 
 #[test]
@@ -1356,4 +1398,68 @@ fn real_menu_every_state_reference_and_relative_call_stays_in_the_script() {
             }
         }
     }
+}
+
+/// `test_native_cheats.py::test_display_scrolls_without_overwriting_original_setting_values` and
+/// the Display half of `test_pause_menu.py::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit`
+/// (ported in `src/runner/pause_menu.rs` on a synthetic script) on the game's own Display page.
+#[test]
+fn real_menu_display_scrolls() {
+    let Some(m) = menu() else {
+        return;
+    };
+    let s = Script::parse(&m.data).unwrap();
+    for index in 0..8u64 {
+        let entry = block(
+            &s,
+            s.one(&format!("NativeDisplay{index}")).unwrap(),
+            1,
+            None,
+        );
+        assert!(operands(&entry, 0x13).contains(&(0xff0 + index)), "{index}");
+        // The game's own values (locals 0x11-0x14) are left alone.
+        let locals = operands(&entry, 0x09);
+        assert!(
+            !locals
+                .iter()
+                .any(|local| (0x11..=0x14).contains(&(local & 0xff))),
+            "{index}"
+        );
+        let item = format!("menuItem{}Select", (index + 4).min(7));
+        assert!(has(&texts(&s, &entry), &item), "{index}");
+    }
+    assert_eq!(
+        target(&s, "NativeDisplayConfirm", &[0xeb]),
+        s.one("NativeDisplayApply").unwrap().at - 4
+    );
+    for name in ["NativeDisplayYes", "NativeDisplayNo"] {
+        let code = block(&s, s.one(name).unwrap(), 3, Some(&pause_menu::CONFIRM));
+        assert_eq!(
+            operands(&code, 0x13).contains(&0xfcb),
+            name.ends_with("Yes"),
+            "{name}"
+        );
+    }
+    // The scrollbar's thumb follows the rows the page shows, and Display hides it on its way out.
+    let times: Vec<f32> = ["NativeDisplay0", "NativeDisplay4", "NativeDisplayApply"]
+        .iter()
+        .map(|name| {
+            let code = block(&s, s.one(name).unwrap(), 1, None);
+            let marker = code
+                .iter()
+                .position(|op| {
+                    op.opcode == 0x16
+                        && s.string(s.lit + op.operand as usize).unwrap() == "sliderBar10"
+                })
+                .unwrap();
+            f32::from_bits(code[marker + 4].operand as u32)
+        })
+        .collect();
+    assert!(times[0] < times[1], "{times:?}");
+    assert!(times[1] < times[2], "{times:?}");
+    let exit = block(&s, s.one("PauseDisplay").unwrap(), 2, None);
+    assert!(exit
+        .iter()
+        .any(|op| op.opcode == 0x13 && op.operand == 0x59));
+    assert!(has(&texts(&s, &exit), "sliderBar10"));
 }

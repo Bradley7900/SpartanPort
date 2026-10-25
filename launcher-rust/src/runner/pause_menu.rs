@@ -1,6 +1,7 @@
 //! "Exit to Desktop" rows in the game's own pause menu and in its Options screen, an Enemy Health
-//! Bar row in Display, and the native Graphics Settings, Cheats and Multipliers pages (Python
-//! `scripts/pause_menu.py`; `docs/plans/2026-10-15-native-menu-feasibility.md`).
+//! Bar row in Display, the native Graphics Settings, Cheats and Multipliers pages, and the port's
+//! settings as new rows of Display and Controls (Python `scripts/pause_menu.py`;
+//! `docs/plans/2026-10-15-native-menu-feasibility.md`).
 //!
 //! All menus are one compiled state-machine script, the `SMI_R_UI` entry of `R_UI.WAD`. Its header
 //! (LE) gives the code start (+0x0c) and the symbol table (+0x10); fields inside are big-endian:
@@ -32,7 +33,7 @@
 //! [`build`] writes the patched copy to `out/pause_menu` for the runner to mount; the game folder is
 //! never written.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
@@ -44,7 +45,7 @@ use crate::core::python::python_json;
 use crate::runner::glyphs::{entries, Entry};
 
 /// Of the patch: a change rebuilds the cached copy.
-pub const VERSION: u32 = 14;
+pub const VERSION: u32 = 22;
 pub const WAD: &str = "EXEC/WAD/PS4_LE/R_UI.WAD";
 
 /// The Exit to Desktop row's text in one language.
@@ -265,6 +266,12 @@ struct Texts {
     /// The question Apply and Restart asks, and its answers.
     restart: &'static str,
     restart_answers: [&'static str; 2],
+    /// The rows Controls adds after the game's three: six controls, Restore Defaults and Apply.
+    controls_names: [&'static str; 8],
+    /// The question Controls' Restore Defaults asks (its answers are `yes_no`).
+    restore_controls: &'static str,
+    /// The rows Display adds after the game's four: eight settings and Apply.
+    display_names: [&'static str; 9],
 }
 
 /// Every language but Portuguese.
@@ -283,6 +290,28 @@ static ENGLISH: Texts = Texts {
     yes_no: ["Yes", "No"],
     restart: "Apply and restart?",
     restart_answers: ["Yes, lose unsaved progress", "No"],
+    controls_names: [
+        "Controller Type",
+        "Vibration Strength",
+        "Mouse Aim Sensitivity",
+        "Mouse Aim Style",
+        "Mouse QTE Distance",
+        "Keep Mouse in Window",
+        "Restore Controls Defaults",
+        "Apply and Restart",
+    ],
+    restore_controls: "Restore controls defaults?",
+    display_names: [
+        "Resolution",
+        "Aspect Ratio",
+        "Frame Rate Limit",
+        "Engine Frame Rate",
+        "Monitor",
+        "Display Mode",
+        "VSync",
+        "HDR",
+        "Apply and Restart",
+    ],
 };
 
 static PORTUGUESE: Texts = Texts {
@@ -300,6 +329,28 @@ static PORTUGUESE: Texts = Texts {
     yes_no: ["Sim", "Não"],
     restart: "Reiniciar o jogo?",
     restart_answers: ["Sim, perder progresso não salvo", "Não"],
+    controls_names: [
+        "Tipo de controle",
+        "Intensidade da vibração",
+        "Sensibilidade da mira",
+        "Estilo da mira",
+        "Distância do mouse nos QTEs",
+        "Prender cursor à janela",
+        "Restaurar padrões dos controles",
+        "Aplicar e reiniciar",
+    ],
+    restore_controls: "Restaurar padrões dos controles?",
+    display_names: [
+        "Resolução",
+        "Proporção",
+        "Limite de FPS",
+        "FPS do motor",
+        "Monitor",
+        "Modo de exibição",
+        "VSync",
+        "HDR",
+        "Aplicar e reiniciar",
+    ],
 };
 
 /// The six multiplier sliders (`sliderBar4` to `sliderBar9`).
@@ -1327,6 +1378,46 @@ enum Redraw {
     Graphics,
 }
 
+/// A page whose rows scroll, with the names of the rows it keeps from the game.
+#[derive(Clone, Copy)]
+enum Window<'w> {
+    /// Display: Brightness, Screen Location X and Y, Enemy Health Bar.
+    Display(&'w [String]),
+    /// Controls: its title, then its three rows.
+    Controls(&'w [String]),
+}
+
+/// A Yes/No page that asks before a row acts.
+#[derive(Clone, Copy)]
+struct Question<'q> {
+    page: &'q str,
+    /// Its answers are the states `<answers>Yes` and `<answers>No`.
+    answers: &'q str,
+    title: &'q str,
+    labels: &'q [&'q str],
+    /// The row that asks: both answers and the way back return to it.
+    row: &'q str,
+    /// The builtin Yes calls.
+    yes: usize,
+    /// Its entry hides the multiplier sliders.
+    hide_bars: bool,
+}
+
+/// The text of value `index` (`PauseMenu.optSet<index>`), between arrows when `selected`.
+fn arrows(index: usize, selected: bool) -> Vec<u8> {
+    let (left, right) = if selected {
+        ("ArrowSelectionL", "ArrowSelectionR")
+    } else {
+        ("ArrowSpacer", "ArrowSpacer")
+    };
+    format!("[{left}][PauseMenu:optSet{index}][{right}]").into_bytes()
+}
+
+/// `names` as the new states a handler goes to.
+fn new_states(names: &[String]) -> Vec<Target<'_>> {
+    names.iter().map(|name| Target::New(name)).collect()
+}
+
 impl Emitter<'_, '_> {
     fn emit(&mut self, bytes: &[u8]) {
         self.code.extend_from_slice(bytes);
@@ -1420,12 +1511,7 @@ impl Emitter<'_, '_> {
     }
 
     fn value(&mut self, index: usize, selected: bool) -> Result<(), MenuError> {
-        let (left, right) = if selected {
-            ("ArrowSelectionL", "ArrowSelectionR")
-        } else {
-            ("ArrowSpacer", "ArrowSpacer")
-        };
-        self.string(format!("[{left}][PauseMenu:optSet{index}][{right}]").as_bytes())?;
+        self.string(&arrows(index, selected))?;
         self.assign(9 + index)
     }
 
@@ -1586,26 +1672,163 @@ impl Emitter<'_, '_> {
         Ok(())
     }
 
-    fn navigation(&mut self, name: &str, index: usize, rows: &[String]) -> Result<(), MenuError> {
-        let n = rows.len();
-        for (kind, target) in [
-            ("up", &rows[(index + n - 1) % n]),
-            ("down", &rows[(index + 1) % n]),
-        ] {
-            self.begin(name, kind);
-            self.sound(b"SND_MM_NAV_UPDN")?;
-            self.goto_new(target)?;
+    /// The page of `question`, which starts on No.
+    fn question(&mut self, question: Question) -> Result<(), MenuError> {
+        let Question { page, row, .. } = question;
+        let answers = [
+            format!("{}Yes", question.answers),
+            format!("{}No", question.answers),
+        ];
+        self.begin(page, "entry");
+        self.page_entry(question.title, question.labels)?;
+        if question.hide_bars {
+            self.bars(false, &ALL_BARS)?;
+        }
+        self.goto_new(&answers[1])?;
+        self.end();
+        self.begin(page, "update");
+        self.end();
+        self.begin(page, "back");
+        self.goto_new(row)?;
+        self.end();
+        let targets = new_states(&answers);
+        for (index, name) in answers.iter().enumerate() {
+            self.selection(name, index, None, true, Redraw::Row)?;
+            self.selection(name, index, None, false, Redraw::Row)?;
+            self.navigation(name, index, &targets)?;
+            self.begin(name, "confirm");
+            if index == 0 {
+                self.builtin(question.yes, true)?;
+            }
+            self.goto_new(row)?;
             self.end();
         }
         Ok(())
     }
 
+    /// Row `index` of `rows` goes up and down to its neighbours, round the ends.
+    fn navigation(&mut self, name: &str, index: usize, rows: &[Target]) -> Result<(), MenuError> {
+        let n = rows.len();
+        for (kind, target) in [
+            ("up", rows[(index + n - 1) % n]),
+            ("down", rows[(index + 1) % n]),
+        ] {
+            self.begin(name, kind);
+            self.sound(b"SND_MM_NAV_UPDN")?;
+            self.goto(target)?;
+            self.end();
+        }
+        Ok(())
+    }
+
+    /// The eight rows `window` shows from row `first` (`selected` with its arrows) and its
+    /// scrollbar.
+    fn window(
+        &mut self,
+        window: Window,
+        first: usize,
+        selected: Option<usize>,
+    ) -> Result<(), MenuError> {
+        match window {
+            Window::Display(kept) => self.display_window(kept, first, selected),
+            Window::Controls(kept) => self.controls_window(kept, first, selected),
+        }
+    }
+
+    /// Display's game rows (`kept`; only Enemy Health Bar's value is the page's), then its eight
+    /// settings (builtins 0xfc0 + i read them, 0xff0 + i with arrows) and Apply. Brightness'
+    /// sliders show only while the page is at the top; scrollbar 10 follows the 8 rows of 13.
+    fn display_window(
+        &mut self,
+        kept: &[String],
+        first: usize,
+        selected: Option<usize>,
+    ) -> Result<(), MenuError> {
+        let names = self.texts.display_names;
+        for slot in 0..8 {
+            let index = first + slot;
+            let name = if index < 4 {
+                kept.get(index).map(String::as_str)
+            } else {
+                names.get(index - 4).copied()
+            };
+            self.string(
+                name.ok_or_else(|| script("list index out of range"))?
+                    .as_bytes(),
+            )?;
+            self.assign(1 + slot)?;
+            if index == 3 {
+                self.string(&arrows(index, selected == Some(index)))?;
+            } else if (4..12).contains(&index) {
+                let read = if selected == Some(index) {
+                    0xff0
+                } else {
+                    0xfc0
+                };
+                self.builtin(read + index - 4, false)?;
+            } else {
+                self.string(b"")?;
+            }
+            self.assign(9 + slot)?;
+        }
+        self.string(b"sliderBar1")?;
+        self.string(b"sliderBar2")?;
+        self.integer(2)?;
+        self.builtin(if first == 0 { 0x58 } else { 0x59 }, true)?;
+        self.scrollbar(10, first, 13, 8)
+    }
+
+    /// Controls' title and game rows (`kept`; the values of the two last are the page's), then
+    /// its six controls (builtins 0xfa4 + i read them, 0xfb8 + i with arrows), Restore Defaults
+    /// and Apply; scrollbar 12 follows the 8 rows of 11.
+    fn controls_window(
+        &mut self,
+        kept: &[String],
+        first: usize,
+        selected: Option<usize>,
+    ) -> Result<(), MenuError> {
+        let names = self.texts.controls_names;
+        let title = kept
+            .first()
+            .ok_or_else(|| script("Controls labels not recognized"))?;
+        self.string(title.as_bytes())?;
+        self.assign(0)?;
+        for slot in 0..8 {
+            let row = first + slot;
+            let name = if row < 3 {
+                kept.get(row + 1).map(String::as_str)
+            } else {
+                names.get(row - 3).copied()
+            };
+            self.string(
+                name.ok_or_else(|| script("list index out of range"))?
+                    .as_bytes(),
+            )?;
+            self.assign(1 + slot)?;
+            if (3..9).contains(&row) {
+                let read = if selected == Some(row) { 0xfb8 } else { 0xfa4 };
+                self.builtin(read + row - 3, false)?;
+            } else if matches!(row, 1 | 2) {
+                self.string(&arrows(row, selected == Some(row)))?;
+            } else {
+                self.string(b"")?;
+            }
+            self.assign(9 + slot)?;
+        }
+        self.string(b"PauseText")?;
+        self.integer(1)?;
+        self.builtin(0x58, true)?;
+        self.scrollbar(12, first, 11, 8)
+    }
+
     /// The code block at `code`, with the texts of the locals in `replacements` replaced: states
-    /// that move are followed and calls are rebased.
+    /// that move are followed and calls are rebased. A `window` is redrawn from its top before
+    /// each state change.
     fn copy_entry(
         &mut self,
         code: usize,
         replacements: &HashMap<u8, Vec<u8>>,
+        window: Option<Window>,
     ) -> Result<(), MenuError> {
         let (s, base) = (self.s, self.s.base);
         let first = base + s.lit + code;
@@ -1620,7 +1843,12 @@ impl Emitter<'_, '_> {
                 .and_then(|local| replacements.get(local));
             match (op.opcode, replacement) {
                 (0x16, Some(text)) => self.string(text)?,
-                (0x47, _) => self.goto_old(op.operand as usize)?,
+                (0x47, _) => {
+                    if let Some(window) = window {
+                        self.window(window, 0, None)?;
+                    }
+                    self.goto_old(op.operand as usize)?;
+                }
                 (0x4a, _) => self.call(relative as i64 + 5 + signed32(op.operand)),
                 _ => self.emit(bytes_at(
                     s.data,
@@ -1644,13 +1872,39 @@ fn assigned(entry: &[u8], local: u8) -> Result<usize, MenuError> {
     )
 }
 
+/// The texts `record`'s entry gives `locals`, in their order (the last one of each wins); an
+/// error saying `what` unless it gives every one.
+fn kept_labels(
+    s: &Script,
+    record: &Record,
+    locals: std::ops::RangeInclusive<u64>,
+    what: &str,
+) -> Result<Vec<String>, MenuError> {
+    let code = first_block(record, 1)?;
+    let first = s.base + s.lit + code;
+    let entry = decode(s.data, first, first + s.block_bytes(code)?.len())?;
+    let mut found = BTreeMap::new();
+    for pair in entry.windows(2) {
+        let local = pair[1].operand & 0xff;
+        if pair[0].opcode == 0x16 && pair[1].opcode == 0x09 && locals.contains(&local) {
+            found.insert(local, s.string(s.lit + pair[0].operand as usize)?);
+        }
+    }
+    if found.len() != locals.count() {
+        return Err(script(what));
+    }
+    Ok(found.into_values().collect())
+}
+
 /// The Graphics Settings controls that move left and right (Frames Queued, Sharpening Strength,
 /// Anisotropic Filtering); the two others toggle.
 const SLIDING_GRAPHICS: [usize; 3] = [0, 3, 4];
 
-/// Native Options > Graphics Settings and Options > Cheats > Multipliers, sharing the port's
-/// existing settings; the code of the script so far is at `spans`. The pages are in Portuguese
-/// when `language` (`SPARTAN_LANGUAGE` of `env` when `None`) is, else in English.
+/// Native Options > Graphics Settings and Options > Cheats > Multipliers, and the port's display
+/// and control settings after the game's rows of Display and Controls (both pages scroll), sharing
+/// the port's existing settings; Audio clears the rows it inherits from Options. The code of the
+/// script so far is at `spans`. The pages are in Portuguese when `language` (`SPARTAN_LANGUAGE` of
+/// `env` when `None`) is, else in English.
 pub fn native_cheats(
     data: &mut Vec<u8>,
     spans: &[(usize, usize)],
@@ -1663,17 +1917,33 @@ pub fn native_cheats(
     let game = s.one("HLGSettings")?.clone();
     let audio = s.one("HLAudio")?.clone();
     let enter = s.one("EnterPause")?.clone();
+    let display = s.one("PauseDisplay")?.clone();
+    let controls = s.one("PauseControls")?.clone();
+    let (controls_at, display_at) = (controls.at + controls.size, display.at + display.size);
     let (opt_at, pages_at) = (options.at + options.size, enter.at + enter.size);
     let (up, down, confirm) = (UP.to_vec(), DOWN.to_vec(), CONFIRM.to_vec());
     let (left, right) = (vec![0xe6, 0xf2], vec![0xe2, 0xee]);
     let toggle = vec![0xe6, 0xe2, 0xee, 0xf2, 0xe9];
     let link = || vec![up.clone(), down.clone(), confirm.clone()];
     let back = || vec![vec![0xeb]];
-    let mut specs = vec![
+    let slide = || vec![left.clone(), right.clone(), up.clone(), down.clone()];
+    // Graphics Settings and Cheats go after Options' rows, the new Controls and Display rows
+    // after theirs, the pages after the pause menu's states.
+    let option_specs = vec![
         Spec::new("HLNativeGraphics", "options", link()),
         Spec::new("HLNativeCheats", "options", link()),
-        Spec::new("NativeCheats", "pause", back()),
     ];
+    let mut controls_specs: Vec<Spec> = (0..6)
+        .map(|i| Spec::new(&format!("NativeControl{i}"), "controls", slide()))
+        .collect();
+    for name in ["NativeControlsReset", "NativeControlsApply"] {
+        controls_specs.push(Spec::new(name, "controls", link()));
+    }
+    let mut display_specs: Vec<Spec> = (0..8)
+        .map(|i| Spec::new(&format!("NativeDisplay{i}"), "display", slide()))
+        .collect();
+    display_specs.push(Spec::new("NativeDisplayApply", "display", link()));
+    let mut specs = vec![Spec::new("NativeCheats", "pause", back())];
     for i in 0..8 {
         let events = vec![toggle.clone(), up.clone(), down.clone()];
         specs.push(Spec::new(
@@ -1717,27 +1987,65 @@ pub fn native_cheats(
     for name in ["NativeGraphicsResetYes", "NativeGraphicsResetNo"] {
         specs.push(Spec::new(name, "NativeGraphicsConfirm", link()));
     }
-    specs.push(Spec::new("NativeGraphicsRestart", "pause", back()));
-    for name in ["NativeGraphicsRestartYes", "NativeGraphicsRestartNo"] {
-        specs.push(Spec::new(name, "NativeGraphicsRestart", link()));
+    specs.push(Spec::new("NativeDisplayConfirm", "pause", back()));
+    for name in ["NativeDisplayYes", "NativeDisplayNo"] {
+        specs.push(Spec::new(name, "NativeDisplayConfirm", link()));
     }
-    // The two Options rows go after Options' subtree, the pages after the pause menu's.
-    let option_size = specs[0].size + specs[1].size;
-    let pages_size = specs.iter().map(|spec| spec.size).sum::<usize>() - option_size;
-    let relocated = |at: usize| {
-        at + (if at >= opt_at { option_size } else { 0 })
-            + (if at >= pages_at { pages_size } else { 0 })
+    for page in [
+        "NativeGraphicsRestart",
+        "NativeControlsRestart",
+        "NativeControlsConfirm",
+    ] {
+        specs.push(Spec::new(page, "pause", back()));
+        for answer in ["Yes", "No"] {
+            specs.push(Spec::new(&format!("{page}{answer}"), page, link()));
+        }
+    }
+    let total = |specs: &[Spec]| specs.iter().map(|spec| spec.size).sum::<usize>();
+    let (option_size, controls_size) = (total(&option_specs), total(&controls_specs));
+    let (display_size, pages_size) = (total(&display_specs), total(&specs));
+    let groups = [
+        (opt_at, option_size),
+        (controls_at, controls_size),
+        (display_at, display_size),
+        (pages_at, pages_size),
+    ];
+    let relocated = move |at: usize| {
+        at + groups
+            .iter()
+            .filter(|(end, _)| at >= *end)
+            .map(|(_, size)| size)
+            .sum::<usize>()
     };
     let mut refs: HashMap<String, usize> = HashMap::new();
-    refs.insert("options".to_string(), relocated(options.at) - 4);
-    refs.insert("pause".to_string(), relocated(enter.at) - 4);
-    refs.insert(specs[0].name.clone(), opt_at - 4);
-    refs.insert(specs[1].name.clone(), opt_at + specs[0].size - 4);
-    let mut at = pages_at + option_size;
-    for spec in &specs[2..] {
-        refs.insert(spec.name.clone(), at - 4);
-        at += spec.size;
+    for (name, record) in [
+        ("options", &options),
+        ("pause", &enter),
+        ("display", &display),
+        ("controls", &controls),
+    ] {
+        refs.insert(name.to_string(), relocated(record.at) - 4);
     }
+    let starts = [
+        opt_at,
+        controls_at + option_size,
+        display_at + option_size + controls_size,
+        pages_at + option_size + controls_size + display_size,
+    ];
+    for (group, start) in [&option_specs, &controls_specs, &display_specs, &specs]
+        .into_iter()
+        .zip(starts)
+    {
+        let mut at = start;
+        for spec in group {
+            refs.insert(spec.name.clone(), at - 4);
+            at += spec.size;
+        }
+    }
+    let specs: Vec<Spec> = [option_specs, controls_specs, display_specs, specs]
+        .into_iter()
+        .flatten()
+        .collect();
 
     // New symbol records go before the old name pool; existing symbol ids stay valid.
     let old_size = le32(data, base - 0x40 + 4)?;
@@ -1891,6 +2199,7 @@ pub fn native_cheats(
         } else {
             Redraw::Cheats
         };
+        let targets = new_states(rows);
         for (index, name) in rows.iter().enumerate() {
             let function = (index + 1 < rows.len()).then_some(functions + index);
             let slot = if !is_multiplier && index == 8 {
@@ -1900,7 +2209,7 @@ pub fn native_cheats(
             };
             e.selection(name, slot, function, true, redraw)?;
             e.selection(name, slot, function, false, Redraw::Row)?;
-            e.navigation(name, index, rows)?;
+            e.navigation(name, index, &targets)?;
             if function.is_none() {
                 e.begin(name, "confirm");
                 e.sound(b"SND_MM_SELECT")?;
@@ -1984,11 +2293,12 @@ pub fn native_cheats(
         } else {
             Redraw::Row
         };
+        let targets = new_states(rows);
         for (index, name) in rows.iter().enumerate() {
             let function = (graphics && index < 5).then_some(0xf70 + index);
             e.selection(name, index, function, true, redraw)?;
             e.selection(name, index, function, false, Redraw::Row)?;
-            e.navigation(name, index, rows)?;
+            e.navigation(name, index, &targets)?;
             if function.is_none() {
                 e.begin(name, "confirm");
                 e.sound(b"SND_MM_SELECT")?;
@@ -2031,29 +2341,143 @@ pub fn native_cheats(
         }
     }
 
-    // Apply and Restart's question; yes restarts the game (0xfcb), both go back to the row.
-    let restart_rows = ["NativeGraphicsRestartYes", "NativeGraphicsRestartNo"].map(String::from);
-    e.begin("NativeGraphicsRestart", "entry");
-    e.page_entry(texts.restart, &texts.restart_answers)?;
-    e.bars(false, &ALL_BARS)?;
-    e.goto_new(&restart_rows[1])?;
-    e.end();
-    e.begin("NativeGraphicsRestart", "update");
-    e.end();
-    e.begin("NativeGraphicsRestart", "back");
-    e.goto_new("NativeGraphicsApply")?;
-    e.end();
-    for (index, name) in restart_rows.iter().enumerate() {
-        e.selection(name, index, None, true, Redraw::Row)?;
-        e.selection(name, index, None, false, Redraw::Row)?;
-        e.navigation(name, index, &restart_rows)?;
-        e.begin(name, "confirm");
-        if index == 0 {
-            e.builtin(0xfcb, true)?;
+    // Controls: the game's three rows, then six controls (builtins 0xfaa + i and 0xfb1 + i change
+    // them), Restore Defaults and Apply and Restart; eight rows show at a time.
+    let controls_originals = ["HLContDis", "HLFreeCamera", "HLFlightControl"]
+        .map(|name| s.one(name))
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    let controls_kept = kept_labels(&s, &controls, 0..=3, "Controls labels not recognized")?;
+    let controls_window = Window::Controls(&controls_kept);
+    let control_rows: Vec<String> = (0..6)
+        .map(|i| format!("NativeControl{i}"))
+        .chain(["NativeControlsReset", "NativeControlsApply"].map(String::from))
+        .collect();
+    let mut targets: Vec<Target> = controls_originals
+        .iter()
+        .map(|record| Target::Old(record.at - 4))
+        .collect();
+    targets.extend(new_states(&control_rows));
+    for (index, name) in control_rows.iter().enumerate() {
+        let (row, first) = (index + 3, (index + 3).saturating_sub(7));
+        e.begin(name, "entry");
+        e.builtin(0x6b, true)?;
+        e.window(controls_window, first, Some(row))?;
+        e.animation(row - first, 8)?;
+        e.end();
+        e.begin(name, "update");
+        e.animation(row - first, 9)?;
+        e.end();
+        e.navigation(name, row, &targets)?;
+        if index < 6 {
+            for (kind, function) in [("left", 0xfaa + index), ("right", 0xfb1 + index)] {
+                e.begin(name, kind);
+                e.call(repeat);
+                e.builtin(function, true)?;
+                e.window(controls_window, first, Some(row))?;
+                e.sound(b"SND_MM_NAV_LR")?;
+                e.end();
+            }
+            continue;
         }
-        e.goto_new("NativeGraphicsApply")?;
+        e.begin(name, "confirm");
+        if name == "NativeControlsApply" {
+            // No change waits for a restart: the state stays.
+            e.builtin(0xfc9, false)?;
+            e.emit(&[&[0x17][..], &be(5, 2)?].concat());
+            e.goto_new("NativeControlsRestart")?;
+        } else {
+            e.goto_new("NativeControlsConfirm")?;
+        }
         e.end();
     }
+
+    // The questions: Apply and Restart's restart the game (0xfcb), Controls' Restore Defaults
+    // restores them (0xfb7).
+    for (page, row, reset) in [
+        ("NativeGraphicsRestart", "NativeGraphicsApply", false),
+        ("NativeControlsRestart", "NativeControlsApply", false),
+        ("NativeControlsConfirm", "NativeControlsReset", true),
+    ] {
+        let (title, labels, yes) = if reset {
+            (texts.restore_controls, &texts.yes_no, 0xfb7)
+        } else {
+            (texts.restart, &texts.restart_answers, 0xfcb)
+        };
+        e.question(Question {
+            page,
+            answers: page,
+            title,
+            labels,
+            row,
+            yes,
+            hide_bars: true,
+        })?;
+    }
+
+    // Display: the game's four rows, then eight settings (builtins 0xfd0 + i and 0xfe0 + i change
+    // them) and Apply and Restart; eight rows show at a time.
+    let display_ref = first_block(&display, 1)?;
+    let display_kept = kept_labels(&s, &display, 1..=4, "Display labels not recognized")?;
+    let display_window = Window::Display(&display_kept);
+    let health = s
+        .by_name("HLSubtitleDis")
+        .into_iter()
+        .find(|record| record.parent == display.at - 4)
+        .ok_or_else(|| script("Display has no Enemy Health Bar row"))?;
+    let display_originals = [
+        s.one("HLBrightness")?,
+        s.one("HLScreenLocX")?,
+        s.one("HLScreenLocY")?,
+        health,
+    ];
+    let display_rows: Vec<String> = (0..8)
+        .map(|i| format!("NativeDisplay{i}"))
+        .chain(["NativeDisplayApply".to_string()])
+        .collect();
+    let mut targets: Vec<Target> = display_originals
+        .iter()
+        .map(|record| Target::Old(record.at - 4))
+        .collect();
+    targets.extend(new_states(&display_rows));
+    for (index, name) in display_rows.iter().enumerate() {
+        let (row, first) = (index + 4, (index + 4).saturating_sub(7));
+        e.begin(name, "entry");
+        e.builtin(0x6b, true)?;
+        e.window(display_window, first, Some(row))?;
+        e.animation(row - first, 8)?;
+        e.end();
+        e.begin(name, "update");
+        e.animation(row - first, 9)?;
+        e.end();
+        e.navigation(name, row, &targets)?;
+        if index < 8 {
+            for (kind, function) in [("left", 0xfd0 + index), ("right", 0xfe0 + index)] {
+                e.begin(name, kind);
+                e.call(repeat);
+                e.builtin(function, true)?;
+                e.window(display_window, first, Some(row))?;
+                e.sound(b"SND_MM_NAV_LR")?;
+                e.end();
+            }
+            continue;
+        }
+        e.begin(name, "confirm");
+        // No change waits for a restart: the state stays.
+        e.builtin(0xfc9, false)?;
+        e.emit(&[&[0x17][..], &be(5, 2)?].concat());
+        e.goto_new("NativeDisplayConfirm")?;
+        e.end();
+    }
+    e.question(Question {
+        page: "NativeDisplayConfirm",
+        answers: "NativeDisplay",
+        title: texts.restart,
+        labels: &texts.restart_answers,
+        row: "NativeDisplayApply",
+        yes: 0xfcb,
+        hide_bars: false,
+    })?;
 
     // Clone Options' entry, adding Graphics Settings at line2 and Cheats at line3 and shifting
     // Audio/Display/Exit down two rows.
@@ -2071,8 +2495,41 @@ pub fn native_cheats(
     // Keep existing non-ASCII Exit labels as bytes (their source encoding is UTF-8).
     let exit = assigned(original_entry, 5)?;
     replacements.insert(7, until_nul(s.data, base + s.lit + exit).to_vec());
+
+    // The entries the existing states run instead of theirs, by state: Audio's clears the rows it
+    // inherits from Options (its five rows, values and footer stay), Display's and Controls'
+    // draw their pages from the top and hide their scrollbars on the way out, and their game rows
+    // redraw the page as they get the focus.
+    let none = HashMap::new();
+    let audio_page = s.one("PauseAudio")?;
+    let audio_code = first_block(audio_page, 1)?;
+    let audio_entry = e.code.len();
+    e.blank([6, 7, 8, 14, 15, 16])?;
+    e.copy_entry(audio_code, &none, None)?;
     let options_entry = e.code.len();
-    e.copy_entry(old_entry, &replacements)?;
+    e.copy_entry(old_entry, &replacements, None)?;
+    let mut redirects: Vec<(&Record, usize)> =
+        vec![(&options, options_entry), (audio_page, audio_entry)];
+    redirects.push((&display, e.code.len()));
+    e.copy_entry(display_ref, &none, Some(display_window))?;
+    let display_exit = e.code.len();
+    e.hide_scrollbar(10)?;
+    e.copy_entry(first_block(&display, 2)?, &none, None)?;
+    for (index, record) in display_originals.iter().enumerate() {
+        redirects.push((record, e.code.len()));
+        e.window(display_window, 0, Some(index))?;
+        e.copy_entry(first_block(record, 1)?, &none, None)?;
+    }
+    redirects.push((&controls, e.code.len()));
+    e.copy_entry(first_block(&controls, 1)?, &none, Some(controls_window))?;
+    let controls_exit = e.code.len();
+    e.hide_scrollbar(12)?;
+    e.copy_entry(first_block(&controls, 2)?, &none, None)?;
+    for (index, record) in controls_originals.iter().enumerate() {
+        redirects.push((record, e.code.len()));
+        e.window(controls_window, 0, Some(index))?;
+        e.copy_entry(first_block(record, 1)?, &none, None)?;
+    }
     let Emitter {
         start,
         mut code,
@@ -2113,21 +2570,43 @@ pub fn native_cheats(
         game.at - 4,
         refs["HLNativeCheats"],
     )?);
-    let entry_item = options
-        .items
-        .iter()
-        .position(|(kind, _)| *kind == 1)
-        .ok_or_else(|| script("PauseOptions has no entry"))?;
-    edits.push((
-        base + options.at + 12 + 4 * entry_item,
-        be(0x0100_0000 | (code_start + options_entry), 4)?,
-    ));
+    let item = |record: &Record, kind: u8| {
+        record
+            .items
+            .iter()
+            .position(|(k, _)| *k == kind)
+            .map(|item| base + record.at + 12 + 4 * item)
+            .ok_or_else(|| script(format!("no block of kind {kind}")))
+    };
+    for (record, entry) in redirects {
+        edits.push((item(record, 1)?, be(0x0100_0000 | (code_start + entry), 4)?));
+    }
+    for (record, exit) in [(&display, display_exit), (&controls, controls_exit)] {
+        edits.push((item(record, 2)?, be(0x0200_0000 | (code_start + exit), 4)?));
+    }
+    // The last game row of Controls and of Display goes down to the first new one, and the
+    // first goes up to Apply.
+    for (originals, first, last) in [
+        (
+            &controls_originals[..],
+            "NativeControl0",
+            "NativeControlsApply",
+        ),
+        (
+            &display_originals[..],
+            "NativeDisplay0",
+            "NativeDisplayApply",
+        ),
+    ] {
+        let (top, bottom) = (originals[0], originals[originals.len() - 1]);
+        edits.push(retarget(&s, bottom, &DOWN, top.at - 4, refs[first])?);
+        edits.push(retarget(&s, top, &UP, bottom.at - 4, refs[last])?);
+    }
     let displays = s.by_name("HLDisplay");
-    let display_rows = [displays.first(), displays.get(1)];
-    let [Some(display), Some(exit_row)] = display_rows else {
+    let [Some(display_row), Some(exit_row)] = [displays.first(), displays.get(1)] else {
         return Err(script("HLDisplay: not two states"));
     };
-    for (record, old_index) in [(&audio, 2), (*display, 3), (*exit_row, 4)] {
+    for (record, old_index) in [(&audio, 2), (*display_row, 3), (*exit_row, 4)] {
         for block in Script::blocks(record) {
             if !matches!(block.kind, 1 | 2) {
                 continue;
@@ -2143,7 +2622,12 @@ pub fn native_cheats(
         }
     }
     let mut growth: HashMap<usize, usize> = HashMap::new();
-    for (record, amount) in [(&options, option_size), (&enter, pages_size)] {
+    for (record, amount) in [
+        (&options, option_size),
+        (&controls, controls_size),
+        (&display, display_size),
+        (&enter, pages_size),
+    ] {
         for r in ancestors(&s, record)? {
             *growth.entry(r.at).or_insert(0) += amount;
         }
@@ -2204,6 +2688,10 @@ pub fn native_cheats(
             &["back"]
         } else if (spec.name.starts_with("NativeMultiplier") && numbered)
             || graphic.is_some_and(|index| SLIDING_GRAPHICS.contains(&index))
+            || (["NativeDisplay", "NativeControl"]
+                .iter()
+                .any(|page| spec.name.starts_with(page))
+                && numbered)
         {
             &["left", "right", "up", "down"]
         } else if (spec.name.starts_with("NativeCheat") && numbered) || graphic.is_some() {
@@ -2223,16 +2711,26 @@ pub fn native_cheats(
         }
         records.extend(record);
     }
-    let (option_records, pages) = records.split_at(option_size.min(records.len()));
+    // Each record has its spec's size, so the four groups split the records exactly.
+    let (option_records, rest) = records.split_at(option_size);
+    let (controls_records, rest) = rest.split_at(controls_size);
+    let (display_records, pages) = rest.split_at(display_size);
     splice(
         data,
         base + symtab,
         base + old_size,
         &[strings.as_slice(), &code, &symbols].concat(),
     );
-    splice(data, base + pages_at, base + pages_at, pages);
-    splice(data, base + opt_at, base + opt_at, option_records);
-    let states = option_size + pages_size;
+    // From the end of the table, so the earlier offsets stay where they were.
+    for (at, group) in [
+        (pages_at, pages),
+        (display_at, display_records),
+        (controls_at, controls_records),
+        (opt_at, option_records),
+    ] {
+        splice(data, base + at, base + at, group);
+    }
+    let states = option_size + controls_size + display_size + pages_size;
     let grown = states + strings.len() + code.len() + symbols.len() - (old_size - symtab);
     for (offset, amount) in [
         (0x08, grown),
@@ -2720,8 +3218,8 @@ pub fn build(
 mod tests {
     //! `tests/test_pause_menu.py::Refusals` and `Labels`, which need no files of the game; the tests
     //! on the real `R_UI.WAD` (`GameScript`, `tests/test_native_cheats.py`) are in `tests/dump.rs`,
-    //! but those of the Graphics Settings page and of the scrollbars, which run here on a synthetic
-    //! script laid out like it.
+    //! but those of the Graphics Settings, Display, Controls and Audio pages and of the scrollbars,
+    //! which run here on a synthetic script laid out like it.
     use super::*;
 
     /// A WAD of one entry (`tests/test_pause_menu.py::wad`).
@@ -3188,10 +3686,22 @@ mod tests {
         up: &'static str,
         down: &'static str,
     ) -> State {
+        page_row(label, name, "PauseOptions", item, up, down)
+    }
+
+    /// A row of the page `parent`: its highlight on `item` and its arrows to `up` and `down`.
+    fn page_row(
+        label: &'static str,
+        name: &'static str,
+        parent: &'static str,
+        item: &'static str,
+        up: &'static str,
+        down: &'static str,
+    ) -> State {
         State {
             label,
             name,
-            parent: Some("PauseOptions"),
+            parent: Some(parent),
             blocks: vec![
                 (1, vec![], highlight(item, 8)),
                 (2, vec![], highlight(item, 9)),
@@ -3334,10 +3844,27 @@ mod tests {
         out
     }
 
-    /// A WAD laid out as the game's R_UI.WAD around what the native pages use: the menu script
-    /// (the pause page with Options and Game Settings), then the slider the bars and scrollbars clone:
-    /// its animation, its mesh, the groups of its model and of its template, the group of its
-    /// instance and, last, the instance's reference.
+    /// The pushes of `texts` each followed by the assignment to its local.
+    fn assigning(texts: &[(u8, &'static str)]) -> Vec<Code> {
+        texts
+            .iter()
+            .flat_map(|(local, text)| [Code::Text(text), set(*local)])
+            .collect()
+    }
+
+    /// The pushes of `""` assigned to `locals`.
+    fn clearing(locals: impl IntoIterator<Item = u8>) -> Vec<Code> {
+        locals
+            .into_iter()
+            .flat_map(|local| [Code::Text(""), set(local)])
+            .collect()
+    }
+
+    /// A WAD laid out as the game's R_UI.WAD around what the native pages use: the menu script,
+    /// then the slider the bars and scrollbars clone: its animation, its mesh, the groups of its
+    /// model and of its template, the group of its instance and, last, the instance's reference.
+    /// The script's pause page holds Options (with its Exit row), Controls, Game Settings, Audio
+    /// and Display (with its Enemy Health Bar row), as `display_health_bar` leaves them.
     fn native_wad() -> Vec<u8> {
         use Code::{Call, Goto, Raw, Text};
         let mut options_entry = Vec::new();
@@ -3365,6 +3892,66 @@ mod tests {
         );
         game.blocks
             .push((3, CONFIRM.to_vec(), vec![Goto("PauseGSettings"), ret()]));
+        let back = |to: &'static str| (3, vec![0xeb], vec![Goto(to), ret()]);
+        // Controls: a title and three rows.
+        let mut controls_entry = assigning(&[
+            (0, "[msg_A[4150]]"),
+            (1, "[msg_A[4160]]"),
+            (2, "[msg_B[4160]]"),
+            (3, "[msg_C[4160]]"),
+        ]);
+        controls_entry.extend(clearing((4..=0x10).chain([0x1d])));
+        controls_entry.extend(assigning(&[(
+            0x0a,
+            "[ArrowSpacer][PauseMenu:optSet1][ArrowSpacer]",
+        )]));
+        controls_entry.extend([Call("EnterPause"), Goto("HLContDis"), ret()]);
+        let pause_text = |shown: bool| {
+            let builtin = if shown { 0x58 } else { 0x59 };
+            vec![
+                Text("PauseText"),
+                Raw(vec![0x01, 0, 0, 0, 1, 0x13, 0x00, builtin, 0x43]),
+                ret(),
+            ]
+        };
+        // Audio: five rows, the language-dependent sixth and its own lines.
+        let mut audio_entry = assigning(&[
+            (0, "[msg_C[4150]]"),
+            (1, "[msg_A[4180]]"),
+            (2, "[msg_B[4180]]"),
+            (3, "[msg_C[4180]]"),
+            (4, "[msg_D[4180]]"),
+        ]);
+        audio_entry.extend(clearing((9..=0x0c).chain(0x19..=0x1c)));
+        audio_entry.extend(assigning(&[(5, "[msg_F[4180]]"), (0x15, "")]));
+        audio_entry.extend([
+            Raw(vec![0x13, 0x00, 0x6b, 0x43]),
+            Call("EnterPause"),
+            Goto("HLSFX"),
+            ret(),
+        ]);
+        // Display: four rows, the fourth Enemy Health Bar, whose value is line3's.
+        let mut display_entry = vec![Call("EnterPause")];
+        display_entry.extend(assigning(&[
+            (0, "[msg_D[4150]]"),
+            (1, "[msg_A[4190]]"),
+            (2, "[msg_C[4190]]"),
+            (3, "[msg_D[4190]]"),
+            (4, "Enemy Health Bar"),
+        ]));
+        display_entry.extend(clearing(5..=0x0b));
+        display_entry.extend(assigning(&[(
+            0x0c,
+            "[ArrowSpacer][PauseMenu:optSet3][ArrowSpacer]",
+        )]));
+        display_entry.extend(clearing((0x0d..=0x10).chain(0x19..=0x1d)));
+        display_entry.extend([Goto("HLBrightness"), ret()]);
+        let display_exit = vec![
+            Text("sliderBar1"),
+            Text("sliderBar2"),
+            Raw(vec![0x01, 0, 0, 0, 2, 0x13, 0x00, 0x59, 0x43]),
+            ret(),
+        ];
         let states = [
             State {
                 label: "EnterPause",
@@ -3405,6 +3992,40 @@ mod tests {
                 "HLControls",
             ),
             State {
+                label: "PauseControls",
+                name: "PauseControls",
+                parent: Some("EnterPause"),
+                blocks: vec![
+                    (1, vec![], controls_entry),
+                    (2, vec![], pause_text(true)),
+                    back("PauseOptions"),
+                ],
+            },
+            page_row(
+                "HLContDis",
+                "HLContDis",
+                "PauseControls",
+                "menuItem0Select",
+                "HLFlightControl",
+                "HLFreeCamera",
+            ),
+            page_row(
+                "HLFreeCamera",
+                "HLFreeCamera",
+                "PauseControls",
+                "menuItem1Select",
+                "HLContDis",
+                "HLFlightControl",
+            ),
+            page_row(
+                "HLFlightControl",
+                "HLFlightControl",
+                "PauseControls",
+                "menuItem2Select",
+                "HLFreeCamera",
+                "HLContDis",
+            ),
+            State {
                 label: "PauseGSettings",
                 name: "PauseGSettings",
                 parent: Some("EnterPause"),
@@ -3426,6 +4047,78 @@ mod tests {
                     ),
                     (3, UP.to_vec(), vec![Goto("HLSubtitleDis"), ret()]),
                 ],
+            },
+            State {
+                label: "PauseAudio",
+                name: "PauseAudio",
+                parent: Some("EnterPause"),
+                blocks: vec![
+                    (1, vec![], audio_entry),
+                    (2, vec![], vec![ret()]),
+                    back("PauseOptions"),
+                ],
+            },
+            page_row(
+                "HLSFX",
+                "HLSFX",
+                "PauseAudio",
+                "menuItem0Select",
+                "HLSFX",
+                "HLSFX",
+            ),
+            State {
+                label: "PauseDisplay",
+                name: "PauseDisplay",
+                parent: Some("EnterPause"),
+                blocks: vec![
+                    (1, vec![], display_entry),
+                    (2, vec![], display_exit),
+                    back("PauseOptions"),
+                ],
+            },
+            page_row(
+                "HLBrightness",
+                "HLBrightness",
+                "PauseDisplay",
+                "menuItem0Select",
+                "Health",
+                "HLScreenLocX",
+            ),
+            State {
+                label: "CornerView",
+                name: "CornerView",
+                parent: Some("PauseDisplay"),
+                blocks: vec![(1, vec![], vec![ret()]), (2, vec![], vec![ret()])],
+            },
+            page_row(
+                "HLScreenLocX",
+                "HLScreenLocX",
+                "CornerView",
+                "menuItem1Select",
+                "HLBrightness",
+                "HLScreenLocY",
+            ),
+            page_row(
+                "HLScreenLocY",
+                "HLScreenLocY",
+                "CornerView",
+                "menuItem2Select",
+                "HLScreenLocX",
+                "Health",
+            ),
+            page_row(
+                "Health",
+                "HLSubtitleDis",
+                "PauseDisplay",
+                "menuItem3Select",
+                "HLScreenLocY",
+                "HLBrightness",
+            ),
+            State {
+                label: "BrightnessSetting",
+                name: "BrightnessSetting",
+                parent: Some("EnterPause"),
+                blocks: vec![(1, vec![], vec![ret()])],
             },
         ];
         let extra = [
@@ -3810,7 +4503,6 @@ mod tests {
 
     #[test]
     fn graphics_anisotropy_and_controls_have_restart_and_reset_confirmation() {
-        // The Graphics half; the Controls page has its own rows.
         let data = native("en");
         let s = Script::parse(&data).unwrap();
         s.one("NativeGraphicsReset").unwrap();
@@ -3858,6 +4550,38 @@ mod tests {
                 }
             }
         }
+        // Controls: Apply and Restart and Restore Defaults, each with its question, and six
+        // controls after the game's three rows.
+        s.one("NativeControlsApply").unwrap();
+        s.one("NativeControlsReset").unwrap();
+        let entry = block(&s, s.one("NativeControlsRestart").unwrap(), 1, None);
+        let goto = entry.iter().find(|op| op.opcode == 0x47).unwrap();
+        assert_eq!(
+            goto.operand as usize,
+            state_ref(&s, "NativeControlsRestartNo")
+        );
+        let controls = s.one("PauseControls").unwrap();
+        for index in 0..6 {
+            let row = s.one(&format!("NativeControl{index}")).unwrap();
+            assert_eq!(row.parent, controls.at - 4, "{index}");
+            for (trigger, function) in [(&[0xe6, 0xf2], 0xfaa), (&[0xe2, 0xee], 0xfb1)] {
+                let code = block(&s, row, 3, Some(trigger));
+                assert!(calls(&code).contains(&(function + index)), "{index}");
+            }
+        }
+        for name in ["HLContDis", "HLFreeCamera", "HLFlightControl"] {
+            s.one(name).unwrap();
+        }
+        assert_eq!(
+            target(&s, "HLFlightControl", &DOWN),
+            state_ref(&s, "NativeControl0")
+        );
+        assert_eq!(
+            target(&s, "HLContDis", &UP),
+            state_ref(&s, "NativeControlsApply")
+        );
+        let exit = block(&s, controls, 2, None);
+        assert!(texts(&s, &exit).iter().any(|t| t == "sliderBar12"));
     }
 
     #[test]
@@ -3886,7 +4610,6 @@ mod tests {
 
     #[test]
     fn display_scrollbar_tracks_viewport_and_is_hidden_on_exit() {
-        // The scrollbar's clone; the Display rows that move it are the Display page's.
         let original = native_wad();
         let data = native("en");
         let objects = objects(&data);
@@ -3898,6 +4621,19 @@ mod tests {
         assert_eq!(le16(&data, go + 0x76).unwrap(), 10);
         assert_eq!(le32(&data, go + 0x3c).unwrap() >> 16, 1);
         assert!(f32::from_le_bytes(word(&data, go + 0x44).unwrap()) < 0.0);
+        // The thumb follows the rows Display shows, and Display hides it on its way out.
+        let s = Script::parse(&data).unwrap();
+        let times = ["NativeDisplay0", "NativeDisplay4", "NativeDisplayApply"].map(|name| {
+            let code = block(&s, s.one(name).unwrap(), 1, None);
+            scrollbar_time(&s, &code, "sliderBar10")
+        });
+        assert!(times[0] < times[1], "{times:?}");
+        assert!(times[1] < times[2], "{times:?}");
+        let exit = block(&s, s.one("PauseDisplay").unwrap(), 2, None);
+        assert!(exit
+            .iter()
+            .any(|op| op.opcode == 0x13 && op.operand == 0x59));
+        assert!(texts(&s, &exit).iter().any(|t| t == "sliderBar10"));
         let references: Vec<String> = entries(&data)
             .into_iter()
             .filter(|e| e.size == 0)
@@ -3921,6 +4657,148 @@ mod tests {
             assert_eq!(
                 original[at..at + before.size],
                 data[after..after + before.size],
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_controls_labels_and_graphics_restore_are_bilingual() {
+        let portuguese = native("pt");
+        for text in [
+            "Tipo de controle",
+            "Filtragem anisotrópica",
+            "Restaurar padrões dos controles",
+            "Aplicar e reiniciar",
+        ] {
+            let needle = [text.as_bytes(), &[0]].concat();
+            assert!(
+                find(&portuguese, &needle, 0, portuguese.len()).is_some(),
+                "{text}"
+            );
+        }
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        for name in ["NativeGraphicsReset", "NativeGraphicsApply"] {
+            let texts = texts(&s, &block(&s, s.one(name).unwrap(), 1, None));
+            for text in ["Graphics Settings", "Anisotropic Filtering"] {
+                assert!(texts.iter().any(|t| t == text), "{name}: {text}");
+            }
+        }
+        let starts: HashSet<usize> = s.records.iter().map(|r| r.at - 4).collect();
+        let names: HashSet<&str> = s
+            .records
+            .iter()
+            .filter_map(|r| s.name_of(r))
+            .filter(|name| {
+                name.starts_with("NativeControl") || name.starts_with("NativeGraphicsRestart")
+            })
+            .collect();
+        // Six controls, Reset and Apply, two questions with their answers, and Graphics' restart.
+        assert_eq!(names.len(), 17, "{names:?}");
+        for name in names {
+            let record = s.one(name).unwrap();
+            for b in Script::blocks(record) {
+                for op in block(&s, record, b.kind, Some(&b.triggers)) {
+                    if op.opcode == 0x47 {
+                        assert!(starts.contains(&(op.operand as usize)), "{name}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn audio_clears_unused_rows_inherited_from_options() {
+        let (original, data) = (native_wad(), native("en"));
+        let s = Script::parse(&data).unwrap();
+        let entry = block(&s, s.one("PauseAudio").unwrap(), 1, None);
+        let assigned = assignments(&s, &entry);
+        for local in [6, 7, 8, 14, 15, 16] {
+            assert_eq!(
+                assigned.get(&local).map(String::as_str),
+                Some(""),
+                "Audio must clear local {local}"
+            );
+        }
+        let rows = [
+            "[msg_A[4180]]",
+            "[msg_B[4180]]",
+            "[msg_C[4180]]",
+            "[msg_D[4180]]",
+        ];
+        for (local, text) in (1..).zip(rows) {
+            assert_eq!(assigned[&local], text);
+        }
+        let old = Script::parse(&original).unwrap();
+        let before = block(&old, old.one("PauseAudio").unwrap(), 1, None);
+        let plain = |code: &[Op]| -> Vec<(u8, u64)> {
+            code.iter()
+                .filter(|op| !matches!(op.opcode, 0x47 | 0x4a))
+                .map(|op| (op.opcode, op.operand))
+                .collect()
+        };
+        // The cleanup must not change the audio controls or its language-dependent branches.
+        assert_eq!(plain(&entry[18..]), plain(&before));
+    }
+
+    #[test]
+    fn display_contains_eight_new_controls_and_keeps_its_original_rows() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        let page = s.one("PauseDisplay").unwrap();
+        for index in 0..8 {
+            let row = s.one(&format!("NativeDisplay{index}")).unwrap();
+            assert_eq!(row.parent, page.at - 4, "{index}");
+        }
+        assert_eq!(s.one("NativeDisplayApply").unwrap().parent, page.at - 4);
+        assert_eq!(
+            target(&s, "HLBrightness", &UP),
+            state_ref(&s, "NativeDisplayApply")
+        );
+        let health = s
+            .by_name("HLSubtitleDis")
+            .into_iter()
+            .find(|r| r.parent == page.at - 4)
+            .unwrap();
+        assert_eq!(target(&s, "NativeDisplay0", &UP), health.at - 4);
+        for name in ["HLBrightness", "HLScreenLocX", "HLScreenLocY"] {
+            let chain = ancestors(&s, s.one(name).unwrap()).unwrap();
+            assert!(chain.iter().any(|r| r.at == page.at), "{name}");
+        }
+    }
+
+    #[test]
+    fn display_scrolls_without_overwriting_original_setting_values() {
+        let data = native("en");
+        let s = Script::parse(&data).unwrap();
+        for index in 0..8 {
+            let entry = block(
+                &s,
+                s.one(&format!("NativeDisplay{index}")).unwrap(),
+                1,
+                None,
+            );
+            assert!(calls(&entry).contains(&(0xff0 + index)), "{index}");
+            // The game's own values (locals 0x11-0x14) are left alone.
+            assert!(
+                !entry
+                    .iter()
+                    .any(|op| op.opcode == 0x09 && (0x11..=0x14).contains(&(op.operand & 0xff))),
+                "{index}"
+            );
+            let item = format!("menuItem{}Select", (index + 4).min(7));
+            assert!(texts(&s, &entry).contains(&item), "{index}");
+        }
+        assert_eq!(
+            target(&s, "NativeDisplayConfirm", &[0xeb]),
+            state_ref(&s, "NativeDisplayApply")
+        );
+        for name in ["NativeDisplayYes", "NativeDisplayNo"] {
+            let code = block(&s, s.one(name).unwrap(), 3, Some(&CONFIRM));
+            assert_eq!(
+                calls(&code).contains(&0xfcb),
+                name.ends_with("Yes"),
                 "{name}"
             );
         }

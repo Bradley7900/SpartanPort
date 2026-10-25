@@ -26,17 +26,6 @@ ALLOWED_DROPS = {
 # Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
 # each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
 PENDING_PORTS = {
-    # Task 49
-    'tests/test_pause_menu.py::GameScript::test_enemy_health_bar_follows_screen_y_with_native_animation',
-    'tests/test_pause_menu.py::GameScript::test_display_initializes_health_value_before_the_row_is_selected',
-    'tests/test_pause_menu.py::GameScript::test_options_row',
-    'tests/test_pause_menu.py::GameScript::test_every_other_goto_is_unchanged',
-    'tests/test_native_cheats.py::NativeCheats::test_new_controls_labels_and_graphics_restore_are_bilingual',
-    'tests/test_native_cheats.py::NativeCheats::test_audio_clears_unused_rows_inherited_from_options',
-    'tests/test_native_cheats.py::NativeCheats::test_display_contains_eight_new_controls_and_keeps_its_original_rows',
-    'tests/test_native_cheats.py::NativeCheats::test_display_scrolls_without_overwriting_original_setting_values',
-    'tests/test_native_cheats.py::NativeCheats::test_custom_pages_preserve_the_native_footer',
-    'tests/test_native_cheats.py::NativeCheats::test_every_state_reference_and_relative_call_stays_in_the_script',
 }
 
 
