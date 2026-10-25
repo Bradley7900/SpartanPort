@@ -2,6 +2,8 @@
 //! The Home page (chips, quick line, PLAY) and the language menu.
 
 mod common;
+use common::releases::{next_call, Call, FakeReleases};
+use common::state_with;
 
 use std::path::Path;
 use std::time::Duration;
@@ -14,6 +16,7 @@ use serde_json::json;
 use spartanport_launcher::core::gpu::GpuRow;
 use spartanport_launcher::core::i18n::tr;
 use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
+use spartanport_launcher::core::update::InstallTarget;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::drawer::DrawerState;
 use spartanport_launcher::ui::home;
@@ -25,16 +28,7 @@ use spartanport_launcher::ui::widgets::modal::{Modal, ModalKind};
 
 /// A state over `dir` only, with the splash already gone.
 fn state_in(dir: &Path) -> State {
-    let root = dir.display().to_string();
-    let env = move |key: &str| match key {
-        "APPDATA" | "USERPROFILE" | "HOME" | "XDG_CONFIG_HOME" => Some(root.clone()),
-        _ => None,
-    };
-    let mut state = State::new(spartanport_launcher::core::paths::Paths::from_env(
-        dir, &env,
-    ));
-    state.splash.done = true;
-    state
+    common::state(dir)
 }
 
 fn lang(state: &mut State, message: LangMessage) {
@@ -737,7 +731,8 @@ fn the_version_menu_stays_closed_while_downloading() {
 #[test]
 fn hovering_the_version_button_opens_and_fetches() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
+    let (fake, calls) = FakeReleases::new();
+    let mut state = state_with(dir.path(), fake.host());
     let t0 = Instant::now();
     state.now = t0;
     assert!(matches!(state.update, UpdateState::None));
@@ -745,6 +740,7 @@ fn hovering_the_version_button_opens_and_fetches() {
     tick(&mut state, t0 + Duration::from_millis(450));
     assert!(state.version_menu.open);
     assert!(matches!(state.update, UpdateState::Checking));
+    assert_eq!(next_call(&calls), Call::List);
 
     let mut state = state_in(dir.path());
     ready_with(&mut state, vec![release(Channel::Release, "2.7.0", None)]);
@@ -929,7 +925,8 @@ fn the_menu_says_fetching_and_failed() {
 #[test]
 fn picking_a_row_closes_and_installs() {
     let dir = tempfile::tempdir().unwrap();
-    let mut state = state_in(dir.path());
+    let (fake, calls) = FakeReleases::new();
+    let mut state = state_with(dir.path(), fake.target(InstallTarget::WindowsSource).host());
     state.installed = stable_2_6_0();
     ready_with(&mut state, five_stables_and_ten_prereleases());
     open_menu(&mut state);
@@ -939,11 +936,11 @@ fn picking_a_row_closes_and_installs() {
         other => panic!("{other:?}"),
     };
     assert_eq!(picked.id.version, "2.8.0");
+    let page = picked.page.clone();
     let task = version(&mut state, VersionMessage::Pick(picked));
     assert!(!state.version_menu.open);
-    if cfg!(windows) {
-        assert!(task.units() > 0 || state.modal.is_some());
-    }
+    assert!(task.units() > 0);
+    assert_eq!(next_call(&calls), Call::OpenPage(page));
 
     let mut state = state_in(dir.path());
     state.installed = ReleaseId::fallback();

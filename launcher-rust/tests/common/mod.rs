@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use iced::widget::text;
 use iced::{Element, Font, Size};
@@ -9,21 +10,50 @@ use iced_test::simulator::simulator;
 use spartanport_launcher::core::gpu::{parse_display_list, Display, GpuRow};
 use spartanport_launcher::core::paths::Paths;
 use spartanport_launcher::core::trophies::TROPHY_COUNT;
+use spartanport_launcher::core::update::ReleaseHost;
 use spartanport_launcher::ui::app::{self, Message, State};
 use spartanport_launcher::ui::pages::mods::{self, ModsMessage};
 use spartanport_launcher::ui::pages::trophies::{self, TrophiesMessage};
 use spartanport_launcher::ui::pages::Page;
 
-/// A state over `dir` only, with the splash already gone.
+pub mod releases;
+
+/// A state over `dir` only, with the splash already gone; its release host is a fake that never
+/// reaches the network or the browser.
 pub fn state(dir: &Path) -> State {
+    state_with(dir, releases::FakeReleases::new().0.host())
+}
+
+/// `state` over `host`.
+pub fn state_with(dir: &Path, host: Arc<dyn ReleaseHost>) -> State {
     let root = dir.display().to_string();
     let env = move |key: &str| match key {
         "APPDATA" | "USERPROFILE" | "HOME" | "XDG_CONFIG_HOME" => Some(root.clone()),
         _ => None,
     };
-    let mut state = State::new(Paths::from_env(dir, &env));
+    let mut state = State::with_host(Paths::from_env(dir, &env), host);
     state.splash.done = true;
     state
+}
+
+/// Runs `task` to its end and returns the messages it produced, in order; its window and clipboard
+/// actions are dropped. The host's calls run on worker threads, so this waits for them.
+pub fn run_task(task: iced::Task<Message>) -> Vec<Message> {
+    use iced::futures::{executor::block_on, StreamExt};
+    use iced_test::runtime::task::into_stream;
+    let Some(stream) = into_stream(task) else {
+        return Vec::new();
+    };
+    block_on(
+        stream
+            .filter_map(|action| async move {
+                match action {
+                    iced_test::runtime::Action::Output(message) => Some(message),
+                    _ => None,
+                }
+            })
+            .collect(),
+    )
 }
 
 pub fn open(state: &mut State, page: Page) {

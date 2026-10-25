@@ -1,6 +1,7 @@
 //! The Elm application: state, messages, update, view and subscriptions.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use iced::animation::{Animation, Easing};
@@ -22,7 +23,7 @@ use crate::core::paths::Paths;
 use crate::core::release::ReleaseId;
 use crate::core::settings::SettingsFile;
 use crate::core::store::Store;
-use crate::core::update::{can_self_update, installed_release, stamp_path};
+use crate::core::update::{can_self_update, GitHubReleases, ReleaseHost};
 use crate::ui::drawer::{self, DrawerState};
 use crate::ui::fire::{intensity_for, probe_gpu, Fire};
 use crate::ui::home::{self, HomeFacts};
@@ -106,6 +107,8 @@ pub struct State {
     pub backups: Vec<String>,
     /// The backup chosen in the Saves row.
     pub backup_choice: String,
+    /// Where the releases come from and where an install goes; a fake in the UI tests.
+    pub host: Arc<dyn ReleaseHost>,
     pub update: UpdateState,
     /// The installed release: the stamp beside the launcher, or this version.
     pub installed: ReleaseId,
@@ -159,6 +162,12 @@ impl State {
     /// Reads `settings.json` and the ini (one warning when either is there but unreadable);
     /// everything else starts empty.
     pub fn new(paths: Paths) -> State {
+        let host = Arc::new(GitHubReleases::from_env(&paths.port_dir));
+        State::with_host(paths, host)
+    }
+
+    /// `new` over `host`: the tests give it a fake so nothing reaches GitHub or the browser.
+    pub fn with_host(paths: Paths, host: Arc<dyn ReleaseHost>) -> State {
         let (store, unreadable) = Store::load(&paths);
         // What the load found at `config_file`, after its portable migration.
         let config = paths.config_file();
@@ -179,14 +188,7 @@ impl State {
         let controls = ControlsView::new(store.app());
         // `start_monitor_listing` lists them under this one.
         let displays_backend = store.text("video_backend");
-        let installed = installed_release(&stamp_path(
-            &paths.port_dir,
-            std::env::var_os("APPDIR")
-                .filter(|dir| !dir.is_empty())
-                .map(PathBuf::from)
-                .as_deref(),
-            cfg!(windows),
-        ));
+        let installed = host.installed();
         let mut state = State {
             paths,
             store,
@@ -221,6 +223,7 @@ impl State {
             patches: Default::default(),
             backups: Vec::new(),
             backup_choice: String::new(),
+            host,
             update: Default::default(),
             installed,
             update_progress: None,

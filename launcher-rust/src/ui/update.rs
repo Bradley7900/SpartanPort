@@ -4,27 +4,18 @@
 //! channel kept in `State::update_progress`; the app clock (`Message::Tick`) drains it with
 //! [`drain`], as it does for the game's output.
 
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, Sender};
+use std::path::PathBuf;
+use std::sync::mpsc;
 
 use iced::Task;
 
-use crate::core::desktop::{host_environment, open_url};
 use crate::core::i18n::{tr, tr_fmt};
-use crate::core::platform;
 use crate::core::release::{newer_stable, version_tuple, Release, ReleaseId};
-use crate::core::update::{
-    download, list_releases, relaunch_appimage, release_checksum, replace_appimage, update_dir,
-};
+use crate::core::update::InstallTarget;
 use crate::ui::app::{Message, State};
 use crate::ui::play::{self, WORKER_LOST};
 use crate::ui::tasks::{blocking, blocking_or};
 use crate::ui::widgets::Modal;
-
-/// The file name of the packaged Windows launcher (ruling R47: a source tree is not packaged).
-const PACKAGED_EXE: &str = "SpartanPort.exe";
 
 /// Where the update stands.
 #[derive(Debug, Clone, Default)]
@@ -138,55 +129,22 @@ pub enum InstallPlan {
     Confirm,
 }
 
-/// Decides an install. `appimage` is the `APPIMAGE` path (Linux), `packaged` whether this is the
-/// packaged Windows launcher, `writable` the folder probe.
-pub fn install_decision(
-    busy: bool,
-    windows: bool,
-    packaged: bool,
-    appimage: Option<&Path>,
-    writable: &dyn Fn(&Path) -> bool,
-) -> InstallPlan {
+/// Decides an install from the host's target.
+pub fn install_decision(busy: bool, target: &InstallTarget) -> InstallPlan {
     if busy {
         return InstallPlan::Blocked;
     }
-    if windows {
-        return if packaged {
-            InstallPlan::Confirm
-        } else {
-            InstallPlan::OpenPage
-        };
-    }
-    let Some(image) = appimage else {
-        return InstallPlan::OpenPage;
-    };
-    let real = fs::canonicalize(image).unwrap_or_else(|_| image.to_path_buf());
-    let folder = real.parent().map(Path::to_path_buf).unwrap_or_default();
-    if writable(&folder) {
-        InstallPlan::Confirm
-    } else {
-        InstallPlan::ReadOnly(folder)
+    match target {
+        InstallTarget::WindowsPackage => InstallPlan::Confirm,
+        InstallTarget::AppImage { writable: true, .. } => InstallPlan::Confirm,
+        InstallTarget::AppImage { folder, .. } => InstallPlan::ReadOnly(folder.clone()),
+        InstallTarget::WindowsSource | InstallTarget::Elsewhere => InstallPlan::OpenPage,
     }
 }
 
-fn can_write(folder: &Path) -> bool {
-    tempfile::NamedTempFile::new_in(folder).is_ok()
-}
-
-/// The Python's `FROZEN`: whether this is the packaged launcher (ruling R47).
-pub fn is_packaged() -> bool {
-    std::env::current_exe().is_ok_and(|exe| {
-        exe.file_name()
-            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(PACKAGED_EXE))
-    })
-}
-
-fn open_page(page: String) -> Task<Message> {
-    // A failed open is ignored, as the Python launcher ignores it.
-    blocking(move || {
-        let _ = open_url(&page);
-    })
-    .map(|()| Message::Noop)
+fn open_page(state: &State, page: String) -> Task<Message> {
+    let host = state.host.clone();
+    blocking(move || host.open_page(&page)).map(|()| Message::Noop)
 }
 
 /// Applies an update event.
@@ -197,7 +155,8 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             if matches!(state.update, UpdateState::None | UpdateState::Failed(_)) {
                 state.update = UpdateState::Checking;
             }
-            blocking(|| list_releases(cfg!(windows)).map_err(|error| error.to_string()))
+            let host = state.host.clone();
+            blocking(move || host.list())
                 .map(move |result| Message::Update(UpdateMessage::Checked { manual, result }))
         }
         UpdateMessage::Checked { manual, result } => {
@@ -235,27 +194,14 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             {
                 return Task::none();
             }
-            let appimage = if cfg!(windows) {
-                None
-            } else {
-                std::env::var_os("APPIMAGE")
-                    .filter(|path| !path.is_empty())
-                    .map(PathBuf::from)
-            };
-            let plan = install_decision(
-                state.game.is_live(),
-                cfg!(windows),
-                is_packaged(),
-                appimage.as_deref(),
-                &can_write,
-            );
+            let plan = install_decision(state.game.is_live(), &state.host.target());
             match plan {
                 InstallPlan::Blocked => {
                     let text = tr(&lang, "Close the game before updating.");
                     state.modal = Some(Modal::info(text));
                     Task::none()
                 }
-                InstallPlan::OpenPage => open_page(release.page),
+                InstallPlan::OpenPage => open_page(state, release.page),
                 InstallPlan::ReadOnly(folder) => {
                     let text = tr_fmt(
                         &lang,
@@ -276,7 +222,7 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
         }
         UpdateMessage::OpenPage(page) => {
             state.modal = None;
-            open_page(page)
+            open_page(state, page)
         }
         UpdateMessage::Confirmed(release) => {
             state.modal = None;
@@ -284,18 +230,21 @@ pub fn update(state: &mut State, message: UpdateMessage) -> Task<Message> {
             if play::refuse_while_live(state, play::LiveAction::Update) {
                 return Task::none();
             }
-            let url = release.url.clone();
             state.update = UpdateState::Downloading {
                 releases: releases(state).to_vec(),
-                release,
+                release: release.clone(),
                 percent: 0,
             };
             let (sender, receiver) = mpsc::channel();
             state.update_progress = Some(receiver);
-            let port_dir = state.paths.port_dir.clone();
+            let host = state.host.clone();
             // A download that dies still ends `Downloading`, so the list comes back.
             blocking_or(
-                move || install(&url, &port_dir, &sender),
+                move || {
+                    host.install(&release, &mut |percent| {
+                        let _ = sender.send(percent);
+                    })
+                },
                 Err(WORKER_LOST.to_string()),
             )
             .map(|result| Message::Update(UpdateMessage::Done(result)))
@@ -328,77 +277,4 @@ pub fn drain(state: &mut State) {
     if let Some(percent) = latest {
         let _ = update(state, UpdateMessage::Progress(percent));
     }
-}
-
-/// The worker: downloads and installs, reporting the percent done.
-fn install(url: &str, port_dir: &Path, progress: &Sender<u8>) -> Result<(), String> {
-    let mut report = |percent: u8| {
-        let _ = progress.send(percent);
-    };
-    if cfg!(windows) {
-        install_windows(url, port_dir, &mut report)
-    } else {
-        install_appimage(url, &mut report)
-    }
-}
-
-fn install_appimage(url: &str, report: &mut dyn FnMut(u8)) -> Result<(), String> {
-    let appimage = std::env::var_os("APPIMAGE")
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| "APPIMAGE is not set".to_string())?;
-    replace_appimage(url, &appimage, report).map_err(|error| error.to_string())?;
-    relaunch_appimage(&appimage, &host_environment()).map_err(|error| error.to_string())
-}
-
-/// Python `work()`: the zip is fetched and unpacked, then the new launcher copies itself over
-/// this installation once this one has closed. The published `.sha256` is checked when the
-/// release has one (the Python launcher never checked it, spec 5.6 does). Unpacking uses the
-/// `zip` crate's `extract`, which refuses names that leave the folder.
-fn install_windows(url: &str, port_dir: &Path, report: &mut dyn FnMut(u8)) -> Result<(), String> {
-    fn text(error: impl std::fmt::Display) -> String {
-        error.to_string()
-    }
-    let dir = update_dir();
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).map_err(text)?;
-    let archive = dir.join("update.zip");
-    let expected = release_checksum(url).ok();
-    download(url, &archive, expected.as_deref(), report).map_err(text)?;
-    let new = dir.join("new");
-    let file = fs::File::open(&archive).map_err(text)?;
-    zip::ZipArchive::new(file)
-        .and_then(|mut package| package.extract(&new))
-        .map_err(text)?;
-    let _ = fs::remove_file(&archive);
-    let folder = find_launcher(&new)
-        .ok_or_else(|| format!("{PACKAGED_EXE} is missing from the download"))?;
-    let mut command = Command::new(folder.join(PACKAGED_EXE));
-    command
-        .arg("--install-update")
-        .arg(port_dir)
-        .arg(std::process::id().to_string())
-        .current_dir(&folder)
-        .stdin(Stdio::null());
-    platform::prepare(&mut command);
-    command.spawn().map(drop).map_err(text)
-}
-
-/// The folder under `root` that holds the launcher (Python `rglob`).
-fn find_launcher(root: &Path) -> Option<PathBuf> {
-    for entry in fs::read_dir(root).ok()?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(found) = find_launcher(&path) {
-                return Some(found);
-            }
-        } else if entry
-            .file_name()
-            .to_string_lossy()
-            .eq_ignore_ascii_case(PACKAGED_EXE)
-        {
-            return Some(root.to_path_buf());
-        }
-    }
-    None
 }

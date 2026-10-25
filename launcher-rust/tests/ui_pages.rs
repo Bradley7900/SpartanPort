@@ -2307,7 +2307,7 @@ fn log_header_translates() {
 /// The release list and the install of any listed release (Task 34, version menu Task 5):
 /// nothing here reaches the network or spawns anything.
 mod update_flow {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::sync::mpsc;
 
     use spartanport_launcher::core::release::{Channel, Release, ReleaseId};
@@ -2320,7 +2320,10 @@ mod update_flow {
     use spartanport_launcher::ui::widgets::ModalKind;
     use spartanport_launcher::VERSION;
 
-    use super::common::state;
+    use spartanport_launcher::core::update::{InstallTarget, RELEASES_PAGE};
+
+    use super::common::releases::{next_call, Call, FakeReleases};
+    use super::common::{run_task, state, state_with};
 
     const OLDER: &str = "This version is older than the installed one.";
 
@@ -2483,44 +2486,104 @@ mod update_flow {
     }
 
     #[test]
-    fn install_is_blocked_while_running() {
-        let always = |_: &Path| true;
-        assert_eq!(
-            install_decision(true, true, true, None, &always),
-            InstallPlan::Blocked
+    fn install_on_a_read_only_appimage_offers_the_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fake, calls) = FakeReleases::new();
+        let target = InstallTarget::AppImage {
+            folder: PathBuf::from("/opt/app"),
+            writable: false,
+        };
+        let mut state = state_with(dir.path(), fake.target(target).host());
+        let mut newer = release("2.7.0", None, false);
+        newer.page = RELEASES_PAGE.to_string();
+        let task = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Install(newer.clone())),
         );
-        assert_eq!(
-            install_decision(false, true, true, None, &always),
-            InstallPlan::Confirm
+        assert_eq!(task.units(), 0);
+        assert!(
+            modal_text(&state).contains("/opt/app"),
+            "{}",
+            modal_text(&state)
+        );
+        let Some(ModalKind::YesNo { yes, .. }) = state.modal.as_ref().map(|m| m.kind.clone())
+        else {
+            panic!("expected the yes/no dialog");
+        };
+        assert!(
+            matches!(&yes, Message::Update(UpdateMessage::OpenPage(page)) if page == RELEASES_PAGE)
+        );
+        // Nothing reached the host before the Yes.
+        assert!(calls.try_recv().is_err());
+        let _ = app::update(&mut state, yes);
+        assert_eq!(next_call(&calls), Call::OpenPage(RELEASES_PAGE.to_string()));
+    }
+
+    #[test]
+    fn install_from_a_source_tree_opens_the_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fake, calls) = FakeReleases::new();
+        let mut state = state_with(dir.path(), fake.target(InstallTarget::WindowsSource).host());
+        let mut newer = release("2.7.0", None, false);
+        newer.page = RELEASES_PAGE.to_string();
+        let _ = app::update(&mut state, Message::Update(UpdateMessage::Install(newer)));
+        assert!(state.modal.is_none());
+        assert_eq!(next_call(&calls), Call::OpenPage(RELEASES_PAGE.to_string()));
+    }
+
+    #[test]
+    fn a_confirmed_install_runs_through_the_host() {
+        let dir = tempfile::tempdir().unwrap();
+        let (fake, calls) = FakeReleases::new();
+        let mut state = state_with(dir.path(), fake.install(Err("boom".into())).host());
+        let newer = release("2.7.0", None, false);
+        let task = app::update(
+            &mut state,
+            Message::Update(UpdateMessage::Confirmed(newer.clone())),
+        );
+        assert!(matches!(
+            &state.update,
+            UpdateState::Downloading { percent: 0, .. }
+        ));
+        let sent = run_task(task);
+        assert_eq!(next_call(&calls), Call::Install(newer.url));
+        assert!(
+            matches!(sent.as_slice(), [Message::Update(UpdateMessage::Done(Err(e)))] if e == "boom"),
+            "{sent:?}"
         );
     }
 
     #[test]
+    fn install_is_blocked_while_running() {
+        let package = InstallTarget::WindowsPackage;
+        assert_eq!(install_decision(true, &package), InstallPlan::Blocked);
+        assert_eq!(install_decision(false, &package), InstallPlan::Confirm);
+    }
+
+    #[test]
     fn windows_source_tree_opens_the_page() {
-        let always = |_: &Path| true;
         assert_eq!(
-            install_decision(false, true, false, None, &always),
+            install_decision(false, &InstallTarget::WindowsSource),
             InstallPlan::OpenPage
         );
     }
 
     #[test]
     fn linux_needs_a_writable_appimage_folder() {
-        let image = PathBuf::from("/opt/app/SpartanPort.AppImage");
-        let yes = |_: &Path| true;
-        let no = |_: &Path| false;
+        let folder = PathBuf::from("/opt/app");
+        let image = |writable| InstallTarget::AppImage {
+            folder: folder.clone(),
+            writable,
+        };
         assert_eq!(
-            install_decision(false, false, false, None, &yes),
+            install_decision(false, &InstallTarget::Elsewhere),
             InstallPlan::OpenPage
         );
+        assert_eq!(install_decision(false, &image(true)), InstallPlan::Confirm);
         assert_eq!(
-            install_decision(false, false, false, Some(&image), &yes),
-            InstallPlan::Confirm
+            install_decision(false, &image(false)),
+            InstallPlan::ReadOnly(folder.clone())
         );
-        assert!(matches!(
-            install_decision(false, false, false, Some(&image), &no),
-            InstallPlan::ReadOnly(_)
-        ));
     }
 
     #[test]

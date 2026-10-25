@@ -13,9 +13,8 @@ use crate::core::i18n::tr;
 use crate::core::mods;
 use crate::core::paths::{default_port_dir, Paths};
 use crate::core::settings::load_app_settings;
-use crate::core::update::{self, update_dir};
+use crate::core::update::{self, is_packaged, update_dir};
 use crate::core::{desktop, legacy, platform};
-use crate::ui::update::is_packaged;
 use crate::APP_NAME;
 
 /// What the command line asks for, with the arguments each role takes.

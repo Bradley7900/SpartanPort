@@ -368,6 +368,186 @@ pub fn install_over(
     }
 }
 
+/// The file name of the packaged Windows launcher (ruling R47: a source tree is not packaged).
+const PACKAGED_EXE: &str = "SpartanPort.exe";
+
+/// The Python's `FROZEN`: whether this is the packaged launcher (ruling R47).
+pub fn is_packaged() -> bool {
+    std::env::current_exe().is_ok_and(|exe| {
+        exe.file_name()
+            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(PACKAGED_EXE))
+    })
+}
+
+/// Where an install of a release would go (Python `install_update`, before the download).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallTarget {
+    /// The packaged Windows launcher: it replaces its own folder.
+    WindowsPackage,
+    /// A Windows source tree: nothing to replace, the release page is the way.
+    WindowsSource,
+    /// The AppImage's folder, and whether the launcher can write there.
+    AppImage { folder: PathBuf, writable: bool },
+    /// Neither: only the release page.
+    Elsewhere,
+}
+
+/// Where the releases come from and where an install goes: GitHub and this machine, or a fake.
+pub trait ReleaseHost: Send + Sync {
+    /// The release this launcher is.
+    fn installed(&self) -> ReleaseId;
+    /// Where an install would go; asked at each Install, because the folder may change.
+    fn target(&self) -> InstallTarget;
+    /// The releases of this system, newest first.
+    fn list(&self) -> Result<Vec<release::Release>, String>;
+    /// Downloads and installs `release`, reporting the percent done.
+    fn install(
+        &self,
+        release: &release::Release,
+        progress: &mut dyn FnMut(u8),
+    ) -> Result<(), String>;
+    /// Opens `url` in the browser; a failed open is ignored.
+    fn open_page(&self, url: &str);
+}
+
+/// The releases on GitHub and this machine's install. `APPIMAGE`, `APPDIR` and the packaged
+/// check are read once: the environment does not change while the program runs.
+pub struct GitHubReleases {
+    windows: bool,
+    port_dir: PathBuf,
+    appimage: Option<PathBuf>,
+    appdir: Option<PathBuf>,
+    packaged: bool,
+}
+
+impl GitHubReleases {
+    pub fn from_env(port_dir: &Path) -> GitHubReleases {
+        let var = |key: &str| {
+            std::env::var_os(key)
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+        };
+        let windows = cfg!(windows);
+        GitHubReleases {
+            windows,
+            port_dir: port_dir.to_path_buf(),
+            appimage: if windows { None } else { var("APPIMAGE") },
+            appdir: var("APPDIR"),
+            packaged: is_packaged(),
+        }
+    }
+}
+
+impl ReleaseHost for GitHubReleases {
+    fn installed(&self) -> ReleaseId {
+        installed_release(&stamp_path(
+            &self.port_dir,
+            self.appdir.as_deref(),
+            self.windows,
+        ))
+    }
+
+    fn target(&self) -> InstallTarget {
+        if self.windows {
+            return if self.packaged {
+                InstallTarget::WindowsPackage
+            } else {
+                InstallTarget::WindowsSource
+            };
+        }
+        let Some(image) = &self.appimage else {
+            return InstallTarget::Elsewhere;
+        };
+        let real = fs::canonicalize(image).unwrap_or_else(|_| image.clone());
+        let folder = real.parent().map(Path::to_path_buf).unwrap_or_default();
+        let writable = tempfile::NamedTempFile::new_in(&folder).is_ok();
+        InstallTarget::AppImage { folder, writable }
+    }
+
+    fn list(&self) -> Result<Vec<release::Release>, String> {
+        list_releases(self.windows).map_err(|error| error.to_string())
+    }
+
+    fn install(
+        &self,
+        release: &release::Release,
+        progress: &mut dyn FnMut(u8),
+    ) -> Result<(), String> {
+        if self.windows {
+            install_windows(&release.url, &self.port_dir, progress)
+        } else {
+            install_appimage(&release.url, self.appimage.as_deref(), progress)
+        }
+    }
+
+    fn open_page(&self, url: &str) {
+        let _ = crate::core::desktop::open_url(url);
+    }
+}
+
+fn install_appimage(
+    url: &str,
+    appimage: Option<&Path>,
+    report: &mut dyn FnMut(u8),
+) -> Result<(), String> {
+    let appimage = appimage.ok_or_else(|| "APPIMAGE is not set".to_string())?;
+    replace_appimage(url, appimage, report).map_err(|error| error.to_string())?;
+    relaunch_appimage(appimage, &crate::core::desktop::host_environment())
+        .map_err(|error| error.to_string())
+}
+
+/// Python `work()`: the zip is fetched and unpacked, then the new launcher copies itself over
+/// this installation once this one has closed. The published `.sha256` is checked when the
+/// release has one (the Python launcher never checked it, spec 5.6 does). Unpacking uses the
+/// `zip` crate's `extract`, which refuses names that leave the folder.
+fn install_windows(url: &str, port_dir: &Path, report: &mut dyn FnMut(u8)) -> Result<(), String> {
+    fn text(error: impl std::fmt::Display) -> String {
+        error.to_string()
+    }
+    let dir = update_dir();
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).map_err(text)?;
+    let archive = dir.join("update.zip");
+    let expected = release_checksum(url).ok();
+    download(url, &archive, expected.as_deref(), report).map_err(text)?;
+    let new = dir.join("new");
+    let file = fs::File::open(&archive).map_err(text)?;
+    zip::ZipArchive::new(file)
+        .and_then(|mut package| package.extract(&new))
+        .map_err(text)?;
+    let _ = fs::remove_file(&archive);
+    let folder = find_launcher(&new)
+        .ok_or_else(|| format!("{PACKAGED_EXE} is missing from the download"))?;
+    let mut command = Command::new(folder.join(PACKAGED_EXE));
+    command
+        .arg("--install-update")
+        .arg(port_dir)
+        .arg(std::process::id().to_string())
+        .current_dir(&folder)
+        .stdin(Stdio::null());
+    crate::core::platform::prepare(&mut command);
+    command.spawn().map(drop).map_err(text)
+}
+
+/// The folder under `root` that holds the launcher (Python `rglob`).
+fn find_launcher(root: &Path) -> Option<PathBuf> {
+    for entry in fs::read_dir(root).ok()?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_launcher(&path) {
+                return Some(found);
+            }
+        } else if entry
+            .file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(PACKAGED_EXE)
+        {
+            return Some(root.to_path_buf());
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
