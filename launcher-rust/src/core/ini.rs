@@ -27,7 +27,8 @@ pub static INI_DEFAULTS: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock:
         .collect()
 });
 
-const HEADER: &str = "# spartanport settings (in-game menu: Insert / R3+L2)";
+/// The first line of a file the launcher or the runner starts.
+pub const HEADER: &str = "# spartanport settings (in-game menu: Insert / R3+L2)";
 
 pub struct Ini {
     pub values: IndexMap<String, String>,
@@ -68,7 +69,22 @@ pub fn read_ini(path: &Path) -> (Ini, bool) {
     (Ini { values, lines }, unreadable)
 }
 
+/// Python launcher `save_ini`: `write_lines`, with the header in place of no lines at all (a file
+/// that is missing, empty or could not be read).
 pub fn save_ini(
+    path: &Path,
+    edited: &IndexMap<String, String>,
+    lines: &[String],
+) -> io::Result<()> {
+    if lines.is_empty() {
+        return write_lines(path, edited, &[HEADER.to_string()]);
+    }
+    write_lines(path, edited, lines)
+}
+
+/// Writes `lines` with the `edited` keys rewritten in place and the missing ones appended; every
+/// other line, comment and key stays.
+pub fn write_lines(
     path: &Path,
     edited: &IndexMap<String, String>,
     lines: &[String],
@@ -87,9 +103,6 @@ pub fn save_ini(
             }
         }
         out.push(line.clone());
-    }
-    if lines.is_empty() {
-        out.push(HEADER.to_string());
     }
     for (key, value) in edited {
         if !written.contains(&key.as_str()) {

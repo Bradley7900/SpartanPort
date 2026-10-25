@@ -12,7 +12,7 @@ use serde_json::{Map, Value};
 
 use crate::core::catalog::setting;
 use crate::core::fs::atomic_write;
-use crate::core::ini::{read_ini, save_ini};
+use crate::core::ini::{read_ini, write_lines, HEADER};
 use crate::core::options::{
     Choice, ANISOTROPY, ENGINE_FPS_CHOICES, FRAME_RATE_PATCH_PREFIX, GLYPH_STYLES, RESOLUTIONS,
     RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH,
@@ -71,9 +71,18 @@ fn read_file_values(path: &Path) -> IndexMap<String, String> {
     file_values(&read_ini(path).0.lines.join("\n"))
 }
 
-/// Rewrites `updates` in place and appends missing keys, keeping every other line.
+/// Rewrites `updates` in place and appends missing keys, keeping every other line. As the Python's
+/// `write_keys`, the header goes only in place of a file that cannot be read: an empty file (a save
+/// cut short) gets none, unlike the launcher's `save_ini`.
 pub fn write_keys(path: &Path, updates: &IndexMap<String, String>) -> io::Result<()> {
-    save_ini(path, updates, &read_ini(path).0.lines)
+    let lines = match std::fs::read(path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes)
+            .lines()
+            .map(str::to_string)
+            .collect(),
+        Err(_) => vec![HEADER.to_string()],
+    };
+    write_lines(path, updates, &lines)
 }
 
 /// The render resolutions: the built-in ones and those the enabled mods' patch files add.
@@ -236,9 +245,10 @@ fn migrate_launch_choices(
         ini.insert((*key).to_string(), value.clone());
     }
     let normalized = startup_options(ini, extra).keys();
+    // `Options::keys` holds every key of LAUNCH_CHOICES.
     let updates: IndexMap<String, String> = migrated
         .iter()
-        .filter_map(|(key, _)| Some(((*key).to_string(), normalized.get(*key)?.clone())))
+        .map(|(key, _)| ((*key).to_string(), normalized[*key].clone()))
         .collect();
     let _ = write_keys(config, &updates);
 }
@@ -542,10 +552,36 @@ mod tests {
     }
 
     #[test]
+    fn write_keys_on_an_empty_file_adds_no_header() {
+        // Python `write_keys`: the header only in place of a file it cannot read; an empty one
+        // (a save of the in-game menu cut short) has no lines, and gets none.
+        let f = folder();
+        fs::write(&f.ini, "").unwrap();
+        write_keys(&f.ini, &map(&[("hdr", "1")])).unwrap();
+        assert_eq!(fs::read_to_string(&f.ini).unwrap(), "hdr=1\n");
+        // The migration writes over an empty file the same way.
+        fs::write(&f.ini, "").unwrap();
+        prepare(&f.ini, &f.state, &[], &no_env());
+        assert_eq!(
+            fs::read_to_string(&f.ini).unwrap(),
+            "monitor=\nhdr=0\nglyph_style=off\nanisotropy=0\n"
+        );
+        // A missing file still starts with the header.
+        fs::remove_file(&f.ini).unwrap();
+        write_keys(&f.ini, &map(&[("hdr", "1")])).unwrap();
+        assert_eq!(
+            fs::read_to_string(&f.ini).unwrap(),
+            "# spartanport settings (in-game menu: Insert / R3+L2)\nhdr=1\n"
+        );
+    }
+
+    #[test]
     fn invalid_monitor_and_hdr_fall_back_safely() {
         for value in [
             "1x",
             "99999999999",
+            // Python's `len(monitor) <= 10`: a leading zero does not make room for an eleventh digit.
+            "00000000001",
             "-1",
             "bad",
             "2147483648",
