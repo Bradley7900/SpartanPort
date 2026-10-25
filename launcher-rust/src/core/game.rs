@@ -130,29 +130,73 @@ pub struct GameInfo {
     pub version: String,
 }
 
-fn text_of(values: &IndexMap<String, SfoValue>, key: &str) -> Option<String> {
-    match values.get(key) {
-        Some(SfoValue::Text(text)) => Some(text.clone()),
-        _ => None,
-    }
-}
-
 fn strip_marks(title: &str) -> String {
     title.replace(['\u{2122}', '\u{ae}'], "")
 }
 
-/// Title and app version of a game folder, or `None` without `eboot.bin`.
-pub fn game_info(folder: &str) -> Option<GameInfo> {
-    let root = folder_or_here(folder);
-    if !root.join("eboot.bin").is_file() {
-        return None;
+/// A game folder's facts, from one read of its `sce_sys/param.sfo`: an unreadable or missing
+/// file answers nothing.
+#[derive(Debug, Clone)]
+pub struct GameFolder {
+    values: IndexMap<String, SfoValue>,
+    has_eboot: bool,
+}
+
+impl GameFolder {
+    pub fn read(p: &Path) -> Self {
+        let values = if p.as_os_str().is_empty() {
+            IndexMap::new()
+        } else {
+            read_sfo(&p.join(PARAM_SFO)).unwrap_or_default()
+        };
+        let root = if p.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            p
+        };
+        GameFolder {
+            values,
+            has_eboot: root.join("eboot.bin").is_file(),
+        }
     }
-    let values = game_sfo(folder);
-    let title = text_of(&values, "TITLE").unwrap_or_else(|| APP_NAME.to_string());
-    Some(GameInfo {
-        title: strip_marks(&title).trim().to_string(),
-        version: text_of(&values, "APP_VER").unwrap_or_else(|| "?".to_string()),
-    })
+
+    fn text(&self, key: &str) -> Option<&str> {
+        match self.values.get(key) {
+            Some(SfoValue::Text(text)) => Some(text),
+            _ => None,
+        }
+    }
+
+    pub fn title_id(&self) -> Option<&str> {
+        self.text("TITLE_ID")
+    }
+
+    /// `APP_VER` ("01.02").
+    pub fn app_version(&self) -> Option<&str> {
+        self.text("APP_VER")
+    }
+
+    /// The patch profile, by the title ID or the title: any region and version of a known game.
+    pub fn profile(&self) -> Option<&'static GameProfile> {
+        profile_for(&self.values)
+    }
+
+    /// Title and app version, or `None` without `eboot.bin`.
+    pub fn info(&self) -> Option<GameInfo> {
+        if !self.has_eboot {
+            return None;
+        }
+        let title = self.text("TITLE").unwrap_or(APP_NAME);
+        Some(GameInfo {
+            title: strip_marks(title).trim().to_string(),
+            version: self.text("APP_VER").unwrap_or("?").to_string(),
+        })
+    }
+
+    /// The `param.sfo` values, `None` when there are none.
+    pub fn sfo_values(&self) -> Option<&IndexMap<String, SfoValue>> {
+        Some(&self.values).filter(|values| !values.is_empty())
+    }
 }
 
 /// The folder the title, version and patches are read from: the update when there is one.
@@ -162,6 +206,14 @@ pub fn meta_folder(game_dir: &str, update_dir: &str) -> String {
     } else {
         game_dir.to_string()
     }
+}
+
+fn profile_for(values: &IndexMap<String, SfoValue>) -> Option<&'static GameProfile> {
+    let text = |key| match values.get(key) {
+        Some(SfoValue::Text(text)) => Some(text.as_str()),
+        _ => None,
+    };
+    game_profile(text("TITLE_ID"), text("TITLE"))
 }
 
 /// A game the built-in patches know: its title IDs, patch file, metadata app version, and the
@@ -188,35 +240,6 @@ pub fn game_profile(title_id: Option<&str>, title: Option<&str>) -> Option<&'sta
         title_id.is_some_and(|id| game.ids.contains(&id))
             || (!title.is_empty() && title.contains(game.title))
     })
-}
-
-/// The values of the folder's `param.sfo`, empty when it cannot be read.
-pub fn game_sfo(folder: &str) -> IndexMap<String, SfoValue> {
-    if folder.is_empty() {
-        return IndexMap::new();
-    }
-    read_sfo(&Path::new(folder).join(PARAM_SFO)).unwrap_or_default()
-}
-
-pub fn game_title_id(folder: &str) -> Option<String> {
-    text_of(&game_sfo(folder), "TITLE_ID")
-}
-
-fn profile_for(values: &IndexMap<String, SfoValue>) -> Option<&'static GameProfile> {
-    let id = text_of(values, "TITLE_ID");
-    let title = text_of(values, "TITLE");
-    game_profile(id.as_deref(), title.as_deref())
-}
-
-/// The title ID of a game folder and its patch profile, when it has one.
-pub fn game_profile_of(folder: &str) -> (Option<String>, Option<&'static GameProfile>) {
-    let values = game_sfo(folder);
-    (text_of(&values, "TITLE_ID"), profile_for(&values))
-}
-
-/// Whether the built-in patches are tried on this game folder (any region and version).
-pub fn game_patchable(folder: &str) -> bool {
-    game_profile_of(folder).1.is_some()
 }
 
 fn same_name(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
@@ -467,12 +490,32 @@ mod tests {
     }
 
     #[test]
+    fn a_game_folder_reads_param_sfo_once() {
+        let dir = tempfile::tempdir().unwrap();
+        put(dir.path(), "eboot.bin", b"elf");
+        put(
+            dir.path(),
+            "sce_sys/param.sfo",
+            &sfo(&[("TITLE_ID", "CUSA01623"), ("APP_VER", "01.02")]),
+        );
+        let folder = GameFolder::read(dir.path());
+        fs::remove_file(dir.path().join("sce_sys/param.sfo")).unwrap();
+        assert_eq!(folder.title_id(), Some("CUSA01623"));
+        assert_eq!(folder.app_version(), Some("01.02"));
+        assert!(folder.profile().is_some());
+        assert_eq!(folder.info().map(|info| info.version), Some("01.02".into()));
+        let none = GameFolder::read(Path::new(""));
+        assert_eq!(none.title_id(), None);
+        assert!(none.profile().is_none());
+    }
+
+    #[test]
     fn game_info_strips_the_marks() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(game_info(s(dir.path())), None);
+        assert_eq!(GameFolder::read(dir.path()).info(), None);
         put(dir.path(), "eboot.bin", b"elf");
         assert_eq!(
-            game_info(s(dir.path())),
+            GameFolder::read(dir.path()).info(),
             Some(GameInfo {
                 title: "SpartanPort".into(),
                 version: "?".into()
@@ -487,7 +530,7 @@ mod tests {
             ]),
         );
         assert_eq!(
-            game_info(s(dir.path())),
+            GameFolder::read(dir.path()).info(),
             Some(GameInfo {
                 title: "God of War III".into(),
                 version: "01.02".into()
@@ -512,14 +555,13 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         put(dir.path(), "sce_sys/param.sfo", &gow("01.00"));
-        let (id, profile) = game_profile_of(s(dir.path()));
-        assert_eq!(id.as_deref(), Some("CUSA01623"));
-        assert!(profile.is_some());
-        assert!(game_patchable(s(dir.path())));
-        assert!(!game_patchable(""));
-        assert_eq!(game_profile_of(""), (None, None));
-        assert!(game_sfo(s(&dir.path().join("none"))).is_empty());
-        assert_eq!(game_title_id(s(dir.path())).as_deref(), Some("CUSA01623"));
+        let folder = GameFolder::read(dir.path());
+        assert_eq!(folder.title_id(), Some("CUSA01623"));
+        assert!(folder.profile().is_some());
+        assert!(GameFolder::read(Path::new("")).profile().is_none());
+        assert!(GameFolder::read(&dir.path().join("none"))
+            .sfo_values()
+            .is_none());
     }
 
     #[test]

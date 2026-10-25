@@ -11,8 +11,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::core::game::GameFolder;
 use crate::core::mods::{every_way, remove_tree, resolve, LinkKind, Linker};
-use crate::core::patches::game_title_id;
 
 /// The views `create_view` makes in `out`: `game-update-XXXXXX`.
 const VIEW_PREFIX: &str = "game-update-";
@@ -108,11 +108,15 @@ pub fn remove(path: &Path) -> io::Result<()> {
     remove_tree(path)
 }
 
+fn title_id_of(folder: &Path) -> Option<String> {
+    GameFolder::read(folder).title_id().map(str::to_string)
+}
+
 /// The folder holding `base` with `update` over it, made in `out` as `game-update-XXXXXX`; the
 /// caller removes it with `remove_view`. The two must be the same title (the `TITLE_ID` of their
 /// `sce_sys/param.sfo`), in separate folders, and the update must hold an eboot.bin.
 pub fn create_view(base: &Path, update: &Path, out: &Path) -> Result<PathBuf, UpdateViewError> {
-    create_view_with(base, update, out, &game_title_id, &every_way)
+    create_view_with(base, update, out, &title_id_of, &every_way)
 }
 
 /// `create_view` reading the title IDs with `title_id` and linking only the ways `allowed` gives.

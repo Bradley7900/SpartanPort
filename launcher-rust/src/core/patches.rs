@@ -14,14 +14,13 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::fs::atomic_write;
-use super::game::{game_profile, GameProfile};
+use super::game::{GameFolder, GameProfile};
 use super::graphics_options::{
     applied_engine_fps, patch_names, restrict_with_log, Options, DEFAULT_VBLANK_HZ,
 };
 use super::options::{FRAME_RATE_PATCH_PREFIX, RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH};
 use super::paths::Paths;
 use super::python::{py_hex, py_int, py_list, py_repr, python_json};
-use super::sfo::{read_sfo, SfoValue};
 
 /// Fixes with nothing to choose: not offered in the launcher and always applied.
 const ALWAYS_ON: &[&str] = &["Bug Fix - Startup Black Screen"];
@@ -1054,33 +1053,6 @@ pub fn compile_patches(
 
 // --- The game folder
 
-/// A text value of the game folder's `param.sfo`; `None` when it cannot be read.
-fn sfo_text(game: &Path, key: &str) -> Option<String> {
-    if game.as_os_str().is_empty() {
-        return None;
-    }
-    match read_sfo(&game.join("sce_sys").join("param.sfo"))?.swap_remove(key)? {
-        SfoValue::Text(text) => Some(text),
-        SfoValue::Int(_) => None,
-    }
-}
-
-/// `APP_VER` of the game folder's `param.sfo` ("01.02"); `None` when it cannot be read.
-fn game_app_version(game: &Path) -> Option<String> {
-    sfo_text(game, "APP_VER")
-}
-
-/// `TITLE_ID` of the game folder's `param.sfo`.
-pub fn game_title_id(game: &Path) -> Option<String> {
-    sfo_text(game, "TITLE_ID")
-}
-
-/// The patch profile of a game folder, by the title ID or the title of its `param.sfo`.
-fn game_profile_for(game: &Path) -> Option<&'static GameProfile> {
-    let title = sfo_text(game, "TITLE");
-    game_profile(game_title_id(game).as_deref(), title.as_deref())
-}
-
 /// SHA-256 of the game folder's `eboot.bin`, hex; `None` when it cannot be read.
 fn eboot_sha256(game: &Path) -> Option<String> {
     let bytes = std::fs::read(game.join("eboot.bin")).ok()?;
@@ -1635,10 +1607,11 @@ struct Facts {
 }
 
 fn facts(game: &Path) -> Facts {
+    let folder = GameFolder::read(game);
     Facts {
-        profile: game_profile_for(game),
-        title_id: game_title_id(game),
-        app_version: game_app_version(game),
+        profile: folder.profile(),
+        title_id: folder.title_id().map(str::to_string),
+        app_version: folder.app_version().map(str::to_string),
     }
 }
 
@@ -2036,6 +2009,7 @@ mod tests {
 #[cfg(test)]
 mod compile_tests {
     use super::*;
+    use crate::core::game::game_profile;
     use std::collections::{HashMap, HashSet};
     use std::fs;
 

@@ -18,7 +18,7 @@ use serde_json::{json, Map, Value};
 
 use crate::core::desktop::{open_path, open_url};
 use crate::core::fs::{atomic_write, load_json, read_json};
-use crate::core::game::{game_profile_of, meta_folder};
+use crate::core::game::{meta_folder, GameFolder};
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::mods::{
     apply_preset, conflicts, discover, mod_files, mod_info, patch_files, ModInfo,
@@ -187,7 +187,7 @@ pub fn load(paths: &Paths, settings: &Settings) -> ModsView {
         &settings.get_str("game_dir"),
         &settings.get_str("update_dir"),
     );
-    if let (_, Some(profile)) = game_profile_of(&meta) {
+    if let Some(profile) = GameFolder::read(std::path::Path::new(&meta)).profile() {
         view.external = external_patches(
             &paths.patches_dir(&settings.get_str("patches_dir")),
             profile.app_version,

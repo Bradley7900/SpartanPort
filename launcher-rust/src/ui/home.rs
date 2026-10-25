@@ -16,7 +16,7 @@ use iced::{
     Rectangle, Renderer, Right, Size, Theme, Top, Vector,
 };
 
-use crate::core::game::{game_info, game_patchable, game_profile_of, meta_folder, GameInfo};
+use crate::core::game::{meta_folder, GameFolder, GameInfo};
 use crate::core::gpu::chosen_gpu;
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{short_label, Choice, DISPLAY_MODES, FPS_LIMITS, OUTPUTS};
@@ -150,12 +150,12 @@ pub fn refresh_facts(state: &mut State) {
         &state.store.text("game_dir"),
         &state.store.text("update_dir"),
     );
-    let (title_id, _profile) = game_profile_of(&meta);
+    let folder = GameFolder::read(std::path::Path::new(&meta));
     let savedata = user_dir(state).join("savedata");
     state.home = HomeFacts {
-        info: game_info(&meta),
-        title_id,
-        patchable: game_patchable(&meta),
+        info: folder.info(),
+        title_id: folder.title_id().map(str::to_string),
+        patchable: folder.profile().is_some(),
         saves: has_files(&savedata),
         skipped: patch_status(&state.paths.data_dir.join("out"))
             .map_or(0, |status| status.skipped.len()),

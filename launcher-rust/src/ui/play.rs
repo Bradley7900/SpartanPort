@@ -15,8 +15,8 @@ use indexmap::IndexMap;
 
 use crate::core::env::{environment_of, game_environment};
 use crate::core::game::{
-    adopt_system_files, game_info, game_sfo, missing_game_files, same_folder, system_files_beside,
-    FileState, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
+    adopt_system_files, missing_game_files, same_folder, system_files_beside, FileState,
+    GameFolder, REQUIRED_GAME_FILES, REQUIRED_UPDATE_FILES,
 };
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::launch::{
@@ -205,8 +205,8 @@ fn system_files_offer(
         .find_map(|(folder, is_update)| {
             // The update's candidate must be the base game's title.
             let reference = is_update
-                .then(|| game_sfo(game))
-                .filter(|values| !values.is_empty());
+                .then(|| GameFolder::read(Path::new(game)))
+                .and_then(|folder| folder.sfo_values().cloned());
             let base = is_update.then(|| Path::new(game));
             system_files_beside(folder, reference.as_ref(), base)
                 .map(|source| (folder.to_string(), source))
@@ -222,7 +222,10 @@ pub fn play(state: &mut State) -> Task<Message> {
     if !persist::collect_or_report(state) {
         return Task::none();
     }
-    if game_info(&state.store.text("game_dir")).is_none() {
+    if GameFolder::read(Path::new(&state.store.text("game_dir")))
+        .info()
+        .is_none()
+    {
         let text = tr(
             &state.lang,
             "Choose the game folder with eboot.bin (CUSA01623).",
