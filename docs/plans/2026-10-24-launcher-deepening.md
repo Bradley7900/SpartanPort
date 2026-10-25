@@ -765,7 +765,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 
 ## Candidato 06: views derivadas seguem os settings (spec §4 / 06)
 
-### Task 21: a tabela `follow`; `Set` e `Browsed` passam por ela
+### Task 21: a tabela `follow`; `Set` e `Browsed` passam por ela ✅
 
 **Files:**
 - Create: `src/ui/follow.rs` (declarado em `ui/mod.rs`)
@@ -784,7 +784,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 - Produces: `View`, `Cause`, `follow` e `inputs`, como na spec §4/06, com a tabela da spec na
   ordem dada.
 
-- [ ] **Step 1: Failing tests** em `tests/ui_follow.rs`
+- [x] **Step 1: Failing tests** em `tests/ui_follow.rs`
   - `each_view_follows_exactly_its_keys`, por tabela, para cada `View`:
     1. mude o disco que a view lê;
     2. mande `Set` de uma chave fora da linha dela: a view não muda;
@@ -795,12 +795,12 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
     de Mods fora de ordem com `load_mods`. A lista final é a da pasta `"C:/game"`.
   - Mova para cá `a_read_for_a_folder_typed_over_is_dropped` (ui_pages.rs:597), com o mesmo nome
     e a linha do mapa atualizada.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_follow`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): refresh derived views from one key table`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_follow`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): refresh derived views from one key table`)
 
-### Task 22: os demais gatilhos sobre `follow`
+### Task 22: os demais gatilhos sobre `follow` ✅
 
 **Files:**
 - Modify:
@@ -818,17 +818,17 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - `ui_home.rs:231, 416` passam a usar `follow(Keys(&["user_dir"]))`;
   - `ui_pages.rs:461, 468, 484, 488, 1713, 1766` passam a usar `follow(Keys(&["mods_dir"]))`.
 
-- [ ] **Step 1: Failing tests** em `tests/ui_follow.rs`
+- [x] **Step 1: Failing tests** em `tests/ui_follow.rs`
   - `skip_follows_the_restored_folders`
   - `collect_follows_a_resolution_changed_on_disk`
   - `the_game_exit_lists_the_new_backup` (⚠): crie um backup em `savedata_backups/`, mande o
     `Exited`, e ele aparece em `state.backups`.
   - `a_game_folder_change_keeps_the_chosen_backup` (⚠): mudar o `game_dir` não reseta
     `backup_choice`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_follow`
-- [ ] **Step 3: Implement** e migre os testes.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): follow every settings change through one table`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_follow`
+- [x] **Step 3: Implement** e migre os testes.
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): follow every settings change through one table`)
 
 ---
 
