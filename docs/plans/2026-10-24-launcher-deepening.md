@@ -1722,7 +1722,7 @@ assert_eq!(migrate_controls(map.clone()), map);
 
 ## Fechamento
 
-### Task 55: relatório final
+### Task 55: relatório final ✅
 
 **Files:**
 - Create (fora do repo): `<scratchpad>/deepening-report-<timestamp>.html`. Siga o estilo do
@@ -1750,8 +1750,8 @@ Do F10:
 - a nota do cache de shaders para o 2.8.0;
 - a versão 2.8.0 confirmada.
 
-- [ ] **Step 1:** Colete os números (`cargo test 2>&1 | grep "test result"`,
+- [x] **Step 1:** Colete os números (`cargo test 2>&1 | grep "test result"`,
   `git log --oneline 708a928..HEAD` e `git diff --stat`).
-- [ ] **Step 2:** Escreva o HTML, confira o render headless (Edge `--dump-dom`, sem
+- [x] **Step 2:** Escreva o HTML, confira o render headless (Edge `--dump-dom`, sem
   `Syntax error in text`) e abra para o usuário.
-- [ ] **Step 3:** O relatório fica fora do repo. Só o commit dos `PENDING_PORTS`, se houver.
+- [x] **Step 3:** O relatório fica fora do repo. Só o commit dos `PENDING_PORTS`, se houver.
