@@ -1807,6 +1807,19 @@ void BeginChoice(const std::string& title, const std::vector<std::string>& items
 }
 
 int PollChoice() {
+    // SPARTAN_CHOICE_AUTO=1 (automated test runs): lists accept their focused item, as Enter would.
+    static const bool auto_accept = [] {
+        const char* env = std::getenv("SPARTAN_CHOICE_AUTO");
+        return env && env[0] == '1';
+    }();
+    if (auto_accept) {
+        std::scoped_lock lock{imgui_mutex};
+        if (choice_active && !choice_items.empty()) {
+            choice_result = choice_index;
+            choice_active = false;
+            RetireChoiceTextures();
+        }
+    }
     return choice_result;
 }
 
