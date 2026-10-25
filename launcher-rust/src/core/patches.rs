@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 
 use super::fs::atomic_write;
 use super::game::{game_profile, GameProfile};
+use super::graphics_options::{patch_names, restrict_with_log, Options};
 use super::options::{FRAME_RATE_PATCH_PREFIX, RESOLUTION_PATCH_PREFIX, TEXTURE_FIX_PATCH};
 use super::paths::Paths;
 use super::python::{py_hex, py_int, py_list, py_repr, python_json};
@@ -1643,6 +1644,123 @@ pub fn write_game_patches(job: &PatchJob<'_>, log: &mut dyn io::Write) -> Result
     Ok(())
 }
 
+// --- Plan
+
+/// What `plan` needs to choose the patches of a launch.
+pub struct PlanInput<'a> {
+    /// The game folder (`param.sfo` gives the profile).
+    pub game: &'a Path,
+    /// The folder of the built-in patch files (`<port>/patches`).
+    pub builtin_dir: &'a Path,
+    /// `out/`: receives `patches-merged.xml` when mods add patches.
+    pub out: &'a Path,
+    /// The enabled mods' patch files, in load order.
+    pub mod_patches: &'a [PathBuf],
+    pub selection: Selection<'a>,
+    /// Third-party patch files, applied on the reference build only.
+    pub external: Option<External<'a>>,
+}
+
+/// Who chooses the patch names.
+pub enum Selection<'a> {
+    /// The launcher: the saved selection (`only`: it is the whole list), the mods' defaults, the
+    /// resolution and frame rate of the graphics options (`run.py`'s patch list).
+    Launch {
+        chosen: &'a [String],
+        only: bool,
+        graphics: &'a Options,
+    },
+    /// `patches.py` on its own: the file's defaults plus these names.
+    Script { extra: &'a [String], only: bool },
+}
+
+/// The third-party patch files and their selection.
+pub struct External<'a> {
+    pub dir: &'a Path,
+    /// `patches.json`.
+    pub config: &'a Path,
+}
+
+/// The patches chosen for a game, ready to apply.
+#[derive(Debug)]
+pub struct PatchPlan {
+    /// The patch file the names come from (`None` without a profile).
+    xml: Option<PathBuf>,
+    /// The patches to compile, in order.
+    names: Vec<String>,
+    /// What the launcher handed over, as `SPARTAN_PATCHES` carries it.
+    launcher_list: Option<Vec<String>>,
+}
+
+impl PatchPlan {
+    /// The launcher's list (`SPARTAN_PATCHES`); `None` for a game without a profile and for a
+    /// script selection.
+    pub fn launcher_list(&self) -> Option<&[String]> {
+        self.launcher_list.as_deref()
+    }
+}
+
+/// What the game folder says about its patches.
+struct Facts {
+    profile: Option<&'static GameProfile>,
+}
+
+fn facts(game: &Path) -> Facts {
+    Facts {
+        profile: game_profile_for(game),
+    }
+}
+
+/// Chooses the patches: merges the mods' patch files once into `out/patches-merged.xml` and
+/// resolves the names. Notes go to `log`.
+pub fn plan(input: &PlanInput, log: &mut dyn io::Write) -> Result<PatchPlan, PatchError> {
+    let Facts { profile } = facts(input.game);
+    let mut plan = PatchPlan {
+        xml: None,
+        names: Vec::new(),
+        launcher_list: None,
+    };
+    let Some(profile) = profile else {
+        return Ok(plan);
+    };
+    let mut xml = input.builtin_dir.join(profile.xml);
+    if !input.mod_patches.is_empty() {
+        let merged = input.out.join("patches-merged.xml");
+        merge_patch_files(&xml, input.mod_patches, &merged, log)?;
+        xml = merged;
+    }
+    let tag = profile.app_version;
+    let names = match &input.selection {
+        Selection::Script { extra, only } => selected_patches(&xml, tag, extra, *only)?,
+        Selection::Launch {
+            chosen,
+            only,
+            graphics,
+        } => {
+            let mut names = selected_patches(&xml, tag, chosen, *only)?;
+            // A mod's patches that are on by default stay on when the launcher chose the list.
+            let defaults: Vec<String> = default_enabled(input.mod_patches, tag)
+                .into_iter()
+                .filter(|name| !names.contains(name))
+                .collect();
+            names.extend(defaults);
+            // spartanport.ini decides the resolution and frame rate patches.
+            let names = patch_names(&names, graphics, true);
+            let available = available_patches(&xml, tag)?;
+            let names = restrict_with_log(&names, &available, &mut |line| {
+                let _ = writeln!(log, "{line}");
+            });
+            // The list went through `SPARTAN_PATCHES` (join, then split) as the only selection.
+            let list: Vec<String> = names.join(";").split(';').map(str::to_string).collect();
+            let names = selected_patches(&xml, tag, &list, true)?;
+            plan.launcher_list = Some(list);
+            names
+        }
+    };
+    plan.xml = Some(xml);
+    plan.names = names;
+    Ok(plan)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1931,7 +2049,7 @@ mod compile_tests {
     }
 
     /// A `param.sfo` holding these text values.
-    fn sfo(entries: &[(&str, &str)]) -> Vec<u8> {
+    pub(super) fn sfo(entries: &[(&str, &str)]) -> Vec<u8> {
         let keys_off = 20 + 16 * entries.len();
         let (mut keys, mut values, mut table) = (Vec::new(), Vec::new(), Vec::new());
         for (key, value) in entries {
@@ -3365,5 +3483,262 @@ mod compile_tests {
         let status = patch_status(&out).unwrap();
         assert_eq!(status.applied, ["Found"]);
         assert_ne!(status.sha256.as_deref(), Some(REFERENCE_SHA256));
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::compile_tests::sfo;
+    use super::*;
+    use std::fs;
+
+    fn strings(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    fn meta(name: &str, enabled: bool) -> String {
+        format!(
+            r#"<Metadata Name="{name}" AppVer="01.02" isEnabled="{enabled}"><PatchList/></Metadata>"#
+        )
+    }
+
+    /// A game folder, a built-in patch file with these patches and an `out/` folder.
+    struct Setup {
+        dir: tempfile::TempDir,
+        game: PathBuf,
+        builtin: PathBuf,
+        out: PathBuf,
+    }
+
+    fn setup(patches: &[(&str, bool)]) -> Setup {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        fs::create_dir_all(game.join("sce_sys")).unwrap();
+        fs::write(
+            game.join("sce_sys").join("param.sfo"),
+            sfo(&[("TITLE_ID", "CUSA01623"), ("APP_VER", "01.02")]),
+        )
+        .unwrap();
+        let builtin = dir.path().join("patches");
+        fs::create_dir_all(&builtin).unwrap();
+        let metas: String = patches.iter().map(|(name, on)| meta(name, *on)).collect();
+        fs::write(
+            builtin.join("CUSA01623.xml"),
+            format!("<Patch><TitleID><ID>CUSA01623</ID></TitleID>{metas}</Patch>"),
+        )
+        .unwrap();
+        let out = dir.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        Setup {
+            dir,
+            game,
+            builtin,
+            out,
+        }
+    }
+
+    impl Setup {
+        fn input<'a>(
+            &'a self,
+            mod_patches: &'a [PathBuf],
+            selection: Selection<'a>,
+        ) -> PlanInput<'a> {
+            PlanInput {
+                game: &self.game,
+                builtin_dir: &self.builtin,
+                out: &self.out,
+                mod_patches,
+                selection,
+                external: None,
+            }
+        }
+
+        /// A mod's patch file with these patches (`<mod>/patches/<mod>.xml`).
+        fn mod_file(&self, name: &str, patches: &[(&str, bool)]) -> PathBuf {
+            let folder = self.dir.path().join(name).join("patches");
+            fs::create_dir_all(&folder).unwrap();
+            let metas: String = patches.iter().map(|(name, on)| meta(name, *on)).collect();
+            let path = folder.join(format!("{name}.xml"));
+            fs::write(
+                &path,
+                format!("<Patch><TitleID><ID>CUSA01623</ID></TitleID>{metas}</Patch>"),
+            )
+            .unwrap();
+            path
+        }
+    }
+
+    fn options(resolution: &str) -> Options {
+        Options {
+            render_resolution: resolution.to_string(),
+            engine_fps: "60".to_string(),
+            deferred_readback: "1".to_string(),
+            stale_readback: "1".to_string(),
+            async_shaders: "1".to_string(),
+        }
+    }
+
+    const BLACK: &str = "Bug Fix - Startup Black Screen";
+    const TEXTURE: &str = "Bug Fix - Texture Corruption Fix";
+
+    #[test]
+    fn script_selection_is_patches_py() {
+        let setup = setup(&[(BLACK, true), ("Base", true), ("Off", false), ("X", false)]);
+        let extra = strings(&["X"]);
+        let input = setup.input(
+            &[],
+            Selection::Script {
+                extra: &extra,
+                only: false,
+            },
+        );
+        let plan = plan(&input, &mut Vec::new()).unwrap();
+        assert_eq!(plan.names, [BLACK, "Base", "X"]);
+        assert_eq!(plan.launcher_list(), None);
+        // Nothing but the built-in file: no merge.
+        assert!(!setup.out.join("patches-merged.xml").exists());
+    }
+
+    #[test]
+    fn launch_selection_adds_ini_resolution_and_top_frame_rate() {
+        let setup = setup(&[
+            (BLACK, true),
+            (TEXTURE, true),
+            ("Resolution Patch - 720p", false),
+            ("Frame Rate Patch - 120 FPS", false),
+            ("Frame Rate Patch - 240 FPS", false),
+        ]);
+        let graphics = options("720p");
+        let chosen = strings(&["Frame Rate Patch - 120 FPS"]);
+        let input = setup.input(
+            &[],
+            Selection::Launch {
+                chosen: &chosen,
+                only: true,
+                graphics: &graphics,
+            },
+        );
+        let mut log = Vec::new();
+        let plan = plan(&input, &mut log).unwrap();
+        assert_eq!(
+            plan.names,
+            [
+                BLACK,
+                "Resolution Patch - 720p",
+                "Frame Rate Patch - 240 FPS",
+            ]
+        );
+        assert_eq!(
+            plan.launcher_list().unwrap(),
+            [
+                BLACK,
+                "Resolution Patch - 720p",
+                "Frame Rate Patch - 240 FPS"
+            ]
+        );
+        assert!(log.is_empty(), "{}", String::from_utf8_lossy(&log));
+    }
+
+    #[test]
+    fn launch_selection_keeps_a_mods_default_patch() {
+        let setup = setup(&[(BLACK, true), (TEXTURE, false)]);
+        let file = setup.mod_file("Thing", &[("Mod Default", true), ("Mod Off", false)]);
+        let graphics = options("native");
+        let input = setup.input(
+            std::slice::from_ref(&file),
+            Selection::Launch {
+                chosen: &[],
+                only: true,
+                graphics: &graphics,
+            },
+        );
+        let plan = plan(&input, &mut Vec::new()).unwrap();
+        assert!(
+            plan.names.contains(&"Mod Default".to_string()),
+            "{:?}",
+            plan.names
+        );
+        assert!(!plan.names.contains(&"Mod Off".to_string()));
+        assert_eq!(
+            plan.xml.as_deref(),
+            Some(setup.out.join("patches-merged.xml").as_path())
+        );
+    }
+
+    #[test]
+    fn a_missing_frame_rate_patch_falls_back_with_two_log_lines() {
+        // The file has no 240 FPS patch: the highest one below it stands in.
+        let setup = setup(&[
+            (BLACK, true),
+            (TEXTURE, true),
+            ("Frame Rate Patch - 144 FPS", false),
+        ]);
+        let graphics = options("native");
+        let input = setup.input(
+            &[],
+            Selection::Launch {
+                chosen: &[],
+                only: true,
+                graphics: &graphics,
+            },
+        );
+        let mut log = Vec::new();
+        let plan = plan(&input, &mut log).unwrap();
+        assert_eq!(
+            String::from_utf8(log).unwrap(),
+            "Patches: Frame Rate Patch - 240 FPS is not available for this game build: skipped\n\
+             Patches: using Frame Rate Patch - 144 FPS instead\n"
+        );
+        assert!(plan
+            .names
+            .contains(&"Frame Rate Patch - 144 FPS".to_string()));
+    }
+
+    #[test]
+    fn mod_lines_are_logged_once() {
+        let setup = setup(&[(BLACK, true), (TEXTURE, false)]);
+        let first = setup.mod_file("One", &[("From One", true)]);
+        let second = setup.mod_file("Two", &[("From Two", true)]);
+        let graphics = options("native");
+        let files = [first, second];
+        let input = setup.input(
+            &files,
+            Selection::Launch {
+                chosen: &[],
+                only: true,
+                graphics: &graphics,
+            },
+        );
+        let mut log = Vec::new();
+        plan(&input, &mut log).unwrap();
+        let log = String::from_utf8(log).unwrap();
+        for line in [
+            "From One from the mod file One/One.xml",
+            "From Two from the mod file Two/Two.xml",
+        ] {
+            assert_eq!(log.matches(line).count(), 1, "{log}");
+        }
+        assert_eq!(log.matches("from the mod file").count(), 2, "{log}");
+    }
+
+    #[test]
+    fn a_game_without_a_profile_plans_nothing() {
+        let setup = setup(&[(BLACK, true)]);
+        fs::write(
+            setup.game.join("sce_sys").join("param.sfo"),
+            sfo(&[("TITLE_ID", "CUSA99999"), ("TITLE", "Another Game")]),
+        )
+        .unwrap();
+        let extra = strings(&[]);
+        let input = setup.input(
+            &[],
+            Selection::Script {
+                extra: &extra,
+                only: false,
+            },
+        );
+        let plan = plan(&input, &mut Vec::new()).unwrap();
+        assert!(plan.names.is_empty());
+        assert_eq!(plan.launcher_list(), None);
     }
 }
