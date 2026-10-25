@@ -17,10 +17,6 @@ ALLOWED_DROP_FILES = {
     'tests/test_launcher_titlebar.py',
 }
 
-# Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
-# each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
-PENDING_PORTS = set()
-
 
 def covered_files():
     """The test files the map covers, in file order."""
@@ -34,7 +30,7 @@ class ParityDocTest(unittest.TestCase):
     maxDiff = None  # the failures name the rows to fix
 
     def test_the_map_is_complete_and_honest(self):
-        check(DOC, covered_files(), self, allowed_drops=ALLOWED_DROP_FILES | PENDING_PORTS)
+        check(DOC, covered_files(), self, allowed_drops=ALLOWED_DROP_FILES)
 
 
 if __name__ == '__main__':

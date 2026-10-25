@@ -23,16 +23,12 @@ ALLOWED_DROPS = {
     'tests/test_isa_rewrite.py::ReadBootLinkedTests::test_main_without_iced_x86',
 }
 
-# Tests main added or changed (merged in Task 42) that a later task of the deepening plan ports:
-# each row says `dropped: pending port (Task NN)`, and the porting task takes the test out of here.
-PENDING_PORTS = set()
-
 
 class RunnerParityDocTest(unittest.TestCase):
     maxDiff = None  # the failures name the rows to fix
 
     def test_the_map_is_complete_and_honest(self):
-        check(DOC, [TESTS / name for name in FILES], self, allowed_drops=ALLOWED_DROPS | PENDING_PORTS)
+        check(DOC, [TESTS / name for name in FILES], self, allowed_drops=ALLOWED_DROPS)
 
 
 if __name__ == '__main__':

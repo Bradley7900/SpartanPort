@@ -9,9 +9,8 @@ files, and fails when one has no row, a row has no status, or a named Rust test 
 checker is not itself a row.
 
 Task 42 of the deepening plan (`docs/plans/2026-10-24-launcher-deepening.md`) merged `main` at
-`9dd2d12`. The tests `main` added or changed after 2.7.0 are `dropped: pending port (Task NN)` until
-task NN of that plan ports them; the row of a changed test names the Rust tests of its 2.7.0 row.
-`tests/test_launcher_parity_doc.py` lists them in `PENDING_PORTS`.
+`9dd2d12`; the rows of the tests `main` added or changed after 2.7.0 name the Rust tests the later
+tasks of that plan ported them to.
 
 Status:
 
@@ -24,8 +23,6 @@ Status:
 - `dropped: spec §<section> <reason>`: behaviour the spec replaced on purpose (any file).
 - `dropped: no Rust counterpart — <what it tested>`: behaviour no Rust test covers. Each is listed
   again under [Gaps](#gaps).
-- `dropped: pending port (Task NN)`: a test `main` added or changed after 2.7.0, ported by task NN of
-  the deepening plan. Not a gap: the porting task turns the row to `ported`.
 
 Rust tests are named `file::name` under `launcher-rust/`: `tests/ui_save.rs::name` for integration
 tests, `src/core/ini.rs::tests::name` for unit tests (the `tests` segment is the module).
