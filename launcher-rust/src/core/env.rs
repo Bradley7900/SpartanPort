@@ -16,6 +16,9 @@ use crate::core::options::Choice;
 use crate::core::paths::Paths;
 use crate::core::settings::Settings;
 
+/// Reads one environment variable; tests pass a closure over a map instead of the process.
+pub type Lookup<'a> = &'a dyn Fn(&str) -> Option<String>;
+
 const TROPHY_COUNT: usize = 35;
 
 /// AMD hybrid laptops: this Vulkan layer hides the NVIDIA GPU and the game stays black (#263).

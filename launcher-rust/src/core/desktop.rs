@@ -9,6 +9,9 @@ use std::process::{Command, Stdio};
 
 use indexmap::IndexMap;
 
+use crate::core::env::Lookup;
+use crate::core::platform;
+
 pub const DESKTOP_MARKER: &str = "X-SPARTAN-Integration=true";
 /// The menu entry's file name; it is also the window's application id.
 const ENTRY_FILE: &str = "spartanport.desktop";
@@ -21,7 +24,7 @@ const BUNDLE_VARIABLES: [&str; 5] = [
     "TK_LIBRARY",
 ];
 
-type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
+type Env<'a> = Lookup<'a>;
 
 /// The menu entry; its `StartupWMClass` is the application id of the launcher and of the game
 /// window.
@@ -164,9 +167,7 @@ pub fn integrated_by_other_tool(applications: &Path, appimage: &str, env: Env) -
 }
 
 fn home_of(home: Option<&Path>, env: Env) -> Option<PathBuf> {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    home.map(Path::to_path_buf)
-        .or_else(|| env(key).filter(|v| !v.is_empty()).map(PathBuf::from))
+    home.map(Path::to_path_buf).or_else(|| platform::home(env))
 }
 
 fn mentions_marker(path: &Path) -> bool {
@@ -394,8 +395,8 @@ pub fn linux_tools() -> LinuxTools {
         PathBuf::from("/usr/share/vulkan/implicit_layer.d"),
         PathBuf::from("/etc/vulkan/implicit_layer.d"),
     ];
-    if let Some(home) = std::env::var_os("HOME") {
-        layers.push(PathBuf::from(home).join(".local/share/vulkan/implicit_layer.d"));
+    if let Some(home) = platform::home(&|key| std::env::var(key).ok()) {
+        layers.push(home.join(".local/share/vulkan/implicit_layer.d"));
     }
     LinuxTools {
         wayland: std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()),

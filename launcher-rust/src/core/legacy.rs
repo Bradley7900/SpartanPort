@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 
 use indexmap::IndexMap;
 
+use crate::core::platform;
+
 pub const LEGACY_NAME: &str = "gow3";
 pub const LEGACY_TITLE: &str = "God of War III";
 /// The launcher; installed updaters look for this name.
@@ -40,14 +42,9 @@ pub const LEFTOVERS: [(&str, &str); 4] = [
     ("launcher/gow3.png", "launcher/spartanport.png"),
 ];
 
-/// The user's home folder as `env` (or the process) names it.
+/// The user's home folder as `env` names it.
 fn home_of(env: &IndexMap<String, String>) -> Option<PathBuf> {
-    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-    env.get(key)
-        .cloned()
-        .or_else(|| std::env::var(key).ok())
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
+    platform::home(&|key| env.get(key).cloned())
 }
 
 /// The data folder AppRun picks when none is set (`$XDG_DATA_HOME/spartanport`).
@@ -169,7 +166,7 @@ pub fn migrate(data_dir: &Path, home: Option<&Path>, windows: bool) -> Vec<Strin
     if !windows {
         let home = home
             .map(Path::to_path_buf)
-            .or_else(|| home_of(&IndexMap::new()));
+            .or_else(|| platform::home(&|key| std::env::var(key).ok()));
         if let Some(home) = home {
             let entry = home
                 .join(".local/share/applications")
@@ -239,9 +236,7 @@ fn windows_desktop() -> PathBuf {
             return PathBuf::from(text);
         }
     }
-    let home = std::env::var_os("USERPROFILE")
-        .map(PathBuf::from)
-        .unwrap_or_default();
+    let home = platform::home(&|key| std::env::var(key).ok()).unwrap_or_default();
     home.join("Desktop")
 }
 

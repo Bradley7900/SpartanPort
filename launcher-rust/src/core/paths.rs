@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::core::platform;
+
 /// Folder name of the previous launcher's settings (`scripts/legacy.py`).
 const LEGACY_CONFIG_DIR: &str = "gow3-launcher";
 
@@ -54,12 +56,7 @@ impl Paths {
         let ini = env("SPARTAN_CONFIG")
             .map(PathBuf::from)
             .unwrap_or_else(|| data_dir.join("spartanport.ini"));
-        let home = || {
-            let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-            env(key)
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."))
-        };
+        let home = || platform::home(env).unwrap_or_else(|| PathBuf::from("."));
         let base = if cfg!(windows) {
             env("APPDATA").map(PathBuf::from).unwrap_or_else(home)
         } else {
@@ -315,6 +312,17 @@ mod tests {
             Path::new("home")
                 .join("gow3-launcher")
                 .join("settings.json")
+        );
+    }
+
+    #[test]
+    fn an_empty_home_falls_back_to_the_current_folder() {
+        let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let paths = Paths::from_env(Path::new("exe"), &env_of(&[(key, "")]));
+        let base = if cfg!(windows) { "." } else { "./.config" };
+        assert_eq!(
+            paths.legacy_config_file(),
+            Path::new(base).join("gow3-launcher").join("settings.json")
         );
     }
 

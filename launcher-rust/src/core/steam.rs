@@ -204,10 +204,7 @@ pub fn steam_roots_from(windows: bool, registry: Option<PathBuf>, home: &Path) -
 
 /// [`steam_roots_from`] for this machine and user.
 pub fn steam_roots() -> Vec<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default();
+    let home = platform::home(&|key| std::env::var(key).ok()).unwrap_or_default();
     steam_roots_from(cfg!(windows), platform::steam_path_from_registry(), &home)
 }
 

@@ -14,6 +14,7 @@ use crate::core::desktop::{host_environment, windows_shortcut, write_linux_short
 use crate::core::i18n::{tr, tr_fmt};
 use crate::core::options::{ui_scale_choice, UI_LANGUAGES, UI_SCALES, VIDEO_BACKENDS};
 use crate::core::paths::Paths;
+use crate::core::platform;
 use crate::core::settings::Settings;
 use crate::core::steam::{self, Added, Shortcut, SteamError};
 use crate::core::steam_art;
@@ -448,7 +449,7 @@ fn make_shortcut(paths: &Paths) -> Result<Vec<String>, String> {
         .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
         .unwrap_or_default();
     let desktop = if desktop.is_empty() {
-        PathBuf::from(env_var("HOME").unwrap_or_default()).join("Desktop")
+        platform::home(&env_var).unwrap_or_default().join("Desktop")
     } else {
         PathBuf::from(desktop)
     };
