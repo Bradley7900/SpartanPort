@@ -270,6 +270,19 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
     if (gbuffer_draw) {
         camera_motion->OnGBufferPass(db_desc.first);
     }
+    // SpartanPort has no G-buffer: its depth pre-pass (no color target bound, its color slot may be
+    // declared; depth written at the render size; shadow cascades are square) binds the
+    // camera's view-projection in vertex slot 1.
+    prepass_depth = {};
+    bool color_bound = false;
+    for (s32 cb = 0; cb < std::bit_width(key.mrt_mask); ++cb) {
+        color_bound |= bool(cb_descs[cb].first);
+    }
+    if (camera_motion->Enabled() && !color_bound && db_desc.first &&
+        regs.depth_control.depth_write_enable) {
+        const auto& depth = texture_cache.GetImage(db_desc.first);
+        if (depth.info.size.width > depth.info.size.height) prepass_depth = db_desc.first;
+    }
     if (upscaler->Enabled() && cb_descs[0].first) {
         upscaler->OnColorTarget(cb_descs[0].first);
     }
@@ -295,6 +308,25 @@ void Rasterizer::PrepareRenderState(const GraphicsPipeline* pipeline) {
             }
         }
     }
+}
+
+bool Rasterizer::JitteredDepth(VideoCore::ImageId depth) {
+    const auto scene = camera_motion->Depth();
+    if (!depth || !scene) {
+        return false;
+    }
+    if (depth == scene) {
+        return true;
+    }
+    // SpartanPort draws its characters and effects with a second scene-size depth target (passes
+    // #41-#43 of frame_20261024-233122_3.txt): unjittered, FSR would shift them every frame.
+    if (!camera_motion->PrepassCamera() || !upscaler->SceneOpen()) {
+        return false;
+    }
+    const auto& a = texture_cache.GetImage(depth);
+    const auto& b = texture_cache.GetImage(scene);
+    return a.info.size.width == b.info.size.width && a.info.size.height == b.info.size.height &&
+           a.info.pixel_format == b.info.pixel_format;
 }
 
 static std::pair<u32, u32> GetDrawOffsets(
@@ -988,7 +1020,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     DiagPassBoundary(false);
     const auto& regs = Regs();
     // spartanport: the pass copying a finished frame to a display buffer; the previous draw's
-    // target is that frame. Once per display buffer: GOW3PC copies with two draws and draws its
+    // target is that frame. Once per display buffer: SpartanPort copies with two draws and draws its
     // HUD there too, and a second frame start would drop the camera history every frame.
     if (camera_motion->Enabled() && regs.color_buffers[0] &&
         FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address()) &&
@@ -1020,6 +1052,10 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     motion_geometry = 0;
 
     PrepareRenderState(pipeline);
+    if (upscaler->Enabled() && pipeline->GetGraphicsKey().mrt_mask) {
+        upscaler->OnGraphicsDraw(pipeline->GetStage(Shader::SwStage::Fragment).pgm_hash,
+                                 cb_descs[0].first);
+    }
     if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
         const auto& viewport = Regs().viewports[0];
         upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
@@ -1145,7 +1181,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     // spartanport: jitter geometry drawn with the scene depth, not full-screen passes (a shifted
     // full-screen quad leaves an edge column unwritten).
     draw_jitter = {};
-    if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth() &&
+    if (upscaler->Enabled() && JitteredDepth(db_desc.first) &&
         (regs.num_indices > 6 || regs.num_instances.NumInstances() > 1)) {
         draw_jitter = upscaler->Jitter();
     }
@@ -1244,6 +1280,10 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     motion_draw = false;
     motion_geometry = 0;
     PrepareRenderState(pipeline);
+    if (upscaler->Enabled() && pipeline->GetGraphicsKey().mrt_mask) {
+        upscaler->OnGraphicsDraw(pipeline->GetStage(Shader::SwStage::Fragment).pgm_hash,
+                                 cb_descs[0].first);
+    }
     if (upscaler->Enabled() && std::popcount(pipeline->GetGraphicsKey().mrt_mask) == 1) {
         const auto& viewport = Regs().viewports[0];
         upscaler->OnDraw(pipeline->GetStage(Shader::SwStage::Vertex).pgm_hash,
@@ -1282,7 +1322,7 @@ void Rasterizer::DrawIndirectRecord(const GraphicsPipeline* pipeline, bool is_in
     push_data.yoffset *= target_scale[1];
     pipeline->BindResources(set_writes, push_data);
     draw_jitter = {};
-    if (upscaler->Enabled() && db_desc.first && db_desc.first == camera_motion->Depth()) {
+    if (upscaler->Enabled() && JitteredDepth(db_desc.first)) {
         draw_jitter = upscaler->Jitter();
     }
     UpdateDynamicState(pipeline, is_indexed);
@@ -1345,6 +1385,7 @@ void Rasterizer::DispatchDirect() {
 void Rasterizer::DispatchRecord(const ComputePipeline* pipeline) {
     FrameCapture::Poll();
     gbuffer_draw = false;
+    prepass_depth = {};
 
     scheduler.PopPendingOperations();
     DiagPassBoundary(true);
@@ -2133,6 +2174,11 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                     memory->IsValidGpuMapping(ring->address, 0)) {
                     camera_motion->OnConstants(reinterpret_cast<const float*>(ring->address));
                 }
+                if (prepass_depth && buffer_index == 1 && ring->size >= 64 &&
+                    stage.sw_stage == Shader::SwStage::Vertex) {
+                    camera_motion->OnViewProjection(
+                        reinterpret_cast<const float*>(constant_ring->Data(ring->offset)), prepass_depth);
+                }
                 push_data.AddOffset(binding.buffer, 0);
             }
             buffer_infos.emplace_back(constant_ring->Handle(), ring->offset, ring->size);
@@ -2193,6 +2239,12 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
             if (vsharp.GetSize() == 864 && gbuffer_draw &&
                 memory->IsValidGpuMapping(vsharp.base_address, 0)) {
                 camera_motion->OnConstants(reinterpret_cast<const float*>(vsharp.base_address));
+            }
+            if (prepass_depth && buffer_index == 1 && vsharp.GetSize() >= 64 &&
+                stage.sw_stage == Shader::SwStage::Vertex &&
+                memory->IsValidGpuMapping(vsharp.base_address, 0)) {
+                camera_motion->OnViewProjection(reinterpret_cast<const float*>(vsharp.base_address),
+                                                prepass_depth);
             }
             // Object motion research: the vertex shader buffers of G-buffer draws.
             if (FrameCapture::Active() && gbuffer_draw && stage.sw_stage == Shader::SwStage::Vertex &&

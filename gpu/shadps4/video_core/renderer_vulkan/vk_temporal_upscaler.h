@@ -91,6 +91,15 @@ public:
     void OnDraw(u64 vs_hash, VideoCore::ImageId color, VideoCore::ImageId depth,
                 bool native_viewport);
 
+    /// SpartanPort (no HDR scene color, no trigger compute): every draw, before it runs, with its
+    /// pixel shader. The draw after the full-screen composite (ldr_trigger_ps, docs/upscaler.md)
+    /// runs FSR on the composite's RGBA8 sRGB result, before any HUD is drawn into it.
+    void OnGraphicsDraw(u64 ps_hash, VideoCore::ImageId color);
+    /// Before the composite this frame: scene draws still take the jitter.
+    [[nodiscard]] bool SceneOpen() const noexcept {
+        return !done_this_frame && !ldr_pending;
+    }
+
     /// A pass's first color target: the last render-size RGBA8 target before the UI is the
     /// game's finished frame.
     void OnColorTarget(VideoCore::ImageId color);
@@ -141,6 +150,8 @@ private:
 
     void Run();
     void RunScaled();
+    /// FSR 3 at 1:1 on an RGBA8 (sRGB) scene color, written back with a blit.
+    void RunLdr();
     void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth);
     void EnsureUiResources(u32 width, u32 height, vk::Format color, vk::Format depth);
     void PrepareUiDepth(VideoCore::ImageId depth);
@@ -196,6 +207,10 @@ private:
     bool failed = false;
     u64 trigger_hash = 0x9a9cf8a9;
     VideoCore::ImageId scene_color{};
+    /// SpartanPort's composite pass (frame_20261024-233122_3.txt pass #73): its target is the scene
+    /// color before the HUD. SPARTAN_UPSCALER_LDR_TRIGGER overrides it (hex).
+    u64 ldr_trigger_ps = 0x0c20ededc9e7c40cull;
+    bool ldr_pending = false;
     bool done_this_frame = false;
     u32 preset_file_frames = 0; ///< SPARTAN_PRESET_FILE polling
     int applied_output = -1;

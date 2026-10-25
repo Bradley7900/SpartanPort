@@ -335,7 +335,11 @@ private:
     std::unique_ptr<ObjectMotion> object_motion;
     bool motion_draw = false;
     u64 motion_geometry{};    ///< vertex-stream identity of the current direct draw
+    /// The draw's depth target takes the upscaler's jitter (the scene's, or SpartanPort's second one).
+    bool JitteredDepth(VideoCore::ImageId depth);
     bool gbuffer_draw = false;
+    /// SpartanPort: this draw's depth when it is a depth-only pass at the render size (the depth pre-pass).
+    VideoCore::ImageId prepass_depth{};
     std::unique_ptr<TemporalUpscaler> upscaler; // spartanport: FSR (docs/upscaler.md)
     std::array<float, 2> draw_jitter{};         ///< viewport offset of the current draw, pixels
     std::array<float, 2> target_scale{1.0f, 1.0f}; ///< pass drawn into the upscaler's output-size images
