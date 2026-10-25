@@ -80,11 +80,15 @@ void FsrPass::Create(vk::Device device, VmaAllocator allocator, u32 num_images, 
         .size = sizeof(FSRConstants),
     };
 
-    const auto& cs_easu_module = CompileSPV(use_fp16 ? FSR_EASU_COMP : FSR_EASU_F32_COMP, device);
+    const std::span<const u32> easu_code =
+        use_fp16 ? std::span<const u32>{FSR_EASU_COMP} : std::span<const u32>{FSR_EASU_F32_COMP};
+    const auto& cs_easu_module = CompileSPV(easu_code, device);
     ASSERT(cs_easu_module);
     SetObjectName(device, cs_easu_module, "fsr.comp [EASU]");
 
-    const auto& cs_rcas_module = CompileSPV(use_fp16 ? FSR_RCAS_COMP : FSR_RCAS_F32_COMP, device);
+    const std::span<const u32> rcas_code =
+        use_fp16 ? std::span<const u32>{FSR_RCAS_COMP} : std::span<const u32>{FSR_RCAS_F32_COMP};
+    const auto& cs_rcas_module = CompileSPV(rcas_code, device);
     ASSERT(cs_rcas_module);
     SetObjectName(device, cs_rcas_module, "fsr.comp [RCAS]");
 
