@@ -31,14 +31,21 @@ pub struct Device {
 pub enum JoyError {
     #[error("SDL3 was not found. Use a complete port installation or build the project first.")]
     Missing,
-    /// The library did not load, or lacks a function; the text has the system's reason.
+    /// The library did not load, or lacks a function. The text has the system's reason, so the
+    /// error is not also its `source` (an error chain would repeat it).
     #[error("{}", loader_error(.0))]
-    Library(#[from] libloading::Error),
+    Library(libloading::Error),
     /// What `SDL_GetError` said.
     #[error("{0}")]
     Sdl(String),
     #[error("Controller disconnected. Reconnect it and choose Refresh.")]
     Disconnected,
+}
+
+impl From<libloading::Error> for JoyError {
+    fn from(error: libloading::Error) -> JoyError {
+        JoyError::Library(error)
+    }
 }
 
 /// The gamepad buttons the preview names, in SDL's order.
@@ -149,7 +156,7 @@ sdl_api! {
 }
 
 /// SDL3's joysticks and gamepads. Dropping it closes the device, stops SDL's gamepad subsystem
-/// and puts the hints back; the library stays loaded (see [`LOADED`]).
+/// and puts the hints back; the library stays loaded for the rest of the process.
 pub struct Sdl3 {
     api: Api,
     platform: String,
@@ -791,6 +798,8 @@ mod tests {
         assert!(said.contains("(os error "), "{said}");
         #[cfg(not(windows))]
         assert!(said.contains(&broken.display().to_string()), "{said}");
+        // The text already holds the reason: as a source too, an error chain would repeat it.
+        assert!(std::error::Error::source(&error).is_none(), "{error:?}");
     }
 
     #[test]
