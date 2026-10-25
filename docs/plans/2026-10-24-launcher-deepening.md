@@ -73,7 +73,7 @@ antes de cada task.
 
 ## Candidato 01: catálogo de settings (spec §4 / 01)
 
-### Task 1: catálogo, `Settings::{flag,text}` e `Store`
+### Task 1: catálogo, `Settings::{flag,text}` e `Store` ✅
 
 **Files:**
 - Create: `launcher-rust/src/core/catalog.rs`, `launcher-rust/src/core/store.rs`
@@ -99,7 +99,7 @@ antes de cada task.
   - Ini é ligado quando `== "1"`;
   - chave ausente lê o default da tabela.
 
-- [ ] **Step 1: Write the failing tests** (em `catalog.rs` e `store.rs`, `#[cfg(test)] mod tests`)
+- [x] **Step 1: Write the failing tests** (em `catalog.rs` e `store.rs`, `#[cfg(test)] mod tests`)
 
 ```rust
 #[test]
@@ -152,20 +152,20 @@ fn ini_to_write_normalizes_only_shown_flags() {
 }
 ```
 
-- [ ] **Step 2: Run, expect FAIL** (não compila: os itens não existem)
+- [x] **Step 2: Run, expect FAIL** (não compila: os itens não existem)
 
 Run: `cargo test --lib catalog store`
 
-- [ ] **Step 3: Implement** a tabela e o `Store`.
+- [x] **Step 3: Implement** a tabela e o `Store`.
   - `Store::load` usa `read_app_settings` e `read_ini` e devolve os arquivos ilegíveis do jeito
     que `ui/app.rs` monta hoje.
   - `ini_to_write` aplica a normalização que hoje está em `persist::gather` (`persist.rs:136-139`)
     só às chaves de `SHOWN_INI_KEYS`.
 
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): describe every setting once`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): describe every setting once`)
 
-### Task 2: defaults e listas de chaves derivados da tabela
+### Task 2: defaults e listas de chaves derivados da tabela ✅
 
 **Files:**
 - Modify: `src/core/settings.rs:50` (`app_defaults` monta a partir de `SETTINGS`),
@@ -178,20 +178,20 @@ Run: `cargo test --lib catalog store`
   Ficam como `fn` ou `LazyLock` se `static` não for possível.
 - Os callers de `INI_FLAGS`/`INI_DEFAULTS`/`SHOWN_INI_KEYS` só mudam se o tipo mudar.
 
-- [ ] **Step 1: Guard test** em `catalog.rs`: `ini_lists_follow_the_table`. Ele compara
+- [x] **Step 1: Guard test** em `catalog.rs`: `ini_lists_follow_the_table`. Ele compara
   `INI_FLAGS`, `INI_DEFAULTS` e `SHOWN_INI_KEYS` (as listas escritas à mão de hoje) com as linhas
   Ini da tabela, na ordem. As linhas Ini `written: true` são as de `SHOWN_INI_KEYS`.
-- [ ] **Step 2: Run, expect PASS:** `cargo test --lib ini_lists_follow_the_table`. O teste fixa o
+- [x] **Step 2: Run, expect PASS:** `cargo test --lib ini_lists_follow_the_table`. O teste fixa o
   conteúdo de hoje: é um refactor, então ele passa antes e depois.
-- [ ] **Step 3: Implement** a derivação. `app_defaults` continua recebendo o `env` para o
+- [x] **Step 3: Implement** a derivação. `app_defaults` continua recebendo o `env` para o
   `SPARTAN_GAME_DIR`. O guard continua verde.
-- [ ] **Step 4:** O teste `persist.rs::shown_ini_keys_are_the_18_controls_of_the_window` vai para
+- [x] **Step 4:** O teste `persist.rs::shown_ini_keys_are_the_18_controls_of_the_window` vai para
   `catalog.rs` com o mesmo nome. Atualize a linha no mapa de paridade, se ela existir.
-- [ ] **Step 5: Gate G.** `cargo test --test fixtures` precisa continuar verde: são os bytes do
+- [x] **Step 5: Gate G.** `cargo test --test fixtures` precisa continuar verde: são os bytes do
   Python.
-- [ ] **Step 6: Commit** (`Refactor(Launcher): derive setting defaults from the catalog`)
+- [x] **Step 6: Commit** (`Refactor(Launcher): derive setting defaults from the catalog`)
 
-### Task 3: `State.store`, um checkbox, o fim das cópias
+### Task 3: `State.store`, um checkbox, o fim das cópias ✅
 
 **Files:**
 - Modify: `src/ui/app.rs` (campo `store: Store` no lugar de `settings` e `ini`; `apply_set`
@@ -211,7 +211,7 @@ Run: `cargo test --lib catalog store`
   `render_resolution`) são mantidos até a Task 21.
 - `launcher_effects` passa a ser lido por `state.store.flag("launcher_effects")`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 ```rust
 // tests/ui_widgets.rs, substitui checkbox_ini_emits_one_and_zero
@@ -236,21 +236,21 @@ fn a_stored_string_zero_shows_checked_like_the_game_gets_it() {   // ⚠ truthin
 }
 ```
 
-- [ ] **Step 2: Run, expect FAIL:**
+- [x] **Step 2: Run, expect FAIL:**
   `cargo test --test ui_widgets a_check_box_sends_a_bool` e os outros dois.
-- [ ] **Step 3: Implement** a migração.
+- [x] **Step 3: Implement** a migração.
   - Leitura: troque `state.settings.get_str(k)` por `state.store.text(k)`,
     `state.settings.get_bool(k)` e `ini_on(state, k)` por `state.store.flag(k)`, e
     `state.ini.values[k]` por `state.store.text(k)`.
   - Escrita: `state.settings.set` e `state.ini.values.insert` viram `state.store.set`.
   - Onde um caller precisa do objeto (`game_environment`, `runner::play`, `persist`), use
     `state.store.app()` ou `state.store.ini()`.
-- [ ] **Step 4:** Nos testes, as asserções `state.ini.values["k"]` viram `state.store.text("k")`.
+- [x] **Step 4:** Nos testes, as asserções `state.ini.values["k"]` viram `state.store.text("k")`.
   A exceção são as de `ui_save.rs`, que testam o arquivo.
-- [ ] **Step 5: Gate G**
-- [ ] **Step 6: Commit** (`Refactor(Launcher): read and write settings through one store`)
+- [x] **Step 5: Gate G**
+- [x] **Step 6: Commit** (`Refactor(Launcher): read and write settings through one store`)
 
-### Task 4: `env.rs` sobre o catálogo e o contrato launcher → runner
+### Task 4: `env.rs` sobre o catálogo e o contrato launcher → runner ✅
 
 **Files:**
 - Modify: `src/core/env.rs` (sai `truthy`/`flag` em env.rs:38-52; nomes, defaults e escolhas vêm
@@ -268,7 +268,7 @@ fn a_stored_string_zero_shows_checked_like_the_game_gets_it() {   // ⚠ truthin
   `catalog::run_default("SPARTAN_STREAM_MEMORY")`. `DEFAULT_ENGINE_FPS` vem do default da linha
   Ini `engine_fps`.
 
-- [ ] **Step 1: Failing tests** em `tests/env_contract.rs`
+- [x] **Step 1: Failing tests** em `tests/env_contract.rs`
 
 ```rust
 #[test]
@@ -287,17 +287,17 @@ fn environment_writes_no_file() {
 }
 ```
 
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test env_contract`
-- [ ] **Step 3: Implement.** A ordem de inserção das chaves no `IndexMap` continua a de hoje:
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test env_contract`
+- [x] **Step 3: Implement.** A ordem de inserção das chaves no `IndexMap` continua a de hoje:
   `tests/fixtures.rs` compara com o env do Python.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): build the game environment from the catalog`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): build the game environment from the catalog`)
 
 ---
 
 ## Candidato 02: plano e aplicação de patches (spec §4 / 02)
 
-### Task 5: `core/python.rs` e `graphics_options` no core (moves)
+### Task 5: `core/python.rs` e `graphics_options` no core (moves) ✅
 
 **Files:**
 - Create: `src/core/python.rs`, com `py_repr`, `py_list`, `py_hex`, `py_int`, `ensure_ascii` e
@@ -315,11 +315,11 @@ fn environment_writes_no_file() {
 - Produces: `crate::core::python::*` e `crate::core::graphics_options::*`, com os mesmos nomes de
   hoje.
 
-- [ ] **Step 1:** Este é um move puro, sem teste novo. Os testes que se movem são a prova.
-- [ ] **Step 2: Gate G.** O pytest dos mapas confirma os caminhos novos.
-- [ ] **Step 3: Commit** (`Refactor(Launcher): move the Python helpers and graphics options to core`)
+- [x] **Step 1:** Este é um move puro, sem teste novo. Os testes que se movem são a prova.
+- [x] **Step 2: Gate G.** O pytest dos mapas confirma os caminhos novos.
+- [x] **Step 3: Commit** (`Refactor(Launcher): move the Python helpers and graphics options to core`)
 
-### Task 6: `plan` e `PatchPlan`
+### Task 6: `plan` e `PatchPlan` ✅
 
 **Files:**
 - Modify: `src/core/patches.rs` (somar `PlanInput`, `Selection`, `External`, `PatchPlan`, `plan`
@@ -337,7 +337,7 @@ fn environment_writes_no_file() {
 - O resultado passa pelo join/split com `;`.
 - `plan` escreve `out/patches-merged.xml` uma única vez.
 
-- [ ] **Step 1: Failing tests** em `patches.rs` (`mod plan_tests`)
+- [x] **Step 1: Failing tests** em `patches.rs` (`mod plan_tests`)
   - `script_selection_is_patches_py`: `Selection::Script{extra: &["X"], only: false}` sobre
     `dump_with_patches`-like dá os defaults mais "X", como `PatchJob` dá hoje.
   - `launch_selection_adds_ini_resolution_and_top_frame_rate`
@@ -346,13 +346,13 @@ fn environment_writes_no_file() {
     "restrict" de hoje.
   - `mod_lines_are_logged_once` (⚠): o log tem exatamente 1 linha "from the mod file" por
     arquivo de mod.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib plan_tests`
-- [ ] **Step 3: Implement** `plan` reaproveitando o merge, a seleção e o `restrict` existentes.
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib plan_tests`
+- [x] **Step 3: Implement** `plan` reaproveitando o merge, a seleção e o `restrict` existentes.
   `PatchPlan` guarda o XML merged, os nomes finais, o profile e o caminho de saída.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): plan the patches in one call`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): plan the patches in one call`)
 
-### Task 7: `apply` e `Applied`; o runner, `runner_fixtures` e `dump` passam a usá-los
+### Task 7: `apply` e `Applied`; o runner, `runner_fixtures` e `dump` passam a usá-los ✅
 
 **Files:**
 - Modify:
@@ -369,7 +369,7 @@ fn environment_writes_no_file() {
 - Produces: `apply(&PatchPlan, &Path, &mut dyn Write) -> Result<Applied, PatchError>`.
   `Applied::environment()` devolve os pares na ordem de `run.py:300-311`.
 
-- [ ] **Step 1: Failing tests** em `patches.rs`
+- [x] **Step 1: Failing tests** em `patches.rs`
   - `apply_without_profile_writes_empty_patches_bin_and_no_status`
   - `a_skipped_frame_rate_patch_leaves_engine_at_60`
   - `applied_notes_give_dmem_and_vblank`
@@ -377,14 +377,14 @@ fn environment_writes_no_file() {
   - `applied_environment_in_run_py_order`: substitui
     `tests/runner.rs::a_corrupt_patch_status_defaults_the_engine_fps`. Apague esse teste e repasse
     a linha do mapa de paridade para o novo.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib apply`
-- [ ] **Step 3: Implement** e troque os três callers.
-- [ ] **Step 4: Gate G** e depois o **dump real**. `runner_fixtures::patches_match_python`
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib apply`
+- [x] **Step 3: Implement** e troque os três callers.
+- [x] **Step 4: Gate G** e depois o **dump real**. `runner_fixtures::patches_match_python`
   continua com os mesmos bytes e o mesmo log, menos as linhas duplicadas de mod: se o fixture
   tiver mod, o esperado do log perde a segunda linha, e isso é a única mudança aceitável.
-- [ ] **Step 5: Commit** (`Refactor(Launcher): apply the patch plan and return its needs`)
+- [x] **Step 5: Commit** (`Refactor(Launcher): apply the patch plan and return its needs`)
 
-### Task 8: interface pública reduzida e testes de compilação sobre `plan`/`apply`
+### Task 8: interface pública reduzida e testes de compilação sobre `plan`/`apply` ✅
 
 **Files:**
 - Modify: `src/core/patches.rs`. Um `#[doc(hidden)] pub mod compiler` reexporta
@@ -398,38 +398,38 @@ fn environment_writes_no_file() {
 **Interfaces:**
 - Produces: a interface pública da lista acima, e mais nada.
 
-- [ ] **Step 1:** Reescreva sobre `plan`/`apply` os ~15 testes de compilação que chamam
+- [x] **Step 1:** Reescreva sobre `plan`/`apply` os ~15 testes de compilação que chamam
   internals: `spartanport_defaults_and_extras`, `spartanport_resolution_patch_replaces_texture_fix`,
   `profiles_by_title_id`, `profile_by_title_for_any_region`, `merge_*`,
   `a_broken_mod_file_is_left_out`, `default_enabled_patches_of_a_mod`,
   `requirements_from_patch_notes`, `write_patches_*`, `write_status_*`,
   `a_game_without_a_profile_*`, `third_party_*`, `selection_and_unsupported_lines` e
   `a_repeated_external_name_*`. **Mantenha os nomes.**
-- [ ] **Step 2:** Torne privados os itens da lista. `cargo test --lib patches` precisa compilar e
+- [x] **Step 2:** Torne privados os itens da lista. `cargo test --lib patches` precisa compilar e
   passar.
-- [ ] **Step 3: Gate G**
-- [ ] **Step 4: Commit** (`Refactor(Launcher): narrow the patches interface`)
+- [x] **Step 3: Gate G**
+- [x] **Step 4: Commit** (`Refactor(Launcher): narrow the patches interface`)
 
-### Task 9: `mods::enabled_patch_files` devolve `Result` e o runner o usa
+### Task 9: `mods::enabled_patch_files` devolve `Result` e o runner o usa ✅
 
 **Files:**
 - Modify: `src/core/mods.rs:706` (`enabled_patch_files(...) -> Result<Vec<PathBuf>, ModsError>`,
   com o mesmo erro que o runner reporta hoje); `src/runner/mod.rs:436-446` passa a chamá-la
 
-- [ ] **Step 1: Failing test** em `mods.rs`: `enabled_patch_files_reports_a_bad_selection`. Um
+- [x] **Step 1: Failing test** em `mods.rs`: `enabled_patch_files_reports_a_bad_selection`. Um
   `mods.json` ilegível dá `Err`, e não uma lista vazia.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib enabled_patch_files_reports_a_bad_selection`
-- [ ] **Step 3: Implement** e troque o runner.
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib enabled_patch_files_reports_a_bad_selection`
+- [x] **Step 3: Implement** e troque o runner.
   `tests/runner.rs::a_broken_mods_json_stops_with_the_mods_message` continua passando com o mesmo
   texto.
-- [ ] **Step 4: Gate G** e depois o **dump real**.
-- [ ] **Step 5: Commit** (`Refactor(Launcher): share the enabled mod patch files`)
+- [x] **Step 4: Gate G** e depois o **dump real**.
+- [x] **Step 5: Commit** (`Refactor(Launcher): share the enabled mod patch files`)
 
 ---
 
 ## Candidato 03: runner atrás de um Host (spec §4 / 03)
 
-### Task 10: `core/platform/tool.rs`
+### Task 10: `core/platform/tool.rs` ✅
 
 **Files:**
 - Create: `src/core/platform/tool.rs` (declarado em `platform/mod.rs`)
@@ -444,7 +444,7 @@ fn environment_writes_no_file() {
   `tests/runner.rs:838` checa hoje.
 - O polling fica em 20 ms.
 
-- [ ] **Step 1: Failing test**
+- [x] **Step 1: Failing test**
 
 ```rust
 #[test]
@@ -460,13 +460,13 @@ fn a_hanging_tool_is_stopped_at_its_limit() {
 }
 ```
 
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test runner a_hanging_tool_is_stopped_at_its_limit`
-- [ ] **Step 3: Implement.** Use spawn, um poll de `try_wait` a cada 20 ms e `kill` no limite.
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test runner a_hanging_tool_is_stopped_at_its_limit`
+- [x] **Step 3: Implement.** Use spawn, um poll de `try_wait` a cada 20 ms e `kill` no limite.
   `Window::Hidden` aplica `CREATE_NO_WINDOW` no Windows.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): run tools with a limit in one place`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): run tools with a limit in one place`)
 
-### Task 11: `Host`, `SystemHost` e `run_with`
+### Task 11: `Host`, `SystemHost` e `run_with` ✅
 
 **Files:**
 - Create: `src/runner/host.rs`
@@ -490,7 +490,7 @@ fn a_hanging_tool_is_stopped_at_its_limit() {
   `fn context<'a>(&'a self, out: &'a mut dyn Write) -> RunContext<'a>`, com o port e o env de
   hoje.
 
-- [ ] **Step 1: Failing test** em `tests/runner.rs`: reescreva
+- [x] **Step 1: Failing test** em `tests/runner.rs`: reescreva
   `a_broken_mods_json_stops_with_the_mods_message` para rodar em processo.
 
 ```rust
@@ -504,12 +504,12 @@ assert!(String::from_utf8_lossy(&out).contains("Mods:"));
 assert!(host.calls.borrow().is_empty());    // parou antes do probe
 ```
 
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test runner a_broken_mods_json_stops_with_the_mods_message`
-- [ ] **Step 3: Implement** `Host` e `SystemHost` com o código movido sem mudar a lógica.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): put the runner's OS effects behind a host`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test runner a_broken_mods_json_stops_with_the_mods_message`
+- [x] **Step 3: Implement** `Host` e `SystemHost` com o código movido sem mudar a lógica.
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): put the runner's OS effects behind a host`)
 
-### Task 12: sai o `set_current_dir`; caminhos relativos a partir do port
+### Task 12: sai o `set_current_dir`; caminhos relativos a partir do port ✅
 
 **Files:**
 - Modify: `src/runner/mod.rs`. Sai a linha 409. `path_or`, `SPARTAN_CONFIG`, `SPARTAN_PATCH_DIR`
@@ -519,18 +519,18 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 **Interfaces:**
 - Produces: nenhuma assinatura nova. ⚠ Argv e log mostram os caminhos absolutos.
 
-- [ ] **Step 1: Failing tests** em `tests/runner.rs`
+- [x] **Step 1: Failing tests** em `tests/runner.rs`
   - `a_relative_data_dir_is_from_the_port`: o port fica numa pasta **com espaço**, `"port with
     space"` (Review Focus 2), e `SPARTAN_DATA_DIR=data2`. Depois do `run_with` com `FakeHost`,
     existe `port/data2/out/boot.bin`, e toda `call.cwd == Some(port)`.
   - `run_starts_the_probe_in_the_port` (ponta a ponta, exe real e fake-probe): o probe grava o
     `cwd` em `out/cwd.txt`, que precisa ser igual ao port.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test runner relative_data_dir`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Fix(Launcher): resolve the runner's relative paths from the port`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test runner relative_data_dir`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Fix(Launcher): resolve the runner's relative paths from the port`)
 
-### Task 13: os testes do runner em processo
+### Task 13: os testes do runner em processo ✅
 
 **Files:**
 - Modify:
@@ -547,7 +547,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 - Docs: as linhas dos mapas de paridade que citam os unit tests apagados apontam para os
   substitutos.
 
-- [ ] **Step 1:** Escreva os substitutos em processo, cada um falhando antes de existir:
+- [x] **Step 1:** Escreva os substitutos em processo, cada um falhando antes de existir:
   - `a_missing_movbe_gets_the_isa_table`: `cpu = "sse4_2 avx2"` faz o host ver `--isa-rewrite`;
   - `isa_rewrite_0_skips_it`;
   - `spartan_probe_is_the_program_started`;
@@ -556,16 +556,16 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - `a_pool_above_ram_warns`: `memory_mb: Some(4096)` faz o aviso aparecer no `out`;
   - `a_hanging_gamepad_probe_keeps_the_game_icons`: o host recebe
     `limit == Some(GAMEPAD_PROBE_LIMIT)` e responde `TimedOut`; o log tem a linha de hoje.
-- [ ] **Step 2:** Mova os demais casos, privatize e apague os antigos.
-- [ ] **Step 3: Gate G.** Registre no commit quantos testes de `tests/runner.rs` ainda sobem o
+- [x] **Step 2:** Mova os demais casos, privatize e apague os antigos.
+- [x] **Step 3: Gate G.** Registre no commit quantos testes de `tests/runner.rs` ainda sobem o
   exe: precisam ser 3, mais os 2 de `--play` que a Task 25 move.
-- [ ] **Step 4: Commit** (`Test(Launcher): run the runner tests in process`)
+- [x] **Step 4: Commit** (`Test(Launcher): run the runner tests in process`)
 
 ---
 
 ## Candidato 04: leitor SCE e codec G3PROBE (spec §4 / 04)
 
-### Task 14: `runner/sce.rs` com a camada de contêiner (move)
+### Task 14: `runner/sce.rs` com a camada de contêiner (move) ✅
 
 **Files:**
 - Create: `src/runner/sce.rs`. Recebe `parse_self`, `read_self`, `SelfInfo`, `ProgramHeader` e os
@@ -573,11 +573,11 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 - Modify: `src/runner/prepare.rs`. Reexporta (`pub use super::sce::{parse_self, read_self, …}`)
   para `tests/dump.rs:18` e `tests/runner_fixtures.rs:15`.
 
-- [ ] **Step 1:** Move puro, sem teste novo.
-- [ ] **Step 2: Gate G**
-- [ ] **Step 3: Commit** (`Refactor(Launcher): give SCE containers their own module`)
+- [x] **Step 1:** Move puro, sem teste novo.
+- [x] **Step 2: Gate G**
+- [x] **Step 3: Commit** (`Refactor(Launcher): give SCE containers their own module`)
 
-### Task 15: `SceModule::read`, `relocations()` e `ids()`
+### Task 15: `SceModule::read`, `relocations()` e `ids()` ✅
 
 **Files:**
 - Modify: `src/runner/sce.rs`. Soma `Symbol`, `SceModule` e os métodos da spec §4/04, mais
@@ -594,7 +594,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
     :210-211);
   - `relocations()` e `ids()` são lidos sob demanda.
 
-- [ ] **Step 1: Failing tests** em `sce.rs`
+- [x] **Step 1: Failing tests** em `sce.rs`
   - `stops_at_dt_null_for_every_stage`: um STRTAB isca depois do `DT_NULL` não é usado.
   - `a_partial_symbol_table_is_named_by_every_stage`: o erro contém "bad symbol table size".
   - `a_partial_relocation_table_is_named`
@@ -602,12 +602,12 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - `plain_names_refused_or_unlinkable`
   - `resolve_gives_absolute_defined_or_undefined`
   - `import_kind_and_addend_rule`
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib sce`
-- [ ] **Step 3: Implement** reaproveitando o código de `link_libc::load`.
-- [ ] **Step 4: Gate G.** `runner_fixtures` link continua com os mesmos bytes.
-- [ ] **Step 5: Commit** (`Refactor(Launcher): read an SCE module once`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib sce`
+- [x] **Step 3: Implement** reaproveitando o código de `link_libc::load`.
+- [x] **Step 4: Gate G.** `runner_fixtures` link continua com os mesmos bytes.
+- [x] **Step 5: Commit** (`Refactor(Launcher): read an SCE module once`)
 
-### Task 16: `prepare` e `inspect_libc` sobre `SceModule`; um interpretador de relocações
+### Task 16: `prepare` e `inspect_libc` sobre `SceModule`; um interpretador de relocações ✅
 
 **Files:**
 - Modify:
@@ -621,15 +621,15 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 - No link_modules, o caso weak-null continua antes da checagem de addend (:237-239 antes de
   :241-243).
 
-- [ ] **Step 1: Failing test** em `prepare.rs`: `inspect_libc_stops_at_dt_null`. Uma tag
+- [x] **Step 1: Failing test** em `prepare.rs`: `inspect_libc_stops_at_dt_null`. Uma tag
   `_init_env` falsa depois do `DT_NULL` é ignorada.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib inspect_libc_stops_at_dt_null`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G.** Nos mapas de paridade, as mensagens "out of bounds" de link_libc,
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib inspect_libc_stops_at_dt_null`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G.** Nos mapas de paridade, as mensagens "out of bounds" de link_libc,
   link_modules e inspect_libc que algum teste cite passam para "bad … table size".
-- [ ] **Step 5: Commit** (`Refactor(Launcher): resolve relocations through the SCE module`)
+- [x] **Step 5: Commit** (`Refactor(Launcher): resolve relocations through the SCE module`)
 
-### Task 17: codec `probe_image`, os quatro estágios sobre ele e a visibilidade
+### Task 17: codec `probe_image`, os quatro estágios sobre ele e a visibilidade ✅
 
 **Files:**
 - Create: `src/runner/probe_image.rs`
@@ -653,7 +653,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - nome com mais de 127 bytes: `"import name too long"` no Prepared e `"name too long"` nos
     demais.
 
-- [ ] **Step 1: Failing tests** em `probe_image.rs`
+- [x] **Step 1: Failing tests** em `probe_image.rs`
   - `round_trips_every_version`
   - `decode_checks_the_magic_before_anything`
   - `decode_refuses_a_trailer_and_non_utf8_names`
@@ -667,16 +667,16 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - `read_boot_linked_refuses_a_trailer` (⚠ decode estrito);
   - `a_corrupt_boot_linked_skips_the_isa_table` (Review Focus 5): com um `boot-linked.bin`
     corrompido, o runner segue, o log tem a mensagem de erro do ISA rewrite e o código não muda.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib probe_image`
-- [ ] **Step 3: Implement** e troque os quatro estágios.
-- [ ] **Step 4: Gate G** e depois o **dump real**. Os bytes de prepare, link e isa ficam idênticos.
-- [ ] **Step 5: Commit** (`Refactor(Launcher): encode and decode probe images in one codec`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib probe_image`
+- [x] **Step 3: Implement** e troque os quatro estágios.
+- [x] **Step 4: Gate G** e depois o **dump real**. Os bytes de prepare, link e isa ficam idênticos.
+- [x] **Step 5: Commit** (`Refactor(Launcher): encode and decode probe images in one codec`)
 
 ---
 
 ## Candidato 05: Installation do jogo (spec §4 / 05)
 
-### Task 18: `GameFolder`
+### Task 18: `GameFolder` ✅
 
 **Files:**
 - Modify:
@@ -691,15 +691,15 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 - Produces: `GameFolder::{read, title_id, app_version, profile, info}` (spec §4/05).
   `patches::game_title_id` continua público e passa a delegar.
 
-- [ ] **Step 1: Failing test** em `game.rs`: `a_game_folder_reads_param_sfo_once`. Grave um
+- [x] **Step 1: Failing test** em `game.rs`: `a_game_folder_reads_param_sfo_once`. Grave um
   `sce_sys/param.sfo` com `TITLE_ID=CUSA01623` e `APP_VER=01.02`; leia; apague o arquivo; os
   getters continuam respondendo.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib a_game_folder_reads_param_sfo_once`
-- [ ] **Step 3: Implement** e migre os callers.
-- [ ] **Step 4: Gate G.** `runner_fixtures` fica verde.
-- [ ] **Step 5: Commit** (`Refactor(Launcher): read a game folder's facts once`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib a_game_folder_reads_param_sfo_once`
+- [x] **Step 3: Implement** e migre os callers.
+- [x] **Step 4: Gate G.** `runner_fixtures` fica verde.
+- [x] **Step 5: Commit** (`Refactor(Launcher): read a game folder's facts once`)
 
-### Task 19: `Installation` e `Verdict`
+### Task 19: `Installation` e `Verdict` ✅
 
 **Files:**
 - Create: `src/core/installation.rs`
@@ -720,7 +720,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
     arquivo;
   - `passes()` = jogo completo, pastas diferentes e update completo (o `ready_to_play` de hoje).
 
-- [ ] **Step 1: Failing tests** em `installation.rs` (tempdir)
+- [x] **Step 1: Failing tests** em `installation.rs` (tempdir)
   - `meta_folder_is_the_update_only_with_its_eboot`
   - `facts_come_from_the_meta_folder`
   - `system_files_prefer_the_update_file_by_file`
@@ -728,14 +728,14 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - `same_folder_counts_an_empty_game_folder_as_here` (⚠): `read("", ".")` dá
     `same_folder == true`
   - `passes_is_ready_to_play`, com os casos de `game.rs:406-467`
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib installation`
-- [ ] **Step 3: Implement.** Apague os testes de `game.rs` substituídos (`a_complete_dump_is_ready`,
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib installation`
+- [x] **Step 3: Implement.** Apague os testes de `game.rs` substituídos (`a_complete_dump_is_ready`,
   `update_in_the_same_folder_is_not_ready` e as metades meta_folder/profile) e os asserts de
   `trophies.rs:348-353` e `patches.rs:2354-2359`. Atualize os mapas.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): answer the game's facts from one installation`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): answer the game's facts from one installation`)
 
-### Task 20: `State.installation` na UI
+### Task 20: `State.installation` na UI ✅
 
 **Files:**
 - Modify:
@@ -753,13 +753,13 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 - O refresh de `state.installation` fica nos lugares onde hoje se chama `refresh_facts`, até a
   Task 21.
 
-- [ ] **Step 1: Failing test** em `tests/ui_setup.rs`:
+- [x] **Step 1: Failing test** em `tests/ui_setup.rs`:
   `setup_and_play_give_the_same_verdict`. Para 3 pares de pastas (completo; jogo sem
   `eboot.bin`; mesma pasta), o setup bloqueia se e somente se o PLAY recusa, e com o mesmo texto.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_setup setup_and_play_give_the_same_verdict`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): let the window read one installation`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_setup setup_and_play_give_the_same_verdict`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): let the window read one installation`)
 
 ---
 
@@ -834,7 +834,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
 
 ## Candidato 07: um spawner do jogo (spec §4 / 07)
 
-### Task 23: `returncode` (-N para sinal)
+### Task 23: `returncode` (-N para sinal) ✅
 
 **Files:**
 - Modify:
@@ -844,7 +844,7 @@ assert!(host.calls.borrow().is_empty());    // parou antes do probe
   - `tests/launch.rs:106`: o esperado vira `if cfg!(windows) { 1 } else { -15 }`;
   - o doc de `GameEvent::Exited`.
 
-- [ ] **Step 1: Failing test** em `tests/launch.rs`
+- [x] **Step 1: Failing test** em `tests/launch.rs`
 
 ```rust
 #[cfg(unix)]
@@ -854,14 +854,14 @@ fn a_signal_exit_is_minus_the_signal() {
 }
 ```
 
-- [ ] **Step 2: Run, expect FAIL** no WSL (ver Global Constraints):
+- [x] **Step 2: Run, expect FAIL** no WSL (ver Global Constraints):
   `cargo test --test launch a_signal_exit_is_minus_the_signal`
-- [ ] **Step 3: Implement.** No unix: `status.code().unwrap_or_else(|| -status.signal().unwrap_or(1))`.
+- [x] **Step 3: Implement.** No unix: `status.code().unwrap_or_else(|| -status.signal().unwrap_or(1))`.
   No Windows: `status.code().unwrap_or(-1)`.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Fix(Launcher): report a signal exit as minus the signal`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Fix(Launcher): report a signal exit as minus the signal`)
 
-### Task 24: `Launch`, `Group`, `Exit` e o conselho no log; a UI usa o novo spawner
+### Task 24: `Launch`, `Group`, `Exit` e o conselho no log; a UI usa o novo spawner ✅
 
 **Files:**
 - Modify:
@@ -880,19 +880,19 @@ fn a_signal_exit_is_minus_the_signal() {
 - Produces: `Launch`, `Group::{Own, Caller}`, `Exit { code, hint }` e `spawn_game(Launch)`
   (spec §4/07). `lang` escolhe o texto do conselho (`ExitHint` + i18n de hoje).
 
-- [ ] **Step 1: Failing tests** em `tests/launch.rs`
+- [x] **Step 1: Failing tests** em `tests/launch.rs`
   - `the_last_hint_line_reaches_the_exit`: `fake_game --say "<linha de hint de memória>"` com
     saída 1 dá `Exit.hint == Some(ExitHint::…)`.
   - `a_failed_exit_writes_the_advice_to_the_run_log` (⚠): o `last_run.log` termina com
     `"\n{conselho}\n"`.
   - `a_clean_exit_writes_no_advice`
   - `caller_group_keeps_the_process_group` e `own_group_has_its_own` (unix, `getpgid`).
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test launch`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): carry the exit hint in the game session`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test launch`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): carry the exit hint in the game session`)
 
-### Task 25: `play_with` sobre `spawn_game(Group::Caller)`
+### Task 25: `play_with` sobre `spawn_game(Group::Caller)` ✅
 
 **Files:**
 - Modify:
@@ -906,19 +906,19 @@ fn a_signal_exit_is_minus_the_signal() {
 **Interfaces:**
 - Consumes: `spawn_game`, `Launch`, `Group::Caller` e `GameEvent` (Task 24).
 
-- [ ] **Step 1:** Reescreva os 2 testes para o `fake_game` e veja-os falhar: a assinatura ainda
+- [x] **Step 1:** Reescreva os 2 testes para o `fake_game` e veja-os falhar: a assinatura ainda
   recebe `exe`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test runner play_`
-- [ ] **Step 3: Implement.** Uma falha de start continua imprimindo `"{program}: {error}"` com
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test runner play_`
+- [x] **Step 3: Implement.** Uma falha de start continua imprimindo `"{program}: {error}"` com
   saída 1. O conselho no `--play` só sai com código diferente de 0, via `notify`.
-- [ ] **Step 4: Gate G** e depois o **dump real**.
-- [ ] **Step 5: Commit** (`Refactor(Launcher): play through the shared game session`)
+- [x] **Step 4: Gate G** e depois o **dump real**.
+- [x] **Step 5: Commit** (`Refactor(Launcher): play through the shared game session`)
 
 ---
 
 ## Candidato 08: `GameState::is_live()` (spec §4 / 08)
 
-### Task 26: `is_live` e `refuse_while_live`
+### Task 26: `is_live` e `refuse_while_live` ✅
 
 **Files:**
 - Modify:
@@ -935,7 +935,7 @@ fn a_signal_exit_is_minus_the_signal() {
   `LiveAction::{RestoreSaves, ResetTrophies, ClearShaderCache, Update}`. Cada ação usa o texto de
   hoje.
 
-- [ ] **Step 1: Failing test** em `tests/ui_play.rs`, que substitui :705-738
+- [x] **Step 1: Failing test** em `tests/ui_play.rs`, que substitui :705-738
 
 ```rust
 #[test]
@@ -948,13 +948,13 @@ fn every_live_action_is_refused_while_the_game_runs() {
 }
 ```
 
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_play every_live_action`
-- [ ] **Step 3: Implement.** Os asserts de `ui_pages.rs:686` e `:1828` viram
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_play every_live_action`
+- [x] **Step 3: Implement.** Os asserts de `ui_pages.rs:686` e `:1828` viram
   `!state.game.is_live()`.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): ask the game state whether it is live`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): ask the game state whether it is live`)
 
-### Task 27: construtores de `Modal`
+### Task 27: construtores de `Modal` ✅
 
 **Files:**
 - Modify:
@@ -963,19 +963,19 @@ fn every_live_action_is_refused_while_the_game_runs() {
     trophies.rs:143;
   - os 11 literais `Modal { title: APP_NAME … }` em 7 arquivos passam a usar os construtores.
 
-- [ ] **Step 1: Failing test** em `modal.rs`:
+- [x] **Step 1: Failing test** em `modal.rs`:
   `constructors_title_the_dialog_with_the_app_name`. Os quatro construtores dão
   `title == APP_NAME` e o `kind` certo.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib constructors_title_the_dialog`
-- [ ] **Step 3: Implement** e migre.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): build dialogs with one constructor each`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib constructors_title_the_dialog`
+- [x] **Step 3: Implement** e migre.
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): build dialogs with one constructor each`)
 
 ---
 
 ## Candidato 09: contexto da execução (spec §4 / 09)
 
-### Task 28: payloads da `Route`
+### Task 28: payloads da `Route` ✅
 
 **Files:**
 - Modify:
@@ -984,17 +984,17 @@ fn every_live_action_is_refused_while_the_game_runs() {
   - `src/main.rs`: saem os `args[1]`, `args[2]` (:70-71), `skip(1)` (:41) e `&args[1..]` (:87);
   - `tests/startup.rs:17-55, :349-352`.
 
-- [ ] **Step 1: Failing tests** em `tests/startup.rs`
+- [x] **Step 1: Failing tests** em `tests/startup.rs`
   - `install_update_carries_target_and_pid`: `["--install-update", "C:/t", "42"]` no Windows dá
     `InstallUpdate { target: "C:/t".into(), pid: 42 }`, e `"x"` dá `pid: 0`.
   - `run_carries_everything_after_it`
   - os testes de rota existentes passam a checar o payload.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test startup`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): carry each route's arguments`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test startup`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): carry each route's arguments`)
 
-### Task 29: `Context` e `start`; encaminhar antes do `Paths` em toda rota
+### Task 29: `Context` e `start`; encaminhar antes do `Paths` em toda rota ✅
 
 **Files:**
 - Modify:
@@ -1012,19 +1012,19 @@ fn every_live_action_is_refused_while_the_game_runs() {
   3. `start_up_environment`;
   4. `Paths::from_env`, que no `--run` usa o port resolvido.
 
-- [ ] **Step 1: Failing tests** em `tests/startup.rs`
+- [x] **Step 1: Failing tests** em `tests/startup.rs`
   - `every_route_forwards_old_names_before_paths`: com `GOW3_DATA_DIR=<tmp>/d`, as quatro rotas
     (Run, Play, InstallUpdate, Launcher) dão `context.paths.data_dir == <tmp>/d`. Corrige o
     `--install-update`.
   - `run_paths_start_at_the_resolved_port`
   - `windows_names_are_upper_case`: `start(..., [("spartan_x","1")], true)` dá
     `env["SPARTAN_X"] == "1"`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test startup forwards`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Fix(Launcher): forward the old names before every route's paths`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test startup forwards`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Fix(Launcher): forward the old names before every route's paths`)
 
-### Task 30: `RunPlan`
+### Task 30: `RunPlan` ✅
 
 **Files:**
 - Create: `src/runner/plan.rs`
@@ -1040,37 +1040,37 @@ fn every_live_action_is_refused_while_the_game_runs() {
   de hoje) e o jogo padrão `port.parent().join("CUSA01623")`.
 - Valor vazio = ausente (⚠).
 
-- [ ] **Step 1: Failing tests** em `plan.rs`
+- [x] **Step 1: Failing tests** em `plan.rs`
   - `defaults_are_the_paths_ones`: sem variáveis, `plan.data == paths.data_dir`,
     `plan.mods_config == paths.mods_json()` e assim por diante.
   - `variables_override_each_default`
   - `relative_values_are_from_the_port`
   - `empty_values_count_as_unset` (⚠): `SPARTAN_DATA_DIR=""` dá o default.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib plan`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): read the runner's settings into one plan`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib plan`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): read the runner's settings into one plan`)
 
-### Task 31: o plano lê os defaults do catálogo
+### Task 31: o plano lê os defaults do catálogo ✅
 
 **Files:**
 - Modify: `src/runner/plan.rs`. `mods_switch`, `stream_memory` e `glyph_style` usam
   `catalog::run_default`. O `mods_switch` mantém as duas leituras: `!= "0"` no passo 4, e outro
   valor dá saída 2 no passo 9 (runner/mod.rs:533-535).
 
-- [ ] **Step 1: Failing test:** `plan_reads_the_catalog_run_defaults`. Sem variáveis,
+- [x] **Step 1: Failing test:** `plan_reads_the_catalog_run_defaults`. Sem variáveis,
   `plan.mods_switch == catalog::run_default("SPARTAN_MODS_ENABLED").unwrap()`, e o mesmo para os
   outros dois.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib plan_reads_the_catalog_run_defaults`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): take the runner defaults from the catalog`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib plan_reads_the_catalog_run_defaults`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): take the runner defaults from the catalog`)
 
 ---
 
 ## Candidato 10: Updater atrás de `ReleaseHost` (spec §4 / 10)
 
-### Task 32: o port, `GitHubReleases`, `FakeReleases` e `State::with_host`
+### Task 32: o port, `GitHubReleases`, `FakeReleases` e `State::with_host` ✅
 
 **Files:**
 - Modify:
@@ -1091,19 +1091,19 @@ fn every_live_action_is_refused_while_the_game_runs() {
   equivalente. Se expuser, some `common::run_task(task) -> Vec<Message>`; se não, os testes
   alimentam `Checked`/`Done` à mão. Registre a escolha na mensagem do commit.
 
-- [ ] **Step 1: Failing tests** (`tests/ui_pages.rs`)
+- [x] **Step 1: Failing tests** (`tests/ui_pages.rs`)
   - `install_on_a_read_only_appimage_offers_the_page`: `target() = AppImage { writable: false }`
     faz o Install abrir o diálogo de página.
   - `install_from_a_source_tree_opens_the_page`: `target() = WindowsSource` faz o fake registrar
     `open_page(RELEASES_PAGE)`.
   - `ui_home` não toca mais a rede: `ui_home.rs:738-747` e `:942-945` passam pelo fake, e o teste
     checa que o fake recebeu `list` e `open_page`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages install_on_a_read_only_appimage`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): reach releases through a host`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages install_on_a_read_only_appimage`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): reach releases through a host`)
 
-### Task 33: o sub-state `Updater`
+### Task 33: o sub-state `Updater` ✅
 
 **Files:**
 - Modify:
@@ -1114,7 +1114,7 @@ fn every_live_action_is_refused_while_the_game_runs() {
   - `src/ui/splash.rs:194-201`: usa `start_up_check`;
   - `src/ui/version_menu.rs`, `src/ui/pages/advanced.rs:139, :322`: leem do `Updater`.
 
-- [ ] **Step 1: Failing tests** em `tests/ui_pages.rs`
+- [x] **Step 1: Failing tests** em `tests/ui_pages.rs`
   - `a_confirmed_install_shows_progress`: o fake manda 42; depois de drenar, o rótulo contém
     `"42%"`.
   - `a_silent_check_asks_the_host`
@@ -1123,12 +1123,12 @@ fn every_live_action_is_refused_while_the_game_runs() {
   - `a_failed_listing_shows_the_error_and_play_still_works` (Review Focus 4): `list() = Err("offline")`
     deixa `listing() == Listing::Failed` e o texto aparece. Em seguida, `Message::Play` com uma
     instalação válida ainda inicia o jogo.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages progress`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): keep the update flow in one sub-state`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages progress`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): keep the update flow in one sub-state`)
 
-### Task 34: testes do updater pela interface; helpers privados
+### Task 34: testes do updater pela interface; helpers privados ✅
 
 **Files:**
 - Modify:
@@ -1138,16 +1138,16 @@ fn every_live_action_is_refused_while_the_game_runs() {
   - `src/ui/update.rs`: `offer_decision`, `install_decision`, `Decision` e `InstallPlan` ficam
     privados.
 
-- [ ] **Step 1:** Migre os testes. Um teste que só testava um helper puro e tem equivalente na
+- [x] **Step 1:** Migre os testes. Um teste que só testava um helper puro e tem equivalente na
   Task 33 é apagado; a linha do mapa de paridade, se houver, passa a apontar o equivalente.
-- [ ] **Step 2: Gate G**
-- [ ] **Step 3: Commit** (`Test(Launcher): drive the updater through messages`)
+- [x] **Step 2: Gate G**
+- [x] **Step 3: Commit** (`Test(Launcher): drive the updater through messages`)
 
 ---
 
 ## Candidato 11: seam de plataforma completo (spec §4 / 11)
 
-### Task 35: `Tools`, `FakeTools` e `Host: Tools`; gpu, steam e legacy
+### Task 35: `Tools`, `FakeTools` e `Host: Tools`; gpu, steam e legacy ✅
 
 **Files:**
 - Modify:
@@ -1165,19 +1165,19 @@ fn every_live_action_is_refused_while_the_game_runs() {
 - Produces: `Tools::run(&self, &ToolCall) -> Result<ToolOutput, ToolError>` e `SystemTools`.
   `FakeTools` registra as chamadas e responde por programa.
 
-- [ ] **Step 1: Failing tests** em `gpu.rs`, `steam.rs` e `legacy.rs`
+- [x] **Step 1: Failing tests** em `gpu.rs`, `steam.rs` e `legacy.rs`
   - `gpus_come_from_the_tool_rows`
   - `a_failing_gpu_tool_lists_nothing`
   - `displays_run_under_the_chosen_backend`
   - `a_gamepad_line_means_connected`
   - `steam_running_reads_the_task_list`
   - `retarget_gives_up_on_timeout`: `FakeTools` responde `TimedOut` sem espera real.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib gpus_come_from_the_tool_rows`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): run every tool through one seam`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib gpus_come_from_the_tool_rows`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): run every tool through one seam`)
 
-### Task 36: funções simétricas e as duplicatas removidas
+### Task 36: funções simétricas e as duplicatas removidas ✅
 
 **Files:**
 - Modify:
@@ -1189,7 +1189,7 @@ fn every_live_action_is_refused_while_the_game_runs() {
     `guest_memory.rs:30-48`;
   - `runner/mod.rs:200-205`: sai o `cfg` (`has_console` existe nos dois).
 
-- [ ] **Step 1: Failing test** em `platform/unix.rs`:
+- [x] **Step 1: Failing test** em `platform/unix.rs`:
 
 ```rust
 #[cfg(unix)]
@@ -1202,14 +1202,14 @@ fn adding_keeps_other_mode_bits() {
 
   No Windows, `make_executable` é no-op que devolve `Ok(())`. Teste
   `make_executable_is_a_no_op_on_windows`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib make_executable` no Windows, e o teste unix
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib make_executable` no Windows, e o teste unix
   no WSL (ver Global Constraints).
-- [ ] **Step 3: Implement** e troque os callers. `desktop.rs` usa `Exec::Exactly` e `update.rs`
+- [x] **Step 3: Implement** e troque os callers. `desktop.rs` usa `Exec::Exactly` e `update.rs`
   usa `Exec::Adding`.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): give both systems the same platform functions`)
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): give both systems the same platform functions`)
 
-### Task 37: `home(Lookup)`
+### Task 37: `home(Lookup)` ✅
 
 **Files:**
 - Modify:
@@ -1218,15 +1218,15 @@ fn adding_keeps_other_mode_bits() {
   - os callers `paths.rs:57-62`, `desktop.rs:166-170, 397`, `legacy.rs:44-51, 242`,
     `steam.rs:207-210` e `advanced.rs:484`.
 
-- [ ] **Step 1: Failing test** em `platform/mod.rs`: `home_is_userprofile_or_home_never_empty`.
+- [x] **Step 1: Failing test** em `platform/mod.rs`: `home_is_userprofile_or_home_never_empty`.
   No Windows, `home(&|k| (k=="USERPROFILE").then(|| "C:/u".into())) == Some("C:/u")`; nos
   demais, com `HOME`. Um valor vazio dá `None`. Em `paths.rs`, com HOME vazio, o fallback é `"."`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib home_is_userprofile`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): find the home folder one way`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib home_is_userprofile`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): find the home folder one way`)
 
-### Task 38: o módulo `ipc`
+### Task 38: o módulo `ipc` ✅
 
 **Files:**
 - Create: `src/core/platform/ipc.rs`, com `trait Transport` e
@@ -1235,26 +1235,26 @@ fn adding_keeps_other_mode_bits() {
 - Modify: `src/runner/discord.rs`, cujos 10 gates `cfg` de produção passam a usar `ipc`. Os
   testes de transporte (:1442-1630) vão junto com o código.
 
-- [ ] **Step 1: Failing test** em `ipc.rs`: `connecting_to_a_missing_path_is_not_found`. Nos dois
+- [x] **Step 1: Failing test** em `ipc.rs`: `connecting_to_a_missing_path_is_not_found`. Nos dois
   sistemas, `connect` num caminho inexistente dá `ErrorKind::NotFound`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib connecting_to_a_missing_path`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Refactor(Launcher): open the Discord pipe through the platform`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib connecting_to_a_missing_path`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Refactor(Launcher): open the Discord pipe through the platform`)
 
-### Task 39: as leituras restantes de env recebem `Lookup`
+### Task 39: as leituras restantes de env recebem `Lookup` ✅
 
 **Files:**
 - Modify: `src/core/gpu.rs:251, 257`, `src/core/desktop.rs:392-401` e
   `src/runner/pause_menu.rs:2009, 2194`. Elas recebem `Lookup`; os callers do runner passam o env
   do `Context` (Task 29) e os da UI, o env do `State`.
 
-- [ ] **Step 1: Failing test** em `pause_menu.rs`: `the_label_reads_the_given_environment`. O
+- [x] **Step 1: Failing test** em `pause_menu.rs`: `the_label_reads_the_given_environment`. O
   rótulo usa o valor do `Lookup` passado, não o do processo.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib the_label_reads_the_given_environment`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G** e depois o **dump real** (o `pause_menu` gera bytes).
-- [ ] **Step 5: Commit** (`Refactor(Launcher): pass the environment to every reader`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib the_label_reads_the_given_environment`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G** e depois o **dump real** (o `pause_menu` gera bytes).
+- [x] **Step 5: Commit** (`Refactor(Launcher): pass the environment to every reader`)
 
 ---
 
@@ -1266,7 +1266,7 @@ Valem as mesmas Global Constraints, com três ajustes:
   `tools/launcher_i18n.py`) podem ganhar casos e são rodados com `py -3 tools/<nome>.py` na raiz;
 - os fixtures regerados entram no commit da task que porta a feature.
 
-### Task 40: F1, toolchain fixado e os 4 lints
+### Task 40: F1, toolchain fixado e os 4 lints ✅
 
 **Files:**
 - Modify: `launcher-rust/rust-toolchain.toml`, que passa a ter:
@@ -1285,13 +1285,13 @@ components = ["rustfmt", "clippy"]
   - `core/draw.rs` (`manual_range_contains`): `x >= a && x <= b` vira `(a..=b).contains(&x)`;
   - `startup.rs` (`nonminimal_bool`).
 
-- [ ] **Step 1:** Rode `rustc --version` em `launcher-rust/`. A saída precisa ser `rustc 1.99.1`.
-- [ ] **Step 2:** Corrija os 4 pontos sem mudar o comportamento.
-- [ ] **Step 3: Gate G.** O `cargo test` desta task recompila tudo por causa do profile; é
+- [x] **Step 1:** Rode `rustc --version` em `launcher-rust/`. A saída precisa ser `rustc 1.99.1`.
+- [x] **Step 2:** Corrija os 4 pontos sem mudar o comportamento.
+- [x] **Step 3: Gate G.** O `cargo test` desta task recompila tudo por causa do profile; é
   esperado.
-- [ ] **Step 4: Commit** (`Build(Launcher): pin the toolchain and trim debug info`)
+- [x] **Step 4: Commit** (`Build(Launcher): pin the toolchain and trim debug info`)
 
-### Task 41: F2, o fogo para com o jogo vivo
+### Task 41: F2, o fogo para com o jogo vivo ✅
 
 **Files:**
 - Modify: `src/ui/app.rs`, que ganha um `enum Clock { Fast, Idle, Off }` privado e
@@ -1310,19 +1310,19 @@ components = ["rustfmt", "clippy"]
 - Produces: `pub(crate) fn clock(state: &State) -> Clock`, visível para os testes via
   `#[doc(hidden)] pub`, se precisar.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - `the_fire_clock_slows_while_the_game_runs`: com effects ligado, janela visível e jogo
     `Running` (fake_game), `clock(&state) == Clock::Idle`.
   - `the_fire_does_not_advance_while_the_game_runs`: o estado do fogo antes e depois de 10
     `Message::Tick` é igual.
   - `the_fire_clock_comes_back_after_the_game_exits`: depois do `Exited`, `clock == Clock::Fast`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_play fire_clock`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Fix(Launcher): stop the fire while the game runs`). No corpo do commit:
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_play fire_clock`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Fix(Launcher): stop the fire while the game runs`). No corpo do commit:
   a causa (relógio de 33 ms com o jogo vivo, ~24% do FPS no A/B do testador) e o aceite manual.
 
-### Task 42: F3, merge de `main` e os mapas com os ports pendentes
+### Task 42: F3, merge de `main` e os mapas com os ports pendentes ✅
 
 **Files:**
 - Merge: `git merge --no-ff origin/main` (depois de `git fetch origin`). O `merge-tree` não acusa
@@ -1342,14 +1342,14 @@ components = ["rustfmt", "clippy"]
       (`test_cheats_is_between_game_settings_and_audio` →
       `test_graphics_and_cheats_follow_game_settings_before_audio`, `pending port (Task 49)`).
 
-- [ ] **Step 1:** `git fetch origin && git merge --no-ff origin/main`. A mensagem do merge segue o
+- [x] **Step 1:** `git fetch origin && git merge --no-ff origin/main`. A mensagem do merge segue o
   padrão `Merge origin/main into rust-launcher`.
-- [ ] **Step 2:** `py -3 -m pytest tests/test_launcher_parity_doc.py tests/test_runner_parity_doc.py -q`
+- [x] **Step 2:** `py -3 -m pytest tests/test_launcher_parity_doc.py tests/test_runner_parity_doc.py -q`
   mostra as linhas que faltam. Escreva-as com o status pendente até o pytest passar.
-- [ ] **Step 3: Gate G**, sem o dump. O `cargo test` precisa continuar verde.
-- [ ] **Step 4: Commit** dos mapas e checadores (`Docs(Launcher): map the ports pending from main`).
+- [x] **Step 3: Gate G**, sem o dump. O `cargo test` precisa continuar verde.
+- [x] **Step 4: Commit** dos mapas e checadores (`Docs(Launcher): map the ports pending from main`).
 
-### Task 43: F4, controles no layout 4 (core)
+### Task 43: F4, controles no layout 4 (core) ✅
 
 **Files:**
 - Modify: `src/core/controls.rs`:
@@ -1367,7 +1367,7 @@ components = ["rustfmt", "clippy"]
 - Modify: as expectativas de `controls.rs::keyboard_defaults_put_the_attacks_on_the_mouse`,
   `rage_switch_*` e `saved_keyboard_binds_keep_their_layout`.
 
-- [ ] **Step 1: Failing tests** em `controls.rs` (port dos testes Python de `main`, mesmos casos):
+- [x] **Step 1: Failing tests** em `controls.rs` (port dos testes Python de `main`, mesmos casos):
   - `the_wheel_cycles_the_weapons_by_default`: o default emite `weapon_next=Wheel Up` e
     `weapon_prev=Wheel Down`.
   - `layout_two_keeps_its_table_and_gets_the_weapon_cycle`
@@ -1384,16 +1384,16 @@ let map = saved.as_object().unwrap().clone();
 assert_eq!(migrate_controls(map.clone()), map);
 ```
 
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib controls`
-- [ ] **Step 3: Implement.** Siga `launcher/spartanport_launcher_win.py` de `main`.
-- [ ] **Step 4:** Regere os fixtures do launcher e confira com `git diff --stat launcher-rust/fixtures`
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib controls`
+- [x] **Step 3: Implement.** Siga `launcher/spartanport_launcher_win.py` de `main`.
+- [x] **Step 4:** Regere os fixtures do launcher e confira com `git diff --stat launcher-rust/fixtures`
   que só mudaram os casos do relatório (`defaults`, `edited`, `legacy_controls`, `collected`).
-- [ ] **Step 5:** Nos mapas, troque para `ported` as linhas destes testes. A guarda de layout
+- [x] **Step 5:** Nos mapas, troque para `ported` as linhas destes testes. A guarda de layout
   maior entra como desvio na seção de desvios do mapa do launcher.
-- [ ] **Step 6: Gate G**
-- [ ] **Step 7: Commit** (`Feat(Launcher): map the mouse wheel and the keyboard sticks`)
+- [x] **Step 6: Gate G**
+- [x] **Step 7: Commit** (`Feat(Launcher): map the mouse wheel and the keyboard sticks`)
 
-### Task 44: F4, controles no layout 4 (UI)
+### Task 44: F4, controles no layout 4 (UI) ✅
 
 **Files:**
 - Modify: `src/ui/pages/controls.rs`:
@@ -1405,15 +1405,15 @@ assert_eq!(migrate_controls(map.clone()), map);
 - Regenerate: `py -3 tools/launcher_i18n.py` (`assets/i18n.json`) e os snapshots
   `snapshots/controls-*.png` (pelo mecanismo de `tests/ui_snapshots.rs`).
 
-- [ ] **Step 1: Failing test** em `tests/ui_pages.rs`: `clear_input_unbinds_one_row`. Clique em
+- [x] **Step 1: Failing test** em `tests/ui_pages.rs`: `clear_input_unbinds_one_row`. Clique em
   "Clear input" na linha de Rage: `controls.keyboard.rage` vira `None` e as outras linhas não
   mudam.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages clear_input_unbinds_one_row`
-- [ ] **Step 3: Implement**, e regere o i18n e os snapshots.
-- [ ] **Step 4: Gate G**
-- [ ] **Step 5: Commit** (`Feat(Launcher): clear a keyboard input from its row`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_pages clear_input_unbinds_one_row`
+- [x] **Step 3: Implement**, e regere o i18n e os snapshots.
+- [x] **Step 4: Gate G**
+- [x] **Step 5: Commit** (`Feat(Launcher): clear a keyboard input from its row`)
 
-### Task 45: F4, glyphs com os sticks remapeados
+### Task 45: F4, glyphs com os sticks remapeados ✅
 
 **Files:**
 - Modify: `src/runner/glyphs.rs`: `VERSION` 11 → 12, `STICK_BINDINGS` e `key_buttons`
@@ -1422,17 +1422,17 @@ assert_eq!(migrate_controls(map.clone()), map);
   depois `py -3 tools/runner_fixtures.py`.
 - Modify: `glyphs.rs::key_map_moves_the_key` e `tests/runner_fixtures.rs` (o caso novo).
 
-- [ ] **Step 1: Failing tests:** `glyphs.rs::key_map_moves_the_key` atualizado e o caso novo de
+- [x] **Step 1: Failing tests:** `glyphs.rs::key_map_moves_the_key` atualizado e o caso novo de
   `runner_fixtures` (`keyboard_glyphs_label_the_remapped_sticks`), que compara com os PNGs do
   Python.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test runner_fixtures glyphs`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4:** Mapas: as linhas de `test_glyphs.py` passam a `ported`.
-- [ ] **Step 5: Gate G.** O dump real ainda falha em `real_glyph_*` e `real_menu_*`, e volta ao
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test runner_fixtures glyphs`
+- [x] **Step 3: Implement**
+- [x] **Step 4:** Mapas: as linhas de `test_glyphs.py` passam a `ported`.
+- [x] **Step 5: Gate G.** O dump real ainda falha em `real_glyph_*` e `real_menu_*`, e volta ao
   verde na Task 49.
-- [ ] **Step 6: Commit** (`Feat(Launcher): label the remapped sticks on the key glyphs`)
+- [x] **Step 6: Commit** (`Feat(Launcher): label the remapped sticks on the key glyphs`)
 
-### Task 46: F5, `graphics_options` com monitor, hdr, glyphs e anisotropia
+### Task 46: F5, `graphics_options` com monitor, hdr, glyphs e anisotropia ✅
 
 **Files:**
 - Modify: `src/core/graphics_options.rs`:
@@ -1445,21 +1445,21 @@ assert_eq!(migrate_controls(map.clone()), map);
 - Modify: `tools/runner_fixtures.py`, com um caso `graphics` com `environment=` para a migração;
   depois `py -3 tools/runner_fixtures.py`.
 
-- [ ] **Step 1: Failing tests** em `graphics_options.rs` (port dos 5 testes de `main`):
+- [x] **Step 1: Failing tests** em `graphics_options.rs` (port dos 5 testes de `main`):
   - `glyphs_and_anisotropy_survive_restart_and_recover_after_failure`
   - `invalid_glyphs_and_anisotropy_fall_back_to_defaults`
   - `monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart`
   - `legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart`
   - `invalid_monitor_and_hdr_fall_back_safely`: `monitor = "1x"` vira `""`, `monitor =
     "99999999999"` vira `""`, `glyph_style = "ps"` vira `"off"`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib graphics_options`
-- [ ] **Step 3: Implement**, e regere os fixtures. `runner_fixtures::graphics_matches_python`
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib graphics_options`
+- [x] **Step 3: Implement**, e regere os fixtures. `runner_fixtures::graphics_matches_python`
   passa com os bytes novos.
-- [ ] **Step 4:** Mapas: as linhas de `test_graphics_options.py` passam a `ported`.
-- [ ] **Step 5: Gate G**
-- [ ] **Step 6: Commit** (`Feat(Launcher): carry monitor, HDR, glyphs and anisotropy to the game`)
+- [x] **Step 4:** Mapas: as linhas de `test_graphics_options.py` passam a `ported`.
+- [x] **Step 5: Gate G**
+- [x] **Step 6: Commit** (`Feat(Launcher): carry monitor, HDR, glyphs and anisotropy to the game`)
 
-### Task 47: F5, linhas Ini semeadas de App no launcher
+### Task 47: F5, linhas Ini semeadas de App no launcher ✅
 
 **Files:**
 - Modify: `src/core/catalog.rs`:
@@ -1473,20 +1473,20 @@ assert_eq!(migrate_controls(map.clone()), map);
 - `INI_FLAGS` ganha `hdr` e `SHOWN_INI_KEYS` vai a 21, os dois pela tabela.
 - Regenerate: `py -3 tools/launcher_fixtures.py`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - `catalog.rs::seeded_ini_rows_name_their_app_key`
   - `store.rs::an_ini_row_is_seeded_from_settings_json_and_the_file_wins`
   - `tests/ui_pages.rs::glyph_style_ini_overrides_legacy_launcher_choice`
   - `tests/ui_pages.rs::ini_migrates_legacy_display_preferences_and_then_takes_precedence`
   - `env_contract.rs::hdr_is_always_one_or_zero`
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib seeded`
-- [ ] **Step 3: Implement**, e regere os fixtures.
-- [ ] **Step 4:** Mapas: as linhas de `test_launcher_monitor.py` e as de ini de
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib seeded`
+- [x] **Step 3: Implement**, e regere os fixtures.
+- [x] **Step 4:** Mapas: as linhas de `test_launcher_monitor.py` e as de ini de
   `test_launcher_controls.py` passam a `ported`.
-- [ ] **Step 5: Gate G**
-- [ ] **Step 6: Commit** (`Feat(Launcher): keep monitor, HDR and glyphs in the game ini`)
+- [x] **Step 5: Gate G**
+- [x] **Step 6: Commit** (`Feat(Launcher): keep monitor, HDR and glyphs in the game ini`)
 
-### Task 48: F6, menu de pausa: base, Graphics Settings e scrollbar
+### Task 48: F6, menu de pausa: base, Graphics Settings e scrollbar ✅
 
 **Files:**
 - Modify: `src/runner/pause_menu.rs`:
@@ -1499,7 +1499,7 @@ assert_eq!(migrate_controls(map.clone()), map);
 
   Siga `scripts/pause_menu.py` de `main`.
 
-- [ ] **Step 1: Failing tests** em `pause_menu.rs` (port dos testes de `main`, sobre o `Script`
+- [x] **Step 1: Failing tests** em `pause_menu.rs` (port dos testes de `main`, sobre o `Script`
   sintético dos testes existentes):
   - `graphics_anisotropy_and_controls_have_restart_and_reset_confirmation`
   - `graphics_initializes_only_its_four_controls_and_returns_to_its_link`
@@ -1512,13 +1512,13 @@ assert_eq!(migrate_controls(map.clone()), map);
   - `display_scrollbar_tracks_viewport_and_is_hidden_on_exit`
   - `cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit`
   - `the_last_block_ends_at_the_symbol_table`
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib pause_menu`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4:** Mapas: estas linhas passam a `ported`.
-- [ ] **Step 5: Gate G**, sem o dump.
-- [ ] **Step 6: Commit** (`Feat(Launcher): add the native graphics settings page`)
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib pause_menu`
+- [x] **Step 3: Implement**
+- [x] **Step 4:** Mapas: estas linhas passam a `ported`.
+- [x] **Step 5: Gate G**, sem o dump.
+- [x] **Step 6: Commit** (`Feat(Launcher): add the native graphics settings page`)
 
-### Task 49: F6, menu de pausa: Display, Controls e VERSION 22
+### Task 49: F6, menu de pausa: Display, Controls e VERSION 22 ✅
 
 **Files:**
 - Modify: `src/runner/pause_menu.rs`:
@@ -1531,21 +1531,21 @@ assert_eq!(migrate_controls(map.clone()), map);
   `real_menu_enemy_health_bar_*`, `real_menu_cheats_is_between…` (renomeado como o Python) e um
   teste novo `real_menu_display_scrolls`.
 
-- [ ] **Step 1: Failing tests** em `pause_menu.rs`:
+- [x] **Step 1: Failing tests** em `pause_menu.rs`:
   - `new_controls_labels_and_graphics_restore_are_bilingual`
   - `audio_clears_unused_rows_inherited_from_options`
   - `display_contains_eight_new_controls_and_keeps_its_original_rows`
   - `display_scrolls_without_overwriting_original_setting_values`
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib pause_menu`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G** e depois o **dump real**, que **volta ao verde** aqui:
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib pause_menu`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G** e depois o **dump real**, que **volta ao verde** aqui:
   `real_menu_wad_matches_python` e `real_glyph_wads_match_python_outside_the_painted_blocks`
   contra o Python de `main`.
-- [ ] **Step 5:** Mapas: as linhas restantes de `test_pause_menu.py` e `test_native_cheats.py`
+- [x] **Step 5:** Mapas: as linhas restantes de `test_pause_menu.py` e `test_native_cheats.py`
   passam a `ported`.
-- [ ] **Step 6: Commit** (`Feat(Launcher): add the native display and control rows`)
+- [x] **Step 6: Commit** (`Feat(Launcher): add the native display and control rows`)
 
-### Task 50: F7, `core/controller_mappings.rs` e o runner
+### Task 50: F7, `core/controller_mappings.rs` e o runner ✅
 
 **Files:**
 - Create: `src/core/controller_mappings.rs`, port de `scripts/controller_mappings.py` de `main`:
@@ -1570,7 +1570,7 @@ assert_eq!(migrate_controls(map.clone()), map);
   - `load_mapping(path: &Path, guid: &str, platform: &str) -> Option<String>`;
   - `save_mapping(path: &Path, line: &str) -> Result<(), MappingError>`.
 
-- [ ] **Step 1: Failing tests** em `controller_mappings.rs` (os 15 de `main`, mesmos casos e
+- [x] **Step 1: Failing tests** em `controller_mappings.rs` (os 15 de `main`, mesmos casos e
   valores):
   - `release_gate_stability_and_noise`
   - `hats_diagonals_axes_triggers_and_inversion`
@@ -1593,14 +1593,14 @@ assert_eq!(migrate_controls(map.clone()), map);
     `SDL_GAMECONTROLLERCONFIG` no env da chamada `--cpu-features`;
   - `update.rs::updater_preserves_profiles`: `install_over` não sobrescreve
     `gamecontrollerdb.txt`.
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --lib controller_mappings`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4:** Mapas: as linhas de `test_controller_mappings.py` e 2 de
+- [x] **Step 2: Run, expect FAIL:** `cargo test --lib controller_mappings`
+- [x] **Step 3: Implement**
+- [x] **Step 4:** Mapas: as linhas de `test_controller_mappings.py` e 2 de
   `test_controller_mapper_launch.py` passam a `ported`.
-- [ ] **Step 5: Gate G**
-- [ ] **Step 6: Commit** (`Feat(Launcher): load generic controller mappings for the game`)
+- [x] **Step 5: Gate G**
+- [x] **Step 6: Commit** (`Feat(Launcher): load generic controller mappings for the game`)
 
-### Task 51: F7, o seam `Joysticks` com SDL3 e o fake
+### Task 51: F7, o seam `Joysticks` com SDL3 e o fake ✅
 
 **Files:**
 - Create: `src/core/joysticks.rs` (`Device`, `JoyError`, `trait Joysticks` e `Sdl3`, como na spec
@@ -1621,19 +1621,19 @@ assert_eq!(migrate_controls(map.clone()), map);
   - O `Drop` fecha o aparelho, encerra o subsistema `0x2000` e restaura os hints antigos.
 - Produces: `impl Joysticks for Sdl3` e `impl Joysticks for FakeJoysticks`.
 
-- [ ] **Step 1: Failing tests** em `tests/sdl_mapper.rs` (o adapter sobre o SDL real):
+- [x] **Step 1: Failing tests** em `tests/sdl_mapper.rs` (o adapter sobre o SDL real):
   - `raw_capture_gamepad_preview_inversion_and_analog_trigger`
   - `saved_mapping_loads_and_explicit_user_file_wins`
   - `disconnect_reports_error_instead_of_reading_a_stale_pad`
   - `editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons`
   - e em `joysticks.rs`: `a_missing_library_names_sdl3`.
-- [ ] **Step 2: Run, expect FAIL:**
+- [x] **Step 2: Run, expect FAIL:**
   `SPARTAN_TEST_SDL3=C:/msys64/clang64/bin/SDL3.dll cargo test --test sdl_mapper`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**, e mais uma vez `cargo test --test sdl_mapper` com a variável.
-- [ ] **Step 5: Commit** (`Feat(Launcher): read joysticks through SDL3`)
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**, e mais uma vez `cargo test --test sdl_mapper` com a variável.
+- [x] **Step 5: Commit** (`Feat(Launcher): read joysticks through SDL3`)
 
-### Task 52: F7, a página "Set up a controller"
+### Task 52: F7, a página "Set up a controller" ✅
 
 **Files:**
 - Create: `src/ui/pages/mapper.rs`. É uma página com o layout da janela Tk de
@@ -1658,7 +1658,7 @@ assert_eq!(migrate_controls(map.clone()), map);
   `Box<dyn Joysticks>`. Os testes injetam `FakeJoysticks` com um
   `State::open_mapper_with(Box<dyn Joysticks>)` `#[doc(hidden)]`.
 
-- [ ] **Step 1: Failing tests** em `tests/ui_mapper.rs` (com `FakeJoysticks`):
+- [x] **Step 1: Failing tests** em `tests/ui_mapper.rs` (com `FakeJoysticks`):
   - `mapper_is_not_opened_over_a_running_game` (de `test_controller_mapper_launch.py`)
   - `rows_save_out_of_order_and_reload_without_losing_other_bindings`
   - `cancel_capture_and_close_keep_already_saved_rows`
@@ -1668,15 +1668,15 @@ assert_eq!(migrate_controls(map.clone()), map);
     `close_device`, e o `gamecontrollerdb.txt` não muda.
   - `a_conflicting_input_asks_to_clear_the_other_row`
   - `no_controller_says_connect_it`
-- [ ] **Step 2: Run, expect FAIL:** `cargo test --test ui_mapper`
-- [ ] **Step 3: Implement**, e regere o i18n.
-- [ ] **Step 4:** Mapas: as linhas restantes de `test_controller_mapper_launch.py` e todas as de
+- [x] **Step 2: Run, expect FAIL:** `cargo test --test ui_mapper`
+- [x] **Step 3: Implement**, e regere o i18n.
+- [x] **Step 4:** Mapas: as linhas restantes de `test_controller_mapper_launch.py` e todas as de
   `test_controller_mapper_sdl.py` passam a `ported`, entre `tests/sdl_mapper.rs` e
   `tests/ui_mapper.rs`.
-- [ ] **Step 5: Gate G**
-- [ ] **Step 6: Commit** (`Feat(Launcher): set up a generic controller in the launcher`)
+- [x] **Step 5: Gate G**
+- [x] **Step 6: Commit** (`Feat(Launcher): set up a generic controller in the launcher`)
 
-### Task 53: F8, barra de título escura
+### Task 53: F8, barra de título escura ✅
 
 **Files:**
 - Modify:
@@ -1687,22 +1687,22 @@ assert_eq!(migrate_controls(map.clone()), map);
   - `launcher-rust/Cargo.toml`: a feature `Win32_Graphics_Dwm`.
   - Valores: o atributo 20 com fallback 19 (valor 1), o 35 = `0x000b0b0d` e o 36 = `0x00ffffff`.
 
-- [ ] **Step 1:** Abrir a janela exige ok do usuário. O subagent não abre: ele pede ao
+- [x] **Step 1:** Abrir a janela exige ok do usuário. O subagent não abre: ele pede ao
   controlador, que pergunta ao usuário. Com o ok, tire um screenshot da janela antes (`cargo run`,
   com `SPARTAN_PORT_DIR=dist/spartanport-windows-2.7.0`) e anote se a barra já está escura. Sem
   ok, pule os screenshots e siga só com os testes.
-- [ ] **Step 2: Failing tests** em `platform/windows.rs`:
+- [x] **Step 2: Failing tests** em `platform/windows.rs`:
   - `dwm_attribute_20_success`: a closure aceita o 20; as chamadas são `[(20, 1), (35, 0x000b0b0d), (36, 0x00ffffff)]`.
   - `dwm_attribute_20_fail_fallback_19`: a closure recusa o 20; as chamadas são
     `[(20, 1), (19, 1), (35, …), (36, …)]`.
-- [ ] **Step 3: Run, expect FAIL:** `cargo test --lib dwm_attribute`
-- [ ] **Step 4: Implement.** Tire o screenshot depois e compare com o de antes.
-- [ ] **Step 5:** Mapas: os 2 testes passam a `ported`. Os outros 8 de `test_launcher_titlebar.py`
+- [x] **Step 3: Run, expect FAIL:** `cargo test --lib dwm_attribute`
+- [x] **Step 4: Implement.** Tire o screenshot depois e compare com o de antes.
+- [x] **Step 5:** Mapas: os 2 testes passam a `ported`. Os outros 8 de `test_launcher_titlebar.py`
   ficam `dropped: Tk window mechanics`.
-- [ ] **Step 6: Gate G**
-- [ ] **Step 7: Commit** (`Feat(Launcher): match the Windows title bar to the theme`)
+- [x] **Step 6: Gate G**
+- [x] **Step 7: Commit** (`Feat(Launcher): match the Windows title bar to the theme`)
 
-### Task 54: F9, PKGBUILD do Arch com o exe Rust
+### Task 54: F9, PKGBUILD do Arch com o exe Rust ✅
 
 **Files:**
 - Modify: `packaging/linux/PKGBUILD`:
@@ -1713,12 +1713,12 @@ assert_eq!(migrate_controls(map.clone()), map);
 - Modify: `tests/test_arch_pkgbuild.py`, com as asserções sobre o arquivo novo: nenhuma referência
   a `python` ou a `.py`, a versão lida do `Cargo.toml` e a instalação do exe Rust.
 
-- [ ] **Step 1: Failing test:** em `tests/test_arch_pkgbuild.py`,
+- [x] **Step 1: Failing test:** em `tests/test_arch_pkgbuild.py`,
   `test_the_package_ships_no_python` (o PKGBUILD não contém `python`, `tk` nem `.py`).
-- [ ] **Step 2: Run, expect FAIL:** `py -3 -m pytest tests/test_arch_pkgbuild.py -q`
-- [ ] **Step 3: Implement**
-- [ ] **Step 4: Gate G**, mais `py -3 -m pytest tests/test_arch_pkgbuild.py -q`.
-- [ ] **Step 5: Commit** (`Build(Linux): package the Rust launcher for Arch`)
+- [x] **Step 2: Run, expect FAIL:** `py -3 -m pytest tests/test_arch_pkgbuild.py -q`
+- [x] **Step 3: Implement**
+- [x] **Step 4: Gate G**, mais `py -3 -m pytest tests/test_arch_pkgbuild.py -q`.
+- [x] **Step 5: Commit** (`Build(Linux): package the Rust launcher for Arch`)
 
 ## Fechamento
 
