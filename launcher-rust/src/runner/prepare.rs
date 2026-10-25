@@ -15,19 +15,10 @@ use sha2::{Digest, Sha256};
 use crate::core::fs::atomic_write;
 use crate::core::sfo::{load_sfo, SfoError, SfoReadError, SfoValue};
 
-use super::sce::{
-    header_in, hex_number, i64_at, mapped, name_at, place, span, table, u16_at, u32_at, u64_at,
-    u8_at, SceError, DT_NULL, DT_SCE_JMPREL, DT_SCE_PLTRELSZ, DT_SCE_RELA, DT_SCE_RELASZ,
-    DT_SCE_STRSZ, DT_SCE_STRTAB, DT_SCE_SYMTAB, DT_SCE_SYMTABSZ, IMAGE_LIMIT, PT_DYNAMIC, PT_LOAD,
-    PT_SCE_DYNLIBDATA, RELOCATION_SIZE, SHN_ABS, STT_FUNC, STT_OBJECT, SYMBOL_SIZE,
-};
+use super::sce::{hex_number, place, ImportKind, SceError, SceModule, Target, STT_FUNC};
 pub use super::sce::{
     parse_self, read_self, read_self_bytes, ProgramHeader, Segment, SelfInfo, SelfSegment,
 };
-
-pub(super) const PF_X: u32 = 1;
-
-const DT_NEEDED: u64 = 1;
 
 pub(super) const R_X86_64_64: u32 = 1;
 pub(super) const R_X86_64_GLOB_DAT: u32 = 6;
@@ -106,10 +97,6 @@ const KNOWN_IMPORTS: &[&str] = &[
 pub enum PrepareError {
     #[error(transparent)]
     Sce(#[from] SceError),
-    #[error("invalid memory image")]
-    InvalidImage,
-    #[error("segment file size exceeds memory size")]
-    SegmentTooLarge,
     #[error("relocation outside mapped segments: {0:#x}")]
     RelocationOutside(u64),
     #[error("relocation value out of range")]
@@ -224,15 +211,6 @@ struct Relocation {
     addend: i64,
 }
 
-/// A symbol of the library blob, with its name read from the string table.
-struct Symbol {
-    name: String,
-    kind: u8,
-    section: u16,
-    value: u64,
-    size: u64,
-}
-
 pub(super) fn io_error(path: &Path) -> impl FnOnce(io::Error) -> PrepareError + '_ {
     move |source| PrepareError::Io {
         path: path.to_path_buf(),
@@ -344,40 +322,11 @@ fn sha1(data: &[u8]) -> [u8; 20] {
     digest
 }
 
-/// The `Elf64_Sym` (`<IBBHQQ`) at `pos` of the symbol table, with its name.
-fn symbol_at(syms: &[u8], strings: &[u8], pos: u64) -> Result<Symbol, PrepareError> {
-    let record = span(syms, pos, SYMBOL_SIZE)?;
-    let name = u32_at(record, 0)?;
-    let info = u8_at(record, 4)?;
-    let section = u16_at(record, 6)?;
-    let value = u64_at(record, 8)?;
-    let size = u64_at(record, 16)?;
-    Ok(Symbol {
-        name: name_at(strings, u64::from(name))?,
-        kind: info & 15,
-        section,
-        value,
-        size,
-    })
-}
-
 /// Proves that this dump's `_init_env` is exactly `RET`; never assumes it.
 pub fn inspect_libc(path: &Path) -> Result<LibcReport, PrepareError> {
-    let source = read_self_bytes(path)?;
-    let info = parse_self(&source)?;
-    let elf = &info.elf;
-    let dynamic = header_in(&info, PT_DYNAMIC, "dynamic")?;
-    let mut tags = HashMap::new();
-    for pos in (dynamic.offset..dynamic.offset.saturating_add(dynamic.filesz)).step_by(16) {
-        let record = span(elf, pos, 16)?;
-        tags.insert(u64_at(record, 0)?, u64_at(record, 8)?);
-    }
-    let library = header_in(&info, PT_SCE_DYNLIBDATA, "SCE dynlib data")?;
-    let blob = span(elf, library.offset, library.filesz)?;
-    let strings = table(blob, &tags, DT_SCE_STRTAB, DT_SCE_STRSZ)?;
-    let syms = table(blob, &tags, DT_SCE_SYMTAB, DT_SCE_SYMTABSZ)?;
+    let module = SceModule::read(path)?;
     let mut report = LibcReport {
-        sha256: hex(&Sha256::digest(&source)),
+        sha256: hex(&module.sha256),
         init_env_is_ret: false,
         init_env: None,
         ios_base_init: None,
@@ -385,8 +334,7 @@ pub fn inspect_libc(path: &Path) -> Result<LibcReport, PrepareError> {
     };
     let init_env = nid("_init_env");
     let ios_base_init = nid(IOS_BASE_INIT);
-    for pos in (0..syms.len() as u64).step_by(SYMBOL_SIZE as usize) {
-        let symbol = symbol_at(syms, strings, pos)?;
+    for symbol in &module.symbols {
         let key = nid_part(&symbol.name);
         if (key != init_env && key != ios_base_init)
             || symbol.section == 0
@@ -394,24 +342,11 @@ pub fn inspect_libc(path: &Path) -> Result<LibcReport, PrepareError> {
         {
             continue;
         }
-        let code_segment = info
-            .program_headers
-            .iter()
-            .find(|p| {
-                p.kind == PT_LOAD
-                    && p.flags & PF_X != 0
-                    && p.vaddr <= symbol.value
-                    && symbol.value - p.vaddr < p.filesz
-            })
-            .ok_or(SceError::MissingSegment("executable"))?;
-        let start = code_segment
-            .offset
-            .saturating_add(symbol.value - code_segment.vaddr);
-        let code = span(elf, start, symbol.size)?;
+        let code = module.code(symbol)?;
         if key == init_env {
             report.init_env_is_ret = code == [RET];
             report.init_env = Some(InitEnv {
-                symbol: symbol.name,
+                symbol: symbol.name.clone(),
                 address: symbol.value,
                 size: symbol.size,
                 bytes: code.to_vec(),
@@ -421,7 +356,7 @@ pub fn inspect_libc(path: &Path) -> Result<LibcReport, PrepareError> {
                 report.ios_base_init_first = true;
             }
             report.ios_base_init = Some(IosBaseInit {
-                symbol: symbol.name,
+                symbol: symbol.name.clone(),
                 address: symbol.value,
                 size: symbol.size,
                 code_sha256: hex(&Sha256::digest(code)),
@@ -430,27 +365,6 @@ pub fn inspect_libc(path: &Path) -> Result<LibcReport, PrepareError> {
         }
     }
     Ok(report)
-}
-
-/// The memory image: every loadable segment's file bytes at its address, the rest zero.
-fn memory_image(info: &SelfInfo) -> Result<Vec<u8>, PrepareError> {
-    let loads = &info.segments;
-    let size = loads
-        .iter()
-        .map(|p| u128::from(p.vaddr) + u128::from(p.memsz))
-        .max()
-        .ok_or(SceError::MissingSegment("loadable"))?;
-    if size > u128::from(IMAGE_LIMIT) || !mapped(loads, info.entry, 1) {
-        return Err(PrepareError::InvalidImage);
-    }
-    let mut image = vec![0; usize::try_from(size).map_err(|_| PrepareError::InvalidImage)?];
-    for p in loads {
-        if p.filesz > p.memsz {
-            return Err(PrepareError::SegmentTooLarge);
-        }
-        place(&mut image, p.vaddr, span(&info.elf, p.offset, p.filesz)?)?;
-    }
-    Ok(image)
 }
 
 /// The eboot's relocations as `boot.bin` stores them.
@@ -462,82 +376,59 @@ struct Relocated {
     imports: Vec<String>,
 }
 
-/// Reads the eboot's two relocation tables (PLT, then RELA). Absolute symbols are written into
-/// `image` here.
-fn relocate(
-    loads: &[Segment],
-    image: &mut [u8],
-    blob: &[u8],
-    tags: &HashMap<u64, u64>,
-    symbols: &[Symbol],
-) -> Result<Relocated, PrepareError> {
+/// Reads the eboot's relocations (PLT, then RELA). Absolute symbols are written into `image`
+/// here.
+fn relocate(module: &SceModule, image: &mut [u8]) -> Result<Relocated, PrepareError> {
     let mut relocations = Vec::new();
     let mut counts = IndexMap::new();
     let mut imports = IndexSet::new();
-    for (offset_tag, size_tag) in [
-        (DT_SCE_JMPREL, DT_SCE_PLTRELSZ),
-        (DT_SCE_RELA, DT_SCE_RELASZ),
-    ] {
-        let entries = table(blob, tags, offset_tag, size_tag)?;
-        if !(entries.len() as u64).is_multiple_of(RELOCATION_SIZE) {
-            return Err(SceError::BadRelocationTable.into());
+    for r in module.relocations()? {
+        *counts.entry(r.kind).or_insert(0) += 1;
+        if !module.mapped(r.target, 8) {
+            return Err(PrepareError::RelocationOutside(r.target));
         }
-        for pos in (0..entries.len() as u64).step_by(RELOCATION_SIZE as usize) {
-            let record = span(entries, pos, RELOCATION_SIZE)?;
-            let target = u64_at(record, 0)?;
-            let info = u64_at(record, 8)?;
-            let addend = i64_at(record, 16)?;
-            let kind = (info & 0xffff_ffff) as u32;
-            let sym = info >> 32;
-            *counts.entry(kind).or_insert(0) += 1;
-            if !mapped(loads, target, 8) {
-                return Err(PrepareError::RelocationOutside(target));
-            }
-            match kind {
-                R_X86_64_RELATIVE => relocations.push(Relocation {
-                    target,
-                    kind: 0,
-                    value: addend,
-                    addend: 0,
-                }),
-                R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => {
-                    let index = usize::try_from(sym).map_err(|_| SceError::BadSymbolIndex(sym))?;
-                    let symbol = symbols.get(index).ok_or(SceError::BadSymbolIndex(sym))?;
-                    let sum = i128::from(symbol.value) + i128::from(addend);
-                    if symbol.section == SHN_ABS {
-                        let value =
-                            u64::try_from(sum).map_err(|_| PrepareError::RelocationValue)?;
-                        place(image, target, &value.to_le_bytes())?;
-                    } else if symbol.section != 0 {
-                        let value =
-                            i64::try_from(sum).map_err(|_| PrepareError::RelocationValue)?;
-                        relocations.push(Relocation {
-                            target,
-                            kind: 0,
-                            value,
-                            addend: 0,
-                        });
-                    } else {
-                        let (import, _) = imports.insert_full(index);
-                        let kind = if symbol.kind == STT_OBJECT { 2 } else { 1 };
-                        if (kind == 1 && addend != 0) || !(0..4096).contains(&addend) {
-                            return Err(PrepareError::ImportAddend);
-                        }
-                        relocations.push(Relocation {
-                            target,
-                            kind,
-                            value: import as i64,
-                            addend,
-                        });
-                    }
+        match r.kind {
+            R_X86_64_RELATIVE => relocations.push(Relocation {
+                target: r.target,
+                kind: 0,
+                value: r.addend,
+                addend: 0,
+            }),
+            R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => match module.resolve(&r)? {
+                Target::Absolute(sum) => {
+                    let value = u64::try_from(sum).map_err(|_| PrepareError::RelocationValue)?;
+                    place(image, r.target, &value.to_le_bytes())?;
                 }
-                _ => return Err(PrepareError::UnsupportedRelocation(kind)),
-            }
+                Target::Defined(sum) => {
+                    let value = i64::try_from(sum).map_err(|_| PrepareError::RelocationValue)?;
+                    relocations.push(Relocation {
+                        target: r.target,
+                        kind: 0,
+                        value,
+                        addend: 0,
+                    });
+                }
+                Target::Undefined(symbol) => {
+                    let kind = ImportKind::of(symbol);
+                    if !kind.allows(r.addend) {
+                        return Err(PrepareError::ImportAddend);
+                    }
+                    let (import, _) = imports.insert_full(r.symbol);
+                    relocations.push(Relocation {
+                        target: r.target,
+                        kind: kind as u64,
+                        value: import as i64,
+                        addend: r.addend,
+                    });
+                }
+            },
+            _ => return Err(PrepareError::UnsupportedRelocation(r.kind)),
         }
     }
     let imports = imports
         .iter()
-        .filter_map(|&index| symbols.get(index))
+        .filter_map(|&index| usize::try_from(index).ok())
+        .filter_map(|index| module.symbols.get(index))
         .map(|symbol| symbol.name.clone())
         .collect();
     Ok(Relocated {
@@ -665,32 +556,9 @@ fn write_report(path: &Path, report: &impl Serialize) -> Result<(), PrepareError
 
 /// Turns `<game>/eboot.bin` into `boot.bin`, `eboot.elf`, `entry.bin` and `analysis.json` in `out`.
 pub fn prepare(game: &Path, out: &Path) -> Result<Report, PrepareError> {
-    let source = read_self_bytes(&game.join("eboot.bin"))?;
-    let info = parse_self(&source)?;
-    let mut image = memory_image(&info)?;
-    let dynamic = header_in(&info, PT_DYNAMIC, "dynamic")?;
-    let mut dynamic_entries = Vec::new();
-    for pos in (dynamic.offset..dynamic.offset.saturating_add(dynamic.filesz)).step_by(16) {
-        let record = span(&info.elf, pos, 16)?;
-        let tag = u64_at(record, 0)?;
-        if tag == DT_NULL {
-            break;
-        }
-        dynamic_entries.push((tag, u64_at(record, 8)?));
-    }
-    let tags: HashMap<u64, u64> = dynamic_entries.iter().copied().collect();
-    let library = header_in(&info, PT_SCE_DYNLIBDATA, "SCE dynlib data")?;
-    let blob = span(&info.elf, library.offset, library.filesz)?;
-    let strings = table(blob, &tags, DT_SCE_STRTAB, DT_SCE_STRSZ)?;
-    let syms = table(blob, &tags, DT_SCE_SYMTAB, DT_SCE_SYMTABSZ)?;
-    if !(syms.len() as u64).is_multiple_of(SYMBOL_SIZE) {
-        return Err(SceError::BadSymbolTable.into());
-    }
-    let symbols = (0..syms.len() as u64)
-        .step_by(SYMBOL_SIZE as usize)
-        .map(|pos| symbol_at(syms, strings, pos))
-        .collect::<Result<Vec<_>, _>>()?;
-    let relocated = relocate(&info.segments, &mut image, blob, &tags, &symbols)?;
+    let module = SceModule::read(&game.join("eboot.bin"))?;
+    let mut image = module.memory_image()?;
+    let relocated = relocate(&module, &mut image)?;
     let known: HashMap<String, &'static str> = KNOWN_IMPORTS
         .iter()
         .map(|&name| (nid(name), name))
@@ -702,9 +570,9 @@ pub fn prepare(game: &Path, out: &Path) -> Result<Report, PrepareError> {
         }
     }
     let libc = inspect_libc(&game.join("sce_module").join("libc.prx"))?;
-    let boot = boot_image(&info, &image, &relocated, libc.init_env_is_ret)?;
+    let boot = boot_image(&module.info, &image, &relocated, libc.init_env_is_ret)?;
     write(&out.join("boot.bin"), &boot)?;
-    write(&out.join("eboot.elf"), &info.elf)?;
+    write(&out.join("eboot.elf"), &module.info.elf)?;
     write(&out.join("entry.bin"), image.get(..1024).unwrap_or(&image))?;
     let (resources, resource_bytes) = resources(&game.join("dvdroot_ps4"));
     let sfo_path = game.join("sce_sys").join("param.sfo");
@@ -712,11 +580,7 @@ pub fn prepare(game: &Path, out: &Path) -> Result<Report, PrepareError> {
         SfoReadError::Io(source) => io_error(&sfo_path)(source),
         SfoReadError::Invalid(error) => PrepareError::Sfo(error),
     })?;
-    let needed = dynamic_entries
-        .iter()
-        .filter(|&&(tag, _)| tag == DT_NEEDED)
-        .map(|&(_, offset)| name_at(strings, offset))
-        .collect::<Result<Vec<_>, _>>()?;
+    let needed = module.needed()?;
     let modules = game.join("sce_module");
     let mut bundled_modules = fs::read_dir(&modules)
         .and_then(|entries| {
@@ -727,14 +591,14 @@ pub fn prepare(game: &Path, out: &Path) -> Result<Report, PrepareError> {
         .map_err(io_error(&modules))?;
     bundled_modules.sort();
     let report = Report {
-        source_sha256: hex(&Sha256::digest(&source)),
-        source_bytes: source.len() as u64,
+        source_sha256: hex(&module.sha256),
+        source_bytes: module.bytes,
         sfo,
-        entry: info.entry,
+        entry: module.info.entry,
         image_bytes: image.len() as u64,
-        program_headers: info.program_headers,
-        self_segments: info.self_segments,
-        unavailable_metadata_headers: info.missing,
+        program_headers: module.info.program_headers,
+        self_segments: module.info.self_segments,
+        unavailable_metadata_headers: module.info.missing,
         needed,
         relocation_counts: relocated.counts,
         import_count: relocated.imports.len(),
@@ -827,6 +691,23 @@ mod tests {
             );
         }
         assert_eq!(nid("_init_env"), "bzQExy189ZI");
+    }
+
+    #[test]
+    fn inspect_libc_stops_at_dt_null() {
+        // A tag after DT_NULL (here an empty symbol table) is not part of the dynamic section.
+        let mut elf = parse_self(&synthetic_libc(0xc3)).unwrap().elf;
+        let dynamic = 0x20b0;
+        elf.resize(dynamic + 96, 0);
+        put(&mut elf, dynamic + 80, &pack(&[(0x6100_003f, 8), (0, 8)]));
+        // The dynamic header is the third; its filesz and memsz follow offset, vaddr and paddr.
+        put(&mut elf, 64 + 2 * 56 + 32, &pack(&[(96, 8), (96, 8)]));
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("libc.prx");
+        std::fs::write(&path, elf).unwrap();
+        let proof = inspect_libc(&path).unwrap();
+        assert!(proof.init_env_is_ret);
+        assert_eq!(proof.init_env.unwrap().bytes, [0xc3]);
     }
 
     #[test]

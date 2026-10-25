@@ -19,8 +19,8 @@ use super::prepare::{
 };
 pub use super::sce::{encode_id, Identity, PlainNames, Relocation, Versioned};
 use super::sce::{
-    hex_number, i64_at, mapped, place, span, u64_at, Ids, ProgramHeader, SceError, SceModule,
-    Segment, IMAGE_LIMIT, PT_LOAD, SHN_ABS, STT_FUNC, STT_OBJECT,
+    hex_number, i64_at, place, span, u64_at, Ids, ImportKind, SceError, SceModule, Segment, Symbol,
+    Target, IMAGE_LIMIT, PT_LOAD, STT_FUNC, STT_OBJECT,
 };
 use crate::core::fs::atomic_write;
 use crate::core::patches::ensure_ascii;
@@ -28,7 +28,7 @@ use crate::core::patches::ensure_ascii;
 pub(super) const PT_TLS: u32 = 7;
 pub(super) const PT_SCE_PROCPARAM: u32 = 0x6100_0001;
 /// `DT_INIT`: the module's initializer, relative to its base.
-const DT_INIT: u64 = 12;
+pub(super) const DT_INIT: u64 = 12;
 pub(super) const R_X86_64_DTPMOD64: u32 = 16;
 pub(super) const STT_SECTION: u8 = 3;
 const STB_GLOBAL: u8 = 1;
@@ -37,8 +37,6 @@ pub(super) const STB_WEAK: u8 = 2;
 const LIBC_TLS_MODULE: u64 = 2;
 /// The largest eboot TLS block the probe sets up.
 const MAIN_TLS_LIMIT: u64 = 1024 * 1024;
-/// An import's addend must stay inside the first page of what it names.
-const IMPORT_ADDENDS: std::ops::Range<i64> = 0..4096;
 
 /// Why a link failed. The texts are the Python's; where the Python stopped on a built-in error (a
 /// missing tag, segment or id, a bad index, a value `struct` cannot pack) the message names it.
@@ -100,43 +98,17 @@ pub enum LinkError {
     AmbiguousExport(String),
 }
 
-/// One entry of a module's symbol table, with its name read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Symbol {
-    pub name: String,
-    /// `st_info & 15`.
-    pub kind: u8,
-    /// `st_info >> 4`.
-    pub binding: u8,
-    pub section: u16,
-    pub value: u64,
-    pub size: u64,
-    /// `None` for a symbol without a name and, in `link_modules`, for a plain name.
-    pub identity: Option<Identity>,
-}
-
 /// A module as the linkers read it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Module {
-    /// The file's name.
-    pub name: String,
-    /// SHA-256 of the file as it was read.
-    pub sha256: [u8; 32],
-    /// The symbol table, in order (the relocations index it): exports, imports and the rest.
-    pub symbols: Vec<Symbol>,
-    /// The ELF, every segment at its program header's file offset.
-    pub elf: Vec<u8>,
-    /// The loadable segments (`PT_LOAD`, `PT_SCE_RELRO`), in header order.
-    pub segments: Vec<Segment>,
-    pub program_headers: Vec<ProgramHeader>,
+    pub sce: SceModule,
     /// The PLT relocations, then the others.
     pub relocations: Vec<Relocation>,
-    /// `DT_INIT`, when the module has one.
-    pub init: Option<u64>,
     /// The library and module ids the symbol names use.
     pub ids: Ids,
-    /// The program headers whose bytes the SELF does not carry.
-    pub missing: Vec<usize>,
+    /// What each of `sce.symbols` is named by: `None` for a symbol without a name and, in
+    /// `link_modules`, for a plain name.
+    pub identities: Vec<Option<Identity>>,
 }
 
 impl Module {
@@ -145,14 +117,11 @@ impl Module {
         Ok(self.ids.resolve(name)?)
     }
 
-    /// The first program header of `kind`.
-    pub(super) fn header(&self, kind: u32) -> Option<&ProgramHeader> {
-        self.program_headers.iter().find(|p| p.kind == kind)
-    }
-
     /// The `PT_LOAD` headers, as `patch_fs_loads` scans them.
     pub(super) fn loads(&self) -> Vec<Segment> {
-        self.program_headers
+        self.sce
+            .info
+            .program_headers
             .iter()
             .filter(|p| p.kind == PT_LOAD)
             .map(|p| Segment {
@@ -169,8 +138,24 @@ impl Module {
     pub(super) fn symbol(&self, index: u64) -> Result<&Symbol, LinkError> {
         usize::try_from(index)
             .ok()
-            .and_then(|index| self.symbols.get(index))
+            .and_then(|index| self.sce.symbols.get(index))
             .ok_or(LinkError::Sce(SceError::BadSymbolIndex(index)))
+    }
+
+    /// The identity of the symbol a relocation names.
+    pub(super) fn identity_of(&self, index: u64) -> Option<&Identity> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.identities.get(index))
+            .and_then(Option::as_ref)
+    }
+
+    /// The symbols with their identities, in order.
+    pub(super) fn named(&self) -> impl Iterator<Item = (&Symbol, Option<&Identity>)> {
+        self.sce
+            .symbols
+            .iter()
+            .zip(self.identities.iter().map(Option::as_ref))
     }
 }
 
@@ -182,35 +167,19 @@ fn encoded(identity: Option<Identity>, name: &str) -> Result<Identity, SceError>
 /// Reads the module in `path` (a SELF or an unpacked ELF) once, with the linkers' view of it: the
 /// symbols with their identities, the relocations and the ids.
 pub(super) fn load(path: &Path, plain: PlainNames) -> Result<Module, LinkError> {
-    let m = SceModule::read(path)?;
-    let ids = m.ids(plain)?;
-    let symbols = m
+    let sce = SceModule::read(path)?;
+    let ids = sce.ids(plain)?;
+    let identities = sce
         .symbols
         .iter()
-        .map(|s| {
-            Ok(Symbol {
-                name: s.name.clone(),
-                kind: s.kind,
-                binding: s.binding,
-                section: s.section,
-                value: s.value,
-                size: s.size,
-                identity: ids.identity(&s.name)?,
-            })
-        })
-        .collect::<Result<Vec<_>, LinkError>>()?;
-    let relocations = m.relocations()?;
+        .map(|s| ids.identity(&s.name))
+        .collect::<Result<_, _>>()?;
+    let relocations = sce.relocations()?;
     Ok(Module {
-        init: m.tag(DT_INIT),
-        name: m.file,
-        sha256: m.sha256,
-        symbols,
-        elf: m.info.elf,
-        segments: m.info.segments,
-        program_headers: m.info.program_headers,
+        sce,
         relocations,
         ids,
-        missing: m.info.missing,
+        identities,
     })
 }
 
@@ -394,7 +363,8 @@ pub(super) fn map_module(
     base: u64,
     size_error: impl Fn() -> LinkError,
 ) -> Result<u64, LinkError> {
-    let size = module
+    let info = &module.sce.info;
+    let size = info
         .segments
         .iter()
         .map(|p| p.vaddr.saturating_add(p.memsz))
@@ -406,7 +376,7 @@ pub(super) fn map_module(
     }
     let end = usize::try_from(end).map_err(|_| LinkError::ImageTooLarge)?;
     boot.image.resize(end, 0);
-    for p in &module.segments {
+    for p in &info.segments {
         if p.filesz > p.memsz {
             return Err(size_error());
         }
@@ -414,7 +384,7 @@ pub(super) fn map_module(
         place(
             &mut boot.image,
             base + p.vaddr,
-            span(&module.elf, p.offset, p.filesz)?,
+            span(&info.elf, p.offset, p.filesz)?,
         )?;
         boot.segments
             .push([base + p.vaddr, p.memsz, u64::from(p.flags)]);
@@ -422,46 +392,16 @@ pub(super) fn map_module(
     Ok(size)
 }
 
-/// A relocation against a symbol its module defines (`section` other than 0): an absolute symbol's
-/// value goes into the image now, any other is relocated by the module's `base`.
-pub(super) fn relocate_defined(
-    boot: &mut Boot,
-    symbol: &Symbol,
-    target: u64,
-    base: u64,
-    addend: i64,
-) -> Result<(), LinkError> {
-    let value = i128::from(symbol.value) + i128::from(addend);
-    if symbol.section == SHN_ABS {
-        let value = u64::try_from(value).map_err(|_| LinkError::OutOfRange)?;
-        place(&mut boot.image, target, &value.to_le_bytes())?;
-    } else {
-        boot.relocate(target, i128::from(base) + value);
-    }
-    Ok(())
-}
-
-/// The import kind of a symbol: 2 for an object, 1 for anything else (a function).
-pub(super) fn import_kind(kind: u8) -> u64 {
-    if kind == STT_OBJECT {
-        2
-    } else {
-        1
-    }
-}
-
-/// Whether an import of `kind` may carry `addend`: only an object's, inside its first page.
-pub(super) fn import_addend_ok(kind: u64, addend: i64) -> bool {
-    (kind != 1 || addend == 0) && IMPORT_ADDENDS.contains(&addend)
-}
-
 /// The identity `symbol` exports: a function or object its module defines, global or weak, named
 /// `NID#library#module`.
-pub(super) fn exported(symbol: &Symbol) -> Option<&Identity> {
+pub(super) fn exported<'a>(
+    symbol: &Symbol,
+    identity: Option<&'a Identity>,
+) -> Option<&'a Identity> {
     let exports = symbol.section != 0
         && matches!(symbol.binding, STB_GLOBAL | STB_WEAK)
         && matches!(symbol.kind, STT_OBJECT | STT_FUNC);
-    symbol.identity.as_ref().filter(|_| exports)
+    identity.filter(|_| exports)
 }
 
 /// The eboot's TLS segment (`main_tls`), all zero when it has none.
@@ -482,7 +422,7 @@ impl TlsLayout {
 /// The eboot's TLS layout, which must fit the probe: the template inside the eboot's `size`
 /// bytes, at most 1 MiB in all.
 pub(super) fn main_tls(main: &Module, size: u64) -> Result<TlsLayout, LinkError> {
-    let Some(p) = main.header(PT_TLS) else {
+    let Some(p) = main.sce.header(PT_TLS) else {
         return Ok(TlsLayout::default());
     };
     if p.filesz > p.memsz || p.memsz > MAIN_TLS_LIMIT || p.vaddr.saturating_add(p.filesz) > size {
@@ -557,10 +497,11 @@ fn import(
     identities: &mut IndexMap<Identity, usize>,
     names: &mut Vec<String>,
     symbol: &Symbol,
+    identity: Option<&Identity>,
     libraries: &HashMap<&Versioned, &str>,
     modules: &HashMap<&Versioned, &str>,
 ) -> Result<usize, LinkError> {
-    let identity = symbol.identity.as_ref().ok_or(LinkError::UnnamedImport)?;
+    let identity = identity.ok_or(LinkError::UnnamedImport)?;
     if let Some(&index) = identities.get(identity) {
         return Ok(index);
     }
@@ -586,7 +527,6 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
     let size = boot.image.len() as u64;
     let base = align_up(size);
     let libsize = map_module(&mut boot, &libc, base, || LinkError::LibcSegmentSize)?;
-    let loads = &libc.segments;
     let mut identities = IndexMap::new();
     for (index, name) in boot.names.iter().enumerate() {
         identities.insert(encoded(main.identity(name)?, name)?, index);
@@ -605,7 +545,7 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
         .collect();
     let mut tls_relocations = 0;
     for r in &libc.relocations {
-        if !mapped(loads, r.target, 8) {
+        if !libc.sce.mapped(r.target, 8) {
             return Err(LinkError::LibcRelocationOutside(r.target));
         }
         // `target` lies below `libsize`, which fits the image limit with `base`.
@@ -621,39 +561,42 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
                 place(&mut boot.image, target, &LIBC_TLS_MODULE.to_le_bytes())?;
                 tls_relocations += 1;
             }
-            R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => {
-                let symbol = libc.symbol(r.symbol)?;
-                if symbol.section != 0 {
-                    relocate_defined(&mut boot, symbol, target, base, r.addend)?;
-                } else {
-                    let kind = import_kind(symbol.kind);
-                    if !import_addend_ok(kind, r.addend) {
+            R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => match libc.sce.resolve(r)? {
+                Target::Absolute(sum) => {
+                    let value = u64::try_from(sum).map_err(|_| LinkError::OutOfRange)?;
+                    place(&mut boot.image, target, &value.to_le_bytes())?;
+                }
+                Target::Defined(sum) => boot.relocate(target, i128::from(base) + sum),
+                Target::Undefined(symbol) => {
+                    let kind = ImportKind::of(symbol);
+                    if !kind.allows(r.addend) {
                         return Err(LinkError::LibcImportAddend);
                     }
                     let index = import(
                         &mut identities,
                         &mut boot.names,
                         symbol,
+                        libc.identity_of(r.symbol),
                         &main_libraries,
                         &main_modules,
                     )?;
                     boot.relocations.push(BootRelocation {
                         target,
-                        kind,
+                        kind: kind as u64,
                         value: index as i128,
                         addend: r.addend,
                     });
                 }
-            }
+            },
             kind => return Err(LinkError::LibcRelocationType(kind)),
         }
     }
     let mut exports: HashMap<&Identity, &Symbol> = HashMap::new();
-    for symbol in &libc.symbols {
-        let Some(identity) = exported(symbol) else {
+    for (symbol, identity) in libc.named() {
+        let Some(identity) = exported(symbol, identity) else {
             continue;
         };
-        if !mapped(loads, symbol.value, symbol.size.max(1)) {
+        if !libc.sce.mapped(symbol.value, symbol.size.max(1)) {
             return Err(LinkError::LibcExportOutside);
         }
         if exports.insert(identity, symbol).is_some() {
@@ -667,20 +610,24 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
             Some(Binding {
                 import,
                 address: base + symbol.value,
-                kind: import_kind(symbol.kind),
+                kind: ImportKind::of(symbol) as u64,
             })
         })
         .collect();
     let fs_loads_patched = patch_fs_loads(&mut boot.image, &main.loads(), 0);
     let main_tls = main_tls(&main, size)?;
-    let tls = libc.header(PT_TLS).ok_or(SceError::MissingSegment("TLS"))?;
-    if tls.filesz > tls.memsz || !mapped(loads, tls.vaddr, tls.memsz) {
+    let tls = libc
+        .sce
+        .header(PT_TLS)
+        .ok_or(SceError::MissingSegment("TLS"))?;
+    if tls.filesz > tls.memsz || !libc.sce.mapped(tls.vaddr, tls.memsz) {
         return Err(LinkError::LibcTlsLayout);
     }
     let procparam = main
+        .sce
         .header(PT_SCE_PROCPARAM)
         .ok_or(SceError::MissingSegment("procparam"))?;
-    let init = libc.init.ok_or(SceError::MissingTag(DT_INIT))?;
+    let init = libc.sce.tag(DT_INIT).ok_or(SceError::MissingTag(DT_INIT))?;
     let init = base.checked_add(init).ok_or(LinkError::OutOfRange)?;
     let mut data = boot.header(b"G3PROBE4");
     push_words(
@@ -719,7 +666,7 @@ pub fn link(game: &Path, out: &Path) -> Result<LinkReport, LinkError> {
     let report = LinkReport {
         base,
         size: libsize,
-        sha256: hex(&libc.sha256),
+        sha256: hex(&libc.sce.sha256),
         init,
         bindings: bindings.len(),
         tls_module_id: LIBC_TLS_MODULE,
@@ -776,10 +723,13 @@ mod tests {
         let elf = parse_self(&source).unwrap().elf;
         fs::write(&path, &elf).unwrap();
         let actual = module(&path).unwrap();
-        assert_eq!(actual.symbols, expected.symbols);
-        assert_eq!(actual.program_headers, expected.program_headers);
+        assert_eq!(actual.sce.symbols, expected.sce.symbols);
+        assert_eq!(
+            actual.sce.info.program_headers,
+            expected.sce.info.program_headers
+        );
         assert_eq!(actual.relocations, expected.relocations);
-        assert_eq!(actual.sha256, <[u8; 32]>::from(Sha256::digest(&elf)));
+        assert_eq!(actual.sce.sha256, <[u8; 32]>::from(Sha256::digest(&elf)));
     }
 
     #[test]
@@ -789,14 +739,14 @@ mod tests {
         let path = dir.path().join("libc.prx");
         fs::write(&path, &data).unwrap();
         let info = module(&path).unwrap();
-        assert_eq!(info.sha256, <[u8; 32]>::from(Sha256::digest(&data)));
-        assert_eq!(info.missing, Vec::<usize>::new());
+        assert_eq!(info.sce.sha256, <[u8; 32]>::from(Sha256::digest(&data)));
+        assert_eq!(info.sce.info.missing, Vec::<usize>::new());
         let identity = Identity {
             nid: "bzQExy189ZI".to_owned(),
             library: versioned("libc", 1),
             module: versioned("libc", 1),
         };
-        assert_eq!(info.symbols[0].identity, Some(identity));
+        assert_eq!(info.identities[0], Some(identity));
         assert_eq!(info.relocations, []);
     }
 

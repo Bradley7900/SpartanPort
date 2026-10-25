@@ -16,11 +16,14 @@ use sha2::{Digest, Sha256};
 pub(super) const IMAGE_LIMIT: u64 = 512 * 1024 * 1024;
 
 pub(super) const PT_LOAD: u32 = 1;
+/// `PF_X`: a segment the CPU may execute.
+pub(super) const PF_X: u32 = 1;
 pub(super) const PT_DYNAMIC: u32 = 2;
 pub(super) const PT_SCE_DYNLIBDATA: u32 = 0x6100_0000;
 const PT_SCE_RELRO: u32 = 0x6100_0010;
 
 pub(super) const DT_NULL: u64 = 0;
+const DT_NEEDED: u64 = 1;
 pub(super) const DT_SCE_JMPREL: u64 = 0x6100_0029;
 pub(super) const DT_SCE_PLTRELSZ: u64 = 0x6100_002d;
 pub(super) const DT_SCE_RELA: u64 = 0x6100_002f;
@@ -87,6 +90,10 @@ pub enum SceError {
     MissingSegment(&'static str),
     #[error("no dynamic tag {0:#x}")]
     MissingTag(u64),
+    #[error("invalid memory image")]
+    InvalidImage,
+    #[error("segment file size exceeds memory size")]
+    SegmentTooLarge,
     #[error("bad name at {0:#x} of the string table")]
     BadName(u64),
     #[error("bad symbol table size")]
@@ -718,6 +725,60 @@ impl SceModule {
         })
     }
 
+    /// The names of the libraries the dynamic section needs (`DT_NEEDED`), in order.
+    pub fn needed(&self) -> Result<Vec<String>, SceError> {
+        let blob = self.blob()?;
+        let strings = self.strings(blob)?;
+        self.entries
+            .iter()
+            .filter(|&&(tag, _)| tag == DT_NEEDED)
+            .map(|&(_, offset)| name_at(strings, offset))
+            .collect()
+    }
+
+    /// The memory image: every loadable segment's file bytes at its address, the rest zero. The
+    /// entry point must lie in a segment.
+    pub fn memory_image(&self) -> Result<Vec<u8>, SceError> {
+        let loads = &self.info.segments;
+        let size = loads
+            .iter()
+            .map(|p| u128::from(p.vaddr) + u128::from(p.memsz))
+            .max()
+            .ok_or(SceError::MissingSegment("loadable"))?;
+        if size > u128::from(IMAGE_LIMIT) || !self.mapped(self.info.entry, 1) {
+            return Err(SceError::InvalidImage);
+        }
+        let mut image = vec![0; usize::try_from(size).map_err(|_| SceError::InvalidImage)?];
+        for p in loads {
+            if p.filesz > p.memsz {
+                return Err(SceError::SegmentTooLarge);
+            }
+            place(
+                &mut image,
+                p.vaddr,
+                span(&self.info.elf, p.offset, p.filesz)?,
+            )?;
+        }
+        Ok(image)
+    }
+
+    /// The bytes of the function `s` defines, from the executable segment that holds it.
+    pub fn code(&self, s: &Symbol) -> Result<&[u8], SceError> {
+        let segment = self
+            .info
+            .program_headers
+            .iter()
+            .find(|p| {
+                p.kind == PT_LOAD
+                    && p.flags & PF_X != 0
+                    && p.vaddr <= s.value
+                    && s.value - p.vaddr < p.filesz
+            })
+            .ok_or(SceError::MissingSegment("executable"))?;
+        let start = segment.offset.saturating_add(s.value - segment.vaddr);
+        span(&self.info.elf, start, s.size)
+    }
+
     /// What the symbol of `r` stands for, with the addend added.
     pub fn resolve(&self, r: &Relocation) -> Result<Target<'_>, SceError> {
         let symbol = usize::try_from(r.symbol)
@@ -908,7 +969,7 @@ pub mod tests {
     }
 
     // The module reader: `dynamic` lays out the tables, the tests bend them.
-    use crate::runner::packages::{dynamic, elf, Sym};
+    use crate::runner::packages::{dynamic, elf, Program, Sym};
 
     const EXPORT_LIBRARY: u64 = 0x6100_0013;
     const MODULE_INFO: u64 = 0x6100_000d;
@@ -1116,5 +1177,86 @@ pub mod tests {
         assert!(!ImportKind::Object.allows(4096));
         assert!(!ImportKind::Object.allows(-1));
         assert!(!ImportKind::Function.allows(-1));
+    }
+
+    /// A module whose program headers are `dynamic` (tables) and `loads` (`PT_LOAD`s).
+    fn read_loads(tags: &[(u64, u64)], loads: Vec<Program>) -> Result<SceModule, SceError> {
+        let ids = [(EXPORT_LIBRARY, 1, "libc", 1)];
+        let mut programs: Vec<Program> = dynamic(tags, &ids, &[sym("", 3, 1, 0)], &[]).into();
+        programs.extend(loads);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("m.prx");
+        std::fs::write(&path, elf(0xfe18, &programs)).unwrap();
+        SceModule::read(&path)
+    }
+
+    fn load(flags: u32, vaddr: u64, memsz: u64, data: &[u8]) -> Program {
+        Program {
+            kind: PT_LOAD,
+            flags,
+            vaddr,
+            memsz,
+            align: 0x1000,
+            data: data.to_vec(),
+        }
+    }
+
+    #[test]
+    fn needed_names_the_dt_needed_libraries() {
+        // "libc" is the first string the fixture adds, at offset 1 of the string table.
+        let module = read_loads(&[(DT_NEEDED, 1), (DT_NEEDED, 1)], vec![]).unwrap();
+        assert_eq!(module.needed().unwrap(), ["libc", "libc"]);
+        let module = read_loads(&[(DT_NEEDED, 0xffff)], vec![]).unwrap();
+        assert!(message(module.needed()).contains("0xffff"));
+        assert_eq!(read_loads(&[], vec![]).unwrap().needed().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn memory_image_puts_each_segment_at_its_address() {
+        // The entry (0) lies in the first segment.
+        let module = read_loads(&[], vec![load(5, 0, 16, &[1, 2, 3, 4])]).unwrap();
+        let mut expected = vec![1, 2, 3, 4];
+        expected.resize(16, 0);
+        assert_eq!(module.memory_image().unwrap(), expected);
+        let module = read_loads(&[], vec![]).unwrap();
+        assert_eq!(message(module.memory_image()), "no loadable segment");
+        // The entry must be mapped.
+        let module = read_loads(&[], vec![load(5, 0x10, 16, &[1])]).unwrap();
+        assert_eq!(message(module.memory_image()), "invalid memory image");
+        let module = read_loads(&[], vec![load(5, 0, 2, &[1, 2, 3, 4])]).unwrap();
+        assert_eq!(
+            message(module.memory_image()),
+            "segment file size exceeds memory size"
+        );
+    }
+
+    #[test]
+    fn code_is_sliced_from_the_executable_segment() {
+        let mut bytes = vec![0; 0x20];
+        bytes[0x11] = 0xc3;
+        let module = read_loads(
+            &[],
+            vec![
+                load(4, 0x1000, 0x20, &[0x90; 0x20]),
+                load(5, 0x100, 0x20, &bytes),
+            ],
+        )
+        .unwrap();
+        let symbol = |value, size| Symbol {
+            name: "f".to_owned(),
+            kind: STT_FUNC,
+            binding: 1,
+            section: 1,
+            value,
+            size,
+        };
+        // The readable segment holds 0x90s; only the executable one counts.
+        assert_eq!(module.code(&symbol(0x111, 1)).unwrap(), [0xc3]);
+        assert_eq!(module.code(&symbol(0x110, 2)).unwrap(), [0, 0xc3]);
+        assert_eq!(
+            message(module.code(&symbol(0x1000, 1))),
+            "no executable segment"
+        );
+        assert!(message(module.code(&symbol(0x11f, 8))).starts_with("out of bounds"));
     }
 }

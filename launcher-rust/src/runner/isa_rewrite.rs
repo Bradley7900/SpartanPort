@@ -17,8 +17,8 @@ use iced_x86::{
 };
 use sha2::{Digest, Sha256};
 
-use super::prepare::{IMPORT_NAME_SIZE, PF_X};
-use super::sce::{span, u64_at, SceError, Segment};
+use super::prepare::IMPORT_NAME_SIZE;
+use super::sce::{span, u64_at, SceError, Segment, PF_X};
 use crate::core::fs::atomic_write;
 
 /// What a register slot holds when its operand is not a register.

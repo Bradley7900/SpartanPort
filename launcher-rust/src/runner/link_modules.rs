@@ -16,15 +16,12 @@ use indexmap::IndexMap;
 use serde::Serialize;
 
 use super::link_libc::{
-    align_up, exported, import_addend_ok, import_kind, load, main_tls, map_module, push_words,
-    read_boot, relocate_defined, write, write_json, Binding, BootRelocation, Identity, LinkError,
-    Module, PlainNames, Symbol, TlsLayout, PT_SCE_PROCPARAM, PT_TLS, R_X86_64_DTPMOD64, STB_WEAK,
-    STT_SECTION,
+    align_up, exported, load, main_tls, map_module, push_words, read_boot, write, write_json,
+    Binding, BootRelocation, Identity, LinkError, Module, PlainNames, TlsLayout, DT_INIT,
+    PT_SCE_PROCPARAM, PT_TLS, R_X86_64_DTPMOD64, STB_WEAK, STT_SECTION,
 };
-use super::prepare::{
-    hex, PF_X, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE,
-};
-use super::sce::{hex_number, mapped, place, SceError, Segment};
+use super::prepare::{hex, R_X86_64_64, R_X86_64_GLOB_DAT, R_X86_64_JUMP_SLOT, R_X86_64_RELATIVE};
+use super::sce::{hex_number, place, ImportKind, SceError, Segment, Target, PF_X};
 
 pub const DEFAULT_MODULES: [&str; 2] = ["libc.prx", "libSceFios2.prx"];
 /// `mov rax, fs:[0]`: how the eboot and the modules read their thread pointer (initial-exec TLS).
@@ -130,19 +127,19 @@ struct Export {
     kind: u64,
 }
 
-/// The number of the import of `symbol`, added after the others under its canonical name when it
-/// is new.
+/// The number of the import of `identity`, added after the others under its canonical name when
+/// it is new.
 fn import(
     identities: &mut IndexMap<Option<Identity>, usize>,
     names: &mut Vec<String>,
-    symbol: &Symbol,
+    identity: Option<&Identity>,
 ) -> Result<usize, LinkError> {
-    if let Some(&index) = identities.get(&symbol.identity) {
+    if let Some(&index) = identities.get(&identity.cloned()) {
         return Ok(index);
     }
-    let name = canonical(symbol.identity.as_ref(), None).ok_or(LinkError::UnnamedImport)?;
+    let name = canonical(identity, None).ok_or(LinkError::UnnamedImport)?;
     let index = names.len();
-    identities.insert(symbol.identity.clone(), index);
+    identities.insert(identity.cloned(), index);
     names.push(name);
     Ok(index)
 }
@@ -194,11 +191,10 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
         let modsize = map_module(&mut boot, &m, base, || {
             LinkError::SegmentSize(file.to_owned())
         })?;
-        let loads = &m.segments;
-        let tls = m.header(PT_TLS);
+        let tls = m.sce.header(PT_TLS);
         let mut module_id = 0;
         if let Some(tls) = tls {
-            if tls.filesz > tls.memsz || !mapped(loads, tls.vaddr, tls.memsz) {
+            if tls.filesz > tls.memsz || !m.sce.mapped(tls.vaddr, tls.memsz) {
                 return Err(LinkError::TlsLayout(file.to_owned()));
             }
             module_id = tls_module;
@@ -206,7 +202,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
         }
         let mut tls_relocations = 0;
         for r in &m.relocations {
-            if !mapped(loads, r.target, 8) {
+            if !m.sce.mapped(r.target, 8) {
                 return Err(LinkError::RelocationOutside {
                     file: file.to_owned(),
                     target: r.target,
@@ -230,27 +226,32 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
                     place(&mut boot.image, target, &module_id.to_le_bytes())?;
                     tls_relocations += 1;
                 }
-                R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => {
-                    let symbol = m.symbol(r.symbol)?;
-                    if symbol.section != 0 {
-                        relocate_defined(&mut boot, symbol, target, base, r.addend)?;
-                    } else if symbol.identity.is_none() && symbol.binding == STB_WEAK {
-                        // A weak undefined symbol (module_start, module_stop) stays null.
-                        place(&mut boot.image, target, &0u64.to_le_bytes())?;
-                    } else {
-                        let kind = import_kind(symbol.kind);
-                        if !import_addend_ok(kind, r.addend) {
+                R_X86_64_64 | R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT => match m.sce.resolve(r)? {
+                    Target::Absolute(sum) => {
+                        let value = u64::try_from(sum).map_err(|_| LinkError::OutOfRange)?;
+                        place(&mut boot.image, target, &value.to_le_bytes())?;
+                    }
+                    Target::Defined(sum) => boot.relocate(target, i128::from(base) + sum),
+                    Target::Undefined(symbol) => {
+                        let identity = m.identity_of(r.symbol);
+                        if identity.is_none() && symbol.binding == STB_WEAK {
+                            // A weak undefined symbol (module_start, module_stop) stays null.
+                            place(&mut boot.image, target, &0u64.to_le_bytes())?;
+                            continue;
+                        }
+                        let kind = ImportKind::of(symbol);
+                        if !kind.allows(r.addend) {
                             return Err(LinkError::ImportAddend(file.to_owned()));
                         }
-                        let index = import(&mut identities, &mut boot.names, symbol)?;
+                        let index = import(&mut identities, &mut boot.names, identity)?;
                         boot.relocations.push(BootRelocation {
                             target,
-                            kind,
+                            kind: kind as u64,
                             value: index as i128,
                             addend: r.addend,
                         });
                     }
-                }
+                },
                 kind => {
                     return Err(LinkError::RelocationType {
                         file: file.to_owned(),
@@ -260,11 +261,11 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
             }
         }
         let mut count = 0;
-        for symbol in &m.symbols {
-            let Some(identity) = exported(symbol) else {
+        for (symbol, identity) in m.named() {
+            let Some(identity) = exported(symbol, identity) else {
                 continue;
             };
-            if !mapped(loads, symbol.value, symbol.size.max(1)) {
+            if !m.sce.mapped(symbol.value, symbol.size.max(1)) {
                 return Err(LinkError::ExportOutside(file.to_owned()));
             }
             if exports.contains_key(identity) {
@@ -272,7 +273,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
             }
             let export = Export {
                 address: base + symbol.value,
-                kind: import_kind(symbol.kind),
+                kind: ImportKind::of(symbol) as u64,
             };
             exports.insert(identity.clone(), export);
             by_nid
@@ -283,7 +284,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
         }
         fs_loads_patched += patch_fs_loads(&mut boot.image, &m.loads(), base);
         let init = base
-            .checked_add(m.init.unwrap_or(0))
+            .checked_add(m.sce.tag(DT_INIT).unwrap_or(0))
             .ok_or(LinkError::OutOfRange)?;
         table.push(LinkedModule {
             file: file.to_owned(),
@@ -296,7 +297,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
             tls_module: module_id,
             tls_relocations,
             exports: count,
-            sha256: hex(&m.sha256),
+            sha256: hex(&m.sce.sha256),
         });
         base = align_up(base + modsize);
     }
@@ -317,6 +318,7 @@ pub fn link(game: &Path, out: &Path, modules: &[&str]) -> Result<LinkReport, Lin
     }
     let main_tls = main_tls(&main, size)?;
     let procparam = main
+        .sce
         .header(PT_SCE_PROCPARAM)
         .ok_or(SceError::MissingSegment("procparam"))?;
     let mut data = boot.header(b"G3PROBE5");
@@ -383,10 +385,13 @@ mod tests {
         let elf = parse_self(&source).unwrap().elf;
         fs::write(&path, &elf).unwrap();
         let actual = module(&path).unwrap();
-        assert_eq!(actual.symbols, expected.symbols);
-        assert_eq!(actual.program_headers, expected.program_headers);
+        assert_eq!(actual.sce.symbols, expected.sce.symbols);
+        assert_eq!(
+            actual.sce.info.program_headers,
+            expected.sce.info.program_headers
+        );
         assert_eq!(actual.relocations, expected.relocations);
-        assert_eq!(actual.sha256, <[u8; 32]>::from(Sha256::digest(&elf)));
+        assert_eq!(actual.sce.sha256, <[u8; 32]>::from(Sha256::digest(&elf)));
     }
 
     #[test]
@@ -396,13 +401,13 @@ mod tests {
         let path = dir.path().join("libc.prx");
         fs::write(&path, &data).unwrap();
         let info = module(&path).unwrap();
-        assert_eq!(info.sha256, <[u8; 32]>::from(Sha256::digest(&data)));
-        assert_eq!(info.missing, Vec::<usize>::new());
+        assert_eq!(info.sce.sha256, <[u8; 32]>::from(Sha256::digest(&data)));
+        assert_eq!(info.sce.info.missing, Vec::<usize>::new());
         let identity = Identity {
             nid: "bzQExy189ZI".to_owned(),
             library: libc_1(),
             module: libc_1(),
         };
-        assert_eq!(info.symbols[0].identity, Some(identity));
+        assert_eq!(info.identities[0], Some(identity));
     }
 }
