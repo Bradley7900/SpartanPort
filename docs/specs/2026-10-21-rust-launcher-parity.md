@@ -1,10 +1,17 @@
 # Rust launcher parity: Python tests → Rust tests
 
-Every test method of `tests/test_launcher_*.py`, `tests/test_trophies.py` and `tests/test_button_icons.py`
-(the Python launcher 2.7.0, reference `003e42b`, plus the generator checks of Task 2) with the Rust test
-of `launcher-rust/` that covers its behaviour (spec §7). `tests/test_launcher_parity_doc.py` keeps this
-map honest: it finds the methods by scanning those files, and fails when one has no row, a row has no
-status, or a named Rust test does not exist. That checker is not itself a row.
+Every test method of `tests/test_launcher_*.py`, `tests/test_trophies.py`, `tests/test_button_icons.py`
+and the controller mapper tests (`tests/test_controller_mappings.py`, `tests/test_controller_mapper_launch.py`,
+`tests/test_controller_mapper_sdl.py`) (the Python launcher 2.7.0, reference `003e42b`, plus the
+generator checks of Task 2) with the Rust test of `launcher-rust/` that covers its behaviour (spec §7).
+`tests/test_launcher_parity_doc.py` keeps this map honest: it finds the methods by scanning those
+files, and fails when one has no row, a row has no status, or a named Rust test does not exist. That
+checker is not itself a row.
+
+Task 42 of the deepening plan (`docs/plans/2026-10-24-launcher-deepening.md`) merged `main` at
+`9dd2d12`. The tests `main` added or changed after 2.7.0 are `dropped: pending port (Task NN)` until
+task NN of that plan ports them; the row of a changed test names the Rust tests of its 2.7.0 row.
+`tests/test_launcher_parity_doc.py` lists them in `PENDING_PORTS`.
 
 Status:
 
@@ -12,10 +19,13 @@ Status:
 - `replaced by <test>`: Rust tests that cover the behaviour under a different cut; the Rust column
   names the same tests.
 - `dropped: <reason>`: Tk-only or Python-only mechanics with no Rust equivalent (font registration,
-  the X11/Tk scale queries, the frozen-Python stdio, the Tk grid of the Diagnostics section).
+  the X11/Tk scale queries, the frozen-Python stdio, the Tk grid of the Diagnostics section, the Tk
+  window calls of the dark title bar).
 - `dropped: spec §<section> <reason>`: behaviour the spec replaced on purpose (any file).
 - `dropped: no Rust counterpart — <what it tested>`: behaviour no Rust test covers. Each is listed
   again under [Gaps](#gaps).
+- `dropped: pending port (Task NN)`: a test `main` added or changed after 2.7.0, ported by task NN of
+  the deepening plan. Not a gap: the porting task turns the row to `ported`.
 
 Rust tests are named `file::name` under `launcher-rust/`: `tests/ui_save.rs::name` for integration
 tests, `src/core/ini.rs::tests::name` for unit tests (the `tests` segment is the module).
@@ -25,38 +35,42 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 
 ## Counts
 
-| File | Rows | Ported | Replaced | Dropped (Tk/Python-only) | Dropped (spec) | Gaps |
-|---|---|---|---|---|---|---|
-| `tests/test_launcher_artwork.py` | 7 | 0 | 3 | 0 | 0 | 4 |
-| `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 |
-| `tests/test_launcher_cache.py` | 3 | 3 | 0 | 0 | 0 | 0 |
-| `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 |
-| `tests/test_launcher_controls.py` | 51 | 20 | 18 | 0 | 0 | 13 |
-| `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 |
-| `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 |
-| `tests/test_launcher_exit_hint.py` | 17 | 10 | 7 | 0 | 0 | 0 |
-| `tests/test_launcher_font.py` | 19 | 0 | 6 | 6 | 0 | 7 |
-| `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 | 0 |
-| `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 |
-| `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 | 0 |
-| `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 0 | 3 |
-| `tests/test_launcher_mod_resolutions.py` | 3 | 1 | 2 | 0 | 0 | 0 |
-| `tests/test_launcher_monitor.py` | 73 | 17 | 16 | 0 | 1 | 39 |
-| `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 |
-| `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 |
-| `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 0 | 4 |
-| `tests/test_launcher_portable_settings.py` | 7 | 1 | 3 | 0 | 0 | 3 |
-| `tests/test_launcher_run_log.py` | 7 | 4 | 3 | 0 | 0 | 0 |
-| `tests/test_launcher_save.py` | 17 | 12 | 2 | 0 | 0 | 3 |
-| `tests/test_launcher_scaling.py` | 17 | 0 | 4 | 9 | 1 | 3 |
-| `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 | 0 |
-| `tests/test_launcher_stream_memory.py` | 4 | 1 | 3 | 0 | 0 | 0 |
-| `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 0 | 8 |
-| `tests/test_launcher_update.py` | 15 | 11 | 1 | 0 | 0 | 3 |
-| `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 |
-| `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 |
-| `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 |
-| **Total** | **336** | **129** | **87** | **20** | **2** | **98** |
+| File | Rows | Ported | Replaced | Dropped (Tk/Python-only) | Dropped (spec) | Gaps | Pending port |
+|---|---|---|---|---|---|---|---|
+| `tests/test_launcher_artwork.py` | 7 | 0 | 3 | 0 | 0 | 4 | 0 |
+| `tests/test_launcher_aspect.py` | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_cache.py` | 3 | 3 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_close_on_play.py` | 5 | 4 | 1 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_controls.py` | 59 | 17 | 17 | 0 | 0 | 13 | 12 |
+| `tests/test_launcher_desktop.py` | 33 | 29 | 3 | 0 | 0 | 1 | 0 |
+| `tests/test_launcher_diagnostics_layout.py` | 3 | 0 | 0 | 3 | 0 | 0 | 0 |
+| `tests/test_launcher_exit_hint.py` | 17 | 10 | 7 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_font.py` | 19 | 0 | 6 | 6 | 0 | 7 | 0 |
+| `tests/test_launcher_game_files.py` | 2 | 0 | 2 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_game_language.py` | 5 | 4 | 0 | 0 | 0 | 1 | 0 |
+| `tests/test_launcher_generators.py` | 3 | 0 | 3 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_icon.py` | 3 | 0 | 0 | 0 | 0 | 3 | 0 |
+| `tests/test_launcher_mod_resolutions.py` | 3 | 1 | 2 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_monitor.py` | 74 | 16 | 15 | 0 | 1 | 39 | 3 |
+| `tests/test_launcher_no_msaa.py` | 8 | 3 | 4 | 0 | 0 | 1 | 0 |
+| `tests/test_launcher_pages.py` | 3 | 0 | 1 | 0 | 0 | 2 | 0 |
+| `tests/test_launcher_polish_language.py` | 5 | 0 | 1 | 0 | 0 | 4 | 0 |
+| `tests/test_launcher_portable_settings.py` | 7 | 1 | 3 | 0 | 0 | 3 | 0 |
+| `tests/test_launcher_run_log.py` | 7 | 4 | 3 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_save.py` | 17 | 12 | 2 | 0 | 0 | 3 | 0 |
+| `tests/test_launcher_scaling.py` | 17 | 0 | 4 | 9 | 1 | 3 | 0 |
+| `tests/test_launcher_stdio.py` | 2 | 0 | 0 | 2 | 0 | 0 | 0 |
+| `tests/test_launcher_stream_memory.py` | 4 | 1 | 3 | 0 | 0 | 0 | 0 |
+| `tests/test_launcher_titlebar.py` | 10 | 0 | 0 | 8 | 0 | 0 | 2 |
+| `tests/test_launcher_translations.py` | 9 | 0 | 1 | 0 | 0 | 8 | 0 |
+| `tests/test_launcher_update.py` | 15 | 11 | 1 | 0 | 0 | 3 | 0 |
+| `tests/test_launcher_upscale.py` | 2 | 0 | 1 | 0 | 0 | 1 | 0 |
+| `tests/test_trophies.py` | 8 | 5 | 1 | 0 | 0 | 2 | 0 |
+| `tests/test_button_icons.py` | 4 | 3 | 1 | 0 | 0 | 0 | 0 |
+| `tests/test_controller_mappings.py` | 15 | 0 | 0 | 0 | 0 | 0 | 15 |
+| `tests/test_controller_mapper_launch.py` | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
+| `tests/test_controller_mapper_sdl.py` | 9 | 0 | 0 | 0 | 0 | 0 | 9 |
+| **Total** | **382** | **125** | **85** | **28** | **2** | **98** | **44** |
 
 ## Map
 
@@ -81,6 +95,10 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::DiskModsTest::test_frozen_launcher_uses_disk_loader_in_every_import` | — | dropped: no Rust counterpart — the frozen launcher imports scripts/mods.py from the port folder over its bundled copy (the Rust mods code is compiled in) |
 | `tests/test_launcher_controls.py::DiskModsTest::test_missing_disk_loader_uses_the_bundle` | — | dropped: no Rust counterpart — without scripts/mods.py on disk the frozen launcher uses its bundled copy |
 | `tests/test_launcher_controls.py::DiskModsTest::test_invalid_disk_loader_has_a_clear_error_and_keeps_the_bundle` | — | dropped: no Rust counterpart — a broken scripts/mods.py raises an error naming the file and keeps the bundled copy |
+| `tests/test_launcher_controls.py::ControlMapTest::test_stick_directions_are_saved_and_sent_like_other_keyboard_actions` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_new_directions_do_not_take_keys_from_saved_actions` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_unbinding_several_inputs_does_not_swap_their_old_keys` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_direction_conflicts_swap_and_invalid_entries_are_not_forwarded` | — | dropped: pending port (Task 43) |
 | `tests/test_launcher_controls.py::ControlMapTest::test_shader_notes_are_off_without_a_saved_choice` | `src/core/env.rs::tests::shader_notes_are_off_without_a_saved_choice` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_saved_shader_notes_choice_is_preserved` | `src/core/env.rs::tests::saved_shader_notes_choice_is_preserved` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_new_cheats_default_to_disabled` | `tests/fixtures.rs::collect_matches_python_for_edited_case` | replaced by `tests/fixtures.rs::collect_matches_python_for_edited_case` |
@@ -97,17 +115,21 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_controls.py::ControlMapTest::test_captured_names_reach_the_game` | `tests/ui_pages.rs::pressed_keys_become_sdl_names`, `src/core/controls.rs::tests::changed_buttons_in_table_order` | replaced by `tests/ui_pages.rs::pressed_keys_become_sdl_names`, `src/core/controls.rs::tests::changed_buttons_in_table_order` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_mouse_inputs_become_game_names` | `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::sdl_names_and_mouse_names` | replaced by `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::sdl_names_and_mouse_names` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_the_mouse_binds_in_the_keyboard_table` | `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` | replaced by `tests/ui_pages.rs::capture_takes_the_mouse_and_gives_up_in_time`, `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` |
-| `tests/test_launcher_controls.py::ControlMapTest::test_keyboard_defaults_put_the_attacks_on_the_mouse` | `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` | ported |
-| `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table` | `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::settings_match_python_for_case_defaults`, `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` | replaced by `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::settings_match_python_for_case_defaults`, `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` |
+| `tests/test_launcher_controls.py::ControlMapTest::test_keyboard_defaults_put_the_attacks_on_the_mouse` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `src/core/controls.rs::tests::keyboard_defaults_put_the_attacks_on_the_mouse` |
+| `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::settings_match_python_for_case_defaults`, `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` |
+| `tests/test_launcher_controls.py::ControlMapTest::test_the_wheel_cycles_the_weapons_by_default` | — | dropped: pending port (Task 43) |
 | `tests/test_launcher_controls.py::ControlMapTest::test_rage_switch_moves_l3_and_r3_to_one_input` | `src/core/controls.rs::tests::rage_switch_moves_l3_and_r3_to_one_input` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_stick_prompts_reach_the_game` | — | dropped: no Rust counterpart — stick_prompts reaches SPARTAN_STICK_PROMPTS (mouse is sent, an unknown value is dropped, an inherited value is replaced); only the keyboard default is in the environment fixtures |
-| `tests/test_launcher_controls.py::ControlMapTest::test_saved_keyboard_binds_keep_their_layout` | `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` | ported |
-| `tests/test_launcher_controls.py::ControlMapTest::test_native_translation_carries_over` | `src/core/controls.rs::tests::native_translation_carries_over` | ported |
+| `tests/test_launcher_controls.py::ControlMapTest::test_saved_keyboard_binds_keep_their_layout` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `src/core/controls.rs::tests::saved_keyboard_binds_keep_their_layout` |
+| `tests/test_launcher_controls.py::ControlMapTest::test_layout_two_keeps_its_table_and_gets_the_weapon_cycle` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_rage_moves_to_f_but_a_saved_table_keeps_the_wheel_click` | — | dropped: pending port (Task 43) |
+| `tests/test_launcher_controls.py::ControlMapTest::test_native_translation_carries_over` | — | dropped: pending port (Task 43); main changed it, the 2.7.0 row named `src/core/controls.rs::tests::native_translation_carries_over` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_new_players_get_the_new_defaults` | `src/core/controls.rs::tests::new_players_get_the_new_defaults` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_binding_a_used_key_swaps_the_buttons` | `src/core/controls.rs::tests::binding_a_used_key_swaps_the_buttons` | ported |
 | `tests/test_launcher_controls.py::ControlMapTest::test_environment` | `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_edited` | replaced by `tests/fixtures.rs::environment_matches_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_edited` |
 | `tests/test_launcher_controls.py::ControlMapTest::test_temporal_upscaler_stays_off_with_a_saved_2_1_8_switch` | — | dropped: no Rust counterpart — a saved experimental_upscaler=true still sends SPARTAN_EXPERIMENTAL_UPSCALER=0 |
 | `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_is_off_by_default` | `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | replaced by `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` |
+| `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_ini_overrides_legacy_launcher_choice` | — | dropped: pending port (Task 47) |
 | `tests/test_launcher_controls.py::ControlMapTest::test_glyph_style_choices_reach_the_game` | — | dropped: no Rust counterpart — glyph_style auto, xbox, nintendo and keyboard reach SPARTAN_GLYPH_STYLE |
 | `tests/test_launcher_controls.py::ControlMapTest::test_unknown_glyph_style_is_off` | — | dropped: no Rust counterpart — an unknown glyph_style sends no SPARTAN_GLYPH_STYLE |
 | `tests/test_launcher_controls.py::ControlMapTest::test_inherited_glyph_style_is_dropped_when_off` | — | dropped: no Rust counterpart — an inherited SPARTAN_GLYPH_STYLE is dropped while the style is off and replaced when one is chosen |
@@ -236,6 +258,7 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_monitor.py::ListDisplaysTest::test_failures_and_a_bad_exit_list_nothing` | — | dropped: no Rust counterpart — a probe that times out, cannot start or exits non-zero lists no monitors |
 | `tests/test_launcher_monitor.py::ListDisplaysTest::test_a_good_run_is_parsed_and_captured_as_utf8` | — | dropped: no Rust counterpart — the probe runs as --displays with a 5 s timeout and its output is read as UTF-8 with replacement |
 | `tests/test_launcher_monitor.py::ListDisplaysTest::test_the_game_backend_sets_the_sdl_driver_for_the_probe` | — | dropped: no Rust counterpart — on Linux the saved window system (x11, wayland) is passed to the probe as SDL_VIDEODRIVER and SDL_VIDEO_DRIVER; Automatic leaves the inherited value |
+| `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_ini_migrates_legacy_display_preferences_and_then_takes_precedence` | — | dropped: pending port (Task 47) |
 | `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_the_default_is_the_primary_and_sends_no_variable` | `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` | replaced by `tests/fixtures.rs::settings_match_python_for_case_defaults`, `tests/fixtures.rs::environment_matches_python_for_case_defaults` |
 | `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game` | `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits`, `tests/fixtures.rs::environment_matches_python_for_case_edited` | replaced by `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits`, `tests/fixtures.rs::environment_matches_python_for_case_edited` |
 | `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_an_invalid_choice_sends_nothing` | `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits` | replaced by `src/core/env.rs::tests::inherited_gpu_id_and_monitor_are_dropped_when_not_digits` |
@@ -280,12 +303,12 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_collects_before_opening_a_settings_file` | — | dropped: no Rust counterpart — opening spartanport.ini saves first and opens nothing when the save fails (the Rust Advanced page opens it without saving) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_open_path_opens_a_folder_without_collecting` | — | dropped: no Rust counterpart — opening a folder starts the system opener without saving first (the Rust test only sees the screenshots button emit OpenPath) |
 | `tests/test_launcher_monitor.py::CollectCallersTest::test_add_to_steam_collects_first` | — | dropped: no Rust counterpart — Add to Steam saves first and stops when the save fails (the Rust Advanced page does not save first) |
-| `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | ported |
+| `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice` | — | dropped: pending port (Task 47); main changed it, the 2.7.0 row named `tests/ui_pages.rs::graphics_page_offers_the_choice` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice` | `tests/ui_pages.rs::monitor_row_lists_the_probe_indices`, `src/core/gpu.rs::tests::the_default_is_first_and_the_rest_come_by_index` | replaced by `tests/ui_pages.rs::monitor_row_lists_the_probe_indices`, `src/core/gpu.rs::tests::the_default_is_first_and_the_rest_come_by_index` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries` | `tests/ui_pages.rs::graphics_page_offers_the_choice` | replaced by `tests/ui_pages.rs::graphics_page_offers_the_choice` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_in_quick_settings_follows_on_the_graphics_page` | — | dropped: no Rust counterpart — the Graphics row shows a monitor picked elsewhere, as the entry of its index (Quick-settings part dropped by spec §4.3) |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings` | `tests/ui_pages.rs::monitor_row_lists_the_probe_indices` | replaced by `tests/ui_pages.rs::monitor_row_lists_the_probe_indices` |
-| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `tests/ui_pages.rs::graphics_page_offers_the_choice` | replaced by `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `tests/ui_pages.rs::graphics_page_offers_the_choice` |
+| `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening` | — | dropped: pending port (Task 47); main changed it, the 2.7.0 row named `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `tests/ui_pages.rs::graphics_page_offers_the_choice` |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_a_new_window_system_drops_an_index_the_new_list_lost` | — | dropped: no Rust counterpart — both monitor rows drop an index the new window system's list lost |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_both_rows_follow_a_reordered_list_that_still_holds_the_index` | — | dropped: no Rust counterpart — both monitor rows follow an index that moved in the new list |
 | `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_of_quick_settings_reaches_the_game` | — | dropped: spec §4.3 (layout A2) replaced the Home quick settings with a read-only line |
@@ -360,6 +383,16 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_every_selection_overrides_inherited_environment_without_changing_it` | `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
 | `tests/test_launcher_stream_memory.py::StreamMemoryEnvironmentTest::test_play_without_window_uses_saved_selection` | `tests/runner.rs::play_starts_the_game_with_the_saved_stream_memory` | ported |
 | `tests/test_launcher_stream_memory.py::StreamMemoryLauncherTest::test_ui_selection_persists_reopens_and_reverts_on_next_launch` | `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `src/core/env.rs::tests::stream_memory_falls_back_to_cached` | replaced by `tests/ui_save.rs::every_setting_lights_save_persists_and_comes_back`, `src/core/env.rs::tests::stream_memory_falls_back_to_cached` |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_non_windows_guard` | — | dropped: Tk window mechanics — toplevel_hwnd and native_dark_titlebar of a Tk root give None and False off Windows |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_success` | — | dropped: pending port (Task 53) |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_attribute_20_fail_fallback_19` | — | dropped: pending port (Task 53) |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_dwm_exception_handled_gracefully` | — | dropped: Tk window mechanics — an OSError from the ctypes DwmSetWindowAttribute makes native_dark_titlebar return False |
+| `tests/test_launcher_titlebar.py::DarkTitlebarUnitTest::test_invalid_bg_hex_does_not_crash` | — | dropped: Tk window mechanics — a Tk background that is not a hex color skips the caption color (35) and keeps the dark mode (20) |
+| `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_toplevel_hwnd_returns_valid_frame` | — | dropped: Tk window mechanics — toplevel_hwnd is the frame around the Tk child window (GetAncestor of winfo_id) |
+| `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_native_dark_titlebar_applies_immersive_dark_mode` | — | dropped: Tk window mechanics — a real Tk window reads back attribute 20 = 1 after native_dark_titlebar |
+| `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_native_titlebar_visual_pixel_contrast` | — | dropped: Tk window mechanics — PrintWindow of a real Tk window shows a dark title bar pixel |
+| `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_window_icon_applies_dark_titlebar` | — | dropped: Tk window mechanics — window_icon also darkens the title bar of a real Tk window |
+| `tests/test_launcher_titlebar.py::NativeDarkTitlebarWindowsTest::test_window_lifecycle_transitions` | — | dropped: Tk window mechanics — a real Tk window with the dark title bar minimizes, restores, takes focus and resizes |
 | `tests/test_launcher_translations.py::PortugueseTest::test_every_literal_text_is_translated` | — | dropped: no Rust counterpart — every literal text the launcher translates has a Portuguese text (no Rust test scans the tr() literals of the code) |
 | `tests/test_launcher_translations.py::PortugueseTest::test_button_names_are_translated` | — | dropped: no Rust counterpart — the controller button names have Portuguese texts |
 | `tests/test_launcher_translations.py::PortugueseTest::test_the_built_in_patch_notes_are_translated` | — | dropped: no Rust counterpart — the notes of the built-in patches have Portuguese texts |
@@ -398,6 +431,33 @@ assertions uncovered are listed under [Partly covered](#partly-covered).
 | `tests/test_button_icons.py::ButtonIconTest::test_every_gamepad_button_has_an_icon_in_both_styles` | `src/ui/widgets/button_icon.rs::tests::every_gamepad_button_has_an_icon_in_both_styles` | ported |
 | `tests/test_button_icons.py::ButtonIconTest::test_styles_differ_where_the_controllers_do` | `src/ui/widgets/button_icon.rs::tests::styles_differ_where_the_controllers_do` | ported |
 | `tests/test_button_icons.py::ButtonIconTest::test_draw_fills_and_clears_the_canvas` | `tests/ui_snapshots.rs::controls`, `src/ui/widgets/button_icon.rs::tests::styles_differ_where_the_controllers_do` | replaced by `tests/ui_snapshots.rs::controls`, `src/ui/widgets/button_icon.rs::tests::styles_differ_where_the_controllers_do` |
+| `tests/test_controller_mappings.py::CaptureTest::test_release_gate_stability_and_noise` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::CaptureTest::test_hats_diagonals_axes_triggers_and_inversion` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::CaptureTest::test_stick_prompt_ignores_buttons_and_endpoint_trigger` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::CaptureTest::test_full_axes_conflict_but_opposite_halves_can_be_shared` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::CaptureTest::test_back_skip_and_cross_requirement` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::CaptureTest::test_start_with_a_held_button_is_rejected` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_edit_one_input_preserves_other_inputs_and_unknown_sdl_fields` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_partial_profile_can_start_with_any_button` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_platform_specific_saved_mapping_wins_over_generic` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_replace_only_this_guid_and_platform_preserving_comments` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_failed_commit_preserves_profile_and_cleans_temporary_file` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_invalid_mapping_does_not_write` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_explicit_overrides_have_priority_and_restarts_do_not_duplicate` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_no_profile_leaves_environment_untouched` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mappings.py::PersistenceTest::test_reserved_xinput_override_is_not_discarded` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mapper_launch.py::LaunchTest::test_direct_run_loads_profile_before_native_detection` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mapper_launch.py::LaunchTest::test_updater_preserves_profiles` | — | dropped: pending port (Task 50) |
+| `tests/test_controller_mapper_launch.py::LaunchTest::test_mapper_is_not_opened_over_a_running_game` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_raw_capture_gamepad_preview_inversion_and_analog_trigger` | — | dropped: pending port (Task 51) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_saved_mapping_loads_and_explicit_user_file_wins` | — | dropped: pending port (Task 51) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_disconnect_reports_error_instead_of_reading_a_stale_pad` | — | dropped: pending port (Task 51) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_rows_save_out_of_order_and_reload_without_losing_other_bindings` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_cancel_capture_and_close_keep_already_saved_rows` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_clear_only_one_row_and_allow_an_empty_profile` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_failed_save_keeps_previous_profile_and_row_values` | — | dropped: pending port (Task 52) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_editing_an_existing_sdl_mapping_preserves_guide_and_other_buttons` | — | dropped: pending port (Task 51) |
+| `tests/test_controller_mapper_sdl.py::SDLIntegrationTest::test_parent_destroy_closes_sdl_without_saving` | — | dropped: pending port (Task 52) |
 
 ## Known deviations from the Python
 
@@ -431,7 +491,7 @@ the Python test:
 - `tests/test_launcher_controls.py::ControlMapTest::test_new_cheats_default_to_disabled`: the cheats being ini flags is not asserted.
 - `tests/test_launcher_controls.py::ControlMapTest::test_more_keys_can_be_bound`: Pause, Scroll Lock and Keypad 0 are not pressed.
 - `tests/test_launcher_controls.py::ControlMapTest::test_captured_names_reach_the_game`: Keypad Enter, minus and F5 are not run through control_map.
-- `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table`: dodge being absent from the gamepad table, and dodge=V in the key map, are not asserted.
+- `tests/test_launcher_controls.py::ControlMapTest::test_actions_belong_to_the_keyboard_table`: dodge being absent from the gamepad table, and dodge=V in the key map, are not asserted. This is about the 2.7.0 row: main changed the test, pending port (Task 43).
 - `tests/test_launcher_controls.py::ControlMapTest::test_environment`: the switches (partial_height_views, parallel_warmup and background_warmup off, frame_capture_key on) and the ignored extra_env are not asserted; the defaults are.
 - `tests/test_launcher_controls.py::ControlMapTest::test_settings_keys_kept`: an old player_name never reaching SPARTAN_USER_NAME is not asserted.
 - `tests/test_launcher_controls.py::ControlMapTest::test_graphics_defaults_match_the_game`: the FPS limit, engine FPS and frames-queued value lists are not asserted (only that their values are unique).
@@ -456,11 +516,11 @@ the Python test:
 - `tests/test_launcher_mod_resolutions.py::ModResolutionsTest::test_a_saved_mod_resolution_stays_chosen_while_its_mod_is_on`: the Home no longer shows the Python's summary (R77), so the "3840 × 1080 · 32:9 (mod)" label is asserted on the Performance resolution list instead.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_a_saved_index_reaches_the_game`: the first monitor (0) and a number value are not asserted.
 - `tests/test_launcher_monitor.py::MonitorEnvironmentTest::test_an_invalid_choice_sends_nothing`: only -1 is asserted among the invalid values.
-- `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice`: the probe's window system, the Portuguese label and the refresh after a window system change are not asserted.
+- `tests/test_launcher_monitor.py::MonitorLauncherTest::test_graphics_page_offers_the_choice`: the probe's window system, the Portuguese label and the refresh after a window system change are not asserted. This is about the 2.7.0 row: main changed the test, pending port (Task 47).
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_quick_settings_offers_the_monitor_choice`: Quick-settings part dropped by spec §4.3; the Graphics row lists the probe's entries (its monitor_pairs, with the labels of the same two monitors); one enumeration under the saved window system is not asserted.
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_indices_of_the_probe_are_what_quick_settings_carries`: Quick-settings part dropped by spec §4.3; the Graphics list keeps the gap (indices 0 and 2, with their labels); picking the entry of index 2 is not asserted.
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_picking_on_the_graphics_page_follows_in_quick_settings`: Quick-settings part dropped by spec §4.3; picking a Graphics entry stores its index (the pick is built from the row's pairs, as its on_select does, since iced_test cannot open a pick_list).
-- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening`: Quick-settings part dropped by spec §4.3; the monitor setting is saved and reopened (a placeholder value in the every-setting test) and a saved index the list holds is kept; the entry the row shows is not asserted.
+- `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_the_choice_is_saved_and_comes_back_on_reopening`: Quick-settings part dropped by spec §4.3; the monitor setting is saved and reopened (a placeholder value in the every-setting test) and a saved index the list holds is kept; the entry the row shows is not asserted. This is about the 2.7.0 row: main changed the test, pending port (Task 47).
 - `tests/test_launcher_monitor.py::QuickSettingsMonitorTest::test_without_monitors_quick_settings_still_builds`: Quick-settings part dropped by spec §4.3; an empty list leaves only the primary default as the choice.
 - `tests/test_launcher_no_msaa.py::NoMsaaEnvironmentTest::test_auto_leaves_the_game_default_and_keeps_an_inherited_value`: a SPARTAN_NO_MSAA set before the launcher reaching the game on Automatic is not asserted.
 - `tests/test_launcher_no_msaa.py::ChosenGpuTest::test_portuguese_texts`: only the title, the hint and the Automatic labels are checked in Portuguese.

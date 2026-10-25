@@ -12,6 +12,13 @@ map honest through `tests/parity_doc.py`, the checker it shares with the launche
 one has no row, a row has no status, or a named Rust test does not exist. That checker is not itself a
 row.
 
+Task 42 of the deepening plan (`docs/plans/2026-10-24-launcher-deepening.md`) merged `main` at
+`9dd2d12`. The tests `main` added or changed after 2.7.0 are `dropped: pending port (Task NN)` until
+task NN of that plan ports them; the row of a changed test names the Rust tests of its 2.7.0 row.
+`tests/test_runner_parity_doc.py` lists them in `PENDING_PORTS`. Until Task 49 the `real_menu_*` and
+`real_glyph_*` tests of `tests/dump.rs` are expected to fail against the Python of `main`, whose pause
+menu and glyph stamps changed (deepening spec §5 F3).
+
 Release gate: checked on 2026-10-23 at the end of the runner work, on Windows, against the real game
 dump `CUSA01623` (`APP_VER` 01.02, `VERSION` 01.00), read only:
 `SPARTAN_GAME_DIR=<game> cargo test --no-fail-fast` in `launcher-rust/`.
@@ -32,13 +39,15 @@ Status:
 - `dropped: spec §<section> <reason>`: behaviour the spec replaced on purpose (none in this map).
 - `dropped: no Rust counterpart — <what it tested>`: behaviour no Rust test covers. Each is listed
   again under [Gaps](#gaps).
+- `dropped: pending port (Task NN)`: a test `main` added or changed after 2.7.0, ported by task NN of
+  the deepening plan. Not a gap: the porting task turns the row to `ported`.
 
 Rust tests are named `file::name` under `launcher-rust/`: `tests/runner.rs::name` for integration
 tests, `src/runner/prepare.rs::tests::name` for unit tests (the `tests` segment is the module).
 `tests/dump.rs` rows run only with `SPARTAN_GAME_DIR` set. Rows whose Rust tests leave part of the
 Python assertions uncovered are listed under [Partly covered](#partly-covered).
 `tests/test_graphics_options.py` defines `test_corrupt_state_file_preserves_current_settings` twice;
-the second definition is the live one and has the only row (28 definitions, 27 rows).
+the second definition is the live one and has the only row (33 definitions, 32 rows).
 `test_patches.py::test_unavailable_frame_rate_patch_falls_back_to_the_highest_lower_one` tests
 `graphics_options.restrict_to_available`; its row names the Rust test of `graphics_options.rs`.
 `test_game_update.py` has its own rows against `src/runner/game_update.rs`.
@@ -46,27 +55,27 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 
 ## Counts
 
-| File | Rows | Ported | Replaced | Dropped (C runtime/Python-only) | Dropped (spec) | Gaps |
-|---|---|---|---|---|---|---|
-| `tests/test_prepare.py` | 13 | 13 | 0 | 0 | 0 | 0 |
-| `tests/test_link_libc.py` | 9 | 9 | 0 | 0 | 0 | 0 |
-| `tests/test_link_modules.py` | 2 | 2 | 0 | 0 | 0 | 0 |
-| `tests/test_isa_rewrite.py` | 21 | 19 | 1 | 1 | 0 | 0 |
-| `tests/test_run_isa.py` | 4 | 0 | 4 | 0 | 0 | 0 |
-| `tests/test_patches.py` | 30 | 30 | 0 | 0 | 0 | 0 |
-| `tests/test_mods.py` | 43 | 41 | 1 | 0 | 0 | 1 |
-| `tests/test_mod_conflicts.py` | 5 | 5 | 0 | 0 | 0 | 0 |
-| `tests/test_glyphs.py` | 37 | 37 | 0 | 0 | 0 | 0 |
-| `tests/test_content.py` | 5 | 2 | 0 | 3 | 0 | 0 |
-| `tests/test_guest_memory.py` | 8 | 8 | 0 | 0 | 0 | 0 |
-| `tests/test_graphics_options.py` | 27 | 21 | 6 | 0 | 0 | 0 |
-| `tests/test_save_backup.py` | 10 | 10 | 0 | 0 | 0 | 0 |
-| `tests/test_pause_menu.py` | 19 | 19 | 0 | 0 | 0 | 0 |
-| `tests/test_native_cheats.py` | 9 | 9 | 0 | 0 | 0 | 0 |
-| `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 |
-| `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 |
-| `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 |
-| **Total** | **308** | **271** | **21** | **4** | **0** | **12** |
+| File | Rows | Ported | Replaced | Dropped (C runtime/Python-only) | Dropped (spec) | Gaps | Pending port |
+|---|---|---|---|---|---|---|---|
+| `tests/test_prepare.py` | 13 | 13 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_link_libc.py` | 9 | 9 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_link_modules.py` | 2 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_isa_rewrite.py` | 21 | 19 | 1 | 1 | 0 | 0 | 0 |
+| `tests/test_run_isa.py` | 4 | 0 | 4 | 0 | 0 | 0 | 0 |
+| `tests/test_patches.py` | 30 | 30 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_mods.py` | 43 | 41 | 1 | 0 | 0 | 1 | 0 |
+| `tests/test_mod_conflicts.py` | 5 | 5 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_glyphs.py` | 37 | 36 | 0 | 0 | 0 | 0 | 1 |
+| `tests/test_content.py` | 5 | 2 | 0 | 3 | 0 | 0 | 0 |
+| `tests/test_guest_memory.py` | 8 | 8 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_graphics_options.py` | 32 | 19 | 6 | 0 | 0 | 0 | 7 |
+| `tests/test_save_backup.py` | 10 | 10 | 0 | 0 | 0 | 0 | 0 |
+| `tests/test_pause_menu.py` | 20 | 15 | 0 | 0 | 0 | 0 | 5 |
+| `tests/test_native_cheats.py` | 21 | 6 | 0 | 0 | 0 | 0 | 15 |
+| `tests/test_legacy.py` | 34 | 18 | 6 | 0 | 0 | 10 | 0 |
+| `tests/test_discord_presence.py` | 26 | 22 | 3 | 0 | 0 | 1 | 0 |
+| `tests/test_game_update.py` | 6 | 6 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | **326** | **261** | **21** | **4** | **0** | **12** | **28** |
 
 ## Map
 
@@ -204,7 +213,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_glyphs.py::GlyphTableTest::test_glyph_of_each_style` | `src/runner/glyphs.rs::glyph_of_each_style` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_the_letters_of_the_controller_win_over_the_style` | `src/runner/glyphs.rs::the_letters_of_the_controller_win_over_the_style` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_pad_map_moves_the_glyph` | `src/runner/glyphs.rs::pad_map_moves_the_glyph` | ported |
-| `tests/test_glyphs.py::GlyphTableTest::test_key_map_moves_the_key` | `src/runner/glyphs.rs::key_map_moves_the_key` | ported |
+| `tests/test_glyphs.py::GlyphTableTest::test_key_map_moves_the_key` | — | dropped: pending port (Task 45); main changed it, the 2.7.0 row named `src/runner/glyphs.rs::key_map_moves_the_key` |
 | `tests/test_glyphs.py::GlyphTableTest::test_rage_on_one_input_draws_its_key_on_l3_and_r3` | `src/runner/glyphs.rs::rage_on_one_input_draws_its_key_on_l3_and_r3` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_key_caps` | `src/runner/glyphs.rs::key_caps` | ported |
 | `tests/test_glyphs.py::GlyphTableTest::test_gamepad_line` | `src/runner/glyphs.rs::gamepad_line` | ported |
@@ -249,7 +258,12 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_guest_memory.py::GuestMemoryTest::test_1440p_warns_on_8_gb` | `src/runner/guest_memory.rs::tests::warns_for_1440p_on_8_gb` | ported |
 | `tests/test_guest_memory.py::GuestMemoryTest::test_unknown_ram_is_silent` | `src/runner/guest_memory.rs::tests::unknown_ram_is_silent` | ported |
 | `tests/test_guest_memory.py::GuestMemoryTest::test_unknown_stream_memory_counts_as_cached` | `src/runner/guest_memory.rs::tests::unknown_stream_memory_counts_as_cached` | ported |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_defaults_and_invalid_values` | `src/runner/graphics_options.rs::tests::defaults_and_invalid_values` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_glyphs_and_anisotropy_survive_restart_and_recover_after_failure` | — | dropped: pending port (Task 46) |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_glyphs_and_anisotropy_fall_back_to_defaults` | — | dropped: pending port (Task 46) |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_monitor_and_hdr_are_shared_and_recovered_after_a_failed_restart` | — | dropped: pending port (Task 46) |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_legacy_launch_choices_are_migrated_once_and_ini_wins_on_restart` | — | dropped: pending port (Task 46) |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_invalid_monitor_and_hdr_fall_back_safely` | — | dropped: pending port (Task 46) |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_defaults_and_invalid_values` | — | dropped: pending port (Task 46); main changed it, the 2.7.0 row named `src/runner/graphics_options.rs::tests::defaults_and_invalid_values` |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_corrupt_state_file_preserves_current_settings` | `src/runner/graphics_options.rs::tests::corrupt_state_file_preserves_current_settings` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_8k_selection_replaces_previous_resolution` | `src/runner/graphics_options.rs::tests::the_8k_selection_replaces_previous_resolution` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_write_keys_keeps_other_lines` | `src/runner/graphics_options.rs::tests::write_keys_keeps_other_lines` | ported |
@@ -265,7 +279,7 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_engine_rate_180_for_high_refresh_displays` | `src/runner/graphics_options.rs::tests::engine_rate_180_for_high_refresh_displays` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_engine_rate_144_for_144hz_displays` | `src/runner/graphics_options.rs::tests::engine_rate_144_for_144hz_displays` | ported |
 | `tests/test_graphics_options.py::GraphicsOptionsTest::test_applied_engine_fps` | `src/runner/graphics_options.rs::tests::applied_engine_fps_reads_the_highest_frame_rate_patch` | ported |
-| `tests/test_graphics_options.py::GraphicsOptionsTest::test_environment` | `src/runner/graphics_options.rs::tests::environment_carries_the_readback_switches` | ported |
+| `tests/test_graphics_options.py::GraphicsOptionsTest::test_environment` | — | dropped: pending port (Task 46); main changed it, the 2.7.0 row named `src/runner/graphics_options.rs::tests::environment_carries_the_readback_switches` |
 | `tests/test_graphics_options.py::WindowSizeTest::test_the_game_knows_the_launcher_sizes` | `src/runner/graphics_options.rs::tests::the_game_knows_the_launcher_sizes` | ported |
 | `tests/test_graphics_options.py::AspectRatioTest::test_aspect_of_a_resolution` | `src/core/options.rs::tests::aspect_of_2560x1080_is_21_9` | replaced by `src/core/options.rs::tests::aspect_of_2560x1080_is_21_9` |
 | `tests/test_graphics_options.py::AspectRatioTest::test_aspects_in_a_fixed_order_with_the_others_last` | `src/core/options.rs::tests::closest_resolution_moves_to_the_nearest_pixel_count`, `tests/ui_pages.rs::aspect_follows_and_filters_the_render_resolution` | replaced by `src/core/options.rs::tests::closest_resolution_moves_to_the_nearest_pixel_count`, `tests/ui_pages.rs::aspect_follows_and_filters_the_render_resolution` |
@@ -293,27 +307,40 @@ The rows against `src/core/legacy.rs`, `src/core/save_backup.rs` and the discove
 | `tests/test_pause_menu.py::Labels::test_resolve_label_fallback` | `src/runner/pause_menu.rs::tests::resolve_label_fallback` | ported |
 | `tests/test_pause_menu.py::Labels::test_resolve_label_environment` | `src/runner/pause_menu.rs::tests::resolve_label_environment` | ported |
 | `tests/test_pause_menu.py::Labels::test_build_cache_stamp_tracks_language` | `src/runner/pause_menu.rs::tests::build_cache_stamp_tracks_language` | ported |
-| `tests/test_pause_menu.py::GameScript::test_enemy_health_bar_follows_screen_y_with_native_animation` | `tests/dump.rs::real_menu_enemy_health_bar_follows_screen_y_with_native_animation` | ported |
-| `tests/test_pause_menu.py::GameScript::test_display_initializes_health_value_before_the_row_is_selected` | `tests/dump.rs::real_menu_display_initializes_health_value_before_the_row_is_selected` | ported |
+| `tests/test_pause_menu.py::GameScript::test_display_scrollbar_tracks_viewport_and_is_hidden_on_exit` | — | dropped: pending port (Task 48) |
+| `tests/test_pause_menu.py::GameScript::test_enemy_health_bar_follows_screen_y_with_native_animation` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_enemy_health_bar_follows_screen_y_with_native_animation` |
+| `tests/test_pause_menu.py::GameScript::test_display_initializes_health_value_before_the_row_is_selected` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_display_initializes_health_value_before_the_row_is_selected` |
 | `tests/test_pause_menu.py::GameScript::test_pause_row` | `tests/dump.rs::real_menu_pause_row` | ported |
 | `tests/test_pause_menu.py::GameScript::test_exit_asks_quit_games_question_with_the_mark` | `tests/dump.rs::real_menu_exit_asks_quit_games_question_with_the_mark` | ported |
 | `tests/test_pause_menu.py::GameScript::test_failsafe_states_end_the_process_on_the_mark` | `tests/dump.rs::real_menu_failsafe_states_end_the_process_on_the_mark` | ported |
-| `tests/test_pause_menu.py::GameScript::test_options_row` | `tests/dump.rs::real_menu_options_row` | ported |
-| `tests/test_pause_menu.py::GameScript::test_every_other_goto_is_unchanged` | `tests/dump.rs::real_menu_every_other_goto_is_unchanged` | ported |
+| `tests/test_pause_menu.py::GameScript::test_options_row` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_options_row` |
+| `tests/test_pause_menu.py::GameScript::test_every_other_goto_is_unchanged` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_every_other_goto_is_unchanged` |
 | `tests/test_pause_menu.py::GameScript::test_japanese_fallback` | `tests/dump.rs::real_menu_japanese_fallback` | ported |
 | `tests/test_pause_menu.py::GameScript::test_chinese_fallback` | `tests/dump.rs::real_menu_chinese_fallback` | ported |
 | `tests/test_pause_menu.py::GameScript::test_russian_fallback` | `tests/dump.rs::real_menu_russian_fallback` | ported |
 | `tests/test_pause_menu.py::GameScript::test_polish_translated` | `tests/dump.rs::real_menu_polish_translated` | ported |
 | `tests/test_pause_menu.py::GameScript::test_all_supported_languages` | `tests/dump.rs::real_menu_all_supported_languages` | ported |
-| `tests/test_native_cheats.py::NativeCheats::test_cheats_is_between_game_settings_and_audio` | `tests/dump.rs::real_menu_cheats_is_between_game_settings_and_audio` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_anisotropy_and_controls_have_restart_and_reset_confirmation` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_new_controls_labels_and_graphics_restore_are_bilingual` | — | dropped: pending port (Task 49) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_and_cheats_follow_game_settings_before_audio` | — | dropped: pending port (Task 48); main renamed it from `test_cheats_is_between_game_settings_and_audio`, the 2.7.0 row named `tests/dump.rs::real_menu_cheats_is_between_game_settings_and_audio` |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_initializes_only_its_four_controls_and_returns_to_its_link` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_defaults_require_confirmation_and_cancel_preserves_the_selection` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_labels_follow_the_game_language` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_options_label_animation_and_confirmation_focus` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_rows_wrap_and_only_strength_uses_a_slider` | — | dropped: pending port (Task 48) |
+| `tests/test_native_cheats.py::NativeCheats::test_audio_clears_unused_rows_inherited_from_options` | — | dropped: pending port (Task 49) |
+| `tests/test_native_cheats.py::NativeCheats::test_display_contains_eight_new_controls_and_keeps_its_original_rows` | — | dropped: pending port (Task 49) |
+| `tests/test_native_cheats.py::NativeCheats::test_display_scrolls_without_overwriting_original_setting_values` | — | dropped: pending port (Task 49) |
+| `tests/test_native_cheats.py::NativeCheats::test_graphics_does_not_add_an_informational_row` | — | dropped: pending port (Task 48) |
 | `tests/test_native_cheats.py::NativeCheats::test_every_cheat_has_native_selection_and_initial_value` | `tests/dump.rs::real_menu_every_cheat_has_native_selection_and_initial_value` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_qte_precedes_multipliers_and_last_row_scrolls` | `tests/dump.rs::real_menu_qte_precedes_multipliers_and_last_row_scrolls` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_cheats_scrollbar_tracks_unpinned_rows_and_hides_on_exit` | — | dropped: pending port (Task 48) |
 | `tests/test_native_cheats.py::NativeCheats::test_multipliers_stays_visible_and_qte_uses_a_visible_value_slot` | `tests/dump.rs::real_menu_multipliers_stays_visible_and_qte_uses_a_visible_value_slot` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_toggling_scrolled_cheats_updates_their_visible_row` | `tests/dump.rs::real_menu_toggling_scrolled_cheats_updates_their_visible_row` | ported |
 | `tests/test_native_cheats.py::NativeCheats::test_six_multipliers_have_native_bars_and_directional_controls` | `tests/dump.rs::real_menu_six_multipliers_have_native_bars_and_directional_controls` | ported |
-| `tests/test_native_cheats.py::NativeCheats::test_custom_pages_preserve_the_native_footer` | `tests/dump.rs::real_menu_custom_pages_preserve_the_native_footer` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_custom_pages_preserve_the_native_footer` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_custom_pages_preserve_the_native_footer` |
 | `tests/test_native_cheats.py::NativeCheats::test_multiplier_bars_are_separate_from_numbers_and_original_sliders` | `tests/dump.rs::real_menu_multiplier_bars_are_separate_from_numbers_and_original_sliders` | ported |
-| `tests/test_native_cheats.py::NativeCheats::test_every_state_reference_and_relative_call_stays_in_the_script` | `tests/dump.rs::real_menu_every_state_reference_and_relative_call_stays_in_the_script` | ported |
+| `tests/test_native_cheats.py::NativeCheats::test_every_state_reference_and_relative_call_stays_in_the_script` | — | dropped: pending port (Task 49); main changed it, the 2.7.0 row named `tests/dump.rs::real_menu_every_state_reference_and_relative_call_stays_in_the_script` |
 | `tests/test_legacy.py::LegacyTest::test_game_settings_file_is_copied_and_kept` | `src/core/legacy.rs::tests::game_settings_file_is_copied_and_kept` | ported |
 | `tests/test_legacy.py::LegacyTest::test_game_settings_file_is_not_overwritten` | `src/core/legacy.rs::tests::game_settings_file_is_not_overwritten` | ported |
 | `tests/test_legacy.py::LegacyTest::test_linux_data_folder_with_saves_is_copied` | `src/core/legacy.rs::tests::linux_data_folder_with_saves_is_copied` | ported |
