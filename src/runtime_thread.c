@@ -314,7 +314,7 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     void *stack_memory=runtime_low_map(stack_bytes,PROT_READ|PROT_WRITE);
     if (stack_memory) {
         char tag[32];
-        snprintf(tag,sizeof(tag),"stack %s",t->name);
+        snprintf(tag,sizeof(tag),"stack %.25s",t->name);
         runtime_low_tag(stack_memory,tag);
         pthread_attr_setstack(&host,stack_memory,stack_bytes);
     }
