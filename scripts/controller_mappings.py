@@ -149,6 +149,7 @@ class Capture:
         self.candidate = None
         self.frames = 0
         self.error = ''
+        self.conflict = None
 
     @property
     def done(self):
@@ -210,11 +211,13 @@ class Capture:
             if token == value or (axis and used_axis and axis.group() == used_axis.group() and
                                   (token[0] == 'a' or value[0] == 'a')):
                 self.error = 'That input is already mapped. Use another input or skip this step.'
+                self.conflict = key  # fp32-gcn1: the mapper names the row that holds it
                 return None
         self.bindings[target] = token
         self.index += 1
         self.waiting_release, self.frames, self.candidate = True, 0, None
         self.error = ''
+        self.conflict = None
         return token
 
     def skip(self):

@@ -431,8 +431,15 @@ class MapperWindow:
                         self.prompt.set(self.tr('Configure any control, in any order.'))
                         self.update_rows()
                     elif self.capture.error:
-                        self.status.set(self.tr(
-                            'That input is assigned to another control. Clear its row first or choose another input.'))
+                        # fp32-gcn1: say which row holds it; a stick axis that an old profile gave to
+                        # a trigger (or the other stick) otherwise looked like a dead end.
+                        holder = getattr(self.capture, 'conflict', None)
+                        if holder and holder in self.rows:
+                            self.status.set(self.tr('That input is already used by {}. Clear that row, then configure this one again.')
+                                            .format(self.rows[holder]['label']))
+                        else:
+                            self.status.set(self.tr(
+                                'That input is assigned to another control. Clear its row first or choose another input.'))
                 elif self.backend.preview:
                     buttons, axes = self.backend.preview_state()
                     self.preview_text.set(self.tr('Pressed: {}').format(', '.join(self.tr(name) for name in buttons) or '-') +
