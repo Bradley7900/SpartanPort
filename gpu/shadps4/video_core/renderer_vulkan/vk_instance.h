@@ -492,6 +492,11 @@ public:
         return image_view_min_lod;
     }
 
+    /// fp32-gcn1: returns whether VK_KHR_present_id and VK_KHR_present_wait are enabled.
+    bool IsPresentWaitSupported() const {
+        return present_wait;
+    }
+
     /// Returns whether the device can report memory usage.
     bool CanReportMemoryUsage() const {
         return supports_memory_budget;
@@ -595,6 +600,7 @@ private:
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // spartanport: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
     bool supports_memory_budget{};
+    bool present_wait{}; // fp32-gcn1: VK_KHR_present_id + VK_KHR_present_wait (vblank pacing)
     bool supports_block_texel_view{};
     u64 total_memory_budget{};
     std::vector<size_t> valid_heaps;

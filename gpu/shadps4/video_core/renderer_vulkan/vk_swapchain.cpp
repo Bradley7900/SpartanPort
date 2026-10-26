@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
+#include <chrono>
 #include <algorithm>
 #include <cstdio>
 #include <limits>
@@ -20,10 +22,16 @@ static constexpr vk::SurfaceFormatKHR SURFACE_FORMAT_HDR = {
     .colorSpace = vk::ColorSpaceKHR::eHdr10St2084EXT,
 };
 
+// fp32-gcn1: vblank pacing state (SetDisplayPacing).
+static std::atomic<bool> display_pacing{false};
+static std::atomic<bool> present_wait_supported{false};
+static std::atomic<s64> last_display_ns{0};
+
 Swapchain::Swapchain(const Instance& instance_, const Frontend::WindowSDL& window_)
     : instance{instance_}, window{window_}, surface{CreateSurface(instance.GetInstance(), window)} {
     FindPresentFormat();
     FindPresentMode();
+    present_wait_supported = instance.IsPresentWaitSupported();
 
     Create(window.GetWidth(), window.GetHeight());
     ImGui::Core::Initialize(instance, window, image_count, surface_format.format);
@@ -157,13 +165,34 @@ bool Swapchain::AcquireNextImage() {
     return !needs_recreation;
 }
 
+bool Swapchain::SetDisplayPacing(bool on) {
+    const bool pace = on && present_wait_supported.load(std::memory_order_relaxed);
+    display_pacing.store(pace, std::memory_order_relaxed);
+    return pace;
+}
+
+s64 Swapchain::LastDisplayNs() {
+    return last_display_ns.load(std::memory_order_acquire);
+}
+
 bool Swapchain::Present() {
     if (!swapchain || present_ready.empty() || image_index >= present_ready.size()) {
         needs_recreation = true;
         return false;
     }
 
+    // fp32-gcn1: with vblank pacing, every present carries an id so it can be waited on below.
+    static u64 present_id = 0;
+    const bool pace = instance.IsPresentWaitSupported() && vsync &&
+                      display_pacing.load(std::memory_order_relaxed);
+    const u64 this_id = ++present_id;
+    const vk::PresentIdKHR present_id_info = {
+        .swapchainCount = 1,
+        .pPresentIds = &this_id,
+    };
+
     const vk::PresentInfoKHR present_info = {
+        .pNext = instance.IsPresentWaitSupported() ? &present_id_info : nullptr,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &present_ready[image_index],
         .swapchainCount = 1,
@@ -178,6 +207,18 @@ bool Swapchain::Present() {
     } else {
         ASSERT_MSG(result == vk::Result::eSuccess, "Swapchain presentation failed: {}",
                    vk::to_string(result));
+    }
+
+    // fp32-gcn1: a paced frame is presented about a quarter period before its refresh, so this
+    // waits less than one refresh. A timeout (window hidden, compositor stall) just skips the mark.
+    if (pace && !needs_recreation) {
+        const auto wait = instance.GetDevice().waitForPresentKHR(swapchain, this_id, 50'000'000);
+        if (wait == vk::Result::eSuccess) {
+            last_display_ns.store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                      std::chrono::steady_clock::now().time_since_epoch())
+                                      .count(),
+                                  std::memory_order_release);
+        }
     }
 
     if (image_count > 0) {

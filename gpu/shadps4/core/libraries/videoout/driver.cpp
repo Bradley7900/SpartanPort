@@ -32,6 +32,7 @@
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
+#include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/renderer_vulkan/vk_wait_diagnostics.h"
 
 extern std::unique_ptr<Vulkan::Presenter> presenter;
@@ -754,6 +755,56 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         last_present = now;
     };
 
+    // fp32-gcn1: vblank pacing. Under a cap below 50 FPS with VSync on, the limiter's own clock drifts
+    // against the monitor's refresh, so every few seconds a frame lands one refresh late (a
+    // regular hitch), and after a slow frame the next one went early to catch up (long-short).
+    // With VK_KHR_present_wait the swapchain reports when each frame reached the screen; the next
+    // frame is then due one period after that, minus a quarter period so it is queued before its
+    // refresh. A late frame moves the rhythm instead of being made up for. Needs the previous
+    // frame on screen before the next is taken (or 2 periods, if the report never comes).
+    // SPARTAN_VBLANK_PACING=0 turns it off.
+    static const bool vblank_pacing_on = EmulatorSettingsImpl::Flag("SPARTAN_VBLANK_PACING", true);
+    bool paced = false;
+    s64 last_flip_ns = 0, last_anchor_ns = 0;
+    const auto steady_ns = [](std::chrono::steady_clock::time_point t) {
+        return s64(std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch()).count());
+    };
+    const auto update_pacing = [&] {
+        // The effective period counts, so the adaptive half rate (60 -> 30) is paced as well.
+        const bool want = vblank_pacing_on && frame_limit != 0 &&
+                          frame_period >= std::chrono::milliseconds(20) &&
+                          SpartanSettings::Get().vsync.load();
+        // Asked every tick: the swapchain may not exist yet when this thread starts.
+        const bool now_paced = Vulkan::Swapchain::SetDisplayPacing(want); // false without present wait
+        if (now_paced != paced) {
+            paced = now_paced;
+            std::printf("VideoOut: vblank pacing %s\n", paced ? "on" : "off");
+        }
+    };
+    // Moves next_flip to the refresh the last flipped frame reached; false while that frame is
+    // still on its way to the screen.
+    const auto pace_slot = [&](std::chrono::steady_clock::time_point now) {
+        if (!paced) {
+            return true;
+        }
+        const s64 shown = Vulkan::Swapchain::LastDisplayNs();
+        if (shown > last_anchor_ns && shown >= last_flip_ns) {
+            last_anchor_ns = shown;
+            next_flip = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(shown)) +
+                        frame_period - frame_period / 4;
+            return true;
+        }
+        return shown >= last_flip_ns || steady_ns(now) - last_flip_ns >= 2 * frame_period.count();
+    };
+    const auto after_flip = [&](std::chrono::steady_clock::time_point now) {
+        if (paced) {
+            last_flip_ns = steady_ns(now);
+            next_flip = now + frame_period - frame_period / 4; // until the screen reports
+        } else {
+            next_flip = std::max(next_flip + frame_period, now - frame_period);
+        }
+    };
+
     while (!token.stop_requested()) {
         SpartanSettings::SyncEngineFps();
         if (const u32 limit = current_limit(); limit != frame_limit) {
@@ -765,6 +816,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             next_flip = std::chrono::steady_clock::now();
             std::printf("VideoOut: frame limit %u FPS\n", limit);
         }
+        update_pacing();
         timer.Start();
         const auto tick_deadline = std::chrono::steady_clock::now() + vblank_period;
 
@@ -777,11 +829,11 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         // Check if it's time to take a request.
         auto& vblank_status = main_port.vblank_status;
         const auto now = std::chrono::steady_clock::now();
-        const bool flip_slot = !frame_limit || now >= next_flip;
+        const bool flip_slot = !frame_limit || (pace_slot(now) && now >= next_flip);
         if (flip_slot && vblank_status.count % (main_port.flip_rate + 1) == 0) {
             const auto request = receive_request();
             if (request && frame_limit) {
-                next_flip = std::max(next_flip + frame_period, now - frame_period);
+                after_flip(now);
             }
             if (!request) {
                 if (timer.GetTotalWait().count() < 0) { // Dont draw too fast
@@ -834,6 +886,9 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     break; // next vblank
                 }
             }
+            if (!pace_slot(std::chrono::steady_clock::now())) {
+                break; // the last frame is not on screen yet: look again next vblank tick
+            }
             if (std::chrono::steady_clock::now() < next_flip) {
                 if (next_flip >= tick_deadline) {
                     break;
@@ -843,7 +898,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             const auto now = std::chrono::steady_clock::now();
             const auto request = receive_request();
             if (request) {
-                next_flip = std::max(next_flip + frame_period, now - frame_period);
+                after_flip(now);
                 note_present(request, now);
                 Flip(request);
                 FRAME_END;

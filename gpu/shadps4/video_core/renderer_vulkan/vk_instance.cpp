@@ -275,7 +275,8 @@ bool Instance::CreateDevice() {
         vk::PhysicalDeviceShaderMixedFloatDotProductFeaturesVALVE,
         vk::PhysicalDevicePipelineBinaryFeaturesKHR,
         vk::PhysicalDeviceMaintenance5FeaturesKHR,
-        vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR>();
+        vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR,
+        vk::PhysicalDevicePresentIdFeaturesKHR, vk::PhysicalDevicePresentWaitFeaturesKHR>();
     features = feature_chain.get().features;
 
     const vk::StructureChain properties_chain = physical_device.getProperties2<
@@ -454,6 +455,14 @@ bool Instance::CreateDevice() {
         // AMD reports no width for graphics executables; its own extension has the ISA.
         amd_shader_info = add_extension(VK_AMD_SHADER_INFO_EXTENSION_NAME);
     }
+    // fp32-gcn1: present id + wait tell the frame limiter when a frame reached the screen, so a
+    // capped rate can be locked to the monitor's refresh (driver.cpp, vblank pacing).
+    present_wait = feature_chain.get<vk::PhysicalDevicePresentIdFeaturesKHR>().presentId &&
+                   feature_chain.get<vk::PhysicalDevicePresentWaitFeaturesKHR>().presentWait &&
+                   add_extension(VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
+                   add_extension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+    std::printf("Vulkan: present wait %s
+", present_wait ? "available" : "unavailable");
     const bool calibrated_timestamps =
         TRACY_GPU_ENABLED ? add_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) : false;
 
@@ -672,7 +681,17 @@ bool Instance::CreateDevice() {
         vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR{
             .pipelineExecutableInfo = pipeline_executable_features.pipelineExecutableInfo,
         },
+        vk::PhysicalDevicePresentIdFeaturesKHR{
+            .presentId = true,
+        },
+        vk::PhysicalDevicePresentWaitFeaturesKHR{
+            .presentWait = true,
+        },
     };
+    if (!present_wait) {
+        device_chain.unlink<vk::PhysicalDevicePresentIdFeaturesKHR>();
+        device_chain.unlink<vk::PhysicalDevicePresentWaitFeaturesKHR>();
+    }
     if (!pipeline_executable_properties) {
         device_chain.unlink<vk::PhysicalDevicePipelineExecutablePropertiesFeaturesKHR>();
     }
