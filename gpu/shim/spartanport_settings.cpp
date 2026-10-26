@@ -111,15 +111,13 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "async_shaders") {
         v.async_shaders = i != 0;
     } else if (key == "fsr1") {
-        // FSR 1 left the launcher and the in-game menu: a value saved by an older version has no
-        // control left to turn it off, so it stays off.
-        // fp32-gcn1: SPARTAN_FSR1=1 still turns it on (480p/720p rendering upscaled to the window
-        // on slow GPUs); the presenter's pass is intact and has an fp32 variant for GCN 1.0.
-        static const bool env_fsr1 = [] {
-            const char* env = std::getenv("SPARTAN_FSR1");
-            return env && env[0] == '1';
-        }();
-        v.fsr1 = env_fsr1 && i != 0;
+        // fp32-gcn1: FSR 1 is back in the in-game menu (Image), so a saved value is honoured again;
+        // the presenter's pass has an fp32 variant for GCN 1.0. SPARTAN_FSR1 overrides it.
+        v.fsr1 = i != 0;
+    } else if (key == "adaptive_half") {
+        v.adaptive_half = i != 0;
+    } else if (key == "cutscene_60") {
+        v.cutscene_60 = i != 0;
     } else if (key == "rcas") {
         v.rcas = i != 0;
     } else if (key == "rcas_strength") {
@@ -219,6 +217,7 @@ void Load() {
         {"SPARTAN_UPSCALE_PRESET", "preset"},            {"SPARTAN_OBJECT_MOTION", "object_motion"},
         {"SPARTAN_ASYNC_SHADERS", "async_shaders"},      {"SPARTAN_DEFERRED_READBACK", "deferred_readback"},
         {"SPARTAN_STALE_READBACK", "stale_readback"},     {"SPARTAN_FSR1", "fsr1"},
+        {"SPARTAN_ADAPTIVE_HALF", "adaptive_half"},     {"SPARTAN_CUTSCENE_60", "cutscene_60"},
         {"SPARTAN_RCAS", "rcas"},                        {"SPARTAN_FRAMES_AHEAD", "frames_queued"},
         {"SPARTAN_ANISOTROPY", "anisotropy"},            {"SPARTAN_VIBRATION", "vibration"},
         {"SPARTAN_MOUSE_PROMPT_DISTANCE", "mouse_prompt_distance"}, {"SPARTAN_MOUSE_LOCK", "mouse_lock"},
@@ -393,6 +392,7 @@ void Save() {
                  resolution_names[std::clamp(v.render_resolution.load(), 0, int(resolution_names.size()) - 1)].c_str(),
                  v.engine_fps.load(), int(v.deferred_readback.load()), int(v.stale_readback.load()),
                  int(v.restart_unconfirmed.load()));
+    std::fprintf(file, "adaptive_half=%d\ncutscene_60=%d\n", int(v.adaptive_half.load()), int(v.cutscene_60.load()));
     std::fprintf(file, "anisotropy=%d\nvibration=%d\nmouse_prompt_distance=%d\nmouse_lock=%d\nmouse_aim_style=%d\n"
                        "mouse_aim_sensitivity=%d\n",
                  v.anisotropy.load(), v.vibration.load(), v.mouse_prompt_distance.load(), int(v.mouse_lock.load()),

@@ -432,6 +432,8 @@ void ImageTab() {
     Separator("Sharpening");
     if (BeginRows("##scaling")) {
         ImGui::BeginDisabled(rcas_blocked);
+        CheckRow("Upscale with FSR 1", s.fsr1,
+                 "When the render resolution is below the window: a sharper upscale than plain stretching.");
         CheckRow("Sharpening (RCAS)", s.rcas,
                  rcas_blocked && downscaling ? "No effect: the game's image is larger than the window."
                  : rcas_blocked              ? "No effect: the game's image is smaller than the window."
@@ -488,6 +490,10 @@ void PerformanceTab() {
         static const char* const queued_labels[] = {"1 (lowest latency)", "2", "Unlimited"};
         ChoiceRow("Frames queued", s.frames_queued, queued_labels, G::FramesQueued.data(),
                   int(G::FramesQueued.size()), "More frames queued: steadier FPS, slower response to input.");
+        CheckRow("Auto 30/60 when FPS drops", s.adaptive_half,
+                 "With a 50+ FPS limit: shows a steady half rate while the GPU cannot hold it, instead of uneven frames.");
+        CheckRow("Cutscenes at 60 under a 30 FPS cap", s.cutscene_60,
+                 "A cap under 50 FPS rises to 60 while a video cutscene plays.");
         CheckRow("Compile new shaders in the background", s.async_shaders,
                  "Fewer stutters in new areas; an object or effect may appear a moment later.");
         ImGui::EndTable();

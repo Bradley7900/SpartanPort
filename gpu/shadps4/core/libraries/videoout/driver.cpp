@@ -677,11 +677,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         // fp32-gcn1: a cap under 50 FPS (30 for slow GPUs) is lifted to 60 while a video cutscene
         // plays, so gameplay stays at a steady 30 and the cutscenes run at the rate they were made
         // for. SPARTAN_CUTSCENE_60=0 keeps the cap for cutscenes too.
-        static const bool cutscene_60 = [] {
-            const char* env = std::getenv("SPARTAN_CUTSCENE_60");
-            return !(env && env[0] == '0');
-        }();
-        if (cutscene_60 && limit > 0 && limit < 50 &&
+        if (SpartanSettings::Get().cutscene_60.load() && limit > 0 && limit < 50 &&
             Vulkan::MovieBars::Cutscenes().Active(Vulkan::MovieBars::NowMs())) {
             limit = 60;
         }
@@ -713,10 +709,6 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // steady 30 looks smooth. When presented frames run 25% slower than the limit for 1.5 s, present
     // at half the limit; go back once queued frames wait long enough that the full rate would fit
     // (the game finishes them early) for 3 s. Only for limits of 50+; SPARTAN_ADAPTIVE_HALF=0 turns it off.
-    static const bool adaptive_enabled = [] {
-        const char* env = std::getenv("SPARTAN_ADAPTIVE_HALF");
-        return !(env && env[0] == '0');
-    }();
     bool half_rate = false;
     double ema_interval_ms = 0.0, ema_wait_ms = 0.0, over_ms = 0.0, room_ms = 0.0;
     std::chrono::steady_clock::time_point last_present{};
@@ -726,7 +718,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                                  : std::chrono::nanoseconds(0);
     };
     const auto note_present = [&](const Request& req, std::chrono::steady_clock::time_point now) {
-        if (!adaptive_enabled || frame_limit < 50) {
+        if (!SpartanSettings::Get().adaptive_half.load() || frame_limit < 50) {
             return;
         }
         const double full_ms = 1000.0 / frame_limit;

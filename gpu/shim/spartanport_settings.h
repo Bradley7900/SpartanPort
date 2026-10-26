@@ -81,6 +81,10 @@ struct Values {
     /// Set by the presenter: the game's image and the window it is shown in, in pixels.
     std::atomic<int> image_width{0}, image_height{0}, window_width{0}, window_height{0};
     std::atomic<int> frames_queued{1};
+    /// fp32-gcn1: present at half a 50+ FPS limit while frames cannot hold it (videoout driver). Live.
+    std::atomic<bool> adaptive_half{true};
+    /// fp32-gcn1: a cap under 50 FPS rises to 60 while a video cutscene plays. Live.
+    std::atomic<bool> cutscene_60{true};
     /// Controller vibration strength in percent; 0 turns it off (runtime_pad.c). Live.
     std::atomic<int> vibration{100};
     std::atomic<int> glyph_style{0}; ///< PlayStation, Xbox, Nintendo, keyboard, legacy automatic
