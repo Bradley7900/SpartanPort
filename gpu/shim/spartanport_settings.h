@@ -85,6 +85,9 @@ struct Values {
     std::atomic<bool> adaptive_half{true};
     /// fp32-gcn1: a cap under 50 FPS rises to 60 while a video cutscene plays. Live.
     std::atomic<bool> cutscene_60{true};
+    /// fp32-gcn1: under a cap below 50 FPS with VSync on, time frames from when the last one reached
+    /// the screen (videoout driver, VK_KHR_present_wait). Live.
+    std::atomic<bool> vblank_pacing{true};
     /// Controller vibration strength in percent; 0 turns it off (runtime_pad.c). Live.
     std::atomic<int> vibration{100};
     std::atomic<int> glyph_style{0}; ///< PlayStation, Xbox, Nintendo, keyboard, legacy automatic

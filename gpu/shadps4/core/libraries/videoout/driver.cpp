@@ -762,8 +762,8 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // frame is then due one period after that, minus a quarter period so it is queued before its
     // refresh. A late frame moves the rhythm instead of being made up for. Needs the previous
     // frame on screen before the next is taken (or 2 periods, if the report never comes).
-    // SPARTAN_VBLANK_PACING=0 turns it off.
-    static const bool vblank_pacing_on = EmulatorSettingsImpl::Flag("SPARTAN_VBLANK_PACING", true);
+    // In-game menu: Performance > "Lock capped FPS to the monitor" (SpartanSettings::vblank_pacing,
+    // SPARTAN_VBLANK_PACING overrides).
     bool paced = false;
     s64 last_flip_ns = 0, last_anchor_ns = 0;
     const auto steady_ns = [](std::chrono::steady_clock::time_point t) {
@@ -771,7 +771,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     };
     const auto update_pacing = [&] {
         // The effective period counts, so the adaptive half rate (60 -> 30) is paced as well.
-        const bool want = vblank_pacing_on && frame_limit != 0 &&
+        const bool want = SpartanSettings::Get().vblank_pacing.load() && frame_limit != 0 &&
                           frame_period >= std::chrono::milliseconds(20) &&
                           SpartanSettings::Get().vsync.load();
         // Asked every tick: the swapchain may not exist yet when this thread starts.
