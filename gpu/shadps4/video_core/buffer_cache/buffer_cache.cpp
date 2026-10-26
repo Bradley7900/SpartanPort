@@ -146,8 +146,48 @@ void BufferCache::ExtendWriteFault(VAddr device_addr) {
     memory_tracker->ExtendWriteFault(Common::AlignDown(device_addr, window), window);
 }
 
+// fp32-gcn1: an image write-back puts the image's newest texels in guest memory, but a range this
+// cache holds as GPU-modified kept its own older copy: the next texture rebuild uploaded from it
+// (ObtainBufferForImage), and a CPU access nearby downloaded it over the texels (2 GB card: the GC
+// writes images back all the time). Queued from any thread; applied here, on the threads that own
+// gpu_modified_ranges. Pages wholly inside the image follow memory again; edge pages may hold other
+// GPU data, so only the image's own bytes leave the download set there. BackingWriteFixes.
+void BufferCache::NoteImageWriteBack(VAddr device_addr, u64 size) {
+    if (!size || SpartanToggle::Disabled(SpartanToggle::BackingWriteFixes)) {
+        return;
+    }
+    std::scoped_lock lock{image_write_backs_mutex};
+    image_write_backs.emplace_back(device_addr, size);
+    has_image_write_backs.store(true, std::memory_order_release);
+}
+
+void BufferCache::ApplyImageWriteBacks() {
+    if (!has_image_write_backs.load(std::memory_order_acquire)) {
+        return;
+    }
+    std::vector<std::pair<VAddr, u64>> writes;
+    {
+        std::scoped_lock lock{image_write_backs_mutex};
+        writes.swap(image_write_backs);
+        has_image_write_backs.store(false, std::memory_order_release);
+    }
+    for (const auto& [address, size] : writes) {
+        if (!memory_tracker->IsRegionGpuModified(address, size)) {
+            continue;
+        }
+        gpu_modified_ranges.Subtract(address, size);
+        const VAddr inner_begin = Common::AlignUp(address, TRACKER_BYTES_PER_PAGE);
+        const VAddr inner_end = Common::AlignDown(address + size, TRACKER_BYTES_PER_PAGE);
+        if (inner_end > inner_begin) {
+            memory_tracker->UnmarkRegionAsGpuModified(inner_begin, inner_end - inner_begin);
+            memory_tracker->MarkRegionAsCpuModified(inner_begin, inner_end - inner_begin);
+        }
+    }
+}
+
 void BufferCache::ReadMemory(VAddr device_addr, u64 size, bool is_write, bool assume_locks) {
     const auto flush_request = [this, device_addr, size, is_write] {
+        ApplyImageWriteBacks();
         const u32 first_block = device_addr >> block_shift;
         const u32 last_block = (device_addr + size - 1) >> block_shift;
         const auto* arena = GetArena(first_block, last_block);
@@ -297,6 +337,7 @@ void PrintBufferStats() {
 std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 size,
                                                         bool is_written, bool is_texel_buffer) {
     texture_cache.ResolveReadbacks(device_addr, size, true, ReadbackSource::BufferObtain);
+    ApplyImageWriteBacks();
     const bool stats = BufferStatsEnabled();
     if (stats) {
         PrintBufferStats();
@@ -351,6 +392,7 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
 
 std::pair<const Buffer*, u64> BufferCache::ObtainBufferForImage(VAddr device_addr, u32 size) {
     texture_cache.ResolveReadbacks(device_addr, size, true, ReadbackSource::BufferForImage);
+    ApplyImageWriteBacks();
     if (IsRegionGpuModified(device_addr, size)) {
         return ObtainBuffer(device_addr, size, false);
     }

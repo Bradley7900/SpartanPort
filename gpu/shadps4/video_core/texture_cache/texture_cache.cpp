@@ -642,6 +642,9 @@ void TextureCache::NoteBackingWrite(VAddr address, u64 size) {
     std::scoped_lock lock{backing_writes_mutex};
     backing_writes.push_back({address, size, image_write_back});
     has_backing_writes.store(true, std::memory_order_release);
+    if (image_write_back) {
+        buffer_cache.NoteImageWriteBack(address, size);
+    }
 }
 
 void TextureCache::ApplyBackingWrites() {

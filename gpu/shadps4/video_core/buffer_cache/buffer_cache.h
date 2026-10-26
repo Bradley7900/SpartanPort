@@ -5,7 +5,10 @@
 
 #include "spartanport_copy.h"
 
+#include <atomic>
 #include <deque>
+#include <mutex>
+#include <vector>
 #include <boost/container/small_vector.hpp>
 
 #include "common/interval_set.h"
@@ -86,6 +89,9 @@ public:
     /// spartanport: a guest write fault at `device_addr` was handled; unprotect its neighbourhood.
     void ExtendWriteFault(VAddr device_addr);
 
+    /// fp32-gcn1: the texture cache wrote an image back to guest memory (any thread).
+    void NoteImageWriteBack(VAddr device_addr, u64 size);
+
     /// Flushes any GPU modified buffer in the logical page range back to CPU memory.
     void ReadMemory(VAddr device_addr, u64 size, bool is_write = false, bool assume_locks = false);
 
@@ -163,6 +169,10 @@ private:
     StreamBuffer stream_buffer;
     Buffer gds_buffer;
     RangeSet gpu_modified_ranges;
+    void ApplyImageWriteBacks();
+    std::mutex image_write_backs_mutex;
+    std::vector<std::pair<VAddr, u64>> image_write_backs;
+    std::atomic<bool> has_image_write_backs{false};
 
     std::unique_ptr<FaultManager> fault_manager;
     std::unique_ptr<Buffer> bda_pagetable_buffer;
