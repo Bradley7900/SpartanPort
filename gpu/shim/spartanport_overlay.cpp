@@ -494,6 +494,8 @@ void PerformanceTab() {
                  "With a 50+ FPS limit: shows a steady half rate while the GPU cannot hold it, instead of uneven frames.");
         CheckRow("Cutscenes at 60 under a 30 FPS cap", s.cutscene_60,
                  "A cap under 50 FPS rises to 60 while a video cutscene plays.");
+        CheckRow("Keep recently used textures", s.gc_by_time,
+                 "GPUs under 4 GB: when video memory is full, only textures unused for seconds are dropped.");
         CheckRow("Lock capped FPS to the monitor", s.vblank_pacing,
                  "Under a cap below 50 FPS: frames follow the monitor's refresh, so a 30 cap stays even.");
         CheckRow("Compile new shaders in the background", s.async_shaders,

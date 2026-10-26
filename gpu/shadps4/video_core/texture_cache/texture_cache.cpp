@@ -6,6 +6,7 @@
 #include "video_core/amdgpu/liverpool.h"
 
 #include "spartanport_toggles.h"
+#include "spartanport_settings.h"
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/div_ceil.h"
@@ -1625,6 +1626,19 @@ void TextureCache::UntrackImageTail(ImageId image_id) {
 
 void TextureCache::GarbageCollectImages() {
     SpartanStats::Timer gc_timer{SpartanStats::t_gc};
+    {
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsed = std::chrono::duration<double>(now - gc_rate_time).count();
+        if (elapsed >= 1.0) {
+            const double rate = gc_rate_time.time_since_epoch().count() != 0
+                                    ? double(gc_tick - gc_rate_tick) / elapsed
+                                    : 0.0;
+            gc_ticks_per_second = gc_ticks_per_second == 0.0 ? rate : gc_ticks_per_second * 0.7 + rate * 0.3;
+            gc_rate_time = now;
+            gc_rate_tick = gc_tick;
+        }
+    }
+    static const bool small_vram = instance.GetTotalMemoryBudget() < 4_GB;
     if (instance.CanReportMemoryUsage()) {
         total_used_memory = instance.GetDeviceMemoryUsage();
         // spartanport: on integrated GPUs (Steam Deck) the usage covers system-memory heaps holding
@@ -1641,7 +1655,6 @@ void TextureCache::GarbageCollectImages() {
         // mark at DEFAULT_CRITICAL_GC_MEMORY (3 GB), above all of a 2 GB card's VRAM: an R7 350
         // logged "memory pressure, 1674 of 1536 MiB (critical 3072)" all session, the hard eviction
         // never ran and images spilled to system memory (effects lagged, 30-60 FPS swings).
-        static const bool small_vram = instance.GetTotalMemoryBudget() < 4_GB;
         if (instance.IsIntegrated() || forced_budget || small_vram) {
             const u64 budget = forced_budget ? forced_budget : instance.GetDeviceMemoryBudgetNow();
             if (budget != 0) {
@@ -1664,6 +1677,16 @@ void TextureCache::GarbageCollectImages() {
         pressured = total_used_memory >= pressure_gc_memory;
         aggresive = allow_aggressive && total_used_memory >= critical_gc_memory;
         ticks_to_destroy = aggresive ? 160 : pressured ? 80 : 16;
+        // fp32-gcn1: the limits above count collector runs, one per submission. On an R7 350 (2 GB)
+        // usage sat above the pressure mark all session and images unused for a fraction of a
+        // second were evicted every few seconds (40-100 per report), then rebuilt from guest
+        // memory (suspected for hitches in fights and for broken effect textures, flames/tornado).
+        // On GPUs under 4 GB an image also has to be idle for 5 s (trigger), 2 s (pressure) or
+        // 1 s (critical). In-game menu: Performance > "Keep recently used textures" (gc_by_time).
+        if (small_vram && SpartanSettings::Get().gc_by_time.load() && gc_ticks_per_second > 0.0) {
+            const double seconds = aggresive ? 1.0 : pressured ? 2.0 : 5.0;
+            ticks_to_destroy = std::max(ticks_to_destroy, u64(gc_ticks_per_second * seconds));
+        }
         ticks_to_destroy = std::min(ticks_to_destroy, gc_tick);
         num_deletions = aggresive ? 40 : pressured ? 20 : 10;
     };
@@ -1721,11 +1744,13 @@ void TextureCache::GarbageCollectImages() {
         const auto now = std::chrono::steady_clock::now();
         if (now - gc_report_time >= std::chrono::seconds(5)) {
             std::printf("Texture cache: memory pressure, %llu of %llu MiB (critical %llu): "
-                        "%llu images evicted, %llu written back since the last report\n",
+                        "%llu images evicted, %llu written back since the last report "
+                        "(%.0f collector runs/s)\n",
                         (unsigned long long)(total_used_memory >> 20),
                         (unsigned long long)(pressure_gc_memory >> 20),
                         (unsigned long long)(critical_gc_memory >> 20),
-                        (unsigned long long)gc_evictions, (unsigned long long)gc_downloads);
+                        (unsigned long long)gc_evictions, (unsigned long long)gc_downloads,
+                        gc_ticks_per_second);
             gc_report_time = now;
             gc_evictions = gc_downloads = 0;
         }

@@ -120,6 +120,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.cutscene_60 = i != 0;
     } else if (key == "vblank_pacing") {
         v.vblank_pacing = i != 0;
+    } else if (key == "gc_by_time") {
+        v.gc_by_time = i != 0;
     } else if (key == "rcas") {
         v.rcas = i != 0;
     } else if (key == "rcas_strength") {
@@ -220,7 +222,7 @@ void Load() {
         {"SPARTAN_ASYNC_SHADERS", "async_shaders"},      {"SPARTAN_DEFERRED_READBACK", "deferred_readback"},
         {"SPARTAN_STALE_READBACK", "stale_readback"},     {"SPARTAN_FSR1", "fsr1"},
         {"SPARTAN_ADAPTIVE_HALF", "adaptive_half"},     {"SPARTAN_CUTSCENE_60", "cutscene_60"},
-        {"SPARTAN_VBLANK_PACING", "vblank_pacing"},
+        {"SPARTAN_VBLANK_PACING", "vblank_pacing"},   {"SPARTAN_GC_BY_TIME", "gc_by_time"},
         {"SPARTAN_RCAS", "rcas"},                        {"SPARTAN_FRAMES_AHEAD", "frames_queued"},
         {"SPARTAN_ANISOTROPY", "anisotropy"},            {"SPARTAN_VIBRATION", "vibration"},
         {"SPARTAN_MOUSE_PROMPT_DISTANCE", "mouse_prompt_distance"}, {"SPARTAN_MOUSE_LOCK", "mouse_lock"},
@@ -395,8 +397,9 @@ void Save() {
                  resolution_names[std::clamp(v.render_resolution.load(), 0, int(resolution_names.size()) - 1)].c_str(),
                  v.engine_fps.load(), int(v.deferred_readback.load()), int(v.stale_readback.load()),
                  int(v.restart_unconfirmed.load()));
-    std::fprintf(file, "adaptive_half=%d\ncutscene_60=%d\nvblank_pacing=%d\n", int(v.adaptive_half.load()),
-                 int(v.cutscene_60.load()), int(v.vblank_pacing.load()));
+    std::fprintf(file, "adaptive_half=%d\ncutscene_60=%d\nvblank_pacing=%d\ngc_by_time=%d\n",
+                 int(v.adaptive_half.load()), int(v.cutscene_60.load()), int(v.vblank_pacing.load()),
+                 int(v.gc_by_time.load()));
     std::fprintf(file, "anisotropy=%d\nvibration=%d\nmouse_prompt_distance=%d\nmouse_lock=%d\nmouse_aim_style=%d\n"
                        "mouse_aim_sensitivity=%d\n",
                  v.anisotropy.load(), v.vibration.load(), v.mouse_prompt_distance.load(), int(v.mouse_lock.load()),

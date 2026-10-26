@@ -449,6 +449,10 @@ private:
     std::unordered_set<ImageId> download_images;
     u64 total_used_memory = 0;
     u64 gc_evictions = 0, gc_downloads = 0; ///< spartanport: pressure report
+    /// fp32-gcn1: collector runs (submissions) per second, so idle limits can count time.
+    double gc_ticks_per_second = 0.0;
+    u64 gc_rate_tick = 0;
+    std::chrono::steady_clock::time_point gc_rate_time{};
     std::chrono::steady_clock::time_point gc_report_time{};
     u64 trigger_gc_memory = 0;
     u64 pressure_gc_memory = 0;

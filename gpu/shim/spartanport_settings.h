@@ -88,6 +88,9 @@ struct Values {
     /// fp32-gcn1: under a cap below 50 FPS (not with tearing presents), time frames from when the last one reached
     /// the screen (videoout driver, VK_KHR_present_wait). Live.
     std::atomic<bool> vblank_pacing{true};
+    /// fp32-gcn1: on GPUs under 4 GB, the texture cache evicts only images idle for seconds, not
+    /// for a number of submissions (texture_cache.cpp). Live.
+    std::atomic<bool> gc_by_time{true};
     /// Controller vibration strength in percent; 0 turns it off (runtime_pad.c). Live.
     std::atomic<int> vibration{100};
     std::atomic<int> glyph_style{0}; ///< PlayStation, Xbox, Nintendo, keyboard, legacy automatic
