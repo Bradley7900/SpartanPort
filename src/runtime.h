@@ -74,6 +74,9 @@ void runtime_thread_keys_cleanup(void);
 /* Guest-visible errno values are FreeBSD's. */
 int32_t runtime_guest_errno(int host_errno);
 void *runtime_low_map(size_t size, int prot);
+/* Names a runtime_low_map block (fault report); runtime_low_describe says where an address falls. */
+void runtime_low_tag(void *p, const char *tag);
+void runtime_low_describe(uintptr_t address, char *out, size_t size);
 /* Windows: reserves the PS4 user address range as a placeholder (no-op elsewhere). */
 void runtime_memory_reserve(void);
 uintptr_t runtime_ajm_resolve(const char *name);

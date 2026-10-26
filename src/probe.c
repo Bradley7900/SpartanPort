@@ -281,6 +281,45 @@ static void fault(int sig, siginfo_t *info, void *context) {
     else
         snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, info->si_addr);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+    {
+        /* fp32-gcn1: whose memory the address is (thread stack, gap after one, image) and the
+         * guest state, so one crash log says what went wrong without the game binary. */
+        const greg_t *g = uc->uc_mcontext.gregs;
+        char where_addr[192], where_rsp[192];
+        runtime_low_describe((uintptr_t)info->si_addr, where_addr, sizeof(where_addr));
+        runtime_low_describe((uintptr_t)g[REG_RSP], where_rsp, sizeof(where_rsp));
+        snprintf(line, sizeof(line), "  fault address %s\n  rsp %s\n", where_addr, where_rsp);
+        { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+        snprintf(line, sizeof(line),
+                 "  rax=%llx rbx=%llx rcx=%llx rdx=%llx rsi=%llx rdi=%llx rbp=%llx rsp=%llx\n"
+                 "  r8=%llx r9=%llx r10=%llx r11=%llx r12=%llx r13=%llx r14=%llx r15=%llx efl=%llx\n",
+                 (unsigned long long)g[REG_RAX], (unsigned long long)g[REG_RBX], (unsigned long long)g[REG_RCX],
+                 (unsigned long long)g[REG_RDX], (unsigned long long)g[REG_RSI], (unsigned long long)g[REG_RDI],
+                 (unsigned long long)g[REG_RBP], (unsigned long long)g[REG_RSP], (unsigned long long)g[REG_R8],
+                 (unsigned long long)g[REG_R9], (unsigned long long)g[REG_R10], (unsigned long long)g[REG_R11],
+                 (unsigned long long)g[REG_R12], (unsigned long long)g[REG_R13], (unsigned long long)g[REG_R14],
+                 (unsigned long long)g[REG_R15], (unsigned long long)g[REG_EFL]);
+        { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+        if (rip - (uintptr_t)image >= 32 && rip - (uintptr_t)image < 0x10000000) {
+            int n = snprintf(line, sizeof(line), "  code at rip-32..+16:");
+            for (int i = -32; i < 16 && n < (int)sizeof(line) - 5; ++i)
+                n += snprintf(line + n, sizeof(line) - n, i == 0 ? " [%02x]" : " %02x", ((const unsigned char *)rip)[i]);
+            snprintf(line + n, sizeof(line) - n, "\n");
+            { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+        }
+        if (isa_table) {
+            /* ISA sites within 64 bytes before the fault: a rewritten instruction feeding it. */
+            uint64_t off = rip - (uintptr_t)image;
+            for (uint32_t i = 0; i < isa_table->count; ++i) {
+                const IsaSite *s = &isa_table->sites[i];
+                if (s->offset + 64 < off || s->offset > off + 16) continue;
+                snprintf(line, sizeof(line), "  ISA site 0x%llx %s mode %u length %u hits %llu\n",
+                         (unsigned long long)s->offset, isa_kind_name(s->kind), (unsigned)s->mode, (unsigned)s->length,
+                         (unsigned long long)isa_table->hits[i]);
+                ssize_t written_=write(2, line, strlen(line)); (void)written_;
+            }
+        }
+    }
     if (gpu_enabled) spartanportgpu_dump_guest_writes(context);
     /* Host call chain (frames with unwind info; guest frames end it). */
     void *frames[32];
@@ -1094,6 +1133,7 @@ int main(int argc, char **argv) {
     /* The stubs follow the image in the same low mapping (rel32 jmps reach them). */
     size_t stub_area = isa_table ? round_page(isa_stub_area_size(isa_table)) : 0;
     image = allocate(round_page(size) + stub_area);
+    runtime_low_tag(image, "game image + ISA stubs");
     unsigned char *stubs = image + round_page(size);
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
     fclose(f);
@@ -1118,6 +1158,8 @@ int main(int argc, char **argv) {
     }
     unsigned char *traps = allocate(round_page((import_count + 1) * 32));
     unsigned char *data_traps = allocate((import_count + 1) * page_size);
+    runtime_low_tag(traps, "import traps");
+    runtime_low_tag(data_traps, "data import traps");
     protect(data_traps, (import_count + 1) * page_size, 0);
     for (uint64_t i = 0; i < import_count; ++i) {
         unsigned char *t = traps + i * 32;
@@ -1229,6 +1271,7 @@ int main(int argc, char **argv) {
     enum { MAIN_STACK=8*1024*1024 };
     unsigned char *stack=runtime_low_map(MAIN_STACK,PROT_READ|PROT_WRITE);
     if (!stack) fail("cannot allocate guest main stack");
+    runtime_low_tag(stack, "stack main");
     enter_on_stack(image+entry,&params,(void *)guest_exit,stack+MAIN_STACK-64);
 #endif
     fail("entry unexpectedly returned");

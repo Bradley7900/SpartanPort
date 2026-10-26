@@ -397,6 +397,7 @@ static void drop_range(uintptr_t start, uintptr_t end) {
     }
     vma_erase(i,n);
 }
+extern uint64_t runtime_disabled_optimizations;
 /* Places a host mapping; with MAP_FIXED it replaces what the guest had there. */
 static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t alignment,
                      int kind, int type, uint64_t phys) {
@@ -410,6 +411,17 @@ static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t 
     }
     if (host_map(address,size,host_prot(prot),kind==KIND_RESERVED,phys)) return NO_MEMORY;
     void *mapped=(void *)address;
+    /* fp32-gcn1: the replaced range is gone for the GPU too, as with an unmap (shadPS4 unmaps
+     * before a fixed map). Without it, cached images and buffers there outlived it, and the new
+     * host pages lost the write protection that marks a texture dirty: the game remaps the same
+     * ranges on every area load. BackingWriteFixes (bit 63) turns it off. */
+    if ((flags & MAP_FIXED_FLAG) && !(runtime_disabled_optimizations & (UINT64_C(1)<<63)))
+        for (size_t i=vma_index(address); i<vma_count && vmas[i].start<address+size; ++i)
+            if (vmas[i].kind!=KIND_RESERVED) {
+                uintptr_t a=vmas[i].start>address ? vmas[i].start : address;
+                uintptr_t b=vmas[i].end<address+size ? vmas[i].end : address+size;
+                queue_hook(HOOK_UNMAP,a,b-a);
+            }
     drop_range(address,address+size);
     if (vma_insert(vma_index(address),(Vma){address,address+size,kind,prot,type,phys})) return NO_MEMORY;
     if (kind==KIND_FLEXIBLE) flexible_bytes+=size;
@@ -698,6 +710,40 @@ uintptr_t runtime_memory_resolve(const char *name) {
  * [LOW_MIN, USER_MIN): PS4 code packs pointers into 40-bit fields. */
 #define LOW_MIN UINT64_C(0x0800000000)
 static uintptr_t low_next=LOW_MIN;
+/* What each low mapping holds, for the fault report (fp32-gcn1: a guest fault on area reload
+ * read an address past the image, and nothing said whose memory or which gap it was). */
+static struct { uintptr_t start, end; char tag[32]; } low_maps[512];
+static unsigned low_map_count;
+static void low_note(void *p, size_t size) {
+    if (!p || low_map_count>=sizeof(low_maps)/sizeof(*low_maps)) return;
+    low_maps[low_map_count].start=(uintptr_t)p;
+    low_maps[low_map_count].end=(uintptr_t)p+size;
+    strcpy(low_maps[low_map_count].tag,"runtime");
+    __atomic_store_n(&low_map_count,low_map_count+1,__ATOMIC_RELEASE);
+}
+void runtime_low_tag(void *p, const char *tag) {
+    unsigned n=__atomic_load_n(&low_map_count,__ATOMIC_ACQUIRE);
+    for (unsigned i=0;i<n;++i) if (low_maps[i].start==(uintptr_t)p) {
+        snprintf(low_maps[i].tag,sizeof(low_maps[i].tag),"%s",tag);
+        return;
+    }
+}
+/* One line on where `address` falls among the low mappings; for the fault handler. */
+void runtime_low_describe(uintptr_t address, char *out, size_t size) {
+    unsigned n=__atomic_load_n(&low_map_count,__ATOMIC_ACQUIRE), below=n;
+    for (unsigned i=0;i<n;++i) {
+        if (address>=low_maps[i].start && address<low_maps[i].end) {
+            snprintf(out,size,"inside low mapping '%s' [%p, %p), +0x%lx",low_maps[i].tag,(void *)low_maps[i].start,
+                     (void *)low_maps[i].end,(unsigned long)(address-low_maps[i].start));
+            return;
+        }
+        if (low_maps[i].end<=address && (below==n || low_maps[i].end>low_maps[below].end)) below=i;
+    }
+    if (below==n) { snprintf(out,size,"not in any low mapping"); return; }
+    snprintf(out,size,"0x%lx past the end of low mapping '%s' [%p, %p) (unmapped gap or beyond)",
+             (unsigned long)(address-low_maps[below].end),low_maps[below].tag,(void *)low_maps[below].start,
+             (void *)low_maps[below].end);
+}
 void *runtime_low_map(size_t size, int prot) {
     size=align_up(size,PAGE);
     write_lock();
@@ -707,6 +753,7 @@ void *runtime_low_map(size_t size, int prot) {
         p=VirtualAlloc((void *)low_next,size,MEM_RESERVE|MEM_COMMIT,win_prot(prot));
         low_next+=size+UINT64_C(65536); /* unmapped gap catches overruns; allocation granularity */
     }
+    low_note(p,size);
     write_unlock();
     return p;
 #else
@@ -716,6 +763,7 @@ void *runtime_low_map(size_t size, int prot) {
         low_next+=size+PAGE; /* unmapped gap catches overruns */
         if (p!=MAP_FAILED) break;
     }
+    if (p!=MAP_FAILED) low_note(p,size);
     write_unlock();
     return p==MAP_FAILED ? NULL : p;
 #endif

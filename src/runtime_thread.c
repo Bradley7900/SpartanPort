@@ -312,7 +312,12 @@ static int32_t create(GuestThread **out,ThreadAttr **attr_slot,GuestEntry entry,
     pthread_attr_setstacksize(&host,stack_bytes);
 #else
     void *stack_memory=runtime_low_map(stack_bytes,PROT_READ|PROT_WRITE);
-    if (stack_memory) pthread_attr_setstack(&host,stack_memory,stack_bytes);
+    if (stack_memory) {
+        char tag[32];
+        snprintf(tag,sizeof(tag),"stack %s",t->name);
+        runtime_low_tag(stack_memory,tag);
+        pthread_attr_setstack(&host,stack_memory,stack_bytes);
+    }
     else pthread_attr_setstacksize(&host,stack_bytes);
 #endif
     publish(t);

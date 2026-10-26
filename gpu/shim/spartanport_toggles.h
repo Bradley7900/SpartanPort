@@ -86,6 +86,11 @@ enum : std::uint64_t {
     /// checks all of its bytes, not the first 8x8 pixels, and the GC keeps GPU-written images that
     /// are only maybe CPU-dirty instead of dropping their texels (texture_cache.cpp).
     StaleImageFixes = 1ull << 62,
+    /// fp32-gcn1: a GPU-to-RAM write that lands inside a GPU-written image without starting at its
+    /// address (another image's or buffer's readback) marks that image CPU-dirty, so the GC no
+    /// longer writes its older texels back over the new data; and a MAP_FIXED map over a live
+    /// mapping tells the GPU caches the old range is gone (texture_cache.cpp, runtime_memory.c).
+    BackingWriteFixes = 1ull << 63,
     // Bits 20-29 are used as raw debug toggles by the camera/object motion and the upscaler.
 };
 inline bool Disabled(std::uint64_t bit) {

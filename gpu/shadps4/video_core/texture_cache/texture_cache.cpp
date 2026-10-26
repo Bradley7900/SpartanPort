@@ -641,10 +641,18 @@ void TextureCache::ApplyBackingWrites() {
     // SpartanPort streams textures with GPU copies through large storage images over the
     // texture pool; their readbacks put the new texels in memory without a fault. Textures
     // there kept the old contents (yellow ground #138, missing textures #194) until a restart.
+    const bool foreign_fixes = !SpartanToggle::Disabled(SpartanToggle::BackingWriteFixes);
     for (const auto& [address, size] : writes) {
         ForEachImageInRegion(address, size, [&](ImageId image_id, Image& image) {
             // Images sharing memory with a GPU writer are synchronized by SynchronizeAlias.
-            if (True(image.flags & (ImageFlagBits::GpuModified | ImageFlagBits::Aliased))) {
+            // fp32-gcn1: only a write at the image's own address is its own write-back (image
+            // downloads and readbacks start there). Anything else - a streamed texture or buffer
+            // readback landing inside its range - is newer than the image. Skipping those left it
+            // GPU-modified and clean, so the GC later wrote its old texels back over the new data
+            // (2 GB R7 350: ~290 write-backs per 5 s; texture glitches until restart, a guest fault
+            // on reload). BackingWriteFixes.
+            if (True(image.flags & (ImageFlagBits::GpuModified | ImageFlagBits::Aliased)) &&
+                (!foreign_fixes || address == image.info.guest_address)) {
                 return;
             }
             image.flags |= ImageFlagBits::CpuDirty;
