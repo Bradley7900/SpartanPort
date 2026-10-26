@@ -781,21 +781,34 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         }
     };
     // Moves next_flip to the refresh the last flipped frame reached; false while that frame is
-    // still on its way to the screen.
+    // still on its way to the screen. Never later than one period after the last flip: on an
+    // R7 350 with Mailbox under XFCE the reports came late and a 30 cap ran at 20 FPS, so a late
+    // report can only make the next frame due sooner than the plain limiter would, not later.
+    s64 report_lag_ns = 0, report_count = 0;
+    auto report_time = std::chrono::steady_clock::now();
     const auto pace_slot = [&](std::chrono::steady_clock::time_point now) {
         if (!paced) {
             return true;
         }
+        const s64 plain_due = last_flip_ns + frame_period.count();
         const s64 shown = Vulkan::Swapchain::LastDisplayNs();
         if (shown > last_anchor_ns && shown >= last_flip_ns) {
             last_anchor_ns = shown;
-            next_flip = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(shown)) +
-                        frame_period - frame_period / 4;
+            report_lag_ns += shown - last_flip_ns;
+            ++report_count;
+            const s64 due = std::min(shown + frame_period.count() - frame_period.count() / 4, plain_due);
+            next_flip = std::chrono::steady_clock::time_point(std::chrono::nanoseconds(due));
             return true;
         }
-        return shown >= last_flip_ns || steady_ns(now) - last_flip_ns >= 2 * frame_period.count();
+        return shown >= last_flip_ns || steady_ns(now) >= plain_due;
     };
     const auto after_flip = [&](std::chrono::steady_clock::time_point now) {
+        if (paced && report_count != 0 && now - report_time >= std::chrono::seconds(10)) {
+            std::printf("VideoOut: vblank pacing: frames reported on screen %.1f ms after flip (avg of %lld)\n",
+                        report_lag_ns / 1e6 / report_count, static_cast<long long>(report_count));
+            report_lag_ns = report_count = 0;
+            report_time = now;
+        }
         if (paced) {
             last_flip_ns = steady_ns(now);
             next_flip = now + frame_period - frame_period / 4; // until the screen reports

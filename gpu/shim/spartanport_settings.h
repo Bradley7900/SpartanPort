@@ -86,8 +86,9 @@ struct Values {
     /// fp32-gcn1: a cap under 50 FPS rises to 60 while a video cutscene plays. Live.
     std::atomic<bool> cutscene_60{true};
     /// fp32-gcn1: under a cap below 50 FPS (not with tearing presents), time frames from when the last one reached
-    /// the screen (videoout driver, VK_KHR_present_wait). Live.
-    std::atomic<bool> vblank_pacing{true};
+    /// the screen (videoout driver, VK_KHR_present_wait). Live. Off by default: a GPU-bound R7 350
+    /// shows a frame 30+ ms after its flip, and waiting for that report cost frames (30 -> 20 FPS).
+    std::atomic<bool> vblank_pacing{false};
     /// fp32-gcn1: on GPUs under 4 GB, the texture cache evicts only images idle for seconds, not
     /// for a number of submissions (texture_cache.cpp). Live.
     std::atomic<bool> gc_by_time{true};
