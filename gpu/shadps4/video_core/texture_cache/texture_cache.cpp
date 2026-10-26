@@ -1770,6 +1770,15 @@ void TextureCache::GarbageCollectImages() {
         if (download && !pressured) {
             return false;
         }
+        // fp32-gcn1: a write-back here is synchronous - it waits for the GPU to go idle. An R7 350
+        // (2 GB) sat above the pressure mark all session and logged ~290 write-backs per 5 s:
+        // dozens of full GPU stalls a second, plus rebuilds of render targets it uses again soon.
+        // Below the critical mark only images with nothing to write back are evicted, and a kept
+        // one does not use up this run's deletions. "Keep recently used textures" (gc_by_time).
+        if (download && !aggresive && small_vram && SpartanSettings::Get().gc_by_time.load()) {
+            ++num_deletions;
+            return false;
+        }
         if (download) {
             // spartanport: synchronously, while the image still protects its pages. A deferred
             // write-back landed after FreeImage had unprotected them, over whatever the game
