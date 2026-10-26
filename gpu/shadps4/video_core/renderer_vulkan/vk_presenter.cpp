@@ -980,7 +980,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                                vk::PipelineStageFlagBits::eAllCommands,
                                vk::DependencyFlagBits::eByRegion, {}, {}, post_barriers);
         if (overlay) {
-            SpartanOverlay::Render(cmdbuf, swapchain.ImageView(), extent);
+            SpartanOverlay::Render(cmdbuf, swapchain.ImageView(), extent, !is_reusing_frame);
             const vk::ImageMemoryBarrier to_present{
                 .srcAccessMask = vk::AccessFlagBits::eColorAttachmentWrite,
                 .dstAccessMask = vk::AccessFlagBits::eNone,
@@ -1027,8 +1027,12 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         const u64 first_id = swapchain.LastPresentId();
         if (repeats >= 2 && first_id != 0 && Swapchain::FifoActive()) {
             for (u32 i = 1; i < repeats; ++i) {
-                // The repeat resets present_done, so the first blit has to be finished.
-                (void)instance.GetDevice().waitForFences(frame->present_done, true, 100'000'000);
+                // The repeat resets present_done, so the first blit has to be finished; after a
+                // timeout (a GPU hitch) the fence is still in use and the frame is shown once.
+                if (instance.GetDevice().waitForFences(frame->present_done, true, 100'000'000) !=
+                    vk::Result::eSuccess) {
+                    break;
+                }
                 Present(frame, true, false);
             }
             swapchain.WaitPresented(first_id);

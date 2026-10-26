@@ -79,6 +79,16 @@ TextureCache::~TextureCache() {
     }
 }
 
+// fp32-gcn1: write-backs of this cache's own images (downloads, readbacks), told apart from other
+// GPU-to-RAM writes in ApplyBackingWrites. TryWriteBacking reports them on this thread.
+static thread_local bool image_write_back = false;
+static bool WriteImageBack(void* address, const void* data, u64 size) {
+    image_write_back = true;
+    const bool written = Core::Memory::Instance()->TryWriteBacking(address, data, size);
+    image_write_back = false;
+    return written;
+}
+
 template <bool track>
 void TextureCache::WatchReadback(VAddr address, u64 size) {
     if (stale_readbacks) {
@@ -93,7 +103,7 @@ void TextureCache::RetireReadbacks() {
         [this](auto& entry) {
             if (entry.valid) {
                 entry.payload.Invalidate();
-                Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(entry.address),
+                WriteImageBack(std::bit_cast<u8*>(entry.address),
                     entry.payload.mapped, entry.size);
                 if (entry.watched) WatchReadback<false>(entry.address, entry.size);
                 ++readbacks_completed;
@@ -256,7 +266,7 @@ void TextureCache::ProcessDownloadImages() {
                 if (!pending_readbacks.CanFit(copy->size)) {
                     scheduler.Finish();
                     copy->staging.Invalidate();
-                    Core::Memory::Instance()->TryWriteBacking(
+                    WriteImageBack(
                         std::bit_cast<u8*>(copy->guest_address), copy->staging.mapped, copy->size);
                     runtime.GetStagingPool().FreeDeferred(copy->staging);
                 } else {
@@ -331,7 +341,7 @@ void TextureCache::ProcessDownloadImages() {
     scheduler.Finish();
     for (const PendingDownload& download : pending) {
         download.staging.Invalidate();
-        Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(download.guest_address),
+        WriteImageBack(std::bit_cast<u8*>(download.guest_address),
                                                   download.staging.mapped, download.size);
         runtime.GetStagingPool().FreeDeferred(download.staging);
     }
@@ -397,13 +407,13 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
     if (sync) {
         scheduler.Finish();
         download.Invalidate();
-        Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(image.info.guest_address),
+        WriteImageBack(std::bit_cast<u8*>(image.info.guest_address),
                                                   download.mapped, download_size);
     } else {
         scheduler.DeferPriorityOperation(
             [this, device_addr = image.info.guest_address, download, download_size] {
                 download.Invalidate();
-                Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(device_addr),
+                WriteImageBack(std::bit_cast<u8*>(device_addr),
                                                           download.mapped, download_size);
                 runtime.GetStagingPool().FreeDeferred(download);
             });
@@ -624,7 +634,7 @@ void TextureCache::InvalidateMemory(VAddr addr, size_t size) {
 
 void TextureCache::NoteBackingWrite(VAddr address, u64 size) {
     std::scoped_lock lock{backing_writes_mutex};
-    backing_writes.emplace_back(address, size);
+    backing_writes.push_back({address, size, image_write_back});
     has_backing_writes.store(true, std::memory_order_release);
 }
 
@@ -632,7 +642,7 @@ void TextureCache::ApplyBackingWrites() {
     if (!has_backing_writes.load(std::memory_order_acquire)) {
         return;
     }
-    std::vector<std::pair<VAddr, u64>> writes;
+    std::vector<BackingWrite> writes;
     {
         std::scoped_lock lock{backing_writes_mutex};
         writes.swap(backing_writes);
@@ -642,17 +652,16 @@ void TextureCache::ApplyBackingWrites() {
     // texture pool; their readbacks put the new texels in memory without a fault. Textures
     // there kept the old contents (yellow ground #138, missing textures #194) until a restart.
     const bool foreign_fixes = !SpartanToggle::Disabled(SpartanToggle::BackingWriteFixes);
-    for (const auto& [address, size] : writes) {
+    for (const auto& [address, size, from_image] : writes) {
         ForEachImageInRegion(address, size, [&](ImageId image_id, Image& image) {
             // Images sharing memory with a GPU writer are synchronized by SynchronizeAlias.
-            // fp32-gcn1: only a write at the image's own address is its own write-back (image
-            // downloads and readbacks start there). Anything else - a streamed texture or buffer
-            // readback landing inside its range - is newer than the image. Skipping those left it
-            // GPU-modified and clean, so the GC later wrote its old texels back over the new data
-            // (2 GB R7 350: ~290 write-backs per 5 s; texture glitches until restart, a guest fault
-            // on reload). BackingWriteFixes.
+            // fp32-gcn1: that holds for this cache's own image write-backs only. A buffer download
+            // or a command-processor write (liverpool) is newer than a GPU-written image under it;
+            // skipping those left the image GPU-modified and clean, so the GC later wrote its old
+            // texels back over the new data (2 GB R7 350: ~290 write-backs per 5 s; texture
+            // glitches until restart, a guest fault on reload). BackingWriteFixes.
             if (True(image.flags & (ImageFlagBits::GpuModified | ImageFlagBits::Aliased)) &&
-                (!foreign_fixes || address == image.info.guest_address)) {
+                (!foreign_fixes || from_image)) {
                 return;
             }
             image.flags |= ImageFlagBits::CpuDirty;

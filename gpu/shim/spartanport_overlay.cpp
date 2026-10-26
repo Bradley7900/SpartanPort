@@ -103,6 +103,7 @@ float base_scale = 1.0f;
 
 // Present rate for the FPS counter.
 std::chrono::steady_clock::time_point last_present{};
+std::chrono::steady_clock::time_point last_new_frame{};
 float frame_ms_avg = 0.0f;
 
 void SetOpen(bool value) {
@@ -1827,13 +1828,17 @@ void SetTextEntry(bool active, const std::string& prompt, const std::string& tex
     text_entry_text = text;
 }
 
-void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
+void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent, bool new_frame) {
     // Present interval for the FPS readout (measured also while nothing is drawn).
     const auto now = std::chrono::steady_clock::now();
     const float ms = std::chrono::duration<float, std::milli>(now - last_present).count();
     last_present = now;
-    if (ms > 0.0f && ms < 1000.0f) {
-        frame_ms_avg = frame_ms_avg == 0.0f ? ms : frame_ms_avg * 0.95f + ms * 0.05f;
+    if (new_frame) {
+        const float frame_ms = std::chrono::duration<float, std::milli>(now - last_new_frame).count();
+        last_new_frame = now;
+        if (frame_ms > 0.0f && frame_ms < 1000.0f) {
+            frame_ms_avg = frame_ms_avg == 0.0f ? frame_ms : frame_ms_avg * 0.95f + frame_ms * 0.05f;
+        }
     }
     ConfirmRestart();
     if (!Visible()) {

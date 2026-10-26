@@ -537,7 +537,13 @@ private:
     /// spartanport (#138): under `mutex`. GPU-modified images hold the written data themselves.
     void ApplyBackingWrites();
     std::mutex backing_writes_mutex;
-    std::vector<std::pair<VAddr, u64>> backing_writes;
+    /// fp32-gcn1: `image` = written back by this cache's own image downloads/readbacks.
+    struct BackingWrite {
+        VAddr address;
+        u64 size;
+        bool image;
+    };
+    std::vector<BackingWrite> backing_writes;
     std::atomic<bool> has_backing_writes{false};
     /// spartanport: images with the same guest address (guarded by `mutex`). `backing` holds the
     /// complete contents; `writer` is a newer write not yet copied into it.

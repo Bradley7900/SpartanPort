@@ -77,6 +77,7 @@ void *runtime_low_map(size_t size, int prot);
 /* Names a runtime_low_map block (fault report); runtime_low_describe says where an address falls. */
 void runtime_low_tag(void *p, const char *tag);
 void runtime_low_describe(uintptr_t address, char *out, size_t size);
+int runtime_low_contains(uintptr_t start, uintptr_t end);
 /* Windows: reserves the PS4 user address range as a placeholder (no-op elsewhere). */
 void runtime_memory_reserve(void);
 uintptr_t runtime_ajm_resolve(const char *name);

@@ -804,6 +804,13 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             }
         }
     };
+    const auto swap_free = [&] {
+        if (even < 2 || !separate_swap) {
+            return true;
+        }
+        std::scoped_lock lock{swap_mutex};
+        return !swap_busy && swap_queue.empty();
+    };
     const auto update_pacing = [&] {
         update_even();
         // The effective period counts, so the adaptive half rate (60 -> 30) is paced as well.
@@ -877,7 +884,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         // Check if it's time to take a request.
         auto& vblank_status = main_port.vblank_status;
         const auto now = std::chrono::steady_clock::now();
-        const bool flip_slot = !frame_limit || (pace_slot(now) && now >= next_flip);
+        const bool flip_slot = !frame_limit || (pace_slot(now) && now >= next_flip && swap_free());
         if (flip_slot && vblank_status.count % (main_port.flip_rate + 1) == 0) {
             const auto request = receive_request();
             if (request && frame_limit) {
@@ -936,6 +943,14 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             }
             if (!pace_slot(std::chrono::steady_clock::now())) {
                 break; // the last frame is not on screen yet: look again next vblank tick
+            }
+            // Even pacing: the swap thread frees up when this frame's first present is on screen,
+            // one refresh before the next is due, so look again often rather than next tick.
+            while (!swap_free() && std::chrono::steady_clock::now() < tick_deadline) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            if (!swap_free()) {
+                break;
             }
             if (std::chrono::steady_clock::now() < next_flip) {
                 if (next_flip >= tick_deadline) {

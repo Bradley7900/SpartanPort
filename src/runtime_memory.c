@@ -302,17 +302,32 @@ static void queue_hook(int kind, uintptr_t address, uint64_t size) {
     if (pending_count==sizeof(pending)/sizeof(*pending)) { fputs("STOP: GPU hook queue overflow\n",stderr); exit(21); }
     pending[pending_count++]=(PendingHook){kind,address,size};
 }
-/* Runs queued GPU notifications; callers invoke it after dropping the lock. */
+/* Runs queued GPU notifications; callers invoke it after dropping the lock.
+ * fp32-gcn1: one flusher at a time, so two threads cannot run an UNMAP and the MAP queued after it
+ * in reverse order (Rasterizer::UnmapMemory last would drop a live range from mapped_ranges).
+ * Recursive: a hook may map or unmap through this file. */
+static pthread_mutex_t hook_order;
+static pthread_once_t hook_order_once=PTHREAD_ONCE_INIT;
+static void hook_order_init(void) {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&hook_order,&attr);
+    pthread_mutexattr_destroy(&attr);
+}
 static void flush_hooks(void) {
+    pthread_once(&hook_order_once,hook_order_init);
+    pthread_mutex_lock(&hook_order);
     for (;;) {
         write_lock();
-        if (!pending_count) { write_unlock(); return; }
+        if (!pending_count) { write_unlock(); break; }
         PendingHook h=pending[0];
         memmove(pending,pending+1,--pending_count*sizeof(*pending));
         GpuRange hook = h.kind==HOOK_MAP ? hook_map : h.kind==HOOK_UNMAP ? hook_unmap : hook_invalidate;
         write_unlock();
         if (hook) hook(h.address,h.size);
     }
+    pthread_mutex_unlock(&hook_order);
 }
 static int flex_test(uint64_t page) { return (int)((flex_bitmap[page/64]>>(page%64))&1); }
 static void flex_set(uint64_t first, uint64_t count, int used) {
@@ -398,6 +413,21 @@ static void drop_range(uintptr_t start, uintptr_t end) {
     vma_erase(i,n);
 }
 extern uint64_t runtime_disabled_optimizations;
+/* fp32-gcn1: a fixed map over a live mapping replaces it, so the GPU forgets the old range first,
+ * as shadPS4 unmaps before a fixed map and as direct_unmap does: BEFORE the new pages exist, since
+ * the GPU's unmap writes GPU-modified buffers back through the current mapping (it would land in
+ * the new pages after the remap). Without it, cached images and buffers outlived the range and the
+ * new host pages lost the write protection that marks a texture dirty; the game remaps the same
+ * ranges on every area load. BackingWriteFixes (bit 63) turns it off. Call without the lock. */
+static void unmap_before_fixed_map(uintptr_t address, uint64_t size, int flags) {
+    if (!(flags & MAP_FIXED_FLAG) || !hook_unmap || !address || address%PAGE || !size ||
+        (runtime_disabled_optimizations & (UINT64_C(1)<<63)))
+        return;
+    read_lock();
+    const int live=overlaps(address,address+align_up(size,PAGE),1);
+    read_unlock();
+    if (live) hook_unmap(address,align_up(size,PAGE));
+}
 /* Places a host mapping; with MAP_FIXED it replaces what the guest had there. */
 static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t alignment,
                      int kind, int type, uint64_t phys) {
@@ -411,17 +441,6 @@ static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t 
     }
     if (host_map(address,size,host_prot(prot),kind==KIND_RESERVED,phys)) return NO_MEMORY;
     void *mapped=(void *)address;
-    /* fp32-gcn1: the replaced range is gone for the GPU too, as with an unmap (shadPS4 unmaps
-     * before a fixed map). Without it, cached images and buffers there outlived it, and the new
-     * host pages lost the write protection that marks a texture dirty: the game remaps the same
-     * ranges on every area load. BackingWriteFixes (bit 63) turns it off. */
-    if ((flags & MAP_FIXED_FLAG) && !(runtime_disabled_optimizations & (UINT64_C(1)<<63)))
-        for (size_t i=vma_index(address); i<vma_count && vmas[i].start<address+size; ++i)
-            if (vmas[i].kind!=KIND_RESERVED) {
-                uintptr_t a=vmas[i].start>address ? vmas[i].start : address;
-                uintptr_t b=vmas[i].end<address+size ? vmas[i].end : address+size;
-                queue_hook(HOOK_UNMAP,a,b-a);
-            }
     drop_range(address,address+size);
     if (vma_insert(vma_index(address),(Vma){address,address+size,kind,prot,type,phys})) return NO_MEMORY;
     if (kind==KIND_FLEXIBLE) flexible_bytes+=size;
@@ -485,6 +504,7 @@ static int32_t map_direct_locked(void **out, uint64_t size, int prot, int flags,
     return result;
 }
 static ABI int32_t direct_map(void **out, uint64_t size, int prot, int flags, int64_t physical, uint64_t alignment) {
+    if (out) unmap_before_fixed_map((uintptr_t)*out,size,flags);
     write_lock();
     int32_t result=map_direct_locked(out,size,prot,flags,physical,alignment);
     write_unlock();
@@ -564,6 +584,7 @@ static int32_t map_flexible_locked(void **inout, uint64_t size, int prot, int fl
     return result;
 }
 static ABI int32_t map_flexible(void **inout, uint64_t size, int prot, int flags) {
+    if (inout) unmap_before_fixed_map((uintptr_t)*inout,size,flags);
     write_lock();
     int32_t result=map_flexible_locked(inout,size,prot,flags);
     write_unlock();
@@ -665,6 +686,9 @@ static ABI int32_t direct_memory_type(uint64_t phys, int *type, void **start, vo
 static ABI int32_t batch_map2(BatchEntry *entries, int count, int *processed, int flags) {
     if (!entries || count<0) return INVALID;
     int32_t result=0; int done=0;
+    for (int i=0; i<count; ++i)
+        if (entries[i].operation==0 || entries[i].operation==3)
+            unmap_before_fixed_map((uintptr_t)entries[i].start,entries[i].length,flags);
     write_lock();
     for (; done<count; ++done) {
         BatchEntry *e=&entries[done];
@@ -727,6 +751,13 @@ void runtime_low_tag(void *p, const char *tag) {
         snprintf(low_maps[i].tag,sizeof(low_maps[i].tag),"%s",tag);
         return;
     }
+}
+/* 1 when [start, end) lies inside one low mapping (the fault handler may read it). */
+int runtime_low_contains(uintptr_t start, uintptr_t end) {
+    unsigned n=__atomic_load_n(&low_map_count,__ATOMIC_ACQUIRE);
+    for (unsigned i=0;i<n;++i)
+        if (start>=low_maps[i].start && end<=low_maps[i].end) return 1;
+    return 0;
 }
 /* One line on where `address` falls among the low mappings; for the fault handler. */
 void runtime_low_describe(uintptr_t address, char *out, size_t size) {

@@ -300,7 +300,9 @@ static void fault(int sig, siginfo_t *info, void *context) {
                  (unsigned long long)g[REG_R12], (unsigned long long)g[REG_R13], (unsigned long long)g[REG_R14],
                  (unsigned long long)g[REG_R15], (unsigned long long)g[REG_EFL]);
         { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
-        if (rip - (uintptr_t)image >= 32 && rip - (uintptr_t)image < 0x10000000) {
+        /* Only bytes known to be mapped: a jump to a bad pointer faults at rip itself, and a second
+         * SIGSEGV in here would kill the process before the rest of the report. */
+        if (rip != (uintptr_t)info->si_addr && runtime_low_contains(rip - 32, rip + 16)) {
             int n = snprintf(line, sizeof(line), "  code at rip-32..+16:");
             for (int i = -32; i < 16 && n < (int)sizeof(line) - 5; ++i)
                 n += snprintf(line + n, sizeof(line) - n, i == 0 ? " [%02x]" : " %02x", ((const unsigned char *)rip)[i]);

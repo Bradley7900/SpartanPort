@@ -48,7 +48,9 @@ void ShowNotice(const std::string& text, int milliseconds = 3000);
 void CycleEngineFps();
 
 /// Present thread: draws into `view` (layout ColorAttachmentOptimal).
-void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent);
+/// `new_frame` false for a repeated present of the same frame (even pacing, redraws): the FPS
+/// readout counts game frames, not presents.
+void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent, bool new_frame = true);
 
 /// The menu is open or a text entry is shown: the game's input is held neutral.
 bool CapturesInput();
