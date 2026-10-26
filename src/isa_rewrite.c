@@ -308,8 +308,7 @@ uint32_t isa_rewrite_demote_targets(IsaTable *t, const uint64_t *targets, size_t
             if (s->mode != ISA_MODE_JMP_RELOCATE || target < s->offset + 4 ||
                 target >= s->offset + 4 + s->relocated_length)
                 continue;
-            fprintf(stderr, "ISA: site 0x%llx %s: code pointer 0x%llx lands in its relocated bytes, int3 fallback
-",
+            fprintf(stderr, "ISA: site 0x%llx %s: code pointer 0x%llx lands in its relocated bytes, int3 fallback\n",
                     (unsigned long long)s->offset, isa_kind_name(s->kind), (unsigned long long)target);
             s->mode = ISA_MODE_INT3;
             changed++;

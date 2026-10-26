@@ -1224,8 +1224,7 @@ int main(int argc, char **argv) {
     if (isa_table) {
         const char *relocate_env = getenv("SPARTAN_ISA_RELOCATE");
         if (relocate_env && !strcmp(relocate_env, "0")) {
-            printf("ISA: SPARTAN_ISA_RELOCATE=0: %u relocated sites use int3 instead
-",
+            printf("ISA: SPARTAN_ISA_RELOCATE=0: %u relocated sites use int3 instead\n",
                    isa_rewrite_demote_all_relocated(isa_table));
         } else {
             uint64_t *targets = calloc(nr ? nr : 1, sizeof(*targets));
@@ -1234,8 +1233,7 @@ int main(int argc, char **argv) {
             for (uint64_t i = 0; i < nr; ++i)
                 if (!relocs[i].kind && relocs[i].value < size) targets[nt++] = relocs[i].value;
             uint32_t demoted = isa_rewrite_demote_targets(isa_table, targets, nt);
-            printf("ISA: %zu code/data pointers checked against relocated sites, %u sites moved to int3
-", nt, demoted);
+            printf("ISA: %zu code/data pointers checked against relocated sites, %u sites moved to int3\n", nt, demoted);
             free(targets);
         }
         IsaReport r = isa_rewrite_apply(isa_table, image, stubs, isa_sets);
