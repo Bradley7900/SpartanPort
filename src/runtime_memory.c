@@ -771,7 +771,7 @@ uintptr_t runtime_memory_resolve(const char *name) {
 static uintptr_t low_next=LOW_MIN;
 /* What each low mapping holds, for the fault report (fp32-gcn1: a guest fault on area reload
  * read an address past the image, and nothing said whose memory or which gap it was). */
-static struct { uintptr_t start, end; char tag[32]; } low_maps[512];
+static struct { uintptr_t start, end; char tag[32]; } low_maps[4096]; /* fp32-gcn1: was 512; a full table named the wrong neighbour */
 static unsigned low_map_count;
 static void low_note(void *p, size_t size) {
     if (!p || low_map_count>=sizeof(low_maps)/sizeof(*low_maps)) return;

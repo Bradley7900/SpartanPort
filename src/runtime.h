@@ -41,6 +41,8 @@ void runtime_thread_report(void);
 void runtime_thread_count_yield(int zero_sleep);
 void runtime_set_main_tls(const void *data, uint64_t filesz, uint64_t memsz, uint64_t align);
 void runtime_thread_attach_main(void);
+/* Linux: gives the calling thread an alternate signal stack (NULL when off or failed). */
+void *runtime_thread_altstack(void);
 int32_t *runtime_errno(void);
 uintptr_t runtime_sema_resolve(const char *name);
 void runtime_sema_report(void);

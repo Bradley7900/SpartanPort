@@ -28,7 +28,10 @@
 #endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define ATTR_MAGIC UINT32_C(0x41545452)
-#define STACK_MARGIN (256*1024)
+/* fp32-gcn1: was 256K. Host code runs on guest stacks (GPU unmap hooks during bulk frees, signal
+ * frames before the alternate stack below), and a checkpoint reload does both at once; the region is
+ * large, so headroom is cheap. Guest code has no stack probes, so an overflow skips the 16K gap. */
+#define STACK_MARGIN (1024*1024)
 #define MIN_STACK (64*1024)
 #define DEFAULT_STACK (1024*1024)
 #define DEFAULT_PRIO 700
@@ -282,13 +285,47 @@ static void set_host_priority(const char *name,int guest_prio) {
 #define exit_setjmp(t) setjmp((t)->exit_jump)
 #define exit_longjmp(t) longjmp((t)->exit_jump,1)
 #endif
+#ifndef _WIN32
+/* fp32-gcn1: guest threads start with RBP=0 as on PS4, so a frame-pointer walk in guest code stops
+ * at the thread's first frame instead of following host frames past the top of its stack. */
+void *spartan_enter_guest(GuestEntry entry, void *argument);
+__asm__(".text\n.globl spartan_enter_guest\nspartan_enter_guest:\n"
+        " push %rbp\n mov %rdi,%rax\n mov %rsi,%rdi\n xor %ebp,%ebp\n call *%rax\n pop %rbp\n ret\n");
+/* fp32-gcn1: signal handlers (GPU write faults, int3 ISA sites) run on their own stack, not the
+ * guest's: a reload is a burst of write faults, each pushing a signal frame and the GPU fault
+ * handler onto a stack sized for the game. SPARTAN_ALTSTACK=0 turns it off. Returns the mapping. */
+#define ALT_STACK_BYTES (256*1024)
+void *runtime_thread_altstack(void) {
+    const char *env=getenv("SPARTAN_ALTSTACK");
+    if (env && !strcmp(env,"0")) return NULL;
+    void *mem=mmap(NULL,ALT_STACK_BYTES,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    if (mem==MAP_FAILED) return NULL;
+    stack_t ss={.ss_sp=mem,.ss_size=ALT_STACK_BYTES,.ss_flags=0};
+    if (sigaltstack(&ss,NULL)) { munmap(mem,ALT_STACK_BYTES); return NULL; }
+    return mem;
+}
+static void altstack_release(void *mem) {
+    if (!mem) return;
+    stack_t ss={.ss_flags=SS_DISABLE};
+    sigaltstack(&ss,NULL);
+    munmap(mem,ALT_STACK_BYTES);
+}
+#endif
 static void *host_start(void *p) {
     GuestThread *t=p;
     attach(t);
     set_host_name(t->name);
     set_host_priority(t->name,t->attr.prio);
+#ifndef _WIN32
+    void *alt=runtime_thread_altstack();
+    if (!exit_setjmp(t)) t->result=spartan_enter_guest(t->entry,t->argument);
+#else
     if (!exit_setjmp(t)) t->result=t->entry(t->argument);
+#endif
     runtime_thread_keys_cleanup();
+#ifndef _WIN32
+    altstack_release(alt);
+#endif
     pthread_mutex_lock(&lock); t->finished=1; ++exited; pthread_mutex_unlock(&lock);
     return t->result;
 }

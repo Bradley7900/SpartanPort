@@ -32,6 +32,7 @@
 #include <execinfo.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
+#include <sys/prctl.h>
 #endif
 
 typedef struct { uint64_t address, size, flags; } Segment;
@@ -107,9 +108,9 @@ static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argu
 /* enter_on_stack(entry, arg0, arg1, stack_top): call entry(arg0,arg1) on a new stack. */
 void enter_on_stack(void *entry, void *arg0, void *arg1, void *top);
 __asm__(".text\n.globl enter_on_stack\nenter_on_stack:\n"
-        " push %rbp\n mov %rsp,%rbp\n and $-16,%rcx\n mov %rcx,%rsp\n"
-        " mov %rdi,%rax\n mov %rsi,%rdi\n mov %rdx,%rsi\n call *%rax\n"
-        " mov %rbp,%rsp\n pop %rbp\n ret\n");
+        " push %rbp\n push %rbx\n mov %rsp,%rbx\n and $-16,%rcx\n mov %rcx,%rsp\n"
+        " mov %rdi,%rax\n mov %rsi,%rdi\n mov %rdx,%rsi\n xor %ebp,%ebp\n call *%rax\n"
+        " mov %rbx,%rsp\n pop %rbx\n pop %rbp\n ret\n"); /* fp32-gcn1: guest starts with RBP=0, as on PS4 */
 #endif
 static ABI void guest_exit(void) { puts("Runtime: process finalizer callback reached"); }
 #ifdef _WIN32
@@ -288,7 +289,10 @@ static void fault(int sig, siginfo_t *info, void *context) {
         char where_addr[192], where_rsp[192];
         runtime_low_describe((uintptr_t)info->si_addr, where_addr, sizeof(where_addr));
         runtime_low_describe((uintptr_t)g[REG_RSP], where_rsp, sizeof(where_rsp));
-        snprintf(line, sizeof(line), "  fault address %s\n  rsp %s\n", where_addr, where_rsp);
+        char thread_name[17] = "?";
+        prctl(PR_GET_NAME, (unsigned long)thread_name, 0, 0, 0);
+        thread_name[16] = 0;
+        snprintf(line, sizeof(line), "  thread %s\n  fault address %s\n  rsp %s\n", thread_name, where_addr, where_rsp);
         { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
         snprintf(line, sizeof(line),
                  "  rax=%llx rbx=%llx rcx=%llx rdx=%llx rsi=%llx rdi=%llx rbp=%llx rsp=%llx\n"
@@ -1020,7 +1024,7 @@ int main(int argc, char **argv) {
     (void)timeout_seconds; /* no watchdog on Windows */
 #else
     page_size = (size_t)sysconf(_SC_PAGESIZE);
-    struct sigaction sa = {0}; sa.sa_sigaction = fault; sa.sa_flags = SA_SIGINFO;
+    struct sigaction sa = {0}; sa.sa_sigaction = fault; sa.sa_flags = SA_SIGINFO | SA_ONSTACK; /* fp32-gcn1: alt stack where set */
     sigemptyset(&sa.sa_mask);
     sigaction(SIGSEGV, &sa, NULL); sigaction(SIGILL, &sa, NULL); sigaction(SIGBUS, &sa, NULL);
     sigaction(SIGTRAP, &sa, NULL); /* int3 ISA sites */
@@ -1290,6 +1294,7 @@ int main(int argc, char **argv) {
     unsigned char *stack=runtime_low_map(MAIN_STACK,PROT_READ|PROT_WRITE);
     if (!stack) fail("cannot allocate guest main stack");
     runtime_low_tag(stack, "stack main");
+    runtime_thread_altstack();
     enter_on_stack(image+entry,&params,(void *)guest_exit,stack+MAIN_STACK-64);
 #endif
     fail("entry unexpectedly returned");

@@ -266,9 +266,13 @@ static ABI int32_t thread_once(int32_t *once,void (ABI *routine)(void)) {
 static ABI int32_t posix_once(int32_t *once,void (ABI *routine)(void)) { return thread_once(once,routine) ? 22 : 0; }
 #define KEYS 256
 typedef void (ABI *KeyDestructor)(void *);
-static struct { int used; KeyDestructor destructor; } keys[KEYS];
+/* fp32-gcn1: gen counts deletes. A deleted and re-created key read the old value in every thread
+ * that had set it (the game re-creates keys on reload); now a value from an older gen reads NULL,
+ * as FreeBSD's per-key sequence does. */
+static struct { int used; KeyDestructor destructor; uint32_t gen; } keys[KEYS];
 static pthread_mutex_t key_lock=PTHREAD_MUTEX_INITIALIZER;
 static _Thread_local void *key_values[KEYS];
+static _Thread_local uint32_t key_gens[KEYS];
 static ABI int32_t key_create(uint32_t *key,KeyDestructor destructor) {
     if (!key) return ERR(22);
     pthread_mutex_lock(&key_lock);
@@ -284,21 +288,21 @@ static ABI int32_t key_delete(uint32_t key) {
     if (!key || key>=KEYS) return ERR(22);
     pthread_mutex_lock(&key_lock);
     int32_t r=keys[key].used ? 0 : ERR(22);
-    keys[key].used=0; keys[key].destructor=NULL;
+    keys[key].used=0; keys[key].destructor=NULL; ++keys[key].gen;
     pthread_mutex_unlock(&key_lock);
     return r;
 }
 static ABI int32_t key_set(uint32_t key,void *value) {
     if (!key || key>=KEYS || !keys[key].used) return ERR(22);
-    key_values[key]=value; return 0;
+    key_values[key]=value; key_gens[key]=keys[key].gen; return 0;
 }
-static ABI void *key_get(uint32_t key) { return key && key<KEYS ? key_values[key] : NULL; }
+static ABI void *key_get(uint32_t key) { return key && key<KEYS && key_gens[key]==keys[key].gen ? key_values[key] : NULL; }
 void runtime_thread_keys_cleanup(void) {
     for (int round=0;round<4;++round) {
         int any=0;
         for (uint32_t i=1;i<KEYS;++i) {
             void *value=key_values[i];
-            if (!value || !keys[i].used || !keys[i].destructor) continue;
+            if (!value || !keys[i].used || !keys[i].destructor || key_gens[i]!=keys[i].gen) continue;
             key_values[i]=NULL; any=1;
             keys[i].destructor(value);
         }
