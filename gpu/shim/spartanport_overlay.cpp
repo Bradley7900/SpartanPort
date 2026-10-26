@@ -495,7 +495,7 @@ void PerformanceTab() {
         CheckRow("Cutscenes at 60 under a 30 FPS cap", s.cutscene_60,
                  "A cap under 50 FPS rises to 60 while a video cutscene plays.");
         CheckRow("Lock capped FPS to the monitor", s.vblank_pacing,
-                 "Under a cap below 50 FPS with VSync on: frames follow the monitor's refresh, so a 30 cap stays even.");
+                 "Under a cap below 50 FPS: frames follow the monitor's refresh, so a 30 cap stays even.");
         CheckRow("Compile new shaders in the background", s.async_shaders,
                  "Fewer stutters in new areas; an object or effect may appear a moment later.");
         ImGui::EndTable();

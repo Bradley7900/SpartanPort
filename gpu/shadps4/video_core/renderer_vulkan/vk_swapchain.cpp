@@ -25,6 +25,7 @@ static constexpr vk::SurfaceFormatKHR SURFACE_FORMAT_HDR = {
 // fp32-gcn1: vblank pacing state (SetDisplayPacing).
 static std::atomic<bool> display_pacing{false};
 static std::atomic<bool> present_wait_supported{false};
+static std::atomic<bool> mode_shows_on_refresh{true}; // Fifo and Mailbox; Immediate does not
 static std::atomic<s64> last_display_ns{0};
 
 Swapchain::Swapchain(const Instance& instance_, const Frontend::WindowSDL& window_)
@@ -166,7 +167,8 @@ bool Swapchain::AcquireNextImage() {
 }
 
 bool Swapchain::SetDisplayPacing(bool on) {
-    const bool pace = on && present_wait_supported.load(std::memory_order_relaxed);
+    const bool pace = on && present_wait_supported.load(std::memory_order_relaxed) &&
+                      mode_shows_on_refresh.load(std::memory_order_relaxed);
     display_pacing.store(pace, std::memory_order_relaxed);
     return pace;
 }
@@ -183,7 +185,8 @@ bool Swapchain::Present() {
 
     // fp32-gcn1: with vblank pacing, every present carries an id so it can be waited on below.
     static u64 present_id = 0;
-    const bool pace = instance.IsPresentWaitSupported() && vsync &&
+    const bool pace = instance.IsPresentWaitSupported() &&
+                      present_mode != vk::PresentModeKHR::eImmediate &&
                       display_pacing.load(std::memory_order_relaxed);
     const u64 this_id = ++present_id;
     const vk::PresentIdKHR present_id_info = {
@@ -276,6 +279,7 @@ void Swapchain::FindPresentMode() {
         LOG_ERROR(Render, "Failed to query available present modes, falling back to Fifo as "
                           "guaranteed supported option.");
         present_mode = vk::PresentModeKHR::eFifo;
+        mode_shows_on_refresh = true;
         return;
     }
 
@@ -288,6 +292,7 @@ void Swapchain::FindPresentMode() {
                    : has(vk::PresentModeKHR::eImmediate) ? vk::PresentModeKHR::eImmediate
                                                          : vk::PresentModeKHR::eFifo;
     std::printf("Swapchain: VSync %s (%s)\n", vsync ? "on" : "off", vk::to_string(present_mode).c_str());
+    mode_shows_on_refresh = present_mode != vk::PresentModeKHR::eImmediate;
 }
 
 void Swapchain::UpdateVsync() {

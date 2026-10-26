@@ -99,7 +99,7 @@ public:
     /// fp32-gcn1: vblank pacing (driver.cpp). While on, Present() waits until each frame reaches the
     /// screen (VK_KHR_present_wait) and records when, so the frame limiter can time the next frame
     /// from the real refresh instead of its own clock. Returns whether pacing is on: never without
-    /// the extension. With VSync off, Present() records nothing.
+    /// the extension or with Immediate presents (VSync off without Mailbox), which show mid-refresh.
     static bool SetDisplayPacing(bool on);
 
     /// fp32-gcn1: steady_clock nanoseconds when the last paced frame reached the screen, 0 if none.

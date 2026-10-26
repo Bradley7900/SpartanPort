@@ -755,7 +755,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         last_present = now;
     };
 
-    // fp32-gcn1: vblank pacing. Under a cap below 50 FPS with VSync on, the limiter's own clock drifts
+    // fp32-gcn1: vblank pacing. Under a cap below 50 FPS (Fifo or Mailbox), the limiter's own clock drifts
     // against the monitor's refresh, so every few seconds a frame lands one refresh late (a
     // regular hitch), and after a slow frame the next one went early to catch up (long-short).
     // With VK_KHR_present_wait the swapchain reports when each frame reached the screen; the next
@@ -772,8 +772,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     const auto update_pacing = [&] {
         // The effective period counts, so the adaptive half rate (60 -> 30) is paced as well.
         const bool want = SpartanSettings::Get().vblank_pacing.load() && frame_limit != 0 &&
-                          frame_period >= std::chrono::milliseconds(20) &&
-                          SpartanSettings::Get().vsync.load();
+                          frame_period >= std::chrono::milliseconds(20);
         // Asked every tick: the swapchain may not exist yet when this thread starts.
         const bool now_paced = Vulkan::Swapchain::SetDisplayPacing(want); // false without present wait
         if (now_paced != paced) {
