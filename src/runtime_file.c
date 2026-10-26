@@ -294,11 +294,37 @@ static void touch_for_write(void *buffer,uint64_t size) {
         *b=*b;
     }
 }
+/* fp32-gcn1: the GPU thread can protect a page again between touch_for_write and the kernel's
+ * copy (buffer uploads and image tracking do it every frame). The read then stops at that page
+ * (short count) or fails with EFAULT, and the game kept garbage for the session. The rest of a
+ * regular file is read again through a bounce buffer, whose memcpy faults to our handler like any
+ * guest write. offset<0: read() at the file position. BackingWriteFixes (bit 63). */
+extern uint64_t runtime_disabled_optimizations;
+static ssize_t finish_read(int h,void *buffer,uint64_t size,ssize_t n,int64_t offset) {
+    if ((n>=0 && (uint64_t)n>=size) || (n<0 && errno!=EFAULT) ||
+        (__atomic_load_n(&runtime_disabled_optimizations,__ATOMIC_ACQUIRE) & (UINT64_C(1)<<63)))
+        return n;
+    struct stat st;
+    if (fstat(h,&st) || !S_ISREG(st.st_mode)) return n;
+    uint64_t done=n>0 ? (uint64_t)n : 0, chunk=size-done<(1u<<20) ? size-done : (1u<<20);
+    unsigned char *bounce=malloc(chunk);
+    if (!bounce) return n;
+    while (done<size) {
+        uint64_t want=size-done<chunk ? size-done : chunk;
+        ssize_t got=offset<0 ? host_read(h,bounce,want) : pread(h,bounce,want,offset+(int64_t)done);
+        if (got<=0) break;
+        memcpy((unsigned char *)buffer+done,bounce,(size_t)got);
+        done+=(uint64_t)got;
+        if ((uint64_t)got<want) break;
+    }
+    free(bounce);
+    return done || n>=0 ? (ssize_t)done : n;
+}
 static int64_t do_read(int fd,void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     touch_for_write(buffer,size);
-    ssize_t n=host_read(h,buffer,size);
+    ssize_t n=finish_read(h,buffer,size,host_read(h,buffer,size),-1);
     if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,errno); return -errno; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
@@ -307,7 +333,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
     touch_for_write(buffer,size);
-    ssize_t n=pread(h,buffer,size,offset);
+    ssize_t n=finish_read(h,buffer,size,pread(h,buffer,size,offset),offset);
     if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,errno); return -errno; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;

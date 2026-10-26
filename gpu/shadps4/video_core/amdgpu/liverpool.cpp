@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <atomic>
 #include <chrono>
 #include <pthread.h>
 #ifndef _WIN32
@@ -244,12 +245,25 @@ bool PipelinedOpcode(PM4ItOpcode opcode) {
 } // namespace
 
 namespace {
+// fp32-gcn1: a fence label outside the guest mappings (the game's image, thread stacks) is written
+// raw. A late fence landing on a stack frame that is gone would corrupt it - a suspect for the
+// guest fault in that low region on checkpoint restart. Logged (first 16 addresses), not changed.
+void NoteRawFenceWrite(void* address, u32 num_bytes) {
+    static std::atomic<u32> count{0};
+    const u32 n = count.fetch_add(1, std::memory_order_relaxed);
+    if (n < 16) {
+        LOG_WARNING(Render, "Fence write outside guest mappings at {} ({} bytes), #{}",
+                    fmt::ptr(address), num_bytes, n + 1);
+    }
+}
+
 void SignalEop(const PM4CmdEventWriteEop& eop) {
     eop.SignalFence(
         [](void* address, u64 data, u32 num_bytes) {
             auto* memory = Core::Memory::Instance();
             SpartanWriteLog::Note(reinterpret_cast<u64>(address), &data, num_bytes, SpartanWriteLog::Fence);
             if (!memory->TryWriteBacking(address, &data, num_bytes)) {
+                NoteRawFenceWrite(address, num_bytes);
                 memcpy(address, &data, num_bytes);
             }
         },
@@ -345,6 +359,7 @@ void RunEventWriteEos(Vulkan::Rasterizer& rasterizer, const u8* data) {
         auto* memory = Core::Memory::Instance();
         SpartanWriteLog::Note(reinterpret_cast<u64>(address), &value, num_bytes, SpartanWriteLog::Fence);
         if (!memory->TryWriteBacking(address, &value, num_bytes)) {
+            NoteRawFenceWrite(address, num_bytes);
             memcpy(address, &value, num_bytes);
         }
     });

@@ -591,7 +591,13 @@ void TextureCache::InvalidateAlias(Image& image) {
 }
 
 void TextureCache::MarkAsMaybeDirty(ImageId image_id, Image& image) {
-    if (image.hash == 0) {
+    // fp32-gcn1: also re-hash a clean image. The hash was only ever set once, so after a full
+    // rewrite (CpuDirty upload) it still described the OLD texels; the old texture streamed back
+    // into the slot then matched it, RefreshImage skipped the upload and the newer one stayed on
+    // screen (sprite and particle slots). Memory equals the image while it is clean, and this
+    // runs in the write fault, before the write lands. StaleImageFixes (bit 62).
+    const bool clean = False(image.flags & ImageFlagBits::Dirty);
+    if (image.hash == 0 || (clean && !SpartanToggle::Disabled(SpartanToggle::StaleImageFixes))) {
         // Initialize hash
         const u8* addr = std::bit_cast<u8*>(image.info.guest_address);
         image.hash = XXH3_64bits(addr, image.info.guest_size);
@@ -670,15 +676,29 @@ void TextureCache::ApplyBackingWrites() {
     }
 }
 
-void TextureCache::InvalidateMemoryFromGPU(VAddr address, size_t max_size) {
+void TextureCache::InvalidateMemoryFromGPU(VAddr address, size_t max_size, bool exact_size) {
     // Partial buffer writes still need the image's untouched bytes in guest memory.
     ResolveReadbacks(address, max_size, true, ReadbackSource::GpuPartialWrite);
+    // fp32-gcn1: a GPU fill or copy writes exactly [address, address + max_size). Every image in
+    // there was overwritten, not only one that starts at address: the others kept their old
+    // texels until evicted (no CPU write to fault on). An image only partly covered is refreshed
+    // too, unless it is GPU-written (its untouched part would come back from older memory).
+    // Storage-buffer binds pass the whole binding, an upper bound: they keep the base rule.
+    const bool range = exact_size && !SpartanToggle::Disabled(SpartanToggle::BackingWriteFixes);
+    const VAddr end = address + max_size;
     std::scoped_lock lock{mutex};
     ForEachImageInRegion(address, max_size, [&](ImageId image_id, Image& image) {
         // Only consider images that match base address.
         // TODO: Maybe also consider subresources
         if (image.info.guest_address != address) {
-            return;
+            if (!range) {
+                return;
+            }
+            const VAddr image_end = image.info.guest_address + image.info.guest_size;
+            const bool inside = image.info.guest_address >= address && image_end <= end;
+            if (!inside && True(image.flags & ImageFlagBits::GpuModified)) {
+                return;
+            }
         }
         // Ensure image is reuploaded when accessed again.
         InvalidateAlias(image);

@@ -544,7 +544,32 @@ static ABI int32_t direct_unmap(void *address, uint64_t size) {
 static ABI int32_t direct_release(uint64_t start, uint64_t size) {
     if (start % PAGE || size % PAGE) return INVALID;
     if (!size) return 0;
+    /* fp32-gcn1: the GPU forgets the mappings first, as direct_unmap does. Queued, the unmap ran
+     * after the lock dropped: another thread could map new memory at the freed address in between,
+     * and the GPU's unmap then wrote old GPU-modified buffer data into it (checkpoint restarts
+     * free and reallocate in bulk). Up to 64 ranges; more falls back to the queue. Bit 63. */
+    struct { uintptr_t a, n; } early[64];
+    size_t early_count=0;
+    int notified=0;
+    if (hook_unmap && !(runtime_disabled_optimizations & (UINT64_C(1)<<63))) {
+        int fits=1;
+        read_lock();
+        for (size_t i=0; i<vma_count; ++i) {
+            Vma v=vmas[i];
+            uint64_t length=v.end-v.start;
+            if (v.kind!=KIND_DIRECT || !(v.phys<start+size && start<v.phys+length)) continue;
+            if (early_count==sizeof(early)/sizeof(*early)) { fits=0; break; }
+            uint64_t a=v.phys>start ? v.phys : start, b=v.phys+length<start+size ? v.phys+length : start+size;
+            early[early_count].a=v.start+(a-v.phys); early[early_count].n=b-a; ++early_count;
+        }
+        read_unlock();
+        if (fits) {
+            for (size_t i=0;i<early_count;++i) hook_unmap(early[i].a,early[i].n);
+            notified=1;
+        }
+    }
     write_lock();
+    size_t before=pending_count;
     if (!direct_range_allocated(start,size)) { write_unlock(); return INVALID; }
     /* Mappings of released physical pages disappear with them. */
     for (size_t i=0; i<vma_count;) {
@@ -570,6 +595,16 @@ static ABI int32_t direct_release(uint64_t start, uint64_t size) {
         live_bytes-=e-a;
     }
     host_discard(start,size); /* zero on reuse */
+    if (notified) { /* drop the queued unmaps already sent above; a mapping made since stays queued */
+        size_t kept=before;
+        for (size_t i=before;i<pending_count;++i) {
+            int sent=0;
+            for (size_t j=0;j<early_count && !sent;++j)
+                sent = pending[i].kind==HOOK_UNMAP && pending[i].address==early[j].a && pending[i].size==early[j].n;
+            if (!sent) pending[kept++]=pending[i];
+        }
+        pending_count=kept;
+    }
     write_unlock();
     flush_hooks();
     return 0;

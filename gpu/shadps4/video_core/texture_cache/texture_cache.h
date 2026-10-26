@@ -124,7 +124,7 @@ public:
     void NoteBackingWrite(VAddr address, u64 size);
 
     /// Marks an image as dirty if it exists at the provided address.
-    void InvalidateMemoryFromGPU(VAddr address, size_t max_size);
+    void InvalidateMemoryFromGPU(VAddr address, size_t max_size, bool exact_size = false);
 
     /// Evicts any images that overlap the unmapped range.
     void UnmapMemory(VAddr cpu_addr, size_t size);

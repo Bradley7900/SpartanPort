@@ -3175,7 +3175,7 @@ void Rasterizer::FillBuffer(VAddr address, u32 num_bytes, u32 value, bool is_gds
         // image starting there must not stay valid - or, GPU-written, be written back over the fill
         // when the GC evicts it. BackingWriteFixes.
         if (!SpartanToggle::Disabled(SpartanToggle::BackingWriteFixes)) {
-            texture_cache.InvalidateMemoryFromGPU(address, num_bytes);
+            texture_cache.InvalidateMemoryFromGPU(address, num_bytes, true);
         }
     }
     const auto [buffer, offset] = [&] -> std::pair<const VideoCore::Buffer*, u64> {
@@ -3197,7 +3197,7 @@ void Rasterizer::CopyBuffer(VAddr dst, VAddr src, u32 num_bytes, bool dst_gds, b
             return;
         }
     }
-    texture_cache.InvalidateMemoryFromGPU(dst, num_bytes);
+    texture_cache.InvalidateMemoryFromGPU(dst, num_bytes, true);
     const auto* gds_buffer = buffer_cache.GetGdsBuffer();
     const auto [src_buffer, src_offset] = [&] -> std::pair<const VideoCore::Buffer*, u64> {
         if (src_gds) {
