@@ -497,7 +497,7 @@ void PerformanceTab() {
         CheckRow("Keep recently used textures", s.gc_by_time,
                  "GPUs under 4 GB: when video memory is full, only textures unused for seconds are dropped.");
         CheckRow("Lock capped FPS to the monitor", s.vblank_pacing,
-                 "Under a cap below 50 FPS: frames follow the monitor's refresh, so a 30 cap stays even.");
+                 "With VSync on and a cap that divides the refresh (30 on 60 Hz): every frame shows for the same time.");
         CheckRow("Compile new shaders in the background", s.async_shaders,
                  "Fewer stutters in new areas; an object or effect may appear a moment later.");
         ImGui::EndTable();

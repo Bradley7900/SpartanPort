@@ -105,6 +105,20 @@ public:
     /// fp32-gcn1: steady_clock nanoseconds when the last paced frame reached the screen, 0 if none.
     static s64 LastDisplayNs();
 
+    /// fp32-gcn1: even pacing (driver.cpp). With Fifo, each game frame is presented this many times
+    /// (one refresh each), so a 30 cap on a 60 Hz screen shows every frame for exactly 2 refreshes.
+    /// 0 or 1 = off. FifoActive: whether the present mode is Fifo (VSync on).
+    static void SetEvenRepeats(u32 repeats);
+    static u32 EvenRepeats();
+    static bool FifoActive();
+
+    /// fp32-gcn1: id of the last present (0 without VK_KHR_present_wait), and a bounded wait until
+    /// that present reached the screen.
+    u64 LastPresentId() const {
+        return last_present_id;
+    }
+    void WaitPresented(u64 id);
+
 private:
     /// Selects the best available swapchain image format
     void FindPresentFormat();
@@ -136,6 +150,7 @@ private:
     vk::Format view_format;
     vk::PresentModeKHR present_mode;
     bool vsync = true; ///< the setting present_mode was chosen for
+    u64 last_present_id = 0;
     vk::Extent2D extent;
     vk::SurfaceTransformFlagBitsKHR transform;
     vk::CompositeAlphaFlagBitsKHR composite_alpha;

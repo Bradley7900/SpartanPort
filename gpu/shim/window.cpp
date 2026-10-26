@@ -160,6 +160,7 @@ void WindowSDL::ApplyDisplayMode(int mode) {
     // 60 Hz, 2.5 at 75 Hz), and players rarely know it.
     const SDL_DisplayMode* current = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
     if (current) {
+        SpartanGraphics::display_refresh_mhz.store(int(current->refresh_rate * 1000.0f + 0.5f));
         std::printf("Window: %s, display %dx%d at %.2f Hz\n", SpartanGraphics::DisplayModeNames[mode],
                     current->w, current->h, double(current->refresh_rate));
     } else {

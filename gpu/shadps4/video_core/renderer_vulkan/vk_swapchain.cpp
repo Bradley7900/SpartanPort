@@ -27,6 +27,8 @@ static std::atomic<bool> display_pacing{false};
 static std::atomic<bool> present_wait_supported{false};
 static std::atomic<bool> mode_shows_on_refresh{true}; // Fifo and Mailbox; Immediate does not
 static std::atomic<s64> last_display_ns{0};
+static std::atomic<u32> even_repeats{0};
+static std::atomic<bool> fifo_active{false};
 
 Swapchain::Swapchain(const Instance& instance_, const Frontend::WindowSDL& window_)
     : instance{instance_}, window{window_}, surface{CreateSurface(instance.GetInstance(), window)} {
@@ -177,6 +179,26 @@ s64 Swapchain::LastDisplayNs() {
     return last_display_ns.load(std::memory_order_acquire);
 }
 
+void Swapchain::SetEvenRepeats(u32 repeats) {
+    even_repeats.store(repeats, std::memory_order_relaxed);
+}
+
+u32 Swapchain::EvenRepeats() {
+    return even_repeats.load(std::memory_order_relaxed);
+}
+
+bool Swapchain::FifoActive() {
+    return fifo_active.load(std::memory_order_relaxed);
+}
+
+void Swapchain::WaitPresented(u64 id) {
+    if (id == 0 || !swapchain || needs_recreation) {
+        return;
+    }
+    // A timeout (window hidden, compositor stall) only means more frames stay queued.
+    (void)instance.GetDevice().waitForPresentKHR(swapchain, id, 100'000'000);
+}
+
 bool Swapchain::Present() {
     if (!swapchain || present_ready.empty() || image_index >= present_ready.size()) {
         needs_recreation = true;
@@ -189,6 +211,7 @@ bool Swapchain::Present() {
                       present_mode != vk::PresentModeKHR::eImmediate &&
                       display_pacing.load(std::memory_order_relaxed);
     const u64 this_id = ++present_id;
+    last_present_id = instance.IsPresentWaitSupported() ? this_id : 0;
     const vk::PresentIdKHR present_id_info = {
         .swapchainCount = 1,
         .pPresentIds = &this_id,
@@ -280,6 +303,7 @@ void Swapchain::FindPresentMode() {
                           "guaranteed supported option.");
         present_mode = vk::PresentModeKHR::eFifo;
         mode_shows_on_refresh = true;
+        fifo_active = true;
         return;
     }
 
@@ -293,6 +317,7 @@ void Swapchain::FindPresentMode() {
                                                          : vk::PresentModeKHR::eFifo;
     std::printf("Swapchain: VSync %s (%s)\n", vsync ? "on" : "off", vk::to_string(present_mode).c_str());
     mode_shows_on_refresh = present_mode != vk::PresentModeKHR::eImmediate;
+    fifo_active = present_mode == vk::PresentModeKHR::eFifo;
 }
 
 void Swapchain::UpdateVsync() {

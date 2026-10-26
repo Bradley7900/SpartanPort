@@ -1018,6 +1018,23 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         }
     }
 
+    // fp32-gcn1: even pacing. Fifo shows one present per refresh, so presenting a game frame N
+    // times keeps it on screen for exactly N refreshes (a 30 cap on 60 Hz: 2, every frame), paced
+    // by the monitor itself instead of a timer that drifts against it. Waiting for the first of
+    // them to reach the screen keeps at most this frame's repeats queued (input lag).
+    if (!is_reusing_frame && is_game_frame) {
+        const u32 repeats = Swapchain::EvenRepeats();
+        const u64 first_id = swapchain.LastPresentId();
+        if (repeats >= 2 && first_id != 0 && Swapchain::FifoActive()) {
+            for (u32 i = 1; i < repeats; ++i) {
+                // The repeat resets present_done, so the first blit has to be finished.
+                (void)instance.GetDevice().waitForFences(frame->present_done, true, 100'000'000);
+                Present(frame, true, false);
+            }
+            swapchain.WaitPresented(first_id);
+        }
+    }
+
     free_frame();
     if (!is_reusing_frame && is_game_frame) {
         DebugState.IncFlipFrameNum();

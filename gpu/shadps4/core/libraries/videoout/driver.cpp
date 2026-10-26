@@ -713,10 +713,17 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     bool half_rate = false;
     double ema_interval_ms = 0.0, ema_wait_ms = 0.0, over_ms = 0.0, room_ms = 0.0;
     std::chrono::steady_clock::time_point last_present{};
+    // fp32-gcn1: even pacing (see the vblank pacing comment below): refreshes per frame, 0 = off.
+    u32 even = 0;
     const auto apply_period = [&] {
         const u32 effective = half_rate && frame_limit ? frame_limit / 2 : frame_limit;
         frame_period = effective ? std::chrono::nanoseconds(1000000000 / effective)
                                  : std::chrono::nanoseconds(0);
+        // Fifo paces evenly paced frames; the limiter runs 5% faster so a frame is always waiting
+        // for its refresh (the presenter holds the game back through its frame pool).
+        if (even >= 2) {
+            frame_period = frame_period * 95 / 100;
+        }
     };
     const auto note_present = [&](const Request& req, std::chrono::steady_clock::time_point now) {
         if (!SpartanSettings::Get().adaptive_half.load() || frame_limit < 50) {
@@ -769,10 +776,39 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     const auto steady_ns = [](std::chrono::steady_clock::time_point t) {
         return s64(std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch()).count());
     };
+    // With VSync on (Fifo) and a cap that divides the refresh rate (30 on 60 Hz, 60 on 120 Hz),
+    // the same switch uses even pacing instead: every frame presented for a whole number of
+    // refreshes (vk_presenter.cpp). It cannot drift, and needs no report from the screen.
+    const auto update_even = [&] {
+        u32 want = 0;
+        const u32 effective = half_rate && frame_limit ? frame_limit / 2 : frame_limit;
+        const int mhz = SpartanGraphics::display_refresh_mhz.load();
+        if (SpartanSettings::Get().vblank_pacing.load() && !measured_limit && effective != 0 &&
+            mhz > 0 && Vulkan::Swapchain::FifoActive()) {
+            const double ratio = mhz / 1000.0 / effective;
+            const u32 r = u32(ratio + 0.5);
+            const double off = ratio > r ? ratio - r : r - ratio;
+            if (r >= 2 && off < 0.03 * r) {
+                want = r;
+            }
+        }
+        if (want != even) {
+            even = want;
+            apply_period();
+            Vulkan::Swapchain::SetEvenRepeats(even);
+            if (even) {
+                std::printf("VideoOut: even pacing on: each frame shown for %u refreshes (%.2f Hz)\n",
+                            even, mhz / 1000.0);
+            } else {
+                std::printf("VideoOut: even pacing off\n");
+            }
+        }
+    };
     const auto update_pacing = [&] {
+        update_even();
         // The effective period counts, so the adaptive half rate (60 -> 30) is paced as well.
         const bool want = SpartanSettings::Get().vblank_pacing.load() && frame_limit != 0 &&
-                          frame_period >= std::chrono::milliseconds(20);
+                          even == 0 && frame_period >= std::chrono::milliseconds(20);
         // Asked every tick: the swapchain may not exist yet when this thread starts.
         const bool now_paced = Vulkan::Swapchain::SetDisplayPacing(want); // false without present wait
         if (now_paced != paced) {

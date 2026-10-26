@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstdlib>
 #include <limits>
 #include <string>
@@ -20,6 +21,10 @@ inline constexpr std::array<std::string_view, DisplayModeCount> DisplayModeKeys 
     "windowed", "borderless", "fullscreen"};
 inline constexpr std::array<const char*, DisplayModeCount> DisplayModeNames = {
     "Windowed", "Borderless", "Fullscreen"};
+
+/// fp32-gcn1: the display's refresh rate in mHz (window.cpp), 0 until known. The frame limiter
+/// shows each frame for a whole number of refreshes when a cap divides it (driver.cpp).
+inline std::atomic<int> display_refresh_mhz{0};
 
 /// Present rate limits; 0 = unlimited.
 inline constexpr std::array<int, 8> FpsLimits = {30, 60, 100, 120, 144, 180, 240, 0};

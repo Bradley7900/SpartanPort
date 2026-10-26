@@ -88,6 +88,8 @@ struct Values {
     /// fp32-gcn1: under a cap below 50 FPS (not with tearing presents), time frames from when the last one reached
     /// the screen (videoout driver, VK_KHR_present_wait). Live. Off by default: a GPU-bound R7 350
     /// shows a frame 30+ ms after its flip, and waiting for that report cost frames (30 -> 20 FPS).
+    /// With VSync on and a cap dividing the refresh rate it uses even pacing instead (each frame
+    /// presented a whole number of times, driver.cpp / vk_presenter.cpp).
     std::atomic<bool> vblank_pacing{false};
     /// fp32-gcn1: on GPUs under 4 GB, the texture cache evicts only images idle for seconds, not
     /// for a number of submissions (texture_cache.cpp). Live.
