@@ -18,6 +18,7 @@
 #include "spartanport_toggles.h"
 #include "spartanport_settings.h"
 #include "spartanport_graphics.h"
+#include "video_core/renderer_vulkan/movie_bars.h"
 #include "video_core/renderer_vulkan/vk_frame_capture.h"
 #include "common/debug.h"
 #include "common/thread.h"
@@ -645,6 +646,7 @@ void VideoOutDriver::SubmitFlipInternal(VideoOutPort* port, s32 index, s64 flip_
             .flip_arg = flip_arg,
             .index = index,
             .eop = is_eop,
+            .queued = std::chrono::steady_clock::now(),
         });
     }
     request_cv.notify_one();
@@ -670,8 +672,19 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         if (measured_limit) {
             return EmulatorSettings.GetFrameLimit();
         }
-        const int limit = vblank_hz == 480 ? int(EmulatorSettings.GetFrameLimit())
-                                           : SpartanSettings::Get().fps_limit.load();
+        int limit = vblank_hz == 480 ? int(EmulatorSettings.GetFrameLimit())
+                                     : SpartanSettings::Get().fps_limit.load();
+        // fp32-gcn1: a cap under 50 FPS (30 for slow GPUs) is lifted to 60 while a video cutscene
+        // plays, so gameplay stays at a steady 30 and the cutscenes run at the rate they were made
+        // for. SPARTAN_CUTSCENE_60=0 keeps the cap for cutscenes too.
+        static const bool cutscene_60 = [] {
+            const char* env = std::getenv("SPARTAN_CUTSCENE_60");
+            return !(env && env[0] == '0');
+        }();
+        if (cutscene_60 && limit > 0 && limit < 50 &&
+            Vulkan::MovieBars::Cutscenes().Active(Vulkan::MovieBars::NowMs())) {
+            limit = 60;
+        }
         return u32(SpartanGraphics::PresentLimit(limit, SpartanSettings::EngineFpsNow(), vblank_hz));
     };
     u32 frame_limit = current_limit();
@@ -695,11 +708,67 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // arrives and its slot allows, between vblanks, instead of on the next vblank tick.
     bool immediate_flips = frame_limit != 0;
 
+    // fp32-gcn1: adaptive half rate. A GPU that cannot hold the limit (an R7 350 at 35-45 FPS under a
+    // 60 cap) shows frames at uneven 16/33 ms steps, which judders on a fixed-refresh screen while a
+    // steady 30 looks smooth. When presented frames run 25% slower than the limit for 1.5 s, present
+    // at half the limit; go back once queued frames wait long enough that the full rate would fit
+    // (the game finishes them early) for 3 s. Only for limits of 50+; SPARTAN_ADAPTIVE_HALF=0 turns it off.
+    static const bool adaptive_enabled = [] {
+        const char* env = std::getenv("SPARTAN_ADAPTIVE_HALF");
+        return !(env && env[0] == '0');
+    }();
+    bool half_rate = false;
+    double ema_interval_ms = 0.0, ema_wait_ms = 0.0, over_ms = 0.0, room_ms = 0.0;
+    std::chrono::steady_clock::time_point last_present{};
+    const auto apply_period = [&] {
+        const u32 effective = half_rate && frame_limit ? frame_limit / 2 : frame_limit;
+        frame_period = effective ? std::chrono::nanoseconds(1000000000 / effective)
+                                 : std::chrono::nanoseconds(0);
+    };
+    const auto note_present = [&](const Request& req, std::chrono::steady_clock::time_point now) {
+        if (!adaptive_enabled || frame_limit < 50) {
+            return;
+        }
+        const double full_ms = 1000.0 / frame_limit;
+        const double wait_ms = std::chrono::duration<double, std::milli>(now - req.queued).count();
+        ema_wait_ms = ema_wait_ms * 0.9 + wait_ms * 0.1;
+        if (last_present.time_since_epoch().count() != 0) {
+            const double step = std::chrono::duration<double, std::milli>(now - last_present).count();
+            if (step < 250.0) { // a load screen or pause is not a slow frame
+                ema_interval_ms = ema_interval_ms * 0.9 + step * 0.1;
+                if (!half_rate) {
+                    over_ms = ema_interval_ms > full_ms * 1.25 ? over_ms + step : 0.0;
+                    if (over_ms >= 1500.0) {
+                        half_rate = true;
+                        over_ms = room_ms = 0.0;
+                        apply_period();
+                        std::printf("VideoOut: adaptive limiter: %u -> %u FPS (avg frame %.1f ms)\n",
+                                    frame_limit, frame_limit / 2, ema_interval_ms);
+                    }
+                } else {
+                    // A frame that waited this long was ready a full-rate period early or more.
+                    room_ms = ema_wait_ms > full_ms * 1.1 ? room_ms + step : 0.0;
+                    if (room_ms >= 3000.0) {
+                        half_rate = false;
+                        over_ms = room_ms = 0.0;
+                        ema_interval_ms = full_ms;
+                        apply_period();
+                        std::printf("VideoOut: adaptive limiter: back to %u FPS (frames waited %.1f ms)\n",
+                                    frame_limit, ema_wait_ms);
+                    }
+                }
+            }
+        }
+        last_present = now;
+    };
+
     while (!token.stop_requested()) {
         SpartanSettings::SyncEngineFps();
         if (const u32 limit = current_limit(); limit != frame_limit) {
             frame_limit = limit;
-            frame_period = limit ? std::chrono::nanoseconds(1000000000 / limit) : std::chrono::nanoseconds(0);
+            half_rate = false;
+            over_ms = room_ms = 0.0;
+            apply_period();
             immediate_flips = limit != 0;
             next_flip = std::chrono::steady_clock::now();
             std::printf("VideoOut: frame limit %u FPS\n", limit);
@@ -731,6 +800,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                     }
                 }
             } else {
+                note_present(request, now);
                 Flip(request);
                 FRAME_END;
             }
@@ -782,6 +852,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             const auto request = receive_request();
             if (request) {
                 next_flip = std::max(next_flip + frame_period, now - frame_period);
+                note_present(request, now);
                 Flip(request);
                 FRAME_END;
             }

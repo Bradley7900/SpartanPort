@@ -113,7 +113,13 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "fsr1") {
         // FSR 1 left the launcher and the in-game menu: a value saved by an older version has no
         // control left to turn it off, so it stays off.
-        v.fsr1 = false;
+        // fp32-gcn1: SPARTAN_FSR1=1 still turns it on (480p/720p rendering upscaled to the window
+        // on slow GPUs); the presenter's pass is intact and has an fp32 variant for GCN 1.0.
+        static const bool env_fsr1 = [] {
+            const char* env = std::getenv("SPARTAN_FSR1");
+            return env && env[0] == '1';
+        }();
+        v.fsr1 = env_fsr1 && i != 0;
     } else if (key == "rcas") {
         v.rcas = i != 0;
     } else if (key == "rcas_strength") {

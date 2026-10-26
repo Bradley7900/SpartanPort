@@ -10,6 +10,7 @@
 #include "common/polyfill_thread.h"
 #include "core/libraries/videoout/video_out.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <queue>
@@ -102,6 +103,8 @@ private:
         s64 flip_arg;
         s32 index;
         bool eop;
+        // fp32-gcn1: when the flip was queued (adaptive half-rate limiter).
+        std::chrono::steady_clock::time_point queued{};
 
         operator bool() const noexcept {
             return frame != nullptr;

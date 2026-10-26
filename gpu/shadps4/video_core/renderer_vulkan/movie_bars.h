@@ -48,8 +48,13 @@ public:
     }
 
     Rect Bars(uint32_t width, uint32_t height, int64_t now_ms) const {
+        return Active(now_ms) ? Picture(width, height) : Whole;
+    }
+
+    // fp32-gcn1: a video cutscene is playing (the present limiter lifts a sub-50 FPS cap for it).
+    bool Active(int64_t now_ms) const {
         const int64_t at = last_ms.load(std::memory_order_relaxed);
-        return at != Never && now_ms - at <= HoldMs ? Picture(width, height) : Whole;
+        return at != Never && now_ms - at <= HoldMs;
     }
 
 private:
