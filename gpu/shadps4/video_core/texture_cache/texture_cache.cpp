@@ -1011,7 +1011,10 @@ std::tuple<ImageId, int, int> TextureCache::ResolveOverlap(const ImageInfo& imag
                 // We need to have a larger, already allocated image to copy this one into
                 if (merged_image_id) {
                     auto& merged_image = slot_images[merged_image_id];
-                    runtime.CopyMip(&cache_image, &merged_image, mip, slice);
+                    // fp32-gcn1: a stale mip would overwrite the merged image's upload (ExpandImage).
+                    if (!SourceIsStale(cache_image)) {
+                        runtime.CopyMip(&cache_image, &merged_image, mip, slice);
+                    }
                     FreeImage(cache_image_id);
                 }
             }
@@ -1029,7 +1032,13 @@ ImageId TextureCache::ExpandImage(const ImageInfo& info, ImageId image_id) {
     auto& new_image = slot_images[new_image_id];
 
     RefreshImage(new_image);
-    runtime.CopyImage(&src_image, &new_image);
+    // fp32-gcn1: a CPU- or GPU-dirty source holds texels older than guest memory, which the
+    // refresh above just uploaded. Copying it over them brings back the old contents in the new
+    // image's size and format when the game streams a new texture into pool memory a cached one
+    // still covers (suspected for blocky/coloured textures that stay until a restart, any GPU).
+    if (!SourceIsStale(src_image)) {
+        runtime.CopyImage(&src_image, &new_image);
+    }
 
     if (src_image.binding.is_bound || src_image.binding.is_target) {
         src_image.binding.needs_rebind = 1u;
@@ -1370,7 +1379,12 @@ void TextureCache::RefreshImage(Image& image) {
 
         const u32 s_w = image.info.props.is_block ? Common::DivCeil(w, 4u) : w;
         const u32 s_h = image.info.props.is_block ? Common::DivCeil(h, 4u) : h;
-        const u32 size = s_w * s_h * (image.info.num_bits / 8);
+        // fp32-gcn1: all of the image (it fits in a page, and MarkAsMaybeDirty hashes all of it).
+        // The first 8x8 pixels alone miss a new texture streamed into the same slot whose corner
+        // matches the old one (e.g. transparent particle sprites), and the old texels stay.
+        const u64 size = SpartanToggle::Disabled(SpartanToggle::StaleImageFixes)
+                             ? u64(s_w) * s_h * (image.info.num_bits / 8)
+                             : image.info.guest_size;
         const u64 hash = XXH3_64bits(addr, size);
         if (image.hash == hash) {
             image.flags &= ~ImageFlagBits::MaybeCpuDirty;

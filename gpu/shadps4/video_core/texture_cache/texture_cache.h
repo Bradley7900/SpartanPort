@@ -448,6 +448,12 @@ private:
     tsl::robin_map<u64, Sampler> samplers;
     std::unordered_set<ImageId> download_images;
     u64 total_used_memory = 0;
+    /// fp32-gcn1: guest memory holds newer data than this image (CpuDirty/GpuDirty), so its texels
+    /// must not be copied into a replacing image. SpartanToggle::StaleImageFixes turns it off.
+    static bool SourceIsStale(const Image& image) {
+        return !SpartanToggle::Disabled(SpartanToggle::StaleImageFixes) &&
+               True(image.flags & (ImageFlagBits::CpuDirty | ImageFlagBits::GpuDirty));
+    }
     u64 gc_evictions = 0, gc_downloads = 0; ///< spartanport: pressure report
     /// fp32-gcn1: collector runs (submissions) per second, so idle limits can count time.
     double gc_ticks_per_second = 0.0;

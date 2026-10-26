@@ -81,6 +81,10 @@ enum : std::uint64_t {
     /// Pipeline binaries are stored once each in pipeline-binaries/shared, the per-pipeline
     /// files hold their keys only; old files are converted at start (vk_pipeline_serialization).
     SharedBinaries = 1ull << 61,
+    /// fp32-gcn1: an image that replaces a CPU- or GPU-dirty one (ExpandImage, CopyMip) keeps its
+    /// fresh upload instead of the old image's stale copy, and a maybe-dirty image under a page
+    /// checks all of its bytes, not the first 8x8 pixels (texture_cache.cpp).
+    StaleImageFixes = 1ull << 62,
     // Bits 20-29 are used as raw debug toggles by the camera/object motion and the upscaler.
 };
 inline bool Disabled(std::uint64_t bit) {
