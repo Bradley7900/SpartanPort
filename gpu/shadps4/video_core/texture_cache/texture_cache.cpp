@@ -1714,6 +1714,15 @@ void TextureCache::GarbageCollectImages() {
                          ReadbackSource::CacheCleanup);
         const bool download = image.SafeToDownload();
         const bool tiled = image.info.IsTiled();
+        // fp32-gcn1: GPU-written and only maybe CPU-dirty (a write touched its page, maybe not its
+        // bytes): guest memory may still be older than the image, and SafeToDownload refuses it,
+        // so eviction dropped the GPU's texels and the next use rebuilt the image from old memory.
+        // Such images fit in a page; keeping them costs next to nothing (StaleImageFixes).
+        if (!SpartanToggle::Disabled(SpartanToggle::StaleImageFixes) &&
+            True(image.flags & ImageFlagBits::GpuModified) &&
+            (image.flags & ImageFlagBits::Dirty) == ImageFlagBits::MaybeCpuDirty) {
+            return false;
+        }
         if (tiled && download) {
             // This is a workaround for now. We can't handle non-linear image downloads.
             return false;

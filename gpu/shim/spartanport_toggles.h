@@ -83,7 +83,8 @@ enum : std::uint64_t {
     SharedBinaries = 1ull << 61,
     /// fp32-gcn1: an image that replaces a CPU- or GPU-dirty one (ExpandImage, CopyMip) keeps its
     /// fresh upload instead of the old image's stale copy, and a maybe-dirty image under a page
-    /// checks all of its bytes, not the first 8x8 pixels (texture_cache.cpp).
+    /// checks all of its bytes, not the first 8x8 pixels, and the GC keeps GPU-written images that
+    /// are only maybe CPU-dirty instead of dropping their texels (texture_cache.cpp).
     StaleImageFixes = 1ull << 62,
     // Bits 20-29 are used as raw debug toggles by the camera/object motion and the upscaler.
 };
