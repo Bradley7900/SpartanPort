@@ -1518,6 +1518,7 @@ void TextureCache::RegisterImage(ImageId image_id) {
     image.flags |= ImageFlagBits::Registered;
     ++registry_generation;
     total_used_memory += Common::AlignUp(image.info.guest_size, 1024);
+    image_bytes += Common::AlignUp(image.info.guest_size, 1024);
     image.lru_id = lru_cache.Insert(image_id, gc_tick);
     image.lru_touched_tick = gc_tick;
 
@@ -1554,6 +1555,7 @@ void TextureCache::UnregisterImage(ImageId image_id) {
     ++registry_generation;
     lru_cache.Free(image.lru_id);
     total_used_memory -= Common::AlignUp(image.info.guest_size, 1024);
+    image_bytes -= Common::AlignUp(image.info.guest_size, 1024);
     ForEachPage(image.info.guest_address, image.info.guest_size, [this, image_id](u64 page) {
         const auto page_it = page_table.find(page);
         if (page_it == nullptr) {
@@ -1873,12 +1875,16 @@ void TextureCache::GarbageCollectImages() {
         if (now - gc_report_time >= std::chrono::seconds(5)) {
             std::printf("Texture cache: memory pressure, %llu of %llu MiB (critical %llu): "
                         "%llu images evicted, %llu written back since the last report "
-                        "(%.0f collector runs/s)\n",
+                        "(%.0f collector runs/s); textures %llu MiB, everything else %llu MiB, "
+                        "%zu evictions waiting for their copy\n",
                         (unsigned long long)(total_used_memory >> 20),
                         (unsigned long long)(pressure_gc_memory >> 20),
                         (unsigned long long)(critical_gc_memory >> 20),
                         (unsigned long long)gc_evictions, (unsigned long long)gc_downloads,
-                        gc_ticks_per_second);
+                        gc_ticks_per_second, (unsigned long long)(image_bytes >> 20),
+                        (unsigned long long)((total_used_memory > image_bytes
+                                                  ? total_used_memory - image_bytes : 0) >> 20),
+                        pending_evictions.size());
             gc_report_time = now;
             gc_evictions = gc_downloads = 0;
         }

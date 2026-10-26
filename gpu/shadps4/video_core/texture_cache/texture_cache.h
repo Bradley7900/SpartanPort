@@ -465,6 +465,7 @@ private:
     };
     std::vector<PendingEviction> pending_evictions;
     u64 pending_eviction_bytes = 0;
+    u64 image_bytes = 0; ///< fp32-gcn1: registered images (guest sizes), for the pressure report
     void FinishPendingEvictions();
     /// fp32-gcn1: collector runs (submissions) per second, so idle limits can count time.
     double gc_ticks_per_second = 0.0;
