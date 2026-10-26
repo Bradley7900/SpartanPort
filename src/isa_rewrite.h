@@ -32,6 +32,12 @@ unsigned isa_site_set(const IsaSite *s);                 /* CPU_SET_* of the kin
  * each skipped or downgraded site gets one stderr line. */
 IsaReport isa_rewrite_apply(IsaTable *t, unsigned char *image, unsigned char *stubs, unsigned sets);
 
+/* Before apply: JMP_RELOCATE sites with a code pointer (image offset) in their relocated bytes
+ * become INT3, one stderr line each. Returns the count. */
+uint32_t isa_rewrite_demote_targets(IsaTable *t, const uint64_t *targets, size_t n);
+/* Before apply: every JMP_RELOCATE site becomes INT3 (SPARTAN_ISA_RELOCATE=0). */
+uint32_t isa_rewrite_demote_all_relocated(IsaTable *t);
+
 /* int3 at `address` (the CC byte): 1 when it is a rewritten INT3 site; regs updated, *next_rip = site + its length (4).
  * 0 otherwise, with regs and *next_rip untouched. */
 int isa_rewrite_trap(IsaTable *t, uintptr_t address, IsaRegs *regs, uintptr_t *next_rip);

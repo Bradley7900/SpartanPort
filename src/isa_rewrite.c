@@ -288,6 +288,48 @@ IsaReport isa_rewrite_apply(IsaTable *t, unsigned char *image, unsigned char *st
     return report;
 }
 
+/* fp32-gcn1: a JMP_RELOCATE jmp overwrites the first byte of the next instruction and NOPs the rest;
+ * the table builder only checks DIRECT branches into those bytes. A code pointer that lands there
+ * (function pointer, switch target, landing pad: anything the image relocates) would run the jmp's
+ * offset byte and NOPs - a stray `add [rax+disp32]` or a fault. Such sites become INT3, which writes
+ * one byte and leaves the next instruction whole. `targets` are image offsets; returns sites changed. */
+uint32_t isa_rewrite_demote_targets(IsaTable *t, const uint64_t *targets, size_t n) {
+    uint32_t changed = 0;
+    for (size_t k = 0; k < n; k++) {
+        const uint64_t target = targets[k];
+        uint32_t lo = 0, hi = t->count;
+        while (lo < hi) {
+            uint32_t mid = lo + (hi - lo) / 2;
+            if (t->sites[mid].offset < target) lo = mid + 1;
+            else hi = mid;
+        }
+        for (uint32_t i = lo; i-- > 0 && t->sites[i].offset + 4 + 15 >= target;) {
+            IsaSite *s = &t->sites[i];
+            if (s->mode != ISA_MODE_JMP_RELOCATE || target < s->offset + 4 ||
+                target >= s->offset + 4 + s->relocated_length)
+                continue;
+            fprintf(stderr, "ISA: site 0x%llx %s: code pointer 0x%llx lands in its relocated bytes, int3 fallback
+",
+                    (unsigned long long)s->offset, isa_kind_name(s->kind), (unsigned long long)target);
+            s->mode = ISA_MODE_INT3;
+            changed++;
+        }
+    }
+    return changed;
+}
+
+/* SPARTAN_ISA_RELOCATE=0: every JMP_RELOCATE site becomes INT3 (A/B: no relocated bytes anywhere,
+ * a signal per execution instead). Returns sites changed. */
+uint32_t isa_rewrite_demote_all_relocated(IsaTable *t) {
+    uint32_t changed = 0;
+    for (uint32_t i = 0; i < t->count; i++)
+        if (t->sites[i].mode == ISA_MODE_JMP_RELOCATE) {
+            t->sites[i].mode = ISA_MODE_INT3;
+            changed++;
+        }
+    return changed;
+}
+
 /* ---- int3 trap, stub lookup, report ---- */
 
 int isa_rewrite_trap(IsaTable *t, uintptr_t address, IsaRegs *regs, uintptr_t *next_rip) {

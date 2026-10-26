@@ -1218,6 +1218,22 @@ int main(int argc, char **argv) {
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
 #endif
     if (isa_table) {
+        const char *relocate_env = getenv("SPARTAN_ISA_RELOCATE");
+        if (relocate_env && !strcmp(relocate_env, "0")) {
+            printf("ISA: SPARTAN_ISA_RELOCATE=0: %u relocated sites use int3 instead
+",
+                   isa_rewrite_demote_all_relocated(isa_table));
+        } else {
+            uint64_t *targets = calloc(nr ? nr : 1, sizeof(*targets));
+            size_t nt = 0;
+            if (!targets) fail("allocation failed");
+            for (uint64_t i = 0; i < nr; ++i)
+                if (!relocs[i].kind && relocs[i].value < size) targets[nt++] = relocs[i].value;
+            uint32_t demoted = isa_rewrite_demote_targets(isa_table, targets, nt);
+            printf("ISA: %zu code/data pointers checked against relocated sites, %u sites moved to int3
+", nt, demoted);
+            free(targets);
+        }
         IsaReport r = isa_rewrite_apply(isa_table, image, stubs, isa_sets);
         if (r.unsupported_needed) {
             printf("STOP: this CPU lacks %s and %u sites use encodings the rewrite cannot emulate\n", missing, r.unsupported_needed);
