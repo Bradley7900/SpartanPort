@@ -3171,6 +3171,12 @@ void Rasterizer::FillBuffer(VAddr address, u32 num_bytes, u32 value, bool is_gds
             std::fill(buffer, buffer + (num_bytes / sizeof(u32)), value);
             return;
         }
+        // fp32-gcn1: a GPU fill rewrites the memory like a GPU copy does (CopyBuffer below), so an
+        // image starting there must not stay valid - or, GPU-written, be written back over the fill
+        // when the GC evicts it. BackingWriteFixes.
+        if (!SpartanToggle::Disabled(SpartanToggle::BackingWriteFixes)) {
+            texture_cache.InvalidateMemoryFromGPU(address, num_bytes);
+        }
     }
     const auto [buffer, offset] = [&] -> std::pair<const VideoCore::Buffer*, u64> {
         if (is_gds) {
