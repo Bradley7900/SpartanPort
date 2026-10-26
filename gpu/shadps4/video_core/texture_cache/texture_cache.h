@@ -455,6 +455,17 @@ private:
                True(image.flags & (ImageFlagBits::CpuDirty | ImageFlagBits::GpuDirty));
     }
     u64 gc_evictions = 0, gc_downloads = 0; ///< spartanport: pressure report
+    /// fp32-gcn1: evictions waiting for their write-back copy, finished without a GPU wait.
+    struct PendingEviction {
+        ImageId image_id;
+        u64 image_uid;
+        u64 gpu_tick;
+        u64 gc_tick;
+        PendingDownload download;
+    };
+    std::vector<PendingEviction> pending_evictions;
+    u64 pending_eviction_bytes = 0;
+    void FinishPendingEvictions();
     /// fp32-gcn1: collector runs (submissions) per second, so idle limits can count time.
     double gc_ticks_per_second = 0.0;
     u64 gc_rate_tick = 0;

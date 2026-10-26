@@ -1678,8 +1678,44 @@ void TextureCache::UntrackImageTail(ImageId image_id) {
     tracker.UpdatePageWatchers<false>(addr, size);
 }
 
+void TextureCache::FinishPendingEvictions() {
+    size_t kept = 0;
+    for (size_t i = 0; i < pending_evictions.size(); ++i) {
+        PendingEviction& e = pending_evictions[i];
+        if (!scheduler.IsFree(e.gpu_tick)) {
+            if (kept != i) {
+                pending_evictions[kept] = std::move(e);
+            }
+            ++kept;
+            continue;
+        }
+        pending_eviction_bytes -= e.download.size;
+        if (slot_images.is_allocated(e.image_id) && slot_images[e.image_id].image_uid == e.image_uid) {
+            Image& image = slot_images[e.image_id];
+            const bool used_again = image.lru_touched_tick > e.gc_tick ||
+                                    image.tick_accessed_last >= e.gpu_tick;
+            if (!used_again && image.SafeToDownload()) {
+                e.download.staging.Invalidate();
+                WriteImageBack(std::bit_cast<u8*>(e.download.guest_address), e.download.staging.mapped,
+                               e.download.size);
+                ++gc_downloads;
+                ++gc_evictions;
+                FreeImage(e.image_id);
+            }
+        }
+        runtime.GetStagingPool().FreeDeferred(e.download.staging);
+    }
+    pending_evictions.resize(kept);
+}
+
 void TextureCache::GarbageCollectImages() {
     SpartanStats::Timer gc_timer{SpartanStats::t_gc};
+    {
+        std::scoped_lock lock{mutex};
+        if (!pending_evictions.empty()) {
+            FinishPendingEvictions();
+        }
+    }
     {
         const auto now = std::chrono::steady_clock::now();
         const double elapsed = std::chrono::duration<double>(now - gc_rate_time).count();
@@ -1778,6 +1814,26 @@ void TextureCache::GarbageCollectImages() {
         if (download && !aggresive && small_vram && SpartanSettings::Get().gc_by_time.load()) {
             ++num_deletions;
             return false;
+        }
+        // fp32-gcn1: on GPUs under 4 GB the write-back copy is recorded and the image stays
+        // registered (its pages stay protected) until the copy is done; FinishPendingEvictions
+        // then writes it back and frees it, or keeps it if the game used or wrote it meanwhile.
+        // No GPU wait. Up to 64 MiB in flight, beyond that the synchronous path below.
+        if (download && small_vram && SpartanSettings::Get().gc_by_time.load()) {
+            for (const auto& pending : pending_evictions) {
+                if (pending.image_id == image_id) {
+                    ++num_deletions;
+                    return false;
+                }
+            }
+            if (pending_eviction_bytes + image.info.guest_size <= 64_MB) {
+                if (auto copy = RecordImageDownload(image_id)) {
+                    pending_eviction_bytes += copy->size;
+                    pending_evictions.push_back({image_id, image.image_uid, scheduler.CurrentTick(),
+                                                 gc_tick, *copy});
+                    return false;
+                }
+            }
         }
         if (download) {
             // spartanport: synchronously, while the image still protects its pages. A deferred
