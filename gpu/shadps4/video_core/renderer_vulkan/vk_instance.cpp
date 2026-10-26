@@ -461,8 +461,7 @@ bool Instance::CreateDevice() {
                    feature_chain.get<vk::PhysicalDevicePresentWaitFeaturesKHR>().presentWait &&
                    add_extension(VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
                    add_extension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
-    std::printf("Vulkan: present wait %s
-", present_wait ? "available" : "unavailable");
+    std::printf("Vulkan: present wait %s\n", present_wait ? "available" : "unavailable");
     const bool calibrated_timestamps =
         TRACY_GPU_ENABLED ? add_extension(VK_EXT_CALIBRATED_TIMESTAMPS_EXTENSION_NAME) : false;
 
