@@ -156,7 +156,15 @@ void WindowSDL::ApplyDisplayMode(int mode) {
         SDL_SetWindowFullscreen(window, true);
     }
     SDL_SyncWindow(window);
-    std::printf("Window: %s\n", SpartanGraphics::DisplayModeNames[mode]);
+    // fp32-gcn1: the refresh rate decides how a 30 FPS cap can pace (2 refreshes per frame at
+    // 60 Hz, 2.5 at 75 Hz), and players rarely know it.
+    const SDL_DisplayMode* current = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+    if (current) {
+        std::printf("Window: %s, display %dx%d at %.2f Hz\n", SpartanGraphics::DisplayModeNames[mode],
+                    current->w, current->h, double(current->refresh_rate));
+    } else {
+        std::printf("Window: %s\n", SpartanGraphics::DisplayModeNames[mode]);
+    }
 }
 
 WindowSDL::~WindowSDL() {
