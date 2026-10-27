@@ -80,6 +80,38 @@ static uint8_t connected_count;
 static uint64_t now_us(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000u+(uint64_t)t.tv_nsec/1000u; }
 static uint8_t axis(int16_t v) { int x=(v+32768)>>8; return (uint8_t)(x<0 ? 0 : x>255 ? 255 : x); }
 static uint8_t trigger(int16_t v) { int x=v>>7; return (uint8_t)(x<0 ? 0 : x>255 ? 255 : x); }
+
+/* fp32-gcn1: a stick pushed to its edge reaches the game at full tilt. Many pads (non-Sony ones
+ * most of all) never report the full +-32767 - their edge reads 75-90% - and GoW3 walks below its
+ * run threshold, so "all the way" walked (John, 28-10). The stick is scaled radially so its outer
+ * band counts as the edge: magnitude m -> min(m / outer, 1), direction kept, which also squares
+ * off a pad whose gate is square (diagonals over 1 come back to 1). SPARTAN_STICK_OUTER=<0.5..1>,
+ * default 0.88; 1 = raw values, as before. */
+static float stick_outer(void) {
+    static float outer=-1.0f;
+    if (outer<0.0f) {
+        const char *env=getenv("SPARTAN_STICK_OUTER");
+        outer=env ? (float)atof(env) : 0.88f;
+        if (!(outer>=0.5f && outer<=1.0f)) outer=1.0f;
+        printf("Runtime: stick full tilt at %.0f%% of the pad's range\n",(double)(outer*100.0f));
+    }
+    return outer;
+}
+static uint8_t stick_byte(float f) {
+    const int x=(int)floorf(128.0f+f*128.0f);
+    return (uint8_t)(x<0 ? 0 : x>255 ? 255 : x);
+}
+static void stick(int16_t raw_x, int16_t raw_y, uint8_t *out_x, uint8_t *out_y) {
+    const float outer=stick_outer();
+    if (outer>=1.0f) { *out_x=axis(raw_x); *out_y=axis(raw_y); return; }
+    float fx=raw_x<-32767 ? -1.0f : raw_x/32767.0f, fy=raw_y<-32767 ? -1.0f : raw_y/32767.0f;
+    const float m=sqrtf(fx*fx+fy*fy);
+    if (m>1e-4f) {
+        const float scale=(m>=outer ? 1.0f/m : 1.0f/outer);
+        fx*=scale; fy*=scale;
+    }
+    *out_x=stick_byte(fx); *out_y=stick_byte(fy);
+}
 static uint16_t touch_axis(float v, int max) {
     return (uint16_t)(v<=0.0f ? 0 : v>=1.0f ? max : (int)(v*max+0.5f));
 }
@@ -510,8 +542,8 @@ static void sample_host(PadData *d) {
         for (size_t i=0;i<pad_map.count;++i)
             if (SDL_GetGamepadButton(g,(SDL_GamepadButton)pad_map.entries[i].source)) d->buttons|=pad_map.entries[i].ps;
         const uint32_t mapped=d->buttons;
-        d->left_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTX)); d->left_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTY));
-        d->right_x=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTX)); d->right_y=axis(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTY));
+        stick(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTX),SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFTY),&d->left_x,&d->left_y);
+        stick(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTX),SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHTY),&d->right_x,&d->right_y);
         d->l2=trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_LEFT_TRIGGER)); d->r2=trigger(SDL_GetGamepadAxis(g,SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
         if (d->l2>30) d->buttons|=BTN_L2;
         if (d->r2>30) d->buttons|=BTN_R2;
