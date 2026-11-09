@@ -35,6 +35,9 @@
 #include "video_core/renderer_vulkan/vk_swapchain.h"
 #include "video_core/renderer_vulkan/vk_wait_diagnostics.h"
 
+// spartanport: share hitch recovery and precise waits with the pacing tests.
+#include "spartanport_frame_pacing.h"
+
 extern std::unique_ptr<Vulkan::Presenter> presenter;
 extern std::unique_ptr<AmdGpu::Liverpool> liverpool;
 
@@ -662,11 +665,11 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
 
     Common::AccurateTimer timer{vblank_period};
 
-    // spartanport: frame limit (see EmulatorSettings::GetFrameLimit). A request waits in the queue
-    // until its slot; slots advance by one period (no drift) but never lag behind by more.
-    // spartanport: the in-game menu changes the limit and the engine rate live (SpartanSettings::fps_limit,
-    // engine_fps); the uncapped presets keep their fixed limit, still capped by the engine rate.
-    // SPARTAN_FPS_LIMIT (measurements) is used as given.
+    // spartanport: keep the limiter phase through wake jitter; rebase after a stall so queued
+    // frames cannot catch up in a burst.
+    // spartanport: the in-game menu changes the limit and the engine rate live
+    // (SpartanSettings::fps_limit, engine_fps); the uncapped presets keep their fixed limit, still
+    // capped by the engine rate. SPARTAN_FPS_LIMIT (measurements) is used as given.
     const bool measured_limit = std::getenv("SPARTAN_FPS_LIMIT") != nullptr;
     const int vblank_hz = int(EmulatorSettings.GetVblankFrequency());
     const auto current_limit = [&] {
@@ -856,7 +859,9 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             last_flip_ns = steady_ns(now);
             next_flip = now + frame_period - frame_period / 4; // until the screen reports
         } else {
-            next_flip = std::max(next_flip + frame_period, now - frame_period);
+            // Upstream 790dc95c: after a real hitch start a fresh interval, so queued flips do
+            // not burst to catch up.
+            next_flip = SpartanFramePacing::NextFlipDeadline(next_flip, now, frame_period);
         }
     };
 
@@ -888,7 +893,9 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         if (flip_slot && vblank_status.count % (main_port.flip_rate + 1) == 0) {
             const auto request = receive_request();
             if (request && frame_limit) {
-                after_flip(now);
+                // spartanport: timestamp after dequeue so lock delays cannot shorten the next
+                // interval.
+                after_flip(std::chrono::steady_clock::now());
             }
             if (!request) {
                 if (timer.GetTotalWait().count() < 0) { // Dont draw too fast
@@ -956,18 +963,21 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 if (next_flip >= tick_deadline) {
                     break;
                 }
-                std::this_thread::sleep_until(next_flip);
+                // spartanport: use the runtime high-resolution timer on Windows.
+                SpartanFramePacing::SleepUntil(next_flip);
             }
-            const auto now = std::chrono::steady_clock::now();
+            // spartanport: sample submission time after taking the request.
             const auto request = receive_request();
             if (request) {
-                after_flip(now);
-                note_present(request, now);
+                const auto flip_now = std::chrono::steady_clock::now();
+                after_flip(flip_now);
+                note_present(request, flip_now);
                 Flip(request);
                 FRAME_END;
             }
         }
-        std::this_thread::sleep_until(tick_deadline);
+        // spartanport: keep sub-millisecond vblank waits precise too.
+        SpartanFramePacing::SleepUntil(tick_deadline);
     }
 }
 
