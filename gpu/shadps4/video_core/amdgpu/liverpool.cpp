@@ -9,6 +9,7 @@
 #endif
 #include <time.h>
 #include "spartanport_copy.h"
+#include "spartanport_overlay.h"
 #include "spartanport_toggles.h"
 #include <cstdio>
 #include <boost/preprocessor/stringize.hpp>
@@ -153,6 +154,11 @@ void Liverpool::Process(std::stop_token stoken) {
             }
             task.resume();
 
+            if (!task.done() && SpartanOverlay::GamePaused()) {
+                // spartanport: while the menu pauses the game, a submission waiting on a label the
+                // stopped game would write spun this thread at 100% of a core (#1168).
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
             if (task.done()) {
                 task.destroy();
 
