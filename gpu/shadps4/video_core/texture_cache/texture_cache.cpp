@@ -1786,64 +1786,28 @@ void TextureCache::GarbageCollectImages() {
         if (num_deletions == 0) {
             return true;
         }
-        --num_deletions;
         auto& image = slot_images[image_id];
         ResolveReadbacks(image.info.guest_address, image.info.guest_size, true,
                          ReadbackSource::CacheCleanup);
         const bool download = image.SafeToDownload();
-        const bool tiled = image.info.IsTiled();
         // fp32-gcn1: GPU-written and only maybe CPU-dirty (a write touched its page, maybe not its
         // bytes): guest memory may still be older than the image, and SafeToDownload refuses it,
         // so eviction dropped the GPU's texels and the next use rebuilt the image from old memory.
         // Such images fit in a page; keeping them costs next to nothing (StaleImageFixes).
-        if (!SpartanToggle::Disabled(SpartanToggle::StaleImageFixes) &&
+        const bool maybe_cpu_dirty_gpu_image =
+            !SpartanToggle::Disabled(SpartanToggle::StaleImageFixes) &&
             True(image.flags & ImageFlagBits::GpuModified) &&
-            (image.flags & ImageFlagBits::Dirty) == ImageFlagBits::MaybeCpuDirty) {
+            (image.flags & ImageFlagBits::Dirty) == ImageFlagBits::MaybeCpuDirty;
+        // Upstream 6f73077a (#1374): GPU-written images stay; they are never written back to
+        // guest memory and evicted. Writing a linear one back before evicting it corrupted
+        // textures under memory pressure (#1059). This replaces fp32-gcn1's write-back GC (sync
+        // write-back below critical, then the 64 MiB recorded-copy path). Kept images move behind
+        // evictable entries and only actual evictions spend the deletion budget.
+        if (download || maybe_cpu_dirty_gpu_image) {
+            lru_cache.Touch(image.lru_id, gc_tick);
             return false;
         }
-        if (tiled && download) {
-            // This is a workaround for now. We can't handle non-linear image downloads.
-            return false;
-        }
-        if (download && !pressured) {
-            return false;
-        }
-        // fp32-gcn1: a write-back here is synchronous - it waits for the GPU to go idle. An R7 350
-        // (2 GB) sat above the pressure mark all session and logged ~290 write-backs per 5 s:
-        // dozens of full GPU stalls a second, plus rebuilds of render targets it uses again soon.
-        // Below the critical mark only images with nothing to write back are evicted, and a kept
-        // one does not use up this run's deletions. "Keep recently used textures" (gc_by_time).
-        if (download && !aggresive && small_vram && SpartanSettings::Get().gc_by_time.load()) {
-            ++num_deletions;
-            return false;
-        }
-        // fp32-gcn1: on GPUs under 4 GB the write-back copy is recorded and the image stays
-        // registered (its pages stay protected) until the copy is done; FinishPendingEvictions
-        // then writes it back and frees it, or keeps it if the game used or wrote it meanwhile.
-        // No GPU wait. Up to 64 MiB in flight, beyond that the synchronous path below.
-        if (download && small_vram && SpartanSettings::Get().gc_by_time.load()) {
-            for (const auto& pending : pending_evictions) {
-                if (pending.image_id == image_id) {
-                    ++num_deletions;
-                    return false;
-                }
-            }
-            if (pending_eviction_bytes + image.info.guest_size <= 64_MB) {
-                if (auto copy = RecordImageDownload(image_id)) {
-                    pending_eviction_bytes += copy->size;
-                    pending_evictions.push_back({image_id, image.image_uid, scheduler.CurrentTick(),
-                                                 gc_tick, *copy});
-                    return false;
-                }
-            }
-        }
-        if (download) {
-            // spartanport: synchronously, while the image still protects its pages. A deferred
-            // write-back landed after FreeImage had unprotected them, over whatever the game
-            // had meanwhile stored there (e.g. its heap after unloading an area).
-            DownloadImageMemory(image_id, true);
-            ++gc_downloads;
-        }
+        --num_deletions;
         ++gc_evictions;
         FreeImage(image_id);
         if (total_used_memory < critical_gc_memory) {
