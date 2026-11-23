@@ -221,6 +221,105 @@ static size_t emit_stub(unsigned char *code, const unsigned char *at, const IsaS
     return (size_t)(p - code);
 }
 
+/* ---- fast stubs: register-only BEXTR / BLSR (fp32-gcn1, isa_rewrite.h) ---- */
+
+static int isa_fast = 1;
+
+void isa_rewrite_set_fast(int on) { isa_fast = on; }
+
+static int fast_reg_ok(uint8_t reg) { return reg <= 15 && reg != 4; }
+
+int isa_site_fast_eligible(const IsaSite *s) {
+    if (s->kind != ISA_BEXTR && s->kind != ISA_BLSR) return 0;
+    if (s->width != 32 && s->width != 64) return 0;
+    if (s->mem_slot != ISA_MEM_NONE || !fast_reg_ok(s->dst) || !fast_reg_ok(s->src1)) return 0;
+    return s->kind != ISA_BEXTR || fast_reg_ok(s->src2);
+}
+
+/* After lea rsp,[rsp-0x100] ; push rax ; push rcx ; push rdx: where each scratch register is saved. */
+static int scratch_slot(int reg) { return reg == 0 ? 16 : reg == 1 ? 8 : reg == 2 ? 0 : -1; }
+
+/* target (rax/rcx/rdx) = the guest's `reg` as it was at the site: a scratch one from its saved slot. */
+static void emit_get(unsigned char **p, int target, int reg) {
+    const int slot = scratch_slot(reg);
+    if (slot >= 0) {
+        emit_mov_load(p, target, (uint8_t)slot);
+        return;
+    }
+    emit_u8(p, (uint8_t)(0x48 | (reg >= 8 ? 4 : 0)));               /* mov target, reg (89 /r) */
+    emit_u8(p, 0x89);
+    emit_u8(p, (uint8_t)(0xc0 | (reg & 7) << 3 | target));
+}
+
+/* Like emit_stub for an isa_site_fast_eligible site: about 25 instructions, no call, no full save.
+ * The red zone is stepped over as in emit_stub; the hit counter is bumped before the flags are made. */
+static size_t emit_fast_stub(unsigned char *code, const unsigned char *at, const IsaSite *s, uint64_t *hit,
+                             unsigned char *image) {
+    static const uint8_t lea_rsp_down[] = {0x48, 0x8d, 0xa4, 0x24, 0x00, 0xff, 0xff, 0xff};   /* lea rsp,[rsp-0x100] */
+    static const uint8_t lea_rsp_up[] = {0x48, 0x8d, 0xa4, 0x24, 0x00, 0x01, 0x00, 0x00};     /* lea rsp,[rsp+0x100] */
+    unsigned char *p = code;
+    emit_bytes(&p, lea_rsp_down, sizeof lea_rsp_down);
+    emit_bytes(&p, (const uint8_t[]){0x50, 0x51, 0x52}, 3);         /* push rax ; push rcx ; push rdx */
+    emit_bytes(&p, (const uint8_t[]){0x48, 0xb8}, 2);               /* mov rax, &hits[i] */
+    emit_u64(&p, (uint64_t)(uintptr_t)hit);
+    emit_bytes(&p, (const uint8_t[]){0x48, 0xff, 0x00}, 3);         /* inc qword [rax] */
+    if (s->kind == ISA_BEXTR) {
+        emit_get(&p, 2, s->src2);                                   /* rdx = control */
+        emit_get(&p, 0, s->src1);                                   /* rax = source */
+        if (s->width == 32) emit_bytes(&p, (const uint8_t[]){0x89, 0xc0}, 2);   /* mov eax, eax */
+        /* start = dl, length = dh. start >= width or length 0: 0. Else source >> start, then the
+         * low `length` bits unless length >= 64 (bits past width - start are already 0). */
+        const uint8_t bextr[] = {
+            0x0f, 0xb6, 0xca,                     /*  0 movzx ecx, dl            */
+            0x83, 0xf9, (uint8_t)s->width,        /*  3 cmp ecx, width           */
+            0x73, 0x1f,                           /*  6 jae zero (39)            */
+            0x48, 0xd3, 0xe8,                     /*  8 shr rax, cl              */
+            0x0f, 0xb6, 0xce,                     /* 11 movzx ecx, dh            */
+            0x85, 0xc9,                           /* 14 test ecx, ecx            */
+            0x74, 0x15,                           /* 16 jz zero (39)             */
+            0x83, 0xf9, 0x40,                     /* 18 cmp ecx, 64              */
+            0x73, 0x0b,                           /* 21 jae done (34)            */
+            0xf7, 0xd9,                           /* 23 neg ecx                  */
+            0x83, 0xc1, 0x40,                     /* 25 add ecx, 64              */
+            0x48, 0xd3, 0xe0,                     /* 28 shl rax, cl              */
+            0x48, 0xd3, 0xe8,                     /* 31 shr rax, cl              */
+            0x48, 0x85, 0xc0,                     /* 34 done: test rax, rax (ZF; CF = OF = 0) */
+            0xeb, 0x02,                           /* 37 jmp out (41)             */
+            0x31, 0xc0,                           /* 39 zero: xor eax, eax (ZF = 1; CF = OF = 0) */
+        };                                        /* 41 out                      */
+        emit_bytes(&p, bextr, sizeof bextr);
+    } else {
+        emit_get(&p, 1, s->src1);                                   /* rcx = source */
+        if (s->width == 32)
+            emit_bytes(&p, (const uint8_t[]){0x89, 0xc9, 0x8d, 0x41, 0xff, 0x21, 0xc8}, 7);  /* mov ecx, ecx ; lea eax,[rcx-1] ; and eax, ecx */
+        else
+            emit_bytes(&p, (const uint8_t[]){0x48, 0x8d, 0x41, 0xff, 0x48, 0x21, 0xc8}, 7);  /* lea rax,[rcx-1] ; and rax, rcx */
+        /* and: ZF, SF of the result, CF = OF = 0. CF = 1 when the source is 0 (jrcxz keeps flags). */
+        emit_bytes(&p, (const uint8_t[]){0xe3, 0x02, 0xeb, 0x01, 0xf9}, 5);       /* jrcxz +2 ; jmp +1 ; stc */
+    }
+    /* rax holds the result, zero-extended for 32 bits (a 32-bit write zero-extends too). */
+    const int slot = scratch_slot(s->dst);
+    if (slot >= 0) {
+        emit_mov_store(&p, 0, (uint8_t)slot);                       /* the pop below delivers it */
+    } else {
+        emit_u8(&p, (uint8_t)(0x48 | (s->dst >= 8 ? 1 : 0)));       /* mov dst, rax */
+        emit_u8(&p, 0x89);
+        emit_u8(&p, (uint8_t)(0xc0 | (s->dst & 7)));
+    }
+    emit_bytes(&p, (const uint8_t[]){0x5a, 0x59, 0x58}, 3);         /* pop rdx ; pop rcx ; pop rax */
+    emit_bytes(&p, lea_rsp_up, sizeof lea_rsp_up);
+    const unsigned char *back = image + s->offset + s->length;
+    if (s->mode == ISA_MODE_JMP_RELOCATE) {
+        emit_bytes(&p, s->relocated, s->relocated_length);
+        back = image + s->offset + 4 + s->relocated_length;
+    }
+    int32_t rel;
+    if (!rel32_to(at + (p - code) + JMP_BYTES, back, &rel)) return 0;
+    emit_u8(&p, 0xe9);
+    emit_u32(&p, (uint32_t)rel);
+    return (size_t)(p - code);
+}
+
 /* Site bytes of spec 4.3. */
 static void patch_site(unsigned char *site, const IsaSite *s, int32_t rel) {
     if (s->mode == ISA_MODE_INT3) {
@@ -268,7 +367,10 @@ IsaReport isa_rewrite_apply(IsaTable *t, unsigned char *image, unsigned char *st
         unsigned char code[2 * ISA_STUB_BYTES];
         int32_t rel;
         size_t size;
-        if (!rel32_to(site + JMP_BYTES, stub, &rel) || (size = emit_stub(code, stub, s, &t->hits[i], image)) == 0) {
+        const int fast = isa_fast && isa_site_fast_eligible(s);
+        if (!rel32_to(site + JMP_BYTES, stub, &rel) ||
+            (size = fast ? emit_fast_stub(code, stub, s, &t->hits[i], image)
+                         : emit_stub(code, stub, s, &t->hits[i], image)) == 0) {
             fprintf(stderr, "ISA: site 0x%llx out of rel32 range\n", (unsigned long long)s->offset);
             report.skipped++;
             continue;
@@ -283,6 +385,7 @@ IsaReport isa_rewrite_apply(IsaTable *t, unsigned char *image, unsigned char *st
         patch_site(site, s, rel);
         if (s->mode == ISA_MODE_JMP) report.jmp++;
         else report.relocated++;
+        if (fast) report.fast++;
         report.rewritten++;
     }
     return report;

@@ -1236,7 +1236,11 @@ int main(int argc, char **argv) {
             printf("ISA: %zu code/data pointers checked against relocated sites, %u sites moved to int3\n", nt, demoted);
             free(targets);
         }
+        const char *fast_env = getenv("SPARTAN_ISA_FAST");
+        if (fast_env && !strcmp(fast_env, "0")) isa_rewrite_set_fast(0);
         IsaReport r = isa_rewrite_apply(isa_table, image, stubs, isa_sets);
+        if (fast_env && !strcmp(fast_env, "0")) printf("ISA: SPARTAN_ISA_FAST=0: every site uses the full stub\n");
+        else printf("ISA: %u bextr/blsr sites use the short stub (SPARTAN_ISA_FAST=0 turns it off)\n", r.fast);
         if (r.unsupported_needed) {
             printf("STOP: this CPU lacks %s and %u sites use encodings the rewrite cannot emulate\n", missing, r.unsupported_needed);
             fflush(NULL);

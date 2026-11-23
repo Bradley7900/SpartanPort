@@ -30,6 +30,16 @@ jobs:
           submodules: recursive
       - name: Dependencies
         run: bash packaging/linux/ci-deps.sh
+      - name: ISA stub tests (fast bextr/blsr stubs against the CPU)
+        run: |
+          grep -m1 -o -w bmi1 /proc/cpuinfo || echo "no bmi1 on this runner"
+          mkdir -p out
+          cc -std=c11 -O2 -g -Wall -Wextra -Werror -mgeneral-regs-only -c src/isa_emulate.c -o out/isa_emulate.o
+          cc -std=c11 -O2 -g -Wall -Wextra -Werror -c src/isa_rewrite.c -I. -Isrc -o out/isa_rewrite.o
+          cc -std=c11 -O2 -g -Wall -Wextra -Werror -mbmi -mlzcnt -I. -Isrc tests/test_isa_stub.c out/isa_rewrite.o out/isa_emulate.o -o out/isa-stub-test
+          out/isa-stub-test tests/data/isa_fixture.bin
+          cc -std=c11 -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_isa_fast.c out/isa_rewrite.o out/isa_emulate.o -o out/isa-fast-test
+          out/isa-fast-test
       - name: Build
         run: bash build.sh
       - name: AppImage

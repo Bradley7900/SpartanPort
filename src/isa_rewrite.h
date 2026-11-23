@@ -17,7 +17,7 @@ typedef struct {
     unsigned char *image, *stubs;        /* set by isa_rewrite_apply */
 } IsaTable;
 /* rewritten = jmp + relocated + int3; skipped and unsupported_needed are outside it. */
-typedef struct { uint32_t rewritten, jmp, relocated, int3, skipped, unsupported_needed; } IsaReport;
+typedef struct { uint32_t rewritten, jmp, relocated, int3, skipped, unsupported_needed, fast; } IsaReport;
 enum { ISA_STUB_BYTES = 256 };
 
 /* Parses a G3ISA1 file (spec 4.4). NULL and one stderr line ("ISA: <reason>") when invalid. */
@@ -31,6 +31,15 @@ unsigned isa_site_set(const IsaSite *s);                 /* CPU_SET_* of the kin
  * A JMP_RELOCATE site whose next instruction no longer matches becomes INT3 (its mode in t changes);
  * each skipped or downgraded site gets one stderr line. */
 IsaReport isa_rewrite_apply(IsaTable *t, unsigned char *image, unsigned char *stubs, unsigned sets);
+
+/* fp32-gcn1: register-only BEXTR and BLSR sites (32/64-bit, no rsp operand) get a short inline stub
+ * (3 scratch registers, the result computed in place) instead of the full save + isa_emulate call.
+ * Same results, same defined flags (BEXTR: ZF, CF=0, OF=0; BLSR: ZF, SF, CF, OF=0), and each run
+ * still counts in hits. Undefined flags (AF, PF, and SF for BEXTR) are not preserved. Default on;
+ * SPARTAN_ISA_FAST=0 calls this with 0 before apply. report.fast counts such sites. */
+void isa_rewrite_set_fast(int on);
+/* 1 when `s` takes the fast stub (whatever the switch says). */
+int isa_site_fast_eligible(const IsaSite *s);
 
 /* Before apply: JMP_RELOCATE sites with a code pointer (image offset) in their relocated bytes
  * become INT3, one stderr line each. Returns the count. */
