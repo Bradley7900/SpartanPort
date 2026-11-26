@@ -47,7 +47,7 @@ def default_render_resolution(dmi=Path('/sys/devices/virtual/dmi/id')):
     return STEAM_DECK_RESOLUTION if steam_deck(dmi) else 'native'
 
 
-DEFAULTS = {'render_resolution': default_render_resolution(), 'engine_fps': '120', 'deferred_readback': '1',
+DEFAULTS = {'render_resolution': default_render_resolution(), 'engine_fps': '60', 'deferred_readback': '1',
             'stale_readback': '1', 'async_shaders': '1', 'monitor': '', 'hdr': '0',
             'glyph_style': 'off', 'anisotropy': '0'}
 RESOLUTION_PREFIX = 'Resolution Patch'
@@ -161,7 +161,7 @@ def startup_options(ini, extra=()):
     if options['render_resolution'] not in resolutions(extra):
         options['render_resolution'] = 'native'
     if options['engine_fps'] not in {str(f) for f in ENGINE_FPS}:
-        options['engine_fps'] = '120'
+        options['engine_fps'] = '60'
     for key in ('deferred_readback', 'stale_readback', 'async_shaders'):
         options[key] = '0' if options[key] == '0' else '1'
     monitor = options['monitor']

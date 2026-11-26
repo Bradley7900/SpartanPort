@@ -715,6 +715,12 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // (the game finishes them early) for 3 s. Only for limits of 50+; SPARTAN_ADAPTIVE_HALF=0 turns it off.
     bool half_rate = false;
     double ema_interval_ms = 0.0, ema_wait_ms = 0.0, over_ms = 0.0, room_ms = 0.0;
+    // fp32-gcn1 (Aloa log 26-11): the "room" test reads queue wait, and at half rate the frame pool
+    // backs up so frames wait ~33 ms whether or not 60 would fit. On his PC that flipped 60 <-> 30
+    // 111 times in 14 minutes (every ~7 s), each flip a pacing jolt felt as input delay. Now a try
+    // at the full rate that drops again within 10 s doubles how long half rate holds before the
+    // next try (15 s, 30 s, ... up to 5 min); a full-rate stretch that lasts resets it.
+    double hold_ms = 15000.0, held_ms = 0.0, full_ms_run = 0.0;
     std::chrono::steady_clock::time_point last_present{};
     // fp32-gcn1: even pacing (see the vblank pacing comment below): refreshes per frame, 0 = off.
     u32 even = 0;
@@ -740,24 +746,34 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
             if (step < 250.0) { // a load screen or pause is not a slow frame
                 ema_interval_ms = ema_interval_ms * 0.9 + step * 0.1;
                 if (!half_rate) {
+                    full_ms_run += step;
+                    if (full_ms_run >= 60000.0) {
+                        hold_ms = 15000.0; // the full rate held a minute: back to short holds
+                    }
                     over_ms = ema_interval_ms > full_ms * 1.25 ? over_ms + step : 0.0;
                     if (over_ms >= 1500.0) {
+                        if (full_ms_run < 10000.0) {
+                            hold_ms = std::min(hold_ms * 2.0, 300000.0);
+                        }
+                        held_ms = 0.0;
                         half_rate = true;
                         over_ms = room_ms = 0.0;
                         apply_period();
-                        std::printf("VideoOut: adaptive limiter: %u -> %u FPS (avg frame %.1f ms)\n",
-                                    frame_limit, frame_limit / 2, ema_interval_ms);
+                        std::printf("VideoOut: adaptive limiter: %u -> %u FPS (avg frame %.1f ms), next try in %.0f s\n",
+                                    frame_limit, frame_limit / 2, ema_interval_ms, hold_ms / 1000.0);
                     }
                 } else {
                     // A frame that waited this long was ready a full-rate period early or more.
+                    held_ms += step;
                     room_ms = ema_wait_ms > full_ms * 1.1 ? room_ms + step : 0.0;
-                    if (room_ms >= 3000.0) {
+                    if (room_ms >= 3000.0 && held_ms >= hold_ms) {
+                        full_ms_run = 0.0;
                         half_rate = false;
                         over_ms = room_ms = 0.0;
                         ema_interval_ms = full_ms;
                         apply_period();
-                        std::printf("VideoOut: adaptive limiter: back to %u FPS (frames waited %.1f ms)\n",
-                                    frame_limit, ema_wait_ms);
+                        std::printf("VideoOut: adaptive limiter: back to %u FPS (frames waited %.1f ms, held half rate %.0f s)\n",
+                                    frame_limit, ema_wait_ms, held_ms / 1000.0);
                     }
                 }
             }

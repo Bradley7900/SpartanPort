@@ -68,7 +68,7 @@ class GraphicsOptionsTest(unittest.TestCase):
             options,
             {
                 'render_resolution': 'native',
-                'engine_fps': '120',
+                'engine_fps': '60',
                 'deferred_readback': '1',
                 'stale_readback': '1',
                 'async_shaders': '1',
@@ -267,7 +267,7 @@ class GraphicsOptionsTest(unittest.TestCase):
         # 100 is written live over the 240 FPS patch (spartanport_settings.cpp SyncEngineFps).
         self.assertEqual(g.patch_names(['Bug Fix - Texture Corruption Fix'], options),
                          ['Bug Fix - Texture Corruption Fix', 'Frame Rate Patch - 240 FPS'])
-        self.assertEqual(g.startup_options({'engine_fps': '90'})['engine_fps'], '120')  # not a choice: the default
+        self.assertEqual(g.startup_options({'engine_fps': '90'})['engine_fps'], '60')  # not a choice: the default
 
     def test_engine_rate_180_for_high_refresh_displays(self):
         self.assertEqual(g.ENGINE_FPS, (60, 100, 120, 144, 180, 240))
