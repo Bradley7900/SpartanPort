@@ -491,8 +491,6 @@ void PerformanceTab() {
         static const char* const queued_labels[] = {"1 (lowest latency)", "2", "Unlimited"};
         ChoiceRow("Frames queued", s.frames_queued, queued_labels, G::FramesQueued.data(),
                   int(G::FramesQueued.size()), "More frames queued: steadier FPS, slower response to input.");
-        CheckRow("Auto 30/60 when FPS drops", s.adaptive_half,
-                 "With a 50+ FPS limit: shows a steady half rate while the GPU cannot hold it, instead of uneven frames.");
         CheckRow("Cutscenes at 60 under a 30 FPS cap", s.cutscene_60,
                  "A cap under 50 FPS rises to 60 while a video cutscene plays.");
         CheckRow("Keep recently used textures", s.gc_by_time,

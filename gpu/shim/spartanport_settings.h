@@ -82,7 +82,7 @@ struct Values {
     std::atomic<int> image_width{0}, image_height{0}, window_width{0}, window_height{0};
     std::atomic<int> frames_queued{1};
     /// fp32-gcn1: present at half a 50+ FPS limit while frames cannot hold it (videoout driver). Live.
-    std::atomic<bool> adaptive_half{true};
+    std::atomic<bool> adaptive_half{false}; // fp32-gcn1: unused since 26-11 (driver.cpp reads SPARTAN_ADAPTIVE_HALF only)
     /// fp32-gcn1: a cap under 50 FPS rises to 60 while a video cutscene plays. Live.
     std::atomic<bool> cutscene_60{true};
     /// fp32-gcn1: under a cap below 50 FPS (not with tearing presents), time frames from when the last one reached

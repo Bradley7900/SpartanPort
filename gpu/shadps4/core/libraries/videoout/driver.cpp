@@ -735,7 +735,13 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
         }
     };
     const auto note_present = [&](const Request& req, std::chrono::steady_clock::time_point now) {
-        if (!SpartanSettings::Get().adaptive_half.load() || frame_limit < 50) {
+        // fp32-gcn1: removed at Aloa's ask 26-11 - a saved adaptive_half=1 is ignored, only
+        // SPARTAN_ADAPTIVE_HALF=1 in the environment still turns it on.
+        static const bool forced = [] {
+            const char* v = std::getenv("SPARTAN_ADAPTIVE_HALF");
+            return v && v[0] == '1';
+        }();
+        if (!forced || frame_limit < 50) {
             return;
         }
         const double full_ms = 1000.0 / frame_limit;
